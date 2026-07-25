@@ -46,7 +46,10 @@ import {
   SystemReviewOrchestrationDelay,
   type CodexReviewAssignment,
 } from './codex-review-invocation-adapter';
-import { ContextGatewayInvocationSessionFactory } from './context-gateway-invocation-session';
+import {
+  ContextGatewayInvocationSessionFactory,
+  SubprocessRequiredContextWitnessRunner,
+} from './context-gateway-invocation-session';
 import { ContextAttestationReplayRunner } from './context-attestation-replay-runner';
 import { ProviderInvocationFailureClassifier } from './provider-invocation-failure-classifier';
 import {
@@ -132,10 +135,14 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     );
     const gatewayBundlePath = resolveContextGatewayBundlePath();
     const contextGateway = agenticContext
-      ? new ContextGatewayInvocationSessionFactory(controlPlane, {
-          checkoutRoot: path.resolve(input.workspacePath),
-          gatewayBundlePath,
-        })
+      ? new ContextGatewayInvocationSessionFactory(
+          controlPlane,
+          {
+            checkoutRoot: path.resolve(input.workspacePath),
+            gatewayBundlePath,
+          },
+          new SubprocessRequiredContextWitnessRunner()
+        )
       : undefined;
     const planned = planAssignments({
       authorization,

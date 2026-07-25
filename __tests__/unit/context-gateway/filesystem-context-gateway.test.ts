@@ -124,6 +124,53 @@ describe('FilesystemContextGateway', () => {
     );
   });
 
+  it('resumes an authenticated transcript without resetting its chain', async () => {
+    const fixture = await gatewayFixture(root, 'resume');
+    await fixture.gateway.gitFact({ fact: 'changed_paths' });
+    const resumedRecorder = new ContextGatewayRecorder(fixture.recorderConfig);
+
+    await resumedRecorder.resume();
+    const resumedGateway = await FilesystemContextGateway.create({
+      root,
+      checkoutTreeOid: fixture.recorderConfig.checkoutTreeOid,
+      baseSha: fixture.baseSha,
+      headSha: fixture.headSha,
+      recorder: resumedRecorder,
+    });
+    await resumedGateway.readFile({ path: 'a.ts' });
+
+    const transcript = await readJson<ContextGatewayTranscript>(
+      fixture.transcriptPath
+    );
+    expect(transcript.dependencies).toHaveLength(2);
+    expect(transcript.dependencies.map((entry) => entry.sequence)).toEqual([
+      1, 2,
+    ]);
+    expect(transcript.dependencies[1]?.previousEventHash).toBe(
+      transcript.dependencies[0]?.eventHash
+    );
+  });
+
+  it('rejects a tampered transcript instead of continuing its chain', async () => {
+    const fixture = await gatewayFixture(root, 'tampered-resume');
+    await fixture.gateway.gitFact({ fact: 'changed_paths' });
+    const transcript = await readJson<ContextGatewayTranscript>(
+      fixture.transcriptPath
+    );
+    await writeFile(
+      fixture.transcriptPath,
+      canonicalJson({
+        ...transcript,
+        authenticatedChainHash: 'f'.repeat(64),
+      })
+    );
+    const resumedRecorder = new ContextGatewayRecorder(fixture.recorderConfig);
+
+    await expect(resumedRecorder.resume()).rejects.toThrow(
+      'context_gateway_recorder_transcript_state_invalid'
+    );
+  });
+
   it('records bounded file, list and search dependencies without raw queries', async () => {
     const fixture = await gatewayFixture(root);
 
@@ -280,7 +327,7 @@ async function gatewayFixture(
     '.test-output',
     `${suffix}.replay.json`
   );
-  const recorder = new ContextGatewayRecorder({
+  const recorderConfig = {
     sessionId: `session-${suffix}`,
     transcriptPath,
     replayMaterialPath,
@@ -288,7 +335,8 @@ async function gatewayFixture(
     gatewayBinaryHash: 'a'.repeat(64),
     checkoutTreeOid,
     eventChainSeedHash: 'b'.repeat(64),
-  });
+  } as const;
+  const recorder = new ContextGatewayRecorder(recorderConfig);
   await recorder.initialize();
   return {
     baseSha: baseSha ?? headSha,
@@ -300,6 +348,7 @@ async function gatewayFixture(
       recorder,
     }),
     recorder,
+    recorderConfig,
     transcriptPath,
     replayMaterialPath,
     headSha,
