@@ -17,6 +17,11 @@ import {
   formatSuggestionBlock,
 } from '../utils/suggestion-formatter';
 
+export interface ProviderExecutionSummary {
+  readonly planned: number;
+  readonly succeeded: number;
+}
+
 export class SynthesisEngine {
   constructor(private readonly config: ReviewConfig) {}
 
@@ -31,37 +36,75 @@ export class SynthesisEngine {
     mermaidDiagram?: string
   ): Review {
     const metrics = this.buildMetrics(findings, providerResults, runDetails);
-    const summary = this.buildSummary(
+    return this.buildReview({
+      findings,
       pr,
-      findings,
       metrics,
       testHints,
       aiAnalysis,
-      providerResults,
-      impactAnalysis
-    );
-    const inlineComments = this.buildInlineComments(findings);
-    const actionItems = this.buildActionItems(findings);
-
-    return {
-      summary,
-      findings,
-      inlineComments,
-      actionItems,
-      testHints,
-      aiAnalysis,
-      metrics,
       providerResults,
       runDetails,
       impactAnalysis,
       mermaidDiagram,
+    });
+  }
+
+  synthesizeWithProviderExecutionSummary(
+    findings: Finding[],
+    pr: PRContext,
+    providerExecution: ProviderExecutionSummary
+  ): Review {
+    const metrics = this.buildMetrics(
+      findings,
+      undefined,
+      undefined,
+      providerExecution
+    );
+    return this.buildReview({ findings, pr, metrics });
+  }
+
+  private buildReview(input: {
+    findings: Finding[];
+    pr: PRContext;
+    metrics: ReviewMetrics;
+    testHints?: TestCoverageHint[];
+    aiAnalysis?: AIAnalysis;
+    providerResults?: ProviderResult[];
+    runDetails?: RunDetails;
+    impactAnalysis?: ImpactAnalysis;
+    mermaidDiagram?: string;
+  }): Review {
+    const summary = this.buildSummary(
+      input.pr,
+      input.findings,
+      input.metrics,
+      input.testHints,
+      input.aiAnalysis,
+      input.impactAnalysis
+    );
+    const inlineComments = this.buildInlineComments(input.findings);
+    const actionItems = this.buildActionItems(input.findings);
+
+    return {
+      summary,
+      findings: input.findings,
+      inlineComments,
+      actionItems,
+      testHints: input.testHints,
+      aiAnalysis: input.aiAnalysis,
+      metrics: input.metrics,
+      providerResults: input.providerResults,
+      runDetails: input.runDetails,
+      impactAnalysis: input.impactAnalysis,
+      mermaidDiagram: input.mermaidDiagram,
     };
   }
 
   private buildMetrics(
     findings: Finding[],
     providerResults?: ProviderResult[],
-    runDetails?: RunDetails
+    runDetails?: RunDetails,
+    providerExecution?: ProviderExecutionSummary
   ): ReviewMetrics {
     const critical = findings.filter((f) => f.severity === 'critical').length;
     const major = findings.filter((f) => f.severity === 'major').length;
@@ -75,7 +118,11 @@ export class SynthesisEngine {
     let totalCost = 0;
     let durationSeconds = 0;
 
-    if (runDetails) {
+    if (providerExecution) {
+      providersUsed = providerExecution.planned;
+      providersSuccess = providerExecution.succeeded;
+      providersFailed = providerExecution.planned - providerExecution.succeeded;
+    } else if (runDetails) {
       // Prefer runDetails if available as it has aggregated values
       providersUsed = runDetails.providers.length;
       providersSuccess = runDetails.providers.filter(
@@ -132,12 +179,10 @@ export class SynthesisEngine {
     metrics: ReviewMetrics,
     testHints?: TestCoverageHint[],
     aiAnalysis?: AIAnalysis,
-    providerResults?: ProviderResult[],
     impactAnalysis?: ImpactAnalysis
   ): string {
-    const totalProviders = providerResults?.length ?? 0;
-    const successes =
-      providerResults?.filter((p) => p.status === 'success').length ?? 0;
+    const totalProviders = metrics.providersUsed;
+    const successes = metrics.providersSuccess;
     const failures = totalProviders - successes;
 
     const impactText = impactAnalysis

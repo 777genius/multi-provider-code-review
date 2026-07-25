@@ -190,6 +190,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
         assignments: planned.assignments.map((assignment) => ({
           workSlotId: assignment.workSlot.workSlotId,
           taskKind: assignment.workSlot.taskKind,
+          providerKind: assignment.workSlot.providerKind,
           required: assignment.workSlot.required,
           filePaths: assignment.context.files.map((file) => file.filename),
         })),

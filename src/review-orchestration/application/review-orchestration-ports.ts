@@ -248,6 +248,12 @@ export type AcceptedReviewObservation = ReviewObservationPayload & {
   readonly providerVoteIdentityHash: string;
 };
 
+export type AcceptedReviewWorkSlotEvidence = Readonly<{
+  workSlotId: string;
+  observation: AcceptedReviewObservation;
+  coverageManifest: import('../domain').ReviewPromptCoverageManifest;
+}>;
+
 export type ReviewExecutionAdmission = {
   readonly executionId: string;
   readonly generation: string;
@@ -490,10 +496,9 @@ export interface ReviewInvocationLeaseSupervisorPort {
 
 export interface CurrentReviewProjectionBuilderPort {
   build(input: {
-    readonly observations: readonly AcceptedReviewObservation[];
+    readonly acceptedEvidence: readonly AcceptedReviewWorkSlotEvidence[];
     readonly exhaustedWorkSlotIds: readonly string[];
     readonly reviewRevisionHash: string;
-    readonly coverageManifests: readonly import('../domain').ReviewPromptCoverageManifest[];
   }): Promise<CurrentReviewProjection>;
 }
 

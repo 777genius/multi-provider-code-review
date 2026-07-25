@@ -47,6 +47,7 @@ import {
   CurrentFindingPolicyPort,
   CurrentLifecycleInventoryPort,
   MergeGateDecision,
+  ProviderExecutionSummaryFact,
   ReviewLifecyclePolicyPort,
   ReviewMergeGatePolicyPort,
   ReviewPresentationPolicyPort,
@@ -56,6 +57,7 @@ export interface BuildCurrentReviewProjectionCommand {
   readonly projectionPolicyVersion: string;
   readonly scope: ReviewProjectionScope;
   readonly presentation: ReviewProjectionPresentationContext;
+  readonly providerExecution: ProviderExecutionSummaryFact;
   readonly currentFindings: readonly CurrentFindingCandidate[];
   readonly priorLineageHints: readonly PriorLineageHint[];
   readonly lifecycleRevalidations: readonly LifecycleRevalidation[];
@@ -150,6 +152,7 @@ export class BuildCurrentReviewProjection {
       await this.dependencies.presentationPolicy.projectPresentation({
         scope: command.scope,
         presentation: command.presentation,
+        providerExecution: command.providerExecution,
         coverage,
         occurrences,
         revisionFiles: command.revisionFiles,
@@ -175,7 +178,11 @@ export class BuildCurrentReviewProjection {
       ? []
       : buildInlineChunks(occurrences, this.limits);
     const summaryBody = coverageOnly
-      ? 'Review coverage is partial. Findings and lifecycle decisions were not published.'
+      ? [
+          'Review coverage is partial. Findings and lifecycle decisions were not published.',
+          '',
+          removeAllClearClaims(presentation.summaryBody),
+        ].join('\n')
       : allClear
         ? presentation.summaryBody
         : removeAllClearClaims(presentation.summaryBody);
@@ -249,6 +256,7 @@ export class BuildCurrentReviewProjection {
 
   private validateCommand(command: BuildCurrentReviewProjectionCommand): void {
     assertNonEmpty('projectionPolicyVersion', command.projectionPolicyVersion);
+    validateProviderExecutionSummary(command.providerExecution);
     assertNonEmpty(
       'scmRepositoryIdentityId',
       command.scope.scmRepositoryIdentityId
@@ -394,6 +402,26 @@ export class BuildCurrentReviewProjection {
         );
       }
     }
+  }
+}
+
+function validateProviderExecutionSummary(
+  summary: ProviderExecutionSummaryFact
+): void {
+  if (
+    !Number.isSafeInteger(summary.plannedProviders) ||
+    summary.plannedProviders < 0
+  ) {
+    throw new Error('plannedProviders must be a non-negative safe integer');
+  }
+  if (
+    !Number.isSafeInteger(summary.succeededProviders) ||
+    summary.succeededProviders < 0 ||
+    summary.succeededProviders > summary.plannedProviders
+  ) {
+    throw new Error(
+      'succeededProviders must be between zero and plannedProviders'
+    );
   }
 }
 

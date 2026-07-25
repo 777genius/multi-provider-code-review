@@ -57,10 +57,16 @@ export interface ReviewLifecyclePolicyPort {
 export interface ProjectReviewPresentationQuery {
   readonly scope: ReviewProjectionScope;
   readonly presentation: ReviewProjectionPresentationContext;
+  readonly providerExecution: ProviderExecutionSummaryFact;
   readonly coverage: ReviewCoverageFact;
   readonly occurrences: readonly FindingOccurrence[];
   readonly revisionFiles: readonly RevisionFile[];
   readonly limits: ReviewProjectionLimits;
+}
+
+export interface ProviderExecutionSummaryFact {
+  readonly plannedProviders: number;
+  readonly succeededProviders: number;
 }
 
 export interface ProjectedReviewPresentation {

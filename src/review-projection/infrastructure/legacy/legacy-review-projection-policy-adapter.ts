@@ -222,9 +222,13 @@ export class LegacyReviewProjectionPolicyAdapter
     );
     const currentOccurrences = activeOccurrences.filter(isCurrentOccurrence);
     const pr = toLegacyPrContext(query);
-    const review = this.synthesis.synthesize(
+    const review = this.synthesis.synthesizeWithProviderExecutionSummary(
       currentOccurrences.map(toLegacyFinding),
-      pr
+      pr,
+      {
+        planned: query.providerExecution.plannedProviders,
+        succeeded: query.providerExecution.succeededProviders,
+      }
     );
     const placements = query.occurrences.map((occurrence) =>
       this.placeOccurrence(occurrence, review, query.revisionFiles)

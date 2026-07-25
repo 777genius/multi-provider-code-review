@@ -11,6 +11,151 @@ import { createProductionReviewProjectionBuilder } from '../../../src/review-orc
 import { CheckConclusion } from '../../../src/review-projection/domain';
 
 describe('production review projection coverage', () => {
+  it('reports one successful required provider slot as 1/1', async () => {
+    const builder = projectionBuilder([assignment('required-slot', true)]);
+    const manifest = fullCoverageManifest('required-slot');
+
+    const projection = await builder.build({
+      acceptedEvidence: [acceptedEvidence('required-slot', manifest)],
+      exhaustedWorkSlotIds: [],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+    const summary = JSON.parse(projection.projectionEnvelopeCanonicalJson)
+      .publishing.summary.body;
+
+    expect(summary).toContain('Providers: 1/1 succeeded');
+    expect(summary).not.toContain('1 failed');
+  });
+
+  it('reports an exhausted required provider slot as 0/1', async () => {
+    const builder = projectionBuilder([assignment('required-slot', true)]);
+
+    const projection = await builder.build({
+      acceptedEvidence: [],
+      exhaustedWorkSlotIds: ['required-slot'],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+    const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
+
+    expect(envelope.coverage.state).toBe('partial');
+    expect(envelope.publishing.summary.body).toContain(
+      'Providers: 0/1 succeeded, 1 failed'
+    );
+  });
+
+  it('counts one provider across batches and fails it when one required batch is exhausted', async () => {
+    const builder = projectionBuilder([
+      assignment('required-slot-1', true),
+      assignment('required-slot-2', true),
+    ]);
+
+    const projection = await builder.build({
+      acceptedEvidence: [
+        acceptedEvidence(
+          'required-slot-1',
+          fullCoverageManifest('required-slot-1')
+        ),
+      ],
+      exhaustedWorkSlotIds: ['required-slot-2'],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+    const summary = JSON.parse(projection.projectionEnvelopeCanonicalJson)
+      .publishing.summary.body;
+
+    expect(summary).toContain('Providers: 0/1 succeeded, 1 failed');
+    expect(summary).not.toContain('Providers: 1/2');
+  });
+
+  it('reports 0/0 only when no required provider slots were planned', async () => {
+    const builder = projectionBuilder([]);
+
+    const projection = await builder.build({
+      acceptedEvidence: [],
+      exhaustedWorkSlotIds: [],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+    const summary = JSON.parse(projection.projectionEnvelopeCanonicalJson)
+      .publishing.summary.body;
+
+    expect(summary).toContain('Providers: 0/0 succeeded');
+  });
+
+  it('makes required-slot coverage partial when context inspection is incomplete', async () => {
+    const builder = projectionBuilder([assignment('required-slot', true)]);
+    const manifest = fullCoverageManifest('required-slot');
+
+    const projection = await builder.build({
+      acceptedEvidence: [
+        acceptedEvidence('required-slot', manifest, [
+          'context_inspection_incomplete',
+        ]),
+      ],
+      exhaustedWorkSlotIds: [],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+    const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
+
+    expect(envelope.coverage).toMatchObject({
+      state: 'partial',
+      limitations: ['work_slot_context_inspection_incomplete:required-slot'],
+    });
+    expect(envelope.publishing.summary.allClear).toBe(false);
+    expect(envelope.publishing.check.conclusion).toBe(CheckConclusion.Neutral);
+  });
+
+  it('keeps current-head coverage complete for non-blocking quality flags', async () => {
+    const builder = projectionBuilder([assignment('required-slot', true)]);
+    const manifest = fullCoverageManifest('required-slot');
+
+    const projection = await builder.build({
+      acceptedEvidence: [
+        acceptedEvidence('required-slot', manifest, [
+          'provider_warning',
+          'cross_revision_reuse_disabled',
+        ]),
+      ],
+      exhaustedWorkSlotIds: [],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+
+    expect(projection.coverageComplete).toBe(true);
+    expect(
+      JSON.parse(projection.projectionEnvelopeCanonicalJson).coverage
+    ).toMatchObject({ state: 'complete', limitations: [] });
+  });
+
+  it('does not downgrade required coverage for incomplete optional evidence', async () => {
+    const builder = projectionBuilder([
+      assignment('required-slot', true),
+      assignment('optional-slot', false),
+    ]);
+
+    const projection = await builder.build({
+      acceptedEvidence: [
+        acceptedEvidence(
+          'required-slot',
+          fullCoverageManifest('required-slot')
+        ),
+        acceptedEvidence(
+          'optional-slot',
+          fullCoverageManifest('optional-slot'),
+          ['context_inspection_incomplete']
+        ),
+      ],
+      exhaustedWorkSlotIds: [],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+    const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
+
+    expect(envelope.coverage).toMatchObject({
+      state: 'complete',
+      limitations: [],
+    });
+    expect(envelope.publishing.summary.body).toContain(
+      'Providers: 1/1 succeeded'
+    );
+  });
+
   it('publishes only neutral coverage output when an assigned path lacks full patch proof', async () => {
     const builder = createProductionReviewProjectionBuilder({
       authorizationFacts,
@@ -21,6 +166,7 @@ describe('production review projection coverage', () => {
         {
           workSlotId: 'slot-1',
           taskKind: ReviewTaskKind.FindingDiscovery,
+          providerKind: ReviewExecutionProviderKind.Codex,
           required: true,
           filePaths: ['src/a.ts'],
         },
@@ -53,10 +199,9 @@ describe('production review projection coverage', () => {
     });
 
     const projection = await builder.build({
-      observations: [],
+      acceptedEvidence: [acceptedEvidence('slot-1', coverageManifest)],
       exhaustedWorkSlotIds: [],
       reviewRevisionHash: authorizationFacts.reviewRevisionHash,
-      coverageManifests: [coverageManifest],
     });
     const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
 
@@ -82,12 +227,14 @@ describe('production review projection coverage', () => {
         {
           workSlotId: 'required-slot',
           taskKind: ReviewTaskKind.FindingDiscovery,
+          providerKind: ReviewExecutionProviderKind.Codex,
           required: true,
           filePaths: ['src/a.ts'],
         },
         {
           workSlotId: 'optional-slot',
           taskKind: ReviewTaskKind.FindingDiscovery,
+          providerKind: ReviewExecutionProviderKind.Codex,
           required: false,
           filePaths: ['src/a.ts'],
         },
@@ -110,10 +257,9 @@ describe('production review projection coverage', () => {
     });
 
     const projection = await builder.build({
-      observations: [],
+      acceptedEvidence: [acceptedEvidence('required-slot', requiredManifest)],
       exhaustedWorkSlotIds: ['optional-slot'],
       reviewRevisionHash: authorizationFacts.reviewRevisionHash,
-      coverageManifests: [requiredManifest],
     });
 
     expect(projection.coverageComplete).toBe(true);
@@ -132,6 +278,7 @@ describe('production review projection coverage', () => {
         {
           workSlotId: 'optional-slot',
           taskKind: ReviewTaskKind.FindingDiscovery,
+          providerKind: ReviewExecutionProviderKind.Codex,
           required: false,
           filePaths: ['src/a.ts'],
         },
@@ -155,12 +302,14 @@ describe('production review projection coverage', () => {
 
     await expect(
       builder.build({
-        observations: [],
+        acceptedEvidence: [
+          acceptedEvidence('optional-slot', {
+            ...optionalManifest,
+            coverageHash: '0'.repeat(64),
+          }),
+        ],
         exhaustedWorkSlotIds: [],
         reviewRevisionHash: authorizationFacts.reviewRevisionHash,
-        coverageManifests: [
-          { ...optionalManifest, coverageHash: '0'.repeat(64) },
-        ],
       })
     ).rejects.toThrow('review_projection_coverage_manifest_hash_invalid');
   });
@@ -177,6 +326,85 @@ function completeLifecycleInventory() {
       warnings: [],
       targets: [],
     }),
+  };
+}
+
+function projectionBuilder(
+  assignments: Array<{
+    workSlotId: string;
+    taskKind: ReviewTaskKind;
+    providerKind: ReviewExecutionProviderKind;
+    required: boolean;
+    filePaths: string[];
+  }>
+) {
+  return createProductionReviewProjectionBuilder({
+    authorizationFacts,
+    pr,
+    config: DEFAULT_CONFIG,
+    protocolLimits,
+    assignments,
+    uncoveredPaths: [],
+    uncoveredLifecycleTargetIds: [],
+    lifecycleInventory: completeLifecycleInventory(),
+  });
+}
+
+function assignment(workSlotId: string, required: boolean) {
+  return {
+    workSlotId,
+    taskKind: ReviewTaskKind.FindingDiscovery,
+    providerKind: ReviewExecutionProviderKind.Codex,
+    required,
+    filePaths: ['src/a.ts'],
+  };
+}
+
+function fullCoverageManifest(workSlotId: string) {
+  return createReviewPromptCoverageManifest({
+    workSlotId,
+    reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    assignedPaths: ['src/a.ts'],
+    pathCoverage: [
+      {
+        path: 'src/a.ts',
+        kind: ReviewPromptPathCoverageKind.FullPatch,
+        contentHash: '8'.repeat(64),
+      },
+    ],
+  });
+}
+
+function acceptedEvidence(
+  workSlotId: string,
+  coverageManifest: ReturnType<typeof createReviewPromptCoverageManifest>,
+  qualityFlags: string[] = []
+) {
+  const payloadCanonicalJson = JSON.stringify({
+    payloadVersion: 2,
+    normalizedFindings: [],
+    normalizedLifecycleRevalidations: [],
+  });
+  return {
+    workSlotId,
+    coverageManifest,
+    observation: {
+      observationId: `observation-${workSlotId}`,
+      eligibilityPolicyVersion: 'eligibility.v1',
+      providerKind: ReviewExecutionProviderKind.Codex,
+      providerInvocationKey: '7'.repeat(64),
+      providerVoteIdentityHash:
+        authorizationFacts.providerVoteLanes[0].providerVoteIdentityHash,
+      payloadCanonicalJson,
+      payloadHash: '8'.repeat(64),
+      byteCount: Buffer.byteLength(payloadCanonicalJson),
+      findingCount: 0,
+      actualModel: 'gpt-5.6-sol',
+      qualityFlags,
+      transportAttemptCount: 1,
+      schemaValidated: true,
+      fullyConsumed: true,
+    },
   };
 }
 

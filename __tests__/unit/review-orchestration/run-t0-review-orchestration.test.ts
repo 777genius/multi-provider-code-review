@@ -225,8 +225,15 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.controlPlane.attachObservation).not.toHaveBeenCalled();
     expect(fixture.dependencies.projectionBuilder.build).toHaveBeenCalledWith(
       expect.objectContaining({
-        observations: [acceptedObservation],
-        coverageManifests: [expect.objectContaining({ workSlotId: 'slot-1' })],
+        acceptedEvidence: [
+          expect.objectContaining({
+            workSlotId: 'slot-1',
+            observation: acceptedObservation,
+            coverageManifest: expect.objectContaining({
+              workSlotId: 'slot-1',
+            }),
+          }),
+        ],
       })
     );
   });

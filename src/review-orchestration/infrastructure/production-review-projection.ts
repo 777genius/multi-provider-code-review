@@ -20,6 +20,8 @@ import {
 import { LegacyReviewProjectionPolicyAdapter } from '../../review-projection/infrastructure/legacy/legacy-review-projection-policy-adapter';
 import type {
   AcceptedReviewObservation,
+  AcceptedReviewWorkSlotEvidence,
+  ReviewExecutionProviderKind,
   ReviewProtocolLimits,
   ReviewRunAuthorizationFacts,
   ReviewTaskKind,
@@ -28,7 +30,6 @@ import {
   createReviewPromptCoverageManifest,
   isReviewPromptCoverageComplete,
   ReviewPromptPathCoverageKind,
-  type ReviewPromptCoverageManifest,
 } from '../domain';
 import {
   CurrentReviewProjectionBuilderAdapter,
@@ -38,6 +39,7 @@ import {
 export type ProductionWorkAssignmentFacts = {
   readonly workSlotId: string;
   readonly taskKind: ReviewTaskKind;
+  readonly providerKind: ReviewExecutionProviderKind;
   readonly required: boolean;
   readonly filePaths: readonly string[];
 };
@@ -85,14 +87,18 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
   ) {}
 
   async create(input: {
-    readonly observations: readonly AcceptedReviewObservation[];
+    readonly acceptedEvidence: readonly AcceptedReviewWorkSlotEvidence[];
     readonly exhaustedWorkSlotIds: readonly string[];
     readonly reviewRevisionHash: string;
-    readonly coverageManifests: readonly ReviewPromptCoverageManifest[];
   }): Promise<BuildCurrentReviewProjectionCommand> {
+    const evidence = validateAcceptedEvidence({
+      assignments: this.input.assignments,
+      evidence: input.acceptedEvidence,
+      reviewRevisionHash: input.reviewRevisionHash,
+    });
     const findings: CurrentFindingCandidate[] = [];
     const revalidations: LifecycleRevalidation[] = [];
-    for (const observation of input.observations) {
+    for (const { observation } of evidence.values()) {
       const payload = parseObservation(observation.payloadCanonicalJson);
       payload.normalizedFindings.forEach((finding, index) => {
         findings.push(toFinding(observation, finding, index));
@@ -102,11 +108,6 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
       }
     }
 
-    const manifests = validateCoverageManifests({
-      assignments: this.input.assignments,
-      manifests: input.coverageManifests,
-      reviewRevisionHash: input.reviewRevisionHash,
-    });
     const requiredAssignments = this.input.assignments.filter(
       (assignment) => assignment.required
     );
@@ -119,12 +120,22 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
     const reviewedFiles = new Set<string>();
     const coverageLimitations: string[] = [];
     for (const assignment of requiredAssignments) {
-      const manifest = manifests.get(assignment.workSlotId);
-      if (!manifest) {
+      const accepted = evidence.get(assignment.workSlotId);
+      if (!accepted) {
         coverageLimitations.push(
           `coverage_manifest_missing:${assignment.workSlotId}`
         );
         continue;
+      }
+      const manifest = accepted.coverageManifest;
+      if (
+        accepted.observation.qualityFlags.includes(
+          'context_inspection_incomplete'
+        )
+      ) {
+        coverageLimitations.push(
+          `work_slot_context_inspection_incomplete:${assignment.workSlotId}`
+        );
       }
       for (const path of manifest.paths) {
         if (path.kind === ReviewPromptPathCoverageKind.FullPatch) {
@@ -148,7 +159,7 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
       this.input.uncoveredPaths.length === 0 &&
       this.input.uncoveredLifecycleTargetIds.length === 0 &&
       requiredAssignments.every((assignment) =>
-        manifests.has(assignment.workSlotId)
+        evidence.has(assignment.workSlotId)
       ) &&
       coverageLimitations.length === 0;
     const limitations = [
@@ -164,6 +175,10 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
       ),
       ...coverageLimitations,
     ].sort();
+    const providerExecution = providerExecutionSummary(
+      this.input.assignments,
+      evidence
+    );
 
     return Object.freeze({
       projectionPolicyVersion: 'review-projection-policy.v2-t0',
@@ -181,6 +196,7 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
         additions: this.input.pr.additions,
         deletions: this.input.pr.deletions,
       },
+      providerExecution,
       currentFindings: Object.freeze(
         findings.sort((left, right) =>
           compareCodeUnits(left.sourceFindingId, right.sourceFindingId)
@@ -225,18 +241,24 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
   }
 }
 
-function validateCoverageManifests(input: {
+function validateAcceptedEvidence(input: {
   readonly assignments: readonly ProductionWorkAssignmentFacts[];
-  readonly manifests: readonly ReviewPromptCoverageManifest[];
+  readonly evidence: readonly AcceptedReviewWorkSlotEvidence[];
   readonly reviewRevisionHash: string;
-}): ReadonlyMap<string, ReviewPromptCoverageManifest> {
+}): ReadonlyMap<string, AcceptedReviewWorkSlotEvidence> {
   const assignments = new Map(
     input.assignments.map((assignment) => [assignment.workSlotId, assignment])
   );
-  const manifests = new Map<string, ReviewPromptCoverageManifest>();
-  for (const manifest of input.manifests) {
-    const assignment = assignments.get(manifest.workSlotId);
-    if (!assignment || manifests.has(manifest.workSlotId)) {
+  const evidence = new Map<string, AcceptedReviewWorkSlotEvidence>();
+  for (const accepted of input.evidence) {
+    const { coverageManifest: manifest, workSlotId } = accepted;
+    const assignment = assignments.get(workSlotId);
+    if (
+      manifest.workSlotId !== workSlotId ||
+      !assignment ||
+      accepted.observation.providerKind !== assignment.providerKind ||
+      evidence.has(workSlotId)
+    ) {
       throw new Error('review_projection_coverage_manifest_scope_invalid');
     }
     const rebuilt = createReviewPromptCoverageManifest({
@@ -251,9 +273,40 @@ function validateCoverageManifests(input: {
     ) {
       throw new Error('review_projection_coverage_manifest_hash_invalid');
     }
-    manifests.set(manifest.workSlotId, manifest);
+    evidence.set(workSlotId, accepted);
   }
-  return manifests;
+  return evidence;
+}
+
+function providerExecutionSummary(
+  assignments: readonly ProductionWorkAssignmentFacts[],
+  evidence: ReadonlyMap<string, AcceptedReviewWorkSlotEvidence>
+) {
+  const byProvider = new Map<
+    ProductionWorkAssignmentFacts['providerKind'],
+    ProductionWorkAssignmentFacts[]
+  >();
+  for (const assignment of assignments) {
+    const providerAssignments = byProvider.get(assignment.providerKind) ?? [];
+    providerAssignments.push(assignment);
+    byProvider.set(assignment.providerKind, providerAssignments);
+  }
+  const succeededProviders = [...byProvider.values()].filter(
+    (providerAssignments) => {
+      const required = providerAssignments.filter(
+        (assignment) => assignment.required
+      );
+      const completionSet =
+        required.length > 0 ? required : providerAssignments;
+      return completionSet.every((assignment) =>
+        evidence.has(assignment.workSlotId)
+      );
+    }
+  ).length;
+  return Object.freeze({
+    plannedProviders: byProvider.size,
+    succeededProviders,
+  });
 }
 
 type NormalizedObservation = {

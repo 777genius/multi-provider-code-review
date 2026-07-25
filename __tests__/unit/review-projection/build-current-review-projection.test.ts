@@ -546,6 +546,10 @@ function command(
       additions: 100,
       deletions: 10,
     },
+    providerExecution: {
+      plannedProviders: 1,
+      succeededProviders: 1,
+    },
     currentFindings: [],
     priorLineageHints: [],
     lifecycleRevalidations: [],
