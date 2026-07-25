@@ -195,8 +195,13 @@ describe('Codex T0 prepared invocation', () => {
     {
       name: 'the provider does not report the actual model',
       actualModel: undefined,
-      expectedQualityFlags: ['provider_warning'],
-      expectedSealCalls: 0,
+      expectedQualityFlags: [
+        'provider_warning',
+        'context_attestation_unavailable',
+        'cross_revision_reuse_disabled',
+      ],
+      expectedSealCalls: 1,
+      expectedSealedModel: 'gpt-test',
     },
     {
       name: 'the gateway has no reusable dependencies',
@@ -206,10 +211,16 @@ describe('Codex T0 prepared invocation', () => {
         'cross_revision_reuse_disabled',
       ],
       expectedSealCalls: 1,
+      expectedSealedModel: 'gpt-test-actual',
     },
   ])(
     'uses protocol-safe quality flags when $name',
-    async ({ actualModel, expectedQualityFlags, expectedSealCalls }) => {
+    async ({
+      actualModel,
+      expectedQualityFlags,
+      expectedSealCalls,
+      expectedSealedModel,
+    }) => {
       const planningPrepared = preparedInvocation('planning prompt');
       const runtimePrepared = preparedInvocation('runtime prompt');
       const provider = {
@@ -271,6 +282,10 @@ describe('Codex T0 prepared invocation', () => {
       expect(observation.contextDependencyAttestationId).toBeUndefined();
       expect(observation.contextDependencyAttestationHash).toBeUndefined();
       expect(session.seal).toHaveBeenCalledTimes(expectedSealCalls);
+      expect(session.seal).toHaveBeenCalledWith({
+        actualModel: expectedSealedModel,
+        terminalOutcomeHash: observation.payloadHash,
+      });
       expect(session.dispose).toHaveBeenCalledTimes(1);
     }
   );

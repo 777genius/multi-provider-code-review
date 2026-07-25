@@ -324,11 +324,13 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
         result,
         qualityFlags: result.actualModel ? [] : ['provider_warning'],
       });
-      if (!result.actualModel) return initial;
+      const providerQualityFlags = result.actualModel
+        ? []
+        : ['provider_warning'];
 
       try {
         const attestation = await session.seal({
-          actualModel: result.actualModel,
+          actualModel: result.actualModel ?? input.invocation.requestedModel,
           terminalOutcomeHash: initial.payloadHash,
         });
         return normalizeReviewObservation({
@@ -338,8 +340,9 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           requestedModel: input.invocation.requestedModel,
           result,
           qualityFlags: attestation
-            ? []
+            ? providerQualityFlags
             : [
+                ...providerQualityFlags,
                 'context_attestation_unavailable',
                 'cross_revision_reuse_disabled',
               ],
@@ -354,6 +357,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
             requestedModel: input.invocation.requestedModel,
             result,
             qualityFlags: [
+              ...providerQualityFlags,
               'context_inspection_incomplete',
               'cross_revision_reuse_disabled',
             ],
@@ -376,6 +380,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           requestedModel: input.invocation.requestedModel,
           result,
           qualityFlags: [
+            ...providerQualityFlags,
             'context_attestation_unavailable',
             'cross_revision_reuse_disabled',
           ],

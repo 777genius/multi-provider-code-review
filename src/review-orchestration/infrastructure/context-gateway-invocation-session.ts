@@ -395,6 +395,11 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
       case ChangedPathsWitnessStatus.Present:
         break;
     }
+    if (transcript.dependencies.length < 2) {
+      throw new ReviewContextInspectionFailure(
+        ReviewContextInspectionFailureReason.MissingProviderInspection
+      );
+    }
     const { transcriptCanonicalJson, replayMaterialCanonicalJson } =
       createWireSealPayload(transcript, replayMaterial);
     return this.attestations.sealGatewaySession({

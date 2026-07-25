@@ -78,6 +78,10 @@ describe('LegacyReviewProjectionPolicyAdapter', () => {
         additions: 3,
         deletions: 1,
       },
+      providerExecution: {
+        plannedProviders: 1,
+        succeededProviders: 1,
+      },
       coverage: {
         state: ProjectionCoverageState.Complete,
         mode: 'full',

@@ -22674,6 +22674,7 @@ var CodexProvider = class _CodexProvider extends Provider {
       "- review_list_directory",
       "- review_search_text",
       "- review_git_fact",
+      "Before returning final JSON, you MUST call at least one ReviewRouter MCP tool to inspect repository context beyond the deterministic prompt.",
       "Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.",
       "Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.",
       "Use repository-relative paths only. Only report concrete bugs on changed lines.",
@@ -26834,32 +26835,53 @@ var SynthesisEngine = class {
   }
   synthesize(findings, pr2, testHints, aiAnalysis, providerResults, runDetails, impactAnalysis, mermaidDiagram) {
     const metrics = this.buildMetrics(findings, providerResults, runDetails);
-    const summary = this.buildSummary(
-      pr2,
+    return this.buildReview({
       findings,
+      pr: pr2,
       metrics,
       testHints,
       aiAnalysis,
-      providerResults,
-      impactAnalysis
-    );
-    const inlineComments = this.buildInlineComments(findings);
-    const actionItems = this.buildActionItems(findings);
-    return {
-      summary,
-      findings,
-      inlineComments,
-      actionItems,
-      testHints,
-      aiAnalysis,
-      metrics,
       providerResults,
       runDetails,
       impactAnalysis,
       mermaidDiagram
+    });
+  }
+  synthesizeWithProviderExecutionSummary(findings, pr2, providerExecution) {
+    const metrics = this.buildMetrics(
+      findings,
+      void 0,
+      void 0,
+      providerExecution
+    );
+    return this.buildReview({ findings, pr: pr2, metrics });
+  }
+  buildReview(input) {
+    const summary = this.buildSummary(
+      input.pr,
+      input.findings,
+      input.metrics,
+      input.testHints,
+      input.aiAnalysis,
+      input.impactAnalysis
+    );
+    const inlineComments = this.buildInlineComments(input.findings);
+    const actionItems = this.buildActionItems(input.findings);
+    return {
+      summary,
+      findings: input.findings,
+      inlineComments,
+      actionItems,
+      testHints: input.testHints,
+      aiAnalysis: input.aiAnalysis,
+      metrics: input.metrics,
+      providerResults: input.providerResults,
+      runDetails: input.runDetails,
+      impactAnalysis: input.impactAnalysis,
+      mermaidDiagram: input.mermaidDiagram
     };
   }
-  buildMetrics(findings, providerResults, runDetails) {
+  buildMetrics(findings, providerResults, runDetails, providerExecution) {
     const critical = findings.filter((f2) => f2.severity === "critical").length;
     const major = findings.filter((f2) => f2.severity === "major").length;
     const minor = findings.filter((f2) => f2.severity === "minor").length;
@@ -26869,7 +26891,11 @@ var SynthesisEngine = class {
     let totalTokens = 0;
     let totalCost = 0;
     let durationSeconds = 0;
-    if (runDetails) {
+    if (providerExecution) {
+      providersUsed = providerExecution.planned;
+      providersSuccess = providerExecution.succeeded;
+      providersFailed = providerExecution.planned - providerExecution.succeeded;
+    } else if (runDetails) {
       providersUsed = runDetails.providers.length;
       providersSuccess = runDetails.providers.filter(
         (p2) => p2.status === "success"
@@ -26910,9 +26936,9 @@ var SynthesisEngine = class {
       durationSeconds
     };
   }
-  buildSummary(pr2, findings, metrics, testHints, aiAnalysis, providerResults, impactAnalysis) {
-    const totalProviders = providerResults?.length ?? 0;
-    const successes = providerResults?.filter((p2) => p2.status === "success").length ?? 0;
+  buildSummary(pr2, findings, metrics, testHints, aiAnalysis, impactAnalysis) {
+    const totalProviders = metrics.providersUsed;
+    const successes = metrics.providersSuccess;
     const failures = totalProviders - successes;
     const impactText = impactAnalysis ? ` \u2022 Impact: ${impactAnalysis.impactLevel}` : "";
     const aiText = aiAnalysis ? ` \u2022 AI-likelihood: ${(aiAnalysis.averageLikelihood * 100).toFixed(1)}%` : "";
@@ -73219,8 +73245,7 @@ var RunT0ReviewOrchestration = class {
       state = evolveReviewOrchestration(state, {
         type: "execution_started" /* ExecutionStarted */
       });
-      const observations = [];
-      const coverageManifests = [];
+      const acceptedEvidence = [];
       const exhaustedWorkSlotIds = [];
       const restoredSlots = new Map(
         execution.restoredExecution.workSlots.map((slot) => [
@@ -73256,11 +73281,14 @@ var RunT0ReviewOrchestration = class {
         });
         execution = { ...execution, streamVersion: outcome.streamVersion };
         if (outcome.observation) {
-          observations.push(outcome.observation);
           if (!outcome.coverageManifest) {
             throw new Error("review_orchestration_coverage_manifest_missing");
           }
-          coverageManifests.push(outcome.coverageManifest);
+          acceptedEvidence.push({
+            workSlotId: workSlot.workSlotId,
+            observation: outcome.observation,
+            coverageManifest: outcome.coverageManifest
+          });
         } else exhaustedWorkSlotIds.push(workSlot.workSlotId);
       }
       const requiredWorkSlotIds = new Set(
@@ -73302,10 +73330,9 @@ var RunT0ReviewOrchestration = class {
         };
       }
       const projection = await this.dependencies.projectionBuilder.build({
-        observations,
+        acceptedEvidence,
         exhaustedWorkSlotIds,
-        reviewRevisionHash: command.reviewRevisionHash,
-        coverageManifests
+        reviewRevisionHash: command.reviewRevisionHash
       });
       const partial = requiredExhaustedWorkSlotIds.length > 0 || !projection.coverageComplete;
       if (partial && !command.allowPartial) {
@@ -74724,10 +74751,10 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
         result,
         qualityFlags: result.actualModel ? [] : ["provider_warning"]
       });
-      if (!result.actualModel) return initial;
+      const providerQualityFlags = result.actualModel ? [] : ["provider_warning"];
       try {
         const attestation = await session.seal({
-          actualModel: result.actualModel,
+          actualModel: result.actualModel ?? input.invocation.requestedModel,
           terminalOutcomeHash: initial.payloadHash
         });
         return normalizeReviewObservation({
@@ -74736,7 +74763,8 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: attestation ? [] : [
+          qualityFlags: attestation ? providerQualityFlags : [
+            ...providerQualityFlags,
             "context_attestation_unavailable",
             "cross_revision_reuse_disabled"
           ],
@@ -74751,6 +74779,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             requestedModel: input.invocation.requestedModel,
             result,
             qualityFlags: [
+              ...providerQualityFlags,
               "context_inspection_incomplete",
               "cross_revision_reuse_disabled"
             ]
@@ -74773,6 +74802,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           requestedModel: input.invocation.requestedModel,
           result,
           qualityFlags: [
+            ...providerQualityFlags,
             "context_attestation_unavailable",
             "cross_revision_reuse_disabled"
           ]
@@ -75301,6 +75331,11 @@ var ContextGatewayInvocationSession = class {
         );
       case "present" /* Present */:
         break;
+    }
+    if (transcript.dependencies.length < 2) {
+      throw new ReviewContextInspectionFailure(
+        "missing_provider_inspection" /* MissingProviderInspection */
+      );
     }
     const { transcriptCanonicalJson, replayMaterialCanonicalJson } = createWireSealPayload(transcript, replayMaterial);
     return this.attestations.sealGatewaySession({
@@ -76954,6 +76989,7 @@ var BuildCurrentReviewProjection = class {
     const presentation = await this.dependencies.presentationPolicy.projectPresentation({
       scope: command.scope,
       presentation: command.presentation,
+      providerExecution: command.providerExecution,
       coverage,
       occurrences,
       revisionFiles: command.revisionFiles,
@@ -76970,7 +77006,11 @@ var BuildCurrentReviewProjection = class {
       occurrences
     );
     const inlineChunks = coverageOnly ? [] : buildInlineChunks(occurrences, this.limits);
-    const summaryBody = coverageOnly ? "Review coverage is partial. Findings and lifecycle decisions were not published." : allClear ? presentation.summaryBody : removeAllClearClaims(presentation.summaryBody);
+    const summaryBody = coverageOnly ? [
+      "Review coverage is partial. Findings and lifecycle decisions were not published.",
+      "",
+      removeAllClearClaims(presentation.summaryBody)
+    ].join("\n") : allClear ? presentation.summaryBody : removeAllClearClaims(presentation.summaryBody);
     const checkTitle = coverageOnly ? "Review coverage is partial" : allClear ? presentation.checkTitle : removeAllClearClaims(presentation.checkTitle);
     const checkSummary = coverageOnly ? summaryBody : allClear ? presentation.checkSummary : removeAllClearClaims(presentation.checkSummary);
     this.validateRenderedText(
@@ -77025,6 +77065,7 @@ var BuildCurrentReviewProjection = class {
   }
   validateCommand(command) {
     assertNonEmpty("projectionPolicyVersion", command.projectionPolicyVersion);
+    validateProviderExecutionSummary(command.providerExecution);
     assertNonEmpty(
       "scmRepositoryIdentityId",
       command.scope.scmRepositoryIdentityId
@@ -77161,6 +77202,16 @@ var BuildCurrentReviewProjection = class {
     }
   }
 };
+function validateProviderExecutionSummary(summary) {
+  if (!Number.isSafeInteger(summary.plannedProviders) || summary.plannedProviders < 0) {
+    throw new Error("plannedProviders must be a non-negative safe integer");
+  }
+  if (!Number.isSafeInteger(summary.succeededProviders) || summary.succeededProviders < 0 || summary.succeededProviders > summary.plannedProviders) {
+    throw new Error(
+      "succeededProviders must be between zero and plannedProviders"
+    );
+  }
+}
 function applyBlockingDecision(occurrences, gate) {
   const blocking = new Set(gate.blockingLineageIds);
   return sortOccurrences2(
@@ -77608,9 +77659,13 @@ var LegacyReviewProjectionPolicyAdapter = class {
     );
     const currentOccurrences = activeOccurrences.filter(isCurrentOccurrence);
     const pr2 = toLegacyPrContext(query);
-    const review = this.synthesis.synthesize(
+    const review = this.synthesis.synthesizeWithProviderExecutionSummary(
       currentOccurrences.map(toLegacyFinding),
-      pr2
+      pr2,
+      {
+        planned: query.providerExecution.plannedProviders,
+        succeeded: query.providerExecution.succeededProviders
+      }
     );
     const placements = query.occurrences.map(
       (occurrence) => this.placeOccurrence(occurrence, review, query.revisionFiles)
@@ -77980,9 +78035,14 @@ var ProductionReviewProjectionCommandFactory = class {
     this.input = input;
   }
   async create(input) {
+    const evidence = validateAcceptedEvidence({
+      assignments: this.input.assignments,
+      evidence: input.acceptedEvidence,
+      reviewRevisionHash: input.reviewRevisionHash
+    });
     const findings = [];
     const revalidations = [];
-    for (const observation of input.observations) {
+    for (const { observation } of evidence.values()) {
       const payload = parseObservation(observation.payloadCanonicalJson);
       payload.normalizedFindings.forEach((finding, index) => {
         findings.push(toFinding(observation, finding, index));
@@ -77991,11 +78051,6 @@ var ProductionReviewProjectionCommandFactory = class {
         revalidations.push(toRevalidation(observation, revalidation));
       }
     }
-    const manifests = validateCoverageManifests({
-      assignments: this.input.assignments,
-      manifests: input.coverageManifests,
-      reviewRevisionHash: input.reviewRevisionHash
-    });
     const requiredAssignments = this.input.assignments.filter(
       (assignment) => assignment.required
     );
@@ -78008,12 +78063,20 @@ var ProductionReviewProjectionCommandFactory = class {
     const reviewedFiles = /* @__PURE__ */ new Set();
     const coverageLimitations = [];
     for (const assignment of requiredAssignments) {
-      const manifest = manifests.get(assignment.workSlotId);
-      if (!manifest) {
+      const accepted = evidence.get(assignment.workSlotId);
+      if (!accepted) {
         coverageLimitations.push(
           `coverage_manifest_missing:${assignment.workSlotId}`
         );
         continue;
+      }
+      const manifest = accepted.coverageManifest;
+      if (accepted.observation.qualityFlags.includes(
+        "context_inspection_incomplete"
+      )) {
+        coverageLimitations.push(
+          `work_slot_context_inspection_incomplete:${assignment.workSlotId}`
+        );
       }
       for (const path25 of manifest.paths) {
         if (path25.kind === "full_patch" /* FullPatch */) {
@@ -78030,7 +78093,7 @@ var ProductionReviewProjectionCommandFactory = class {
     }
     const completeLoad = this.input.pr.loadCompleteness?.status !== "truncated" /* Truncated */;
     const complete = requiredExhaustedWorkSlotIds.length === 0 && completeLoad && this.input.uncoveredPaths.length === 0 && this.input.uncoveredLifecycleTargetIds.length === 0 && requiredAssignments.every(
-      (assignment) => manifests.has(assignment.workSlotId)
+      (assignment) => evidence.has(assignment.workSlotId)
     ) && coverageLimitations.length === 0;
     const limitations = [
       ...!completeLoad ? (this.input.pr.loadCompleteness?.omissions ?? []).map(
@@ -78043,6 +78106,10 @@ var ProductionReviewProjectionCommandFactory = class {
       ),
       ...coverageLimitations
     ].sort();
+    const providerExecution = providerExecutionSummary(
+      this.input.assignments,
+      evidence
+    );
     return Object.freeze({
       projectionPolicyVersion: "review-projection-policy.v2-t0",
       scope: {
@@ -78058,6 +78125,7 @@ var ProductionReviewProjectionCommandFactory = class {
         additions: this.input.pr.additions,
         deletions: this.input.pr.deletions
       },
+      providerExecution,
       currentFindings: Object.freeze(
         findings.sort(
           (left, right) => compareCodeUnits3(left.sourceFindingId, right.sourceFindingId)
@@ -78093,14 +78161,15 @@ var ProductionReviewProjectionCommandFactory = class {
     });
   }
 };
-function validateCoverageManifests(input) {
+function validateAcceptedEvidence(input) {
   const assignments = new Map(
     input.assignments.map((assignment) => [assignment.workSlotId, assignment])
   );
-  const manifests = /* @__PURE__ */ new Map();
-  for (const manifest of input.manifests) {
-    const assignment = assignments.get(manifest.workSlotId);
-    if (!assignment || manifests.has(manifest.workSlotId)) {
+  const evidence = /* @__PURE__ */ new Map();
+  for (const accepted of input.evidence) {
+    const { coverageManifest: manifest, workSlotId } = accepted;
+    const assignment = assignments.get(workSlotId);
+    if (manifest.workSlotId !== workSlotId || !assignment || accepted.observation.providerKind !== assignment.providerKind || evidence.has(workSlotId)) {
       throw new Error("review_projection_coverage_manifest_scope_invalid");
     }
     const rebuilt = createReviewPromptCoverageManifest({
@@ -78112,9 +78181,32 @@ function validateCoverageManifests(input) {
     if (manifest.reviewRevisionHash !== input.reviewRevisionHash || rebuilt.coverageHash !== manifest.coverageHash) {
       throw new Error("review_projection_coverage_manifest_hash_invalid");
     }
-    manifests.set(manifest.workSlotId, manifest);
+    evidence.set(workSlotId, accepted);
   }
-  return manifests;
+  return evidence;
+}
+function providerExecutionSummary(assignments, evidence) {
+  const byProvider = /* @__PURE__ */ new Map();
+  for (const assignment of assignments) {
+    const providerAssignments = byProvider.get(assignment.providerKind) ?? [];
+    providerAssignments.push(assignment);
+    byProvider.set(assignment.providerKind, providerAssignments);
+  }
+  const succeededProviders = [...byProvider.values()].filter(
+    (providerAssignments) => {
+      const required = providerAssignments.filter(
+        (assignment) => assignment.required
+      );
+      const completionSet = required.length > 0 ? required : providerAssignments;
+      return completionSet.every(
+        (assignment) => evidence.has(assignment.workSlotId)
+      );
+    }
+  ).length;
+  return Object.freeze({
+    plannedProviders: byProvider.size,
+    succeededProviders
+  });
 }
 function parseObservation(value) {
   const parsed = JSON.parse(value);
@@ -79557,6 +79649,7 @@ var ProductionT0ReviewRunner = class {
         assignments: planned.assignments.map((assignment) => ({
           workSlotId: assignment.workSlot.workSlotId,
           taskKind: assignment.workSlot.taskKind,
+          providerKind: assignment.workSlot.providerKind,
           required: assignment.workSlot.required,
           filePaths: assignment.context.files.map((file) => file.filename)
         })),

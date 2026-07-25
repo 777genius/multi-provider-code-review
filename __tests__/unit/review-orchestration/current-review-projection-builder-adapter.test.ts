@@ -35,10 +35,9 @@ describe('CurrentReviewProjectionBuilderAdapter', () => {
       { create }
     );
     const input = {
-      observations: [],
+      acceptedEvidence: [],
       exhaustedWorkSlotIds: [],
       reviewRevisionHash: '1'.repeat(64),
-      coverageManifests: [],
     };
 
     const result = await adapter.build(input);
@@ -69,10 +68,9 @@ describe('CurrentReviewProjectionBuilderAdapter', () => {
 
     await expect(
       adapter.build({
-        observations: [],
+        acceptedEvidence: [],
         exhaustedWorkSlotIds: [],
         reviewRevisionHash: '1'.repeat(64),
-        coverageManifests: [],
       })
     ).rejects.toThrow('review_projection_command_revision_mismatch');
   });

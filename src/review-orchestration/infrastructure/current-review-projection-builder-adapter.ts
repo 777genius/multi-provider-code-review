@@ -5,19 +5,16 @@ import {
 } from '../../review-projection/application';
 import { ProjectionCoverageState } from '../../review-projection/domain';
 import type {
-  AcceptedReviewObservation,
+  AcceptedReviewWorkSlotEvidence,
   CurrentReviewProjection,
   CurrentReviewProjectionBuilderPort,
 } from '../application';
 
 export interface ReviewProjectionCommandFactoryPort {
   create(input: {
-    readonly observations: readonly AcceptedReviewObservation[];
+    readonly acceptedEvidence: readonly AcceptedReviewWorkSlotEvidence[];
     readonly exhaustedWorkSlotIds: readonly string[];
     readonly reviewRevisionHash: string;
-    readonly coverageManifests: Parameters<
-      CurrentReviewProjectionBuilderPort['build']
-    >[0]['coverageManifests'];
   }): Promise<BuildCurrentReviewProjectionCommand>;
 }
 

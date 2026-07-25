@@ -27,27 +27,18 @@ describe('ContextGatewayInvocationSessionFactory', () => {
   it('seals a complete changed_paths witness with a non-empty replay plan', async () => {
     const fixture = await openSessionFixture();
     try {
+      const changedPaths = changedPathsDependency(fixture);
       await writeTranscript(fixture, [
+        changedPaths,
         dependency(
           fixture,
+          { kind: 'file_read', path: 'tracked.txt' },
           {
-            kind: 'git_fact',
-            fact: 'changed_paths',
-            operandsHash: hash(
-              canonicalJson({
-                baseSha: fixture.revision.baseSha,
-                headSha: fixture.revision.headSha,
-              })
-            ),
-          },
-          {
-            kind: 'git_fact',
-            resultHash: hash(canonicalJson([])),
-            itemCount: 0,
-            byteCount: Buffer.byteLength(canonicalJson([]), 'utf8'),
+            kind: 'file_read',
             complete: true,
             truncated: false,
-          }
+          },
+          changedPaths
         ),
       ]);
 
@@ -69,7 +60,7 @@ describe('ContextGatewayInvocationSessionFactory', () => {
         fixture.attestations.sealGatewaySession.mock.calls[0][0];
       expect(
         JSON.parse(sealInput.replayMaterialCanonicalJson).sourceDependencies
-      ).toHaveLength(1);
+      ).toHaveLength(2);
       expect(fixture.planningGatewayHash).toBe(fixture.gatewayHash);
       expect(fixture.session.providerConfig.gatewayBinaryHash).toBe(
         fixture.gatewayHash
@@ -110,6 +101,25 @@ describe('ContextGatewayInvocationSessionFactory', () => {
           })
         ),
       });
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it('rejects the system witness when the provider did not inspect repository context', async () => {
+    const fixture = await openSessionFixture();
+    try {
+      await writeTranscript(fixture, [changedPathsDependency(fixture)]);
+
+      await expect(
+        fixture.session.seal({
+          actualModel: 'gpt-test-actual',
+          terminalOutcomeHash: hash('outcome'),
+        })
+      ).rejects.toMatchObject({
+        reason: ReviewContextInspectionFailureReason.MissingProviderInspection,
+      });
+      expect(fixture.attestations.sealGatewaySession).not.toHaveBeenCalled();
     } finally {
       await fixture.dispose();
     }
@@ -370,6 +380,30 @@ function dependency(
     )
     .digest('hex');
   return { ...eventWithoutHash, eventHash };
+}
+
+function changedPathsDependency(fixture: SessionFixture) {
+  return dependency(
+    fixture,
+    {
+      kind: 'git_fact',
+      fact: 'changed_paths',
+      operandsHash: hash(
+        canonicalJson({
+          baseSha: fixture.revision.baseSha,
+          headSha: fixture.revision.headSha,
+        })
+      ),
+    },
+    {
+      kind: 'git_fact',
+      resultHash: hash(canonicalJson([])),
+      itemCount: 0,
+      byteCount: Buffer.byteLength(canonicalJson([]), 'utf8'),
+      complete: true,
+      truncated: false,
+    }
+  );
 }
 
 async function writeTranscript(

@@ -12,6 +12,7 @@ import {
   ReviewPublicationState,
   RestoredReviewWorkSlotState,
   type AcceptedReviewObservation,
+  type AcceptedReviewWorkSlotEvidence,
   type CurrentReviewProjectionBuilderPort,
   type ContextDependencyReplayPort,
   type PreparedReviewInvocationPort,
@@ -200,8 +201,7 @@ export class RunT0ReviewOrchestration {
         type: ReviewOrchestrationEventType.ExecutionStarted,
       });
 
-      const observations: AcceptedReviewObservation[] = [];
-      const coverageManifests: ReviewPromptCoverageManifest[] = [];
+      const acceptedEvidence: AcceptedReviewWorkSlotEvidence[] = [];
       const exhaustedWorkSlotIds: string[] = [];
       const restoredSlots = new Map(
         execution.restoredExecution.workSlots.map((slot) => [
@@ -240,11 +240,14 @@ export class RunT0ReviewOrchestration {
         });
         execution = { ...execution, streamVersion: outcome.streamVersion };
         if (outcome.observation) {
-          observations.push(outcome.observation);
           if (!outcome.coverageManifest) {
             throw new Error('review_orchestration_coverage_manifest_missing');
           }
-          coverageManifests.push(outcome.coverageManifest);
+          acceptedEvidence.push({
+            workSlotId: workSlot.workSlotId,
+            observation: outcome.observation,
+            coverageManifest: outcome.coverageManifest,
+          });
         } else exhaustedWorkSlotIds.push(workSlot.workSlotId);
       }
 
@@ -292,10 +295,9 @@ export class RunT0ReviewOrchestration {
       }
 
       const projection = await this.dependencies.projectionBuilder.build({
-        observations,
+        acceptedEvidence,
         exhaustedWorkSlotIds,
         reviewRevisionHash: command.reviewRevisionHash,
-        coverageManifests,
       });
       const partial =
         requiredExhaustedWorkSlotIds.length > 0 || !projection.coverageComplete;
