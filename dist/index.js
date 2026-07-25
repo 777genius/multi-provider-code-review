@@ -78377,7 +78377,7 @@ var ReviewActionV2ControlPlaneAdapter = class {
             sourceLeaseId: input.lease.leaseId,
             ownerIdHash: input.ownerIdHash,
             fencingToken: input.lease.fencingToken,
-            completionStatus: "succeeded",
+            completionStatus: "success",
             schemaValidated: input.observation.schemaValidated,
             fullyConsumed: input.observation.fullyConsumed,
             actualModel: input.observation.actualModel,

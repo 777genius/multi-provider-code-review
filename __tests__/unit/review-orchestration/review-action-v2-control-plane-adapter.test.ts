@@ -549,6 +549,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     expect(execute).toHaveBeenCalledWith(
       ReviewActionV2OperationId.ReviewEvidenceCommit,
       expect.objectContaining({
+        completionStatus: 'success',
         contextDependencyAttestationId: null,
         contextDependencyAttestationHash: null,
       })
