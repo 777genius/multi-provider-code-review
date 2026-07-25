@@ -48617,6 +48617,7 @@ function isCodexRotatingPreleaseResponse(value) {
   if (input.status === "skipped") {
     return input.reason === "max_changed_lines_exceeded" && isNonNegativeSafeInteger(input.changedLines) && isNonNegativeSafeInteger(input.maxChangedLines) && input.maxChangedLines > 0 && input.changedLines > input.maxChangedLines && isSha256(input.decisionHash);
   }
+  if (input.status !== void 0) return false;
   return isNonEmptyString(input.leaseId) && isNonEmptyString(input.providerInstanceId) && isNonEmptyString(input.repository) && isNonEmptyString(input.generationHashSalt) && typeof input.currentGeneration === "number" && Number.isInteger(input.currentGeneration) && input.currentGeneration > 0 && isNonEmptyString(input.expiresAt);
 }
 function isNonNegativeSafeInteger(value) {

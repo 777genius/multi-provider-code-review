@@ -204,6 +204,7 @@ function isCodexRotatingPreleaseResponse(
       isSha256(input.decisionHash)
     );
   }
+  if (input.status !== undefined) return false;
   return (
     isNonEmptyString(input.leaseId) &&
     isNonEmptyString(input.providerInstanceId) &&
