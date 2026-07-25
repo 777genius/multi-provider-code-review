@@ -42,6 +42,10 @@ export class ContextGatewayRecorder {
     requireSha256(config.eventChainSeedHash, 'event_chain_seed_hash');
   }
 
+  async initialize(): Promise<void> {
+    await this.flush();
+  }
+
   async record(
     operation: ContextDependencyEntry['operation'],
     result: ContextDependencyEntry['result'],

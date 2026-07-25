@@ -33,6 +33,25 @@ describe('FilesystemContextGateway', () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it('initializes an authenticated empty transcript before any tool call', async () => {
+    const fixture = await gatewayFixture(root);
+
+    const transcript = await readJson<ContextGatewayTranscript>(
+      fixture.transcriptPath
+    );
+    const replayMaterial = await readJson<{
+      readonly entries: readonly unknown[];
+    }>(fixture.replayMaterialPath);
+
+    expect(transcript).toMatchObject({
+      authenticatedChainHash: 'b'.repeat(64),
+      dependencies: [],
+      eventChainSeedHash: 'b'.repeat(64),
+      hadFailure: false,
+    });
+    expect(replayMaterial.entries).toEqual([]);
+  });
+
   it('records bounded file, list and search dependencies without raw queries', async () => {
     const fixture = await gatewayFixture(root);
 
@@ -194,6 +213,7 @@ async function gatewayFixture(root: string, suffix = 'default') {
     checkoutTreeOid,
     eventChainSeedHash: 'b'.repeat(64),
   });
+  await recorder.initialize();
   return {
     gateway: await FilesystemContextGateway.create({
       root,

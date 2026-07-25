@@ -49,6 +49,50 @@ export type ContextGatewayReplayMaterial = Readonly<{
   }>[];
 }>;
 
+export enum ChangedPathsWitnessStatus {
+  Present = 'present',
+  Missing = 'missing',
+  Invalid = 'invalid',
+}
+
+export function changedPathsWitnessStatus(
+  transcript: ContextGatewayTranscript,
+  expectedOperandsHash: string
+): ChangedPathsWitnessStatus {
+  let foundCandidate = false;
+  for (const dependency of transcript.dependencies) {
+    const operation = dependency.operation;
+    if (operation.kind !== 'git_fact' || operation.fact !== 'changed_paths') {
+      continue;
+    }
+    foundCandidate = true;
+    const result = dependency.result;
+    if (
+      hasExactKeys(operation, ['kind', 'fact', 'operandsHash']) &&
+      hasExactKeys(result, [
+        'kind',
+        'resultHash',
+        'itemCount',
+        'byteCount',
+        'complete',
+        'truncated',
+      ]) &&
+      operation.operandsHash === expectedOperandsHash &&
+      result.kind === 'git_fact' &&
+      isSha256(result.resultHash) &&
+      isNonNegativeSafeInteger(result.itemCount) &&
+      isNonNegativeSafeInteger(result.byteCount) &&
+      result.complete === true &&
+      result.truncated === false
+    ) {
+      return ChangedPathsWitnessStatus.Present;
+    }
+  }
+  return foundCandidate
+    ? ChangedPathsWitnessStatus.Invalid
+    : ChangedPathsWitnessStatus.Missing;
+}
+
 export function canonicalJson(value: unknown): string {
   if (value === undefined) return '{"$undefined":true}';
   if (
@@ -97,4 +141,24 @@ export function requireGitOid(value: string, field: string): string {
     throw new Error(`${field}_invalid`);
   }
   return value;
+}
+
+function hasExactKeys(
+  value: Readonly<Record<string, unknown>>,
+  expected: readonly string[]
+): boolean {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index])
+  );
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
 }

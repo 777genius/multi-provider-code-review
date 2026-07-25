@@ -72691,6 +72691,22 @@ var RestoredReviewWorkSlotState = /* @__PURE__ */ ((RestoredReviewWorkSlotState2
   return RestoredReviewWorkSlotState2;
 })(RestoredReviewWorkSlotState || {});
 
+// src/review-orchestration/application/review-context-inspection-failure.ts
+var ReviewContextInspectionFailure = class extends Error {
+  constructor(reason) {
+    super(`review_context_inspection_failed:${reason}`);
+    this.reason = reason;
+    this.name = "ReviewContextInspectionFailure";
+  }
+};
+var RetryableReviewContextInspectionFailure = class extends ReviewContextInspectionFailure {
+  constructor(reason, currentRevisionObservation) {
+    super(reason);
+    this.currentRevisionObservation = currentRevisionObservation;
+    this.name = "RetryableReviewContextInspectionFailure";
+  }
+};
+
 // src/review-orchestration/application/run-t0-review-orchestration.ts
 var import_crypto20 = require("crypto");
 
@@ -73490,20 +73506,27 @@ var RunT0ReviewOrchestration = class {
           await this.assertRevisionCurrent(input.revision);
         }
       } catch (error2) {
-        await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
-        if (error2 instanceof ReviewExecutionSupersededSignal) throw error2;
-        const failureClass = this.dependencies.invocationFailureClassifier.classify(error2);
-        if (failureClass === "capacity_unavailable" /* CapacityUnavailable */) {
-          throw new ReviewProviderUnavailableSignal(
-            "provider_capacity_unavailable"
-          );
+        if (error2 instanceof ReviewExecutionSupersededSignal) {
+          await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+          throw error2;
         }
-        if (failureClass === "authentication_unavailable" /* AuthenticationUnavailable */) {
-          throw new ReviewProviderUnavailableSignal(
-            "provider_authentication_unavailable"
-          );
+        if (error2 instanceof RetryableReviewContextInspectionFailure && attemptOrdinal === input.workSlot.attemptBudget) {
+          observationPayload = error2.currentRevisionObservation;
+        } else {
+          await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+          const failureClass = this.dependencies.invocationFailureClassifier.classify(error2);
+          if (failureClass === "capacity_unavailable" /* CapacityUnavailable */) {
+            throw new ReviewProviderUnavailableSignal(
+              "provider_capacity_unavailable"
+            );
+          }
+          if (failureClass === "authentication_unavailable" /* AuthenticationUnavailable */) {
+            throw new ReviewProviderUnavailableSignal(
+              "provider_authentication_unavailable"
+            );
+          }
+          continue;
         }
-        continue;
       }
       try {
         validateObservationAgainstLimits(
@@ -74684,10 +74707,33 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: [],
+          qualityFlags: attestation ? [] : [
+            "context_attestation_unavailable",
+            "cross_revision_reuse_disabled"
+          ],
           ...attestation ? { contextDependencyAttestation: attestation } : {}
         });
-      } catch {
+      } catch (error2) {
+        if (error2 instanceof ReviewContextInspectionFailure) {
+          const currentRevisionObservation = normalizeReviewObservation({
+            workSlotId: input.invocation.workSlotId,
+            attemptOrdinal: input.invocation.attemptOrdinal,
+            providerName: input.invocation.provider,
+            requestedModel: input.invocation.requestedModel,
+            result,
+            qualityFlags: [
+              "context_inspection_incomplete",
+              "cross_revision_reuse_disabled"
+            ]
+          });
+          logger.warn(
+            `Context inspection incomplete (${error2.reason}); fresh evidence is not cross-revision reusable`
+          );
+          throw new RetryableReviewContextInspectionFailure(
+            error2.reason,
+            currentRevisionObservation
+          );
+        }
         logger.warn(
           "Context attestation sealing failed; preserving fresh review as non-reusable"
         );
@@ -74697,7 +74743,10 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: ["provider_warning"]
+          qualityFlags: [
+            "context_attestation_unavailable",
+            "cross_revision_reuse_disabled"
+          ]
         });
       }
     } finally {
@@ -74881,6 +74930,28 @@ var import_util6 = require("util");
 var import_crypto23 = require("crypto");
 var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v2";
 var CONTEXT_GATEWAY_MAX_OPERATIONS = 2e3;
+function changedPathsWitnessStatus(transcript, expectedOperandsHash) {
+  let foundCandidate = false;
+  for (const dependency of transcript.dependencies) {
+    const operation = dependency.operation;
+    if (operation.kind !== "git_fact" || operation.fact !== "changed_paths") {
+      continue;
+    }
+    foundCandidate = true;
+    const result = dependency.result;
+    if (hasExactKeys(operation, ["kind", "fact", "operandsHash"]) && hasExactKeys(result, [
+      "kind",
+      "resultHash",
+      "itemCount",
+      "byteCount",
+      "complete",
+      "truncated"
+    ]) && operation.operandsHash === expectedOperandsHash && result.kind === "git_fact" && isSha256(result.resultHash) && isNonNegativeSafeInteger(result.itemCount) && isNonNegativeSafeInteger(result.byteCount) && result.complete === true && result.truncated === false) {
+      return "present" /* Present */;
+    }
+  }
+  return foundCandidate ? "invalid" /* Invalid */ : "missing" /* Missing */;
+}
 function canonicalJson9(value) {
   if (value === void 0) return '{"$undefined":true}';
   if (value === null || typeof value === "string" || typeof value === "boolean") {
@@ -74918,6 +74989,17 @@ function requireGitOid(value, field) {
     throw new Error(`${field}_invalid`);
   }
   return value;
+}
+function hasExactKeys(value, expected) {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length && actual.every((key, index) => key === sortedExpected[index]);
+}
+function isSha256(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}
+function isNonNegativeSafeInteger(value) {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
 }
 
 // src/review-orchestration/infrastructure/context-gateway-invocation-session.ts
@@ -75105,13 +75187,21 @@ var ContextGatewayInvocationSession = class {
   }
   credentialLease;
   async seal(input) {
-    const [rawTranscriptCanonicalJson, rawReplayMaterialCanonicalJson] = await Promise.all([
-      readBoundedCanonicalJson(this.transcriptPath, MAX_TRANSCRIPT_BYTES),
-      readBoundedCanonicalJson(
-        this.replayMaterialPath,
-        MAX_REPLAY_MATERIAL_BYTES
-      )
-    ]);
+    let rawTranscriptCanonicalJson;
+    let rawReplayMaterialCanonicalJson;
+    try {
+      [rawTranscriptCanonicalJson, rawReplayMaterialCanonicalJson] = await Promise.all([
+        readBoundedCanonicalJson(this.transcriptPath, MAX_TRANSCRIPT_BYTES),
+        readBoundedCanonicalJson(
+          this.replayMaterialPath,
+          MAX_REPLAY_MATERIAL_BYTES
+        )
+      ]);
+    } catch {
+      throw new ReviewContextInspectionFailure(
+        "gateway_output_unavailable" /* GatewayOutputUnavailable */
+      );
+    }
     const transcript = JSON.parse(
       rawTranscriptCanonicalJson
     );
@@ -75127,8 +75217,28 @@ var ContextGatewayInvocationSession = class {
       checkoutTreeOid: this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID,
       eventChainSeedHash: this.serverSession.eventChainSeedHash
     });
-    if (transcript.hadFailure || transcript.dependencies.length === 0) {
-      return null;
+    if (transcript.hadFailure) {
+      throw new ReviewContextInspectionFailure(
+        "incomplete_transcript" /* IncompleteTranscript */
+      );
+    }
+    const expectedChangedPathsOperandsHash = sha25611(
+      canonicalJson9({
+        baseSha: this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_BASE_SHA,
+        headSha: this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_HEAD_SHA
+      })
+    );
+    switch (changedPathsWitnessStatus(transcript, expectedChangedPathsOperandsHash)) {
+      case "missing" /* Missing */:
+        throw new ReviewContextInspectionFailure(
+          "missing_changed_paths_witness" /* MissingChangedPathsWitness */
+        );
+      case "invalid" /* Invalid */:
+        throw new ReviewContextInspectionFailure(
+          "invalid_changed_paths_witness" /* InvalidChangedPathsWitness */
+        );
+      case "present" /* Present */:
+        break;
     }
     const { transcriptCanonicalJson, replayMaterialCanonicalJson } = createWireSealPayload(transcript, replayMaterial);
     return this.attestations.sealGatewaySession({
@@ -75279,6 +75389,9 @@ var ContextGatewayRecorder = class {
   dependencies = [];
   replayEntries = [];
   hadFailure = false;
+  async initialize() {
+    await this.flush();
+  }
   async record(operation, result, replayQuery) {
     if (this.dependencies.length >= CONTEXT_GATEWAY_MAX_OPERATIONS) {
       await this.recordFailure();

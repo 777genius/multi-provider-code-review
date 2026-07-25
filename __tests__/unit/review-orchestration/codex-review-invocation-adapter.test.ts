@@ -12,8 +12,11 @@ import type { PromptBuilder } from '../../../src/analysis/llm/prompt-builder';
 import type { ReviewConfig } from '../../../src/types';
 import type { ContextGatewayInvocationSessionFactoryPort } from '../../../src/review-orchestration/infrastructure/context-gateway-invocation-session';
 import {
+  ReviewContextInspectionFailure,
+  ReviewContextInspectionFailureReason,
   ReviewExecutionProviderKind,
   ReviewTaskKind,
+  RetryableReviewContextInspectionFailure,
   type ReviewRunAuthorization,
 } from '../../../src/review-orchestration/application';
 import {
@@ -198,7 +201,10 @@ describe('Codex T0 prepared invocation', () => {
     {
       name: 'the gateway has no reusable dependencies',
       actualModel: 'gpt-test-actual',
-      expectedQualityFlags: [],
+      expectedQualityFlags: [
+        'context_attestation_unavailable',
+        'cross_revision_reuse_disabled',
+      ],
       expectedSealCalls: 1,
     },
   ])(
@@ -268,6 +274,94 @@ describe('Codex T0 prepared invocation', () => {
       expect(session.dispose).toHaveBeenCalledTimes(1);
     }
   );
+
+  it('returns a typed retryable failure with current-revision-only evidence when the witness is missing', async () => {
+    const planningPrepared = preparedInvocation('planning prompt');
+    const runtimePrepared = preparedInvocation('runtime prompt');
+    const provider = {
+      name: 'codex/gpt-test',
+      prepareInvocation: jest
+        .fn()
+        .mockResolvedValueOnce(planningPrepared)
+        .mockResolvedValueOnce(runtimePrepared),
+      executePreparedInvocation: jest.fn().mockResolvedValue({
+        content: '{}',
+        findings: [],
+        revalidations: [],
+        actualModel: 'gpt-test-actual',
+      }),
+    } as unknown as CodexProvider;
+    const session = {
+      providerConfig: gatewayConfig,
+      credentialLease: {
+        environment: {
+          REVIEWROUTER_CONTEXT_GATEWAY_SECRET: 'secret',
+        },
+      },
+      seal: jest
+        .fn()
+        .mockRejectedValue(
+          new ReviewContextInspectionFailure(
+            ReviewContextInspectionFailureReason.MissingChangedPathsWitness
+          )
+        ),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    };
+    const gatewayFactory = {
+      planningConfig: jest.fn().mockResolvedValue(gatewayConfig),
+      open: jest.fn().mockResolvedValue(session),
+    } as unknown as ContextGatewayInvocationSessionFactoryPort;
+    const adapter = new CodexReviewInvocationAdapter(
+      provider,
+      {
+        buildPreparedV2: jest.fn().mockResolvedValue({
+          version: 'prepared_review_prompt.v2',
+          prompt: 'prepared prompt',
+          pathCoverage: [],
+        }),
+      } as unknown as PromptBuilder,
+      [assignment],
+      10_000,
+      true,
+      gatewayFactory
+    );
+    const invocation = await adapter.prepare({
+      workSlot: assignment.workSlot,
+      attemptOrdinal: 1,
+    });
+
+    const failure = await adapter
+      .execute({
+        invocation,
+        manifest: manifestFixture,
+        lease: leaseFixture,
+        sourceExecutionId: 'execution-1',
+        sourceReviewRevisionHash: hash('revision'),
+        signal: new AbortController().signal,
+      })
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(RetryableReviewContextInspectionFailure);
+    expect(failure).toMatchObject({
+      name: 'RetryableReviewContextInspectionFailure',
+      reason: ReviewContextInspectionFailureReason.MissingChangedPathsWitness,
+      currentRevisionObservation: {
+        qualityFlags: [
+          'context_inspection_incomplete',
+          'cross_revision_reuse_disabled',
+        ],
+      },
+    });
+    if (!(failure instanceof RetryableReviewContextInspectionFailure)) {
+      throw new Error('expected_retryable_context_inspection_failure');
+    }
+    expect(failure.currentRevisionObservation).not.toHaveProperty(
+      'contextDependencyAttestationId'
+    );
+    expect(failure.currentRevisionObservation).not.toHaveProperty(
+      'contextDependencyAttestationHash'
+    );
+    expect(session.dispose).toHaveBeenCalledTimes(1);
+  });
 
   it('derives manifest and provider invocation keys only from generated canonicalizers', async () => {
     const adapter = new GeneratedProviderInvocationManifestAssembler(

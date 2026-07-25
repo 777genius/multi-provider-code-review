@@ -37,6 +37,7 @@ import {
   type ReviewWorkSlotPlan,
 } from './review-orchestration-ports';
 import type { ReviewPromptCoverageManifest } from '../domain';
+import { RetryableReviewContextInspectionFailure } from './review-context-inspection-failure';
 
 export enum ReviewOrchestrationResultStatus {
   Completed = 'completed',
@@ -556,24 +557,36 @@ export class RunT0ReviewOrchestration {
           await this.assertRevisionCurrent(input.revision);
         }
       } catch (error) {
-        await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
-        if (error instanceof ReviewExecutionSupersededSignal) throw error;
-        const failureClass =
-          this.dependencies.invocationFailureClassifier.classify(error);
-        if (failureClass === ReviewInvocationFailureClass.CapacityUnavailable) {
-          throw new ReviewProviderUnavailableSignal(
-            'provider_capacity_unavailable'
-          );
+        if (error instanceof ReviewExecutionSupersededSignal) {
+          await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+          throw error;
         }
         if (
-          failureClass ===
-          ReviewInvocationFailureClass.AuthenticationUnavailable
+          error instanceof RetryableReviewContextInspectionFailure &&
+          attemptOrdinal === input.workSlot.attemptBudget
         ) {
-          throw new ReviewProviderUnavailableSignal(
-            'provider_authentication_unavailable'
-          );
+          observationPayload = error.currentRevisionObservation;
+        } else {
+          await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+          const failureClass =
+            this.dependencies.invocationFailureClassifier.classify(error);
+          if (
+            failureClass === ReviewInvocationFailureClass.CapacityUnavailable
+          ) {
+            throw new ReviewProviderUnavailableSignal(
+              'provider_capacity_unavailable'
+            );
+          }
+          if (
+            failureClass ===
+            ReviewInvocationFailureClass.AuthenticationUnavailable
+          ) {
+            throw new ReviewProviderUnavailableSignal(
+              'provider_authentication_unavailable'
+            );
+          }
+          continue;
         }
-        continue;
       }
       try {
         validateObservationAgainstLimits(

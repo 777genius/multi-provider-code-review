@@ -11,8 +11,10 @@ import {
   canonicalizeReviewContextSearchQuery,
 } from '../../control-plane/generated/review-action-v2/review-action-v2';
 import {
+  ChangedPathsWitnessStatus,
   CONTEXT_GATEWAY_POLICY_VERSION,
   canonicalJson,
+  changedPathsWitnessStatus,
   type ContextGatewayReplayMaterial,
   type ContextGatewayTranscript,
 } from '../../context-gateway/context-gateway-contract';
@@ -22,6 +24,10 @@ import type {
   ContextDependencyAttestationReference,
   ReviewContextAttestationPort,
   ReviewInvocationLease,
+} from '../application';
+import {
+  ReviewContextInspectionFailure,
+  ReviewContextInspectionFailureReason,
 } from '../application';
 
 const execFileAsync = promisify(execFile);
@@ -281,14 +287,22 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     readonly actualModel: string;
     readonly terminalOutcomeHash: string;
   }): Promise<ContextDependencyAttestationReference | null> {
-    const [rawTranscriptCanonicalJson, rawReplayMaterialCanonicalJson] =
-      await Promise.all([
-        readBoundedCanonicalJson(this.transcriptPath, MAX_TRANSCRIPT_BYTES),
-        readBoundedCanonicalJson(
-          this.replayMaterialPath,
-          MAX_REPLAY_MATERIAL_BYTES
-        ),
-      ]);
+    let rawTranscriptCanonicalJson: string;
+    let rawReplayMaterialCanonicalJson: string;
+    try {
+      [rawTranscriptCanonicalJson, rawReplayMaterialCanonicalJson] =
+        await Promise.all([
+          readBoundedCanonicalJson(this.transcriptPath, MAX_TRANSCRIPT_BYTES),
+          readBoundedCanonicalJson(
+            this.replayMaterialPath,
+            MAX_REPLAY_MATERIAL_BYTES
+          ),
+        ]);
+    } catch {
+      throw new ReviewContextInspectionFailure(
+        ReviewContextInspectionFailureReason.GatewayOutputUnavailable
+      );
+    }
     const transcript = JSON.parse(
       rawTranscriptCanonicalJson
     ) as ContextGatewayTranscript;
@@ -306,8 +320,32 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
           .REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID!,
       eventChainSeedHash: this.serverSession.eventChainSeedHash,
     });
-    if (transcript.hadFailure || transcript.dependencies.length === 0) {
-      return null;
+    if (transcript.hadFailure) {
+      throw new ReviewContextInspectionFailure(
+        ReviewContextInspectionFailureReason.IncompleteTranscript
+      );
+    }
+    const expectedChangedPathsOperandsHash = sha256(
+      canonicalJson({
+        baseSha:
+          this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_BASE_SHA!,
+        headSha:
+          this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_HEAD_SHA!,
+      })
+    );
+    switch (
+      changedPathsWitnessStatus(transcript, expectedChangedPathsOperandsHash)
+    ) {
+      case ChangedPathsWitnessStatus.Missing:
+        throw new ReviewContextInspectionFailure(
+          ReviewContextInspectionFailureReason.MissingChangedPathsWitness
+        );
+      case ChangedPathsWitnessStatus.Invalid:
+        throw new ReviewContextInspectionFailure(
+          ReviewContextInspectionFailureReason.InvalidChangedPathsWitness
+        );
+      case ChangedPathsWitnessStatus.Present:
+        break;
     }
     const { transcriptCanonicalJson, replayMaterialCanonicalJson } =
       createWireSealPayload(transcript, replayMaterial);

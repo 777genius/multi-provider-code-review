@@ -14,8 +14,10 @@ import {
 import type { LifecycleTarget, PRContext, ReviewConfig } from '../../types';
 import { logger } from '../../utils/logger';
 import {
+  ReviewContextInspectionFailure,
   ReviewExecutionProviderKind,
   ReviewTaskKind,
+  RetryableReviewContextInspectionFailure,
   type PreparedReviewInvocation,
   type PreparedReviewInvocationPort,
   type ProviderInvocationManifestAssemblerPort,
@@ -335,10 +337,35 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: [],
+          qualityFlags: attestation
+            ? []
+            : [
+                'context_attestation_unavailable',
+                'cross_revision_reuse_disabled',
+              ],
           ...(attestation ? { contextDependencyAttestation: attestation } : {}),
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof ReviewContextInspectionFailure) {
+          const currentRevisionObservation = normalizeReviewObservation({
+            workSlotId: input.invocation.workSlotId,
+            attemptOrdinal: input.invocation.attemptOrdinal,
+            providerName: input.invocation.provider,
+            requestedModel: input.invocation.requestedModel,
+            result,
+            qualityFlags: [
+              'context_inspection_incomplete',
+              'cross_revision_reuse_disabled',
+            ],
+          });
+          logger.warn(
+            `Context inspection incomplete (${error.reason}); fresh evidence is not cross-revision reusable`
+          );
+          throw new RetryableReviewContextInspectionFailure(
+            error.reason,
+            currentRevisionObservation
+          );
+        }
         logger.warn(
           'Context attestation sealing failed; preserving fresh review as non-reusable'
         );
@@ -348,7 +375,10 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: ['provider_warning'],
+          qualityFlags: [
+            'context_attestation_unavailable',
+            'cross_revision_reuse_disabled',
+          ],
         });
       }
     } finally {

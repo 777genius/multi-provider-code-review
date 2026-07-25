@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import {
   ReviewEvidenceLookupKind,
+  ReviewContextInspectionFailureReason,
   ReviewExecutionProviderKind,
   ReviewInvocationFailureClass,
   ReviewOrchestrationResultStatus,
@@ -8,6 +9,7 @@ import {
   RestoredReviewExecutionState,
   RestoredReviewWorkSlotState,
   ReviewTaskKind,
+  RetryableReviewContextInspectionFailure,
   RunT0ReviewOrchestration,
   canonicalizeReviewWorkSlots,
   type ReviewActionV2ControlPlanePort,
@@ -342,6 +344,88 @@ describe('RunT0ReviewOrchestration', () => {
       }
     );
     expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a missing context witness within the existing attempt budget', async () => {
+    const fixture = createFixture({
+      executionProfile: 'context_gateway_v1',
+      maxAttempts: 2,
+    });
+    const fallback = {
+      ...observationPayload,
+      qualityFlags: [
+        'context_inspection_incomplete',
+        'cross_revision_reuse_disabled',
+      ],
+    };
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockRejectedValueOnce(
+        new RetryableReviewContextInspectionFailure(
+          ReviewContextInspectionFailureReason.MissingChangedPathsWitness,
+          fallback
+        )
+      )
+      .mockResolvedValueOnce(observationPayload);
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(2);
+    expect(
+      fixture.dependencies.invocationFailureClassifier.classify
+    ).toHaveBeenCalledTimes(1);
+    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({ observation: observationPayload })
+    );
+  });
+
+  it('preserves exhausted context inspection as current-revision-only evidence', async () => {
+    const fixture = createFixture({
+      executionProfile: 'context_gateway_v1',
+      maxAttempts: 2,
+    });
+    const fallback = {
+      ...observationPayload,
+      qualityFlags: [
+        'context_inspection_incomplete',
+        'cross_revision_reuse_disabled',
+      ],
+    };
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockRejectedValue(
+        new RetryableReviewContextInspectionFailure(
+          ReviewContextInspectionFailureReason.MissingChangedPathsWitness,
+          fallback
+        )
+      );
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(2);
+    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: expect.objectContaining({
+          qualityFlags: [
+            'context_inspection_incomplete',
+            'cross_revision_reuse_disabled',
+          ],
+        }),
+      })
+    );
+    const committedObservation =
+      fixture.controlPlane.commitEvidence.mock.calls[0][0].observation;
+    expect(committedObservation).not.toHaveProperty(
+      'contextDependencyAttestationId'
+    );
+    expect(committedObservation).not.toHaveProperty(
+      'contextDependencyAttestationHash'
+    );
+    expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
+      2
+    );
   });
 
   it('fails fast across the review when provider capacity is unavailable', async () => {
