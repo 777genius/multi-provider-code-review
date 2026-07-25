@@ -2,6 +2,7 @@ import type { ReviewObservationPayload } from './review-orchestration-ports';
 
 export enum ReviewContextInspectionFailureReason {
   MissingChangedPathsWitness = 'missing_changed_paths_witness',
+  MissingProviderInspection = 'missing_provider_inspection',
   InvalidChangedPathsWitness = 'invalid_changed_paths_witness',
   IncompleteTranscript = 'incomplete_transcript',
   GatewayOutputUnavailable = 'gateway_output_unavailable',
