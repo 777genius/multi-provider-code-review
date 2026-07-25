@@ -14052,6 +14052,7 @@ function isRecord(value) {
 }
 
 // src/context-gateway/context-gateway-recorder.ts
+var MAX_RECORDER_STATE_BYTES = 512 * 1024;
 var ContextGatewayRecorder = class {
   constructor(config2) {
     this.config = config2;
@@ -14088,6 +14089,25 @@ var ContextGatewayRecorder = class {
       throw new Error("context_gateway_recorder_already_initialized");
     }
     await this.flush();
+  }
+  async resume() {
+    if (this.dependencies.length > 0 || this.replayEntries.length > 0) {
+      throw new Error("context_gateway_recorder_already_active");
+    }
+    const [transcriptRaw, replayRaw] = await Promise.all([
+      readBoundedState(this.config.transcriptPath),
+      readBoundedState(this.config.replayMaterialPath)
+    ]);
+    const transcript = parseCanonicalState(
+      transcriptRaw,
+      "transcript"
+    );
+    const replay = parseCanonicalState(
+      replayRaw,
+      "replay_material"
+    );
+    this.restoreTranscript(transcript);
+    this.restoreReplayMaterial(replay);
   }
   async record(operation, result, replayQuery) {
     if (this.dependencies.length >= CONTEXT_GATEWAY_MAX_OPERATIONS) {
@@ -14166,6 +14186,60 @@ var ContextGatewayRecorder = class {
   snapshotDependencies() {
     return Object.freeze([...this.dependencies]);
   }
+  restoreTranscript(transcript) {
+    if (transcript.transcriptVersion !== 1 || transcript.sessionId !== this.config.sessionId || transcript.gatewayPolicyVersion !== CONTEXT_GATEWAY_POLICY_VERSION || transcript.gatewayBinaryHash !== this.config.gatewayBinaryHash || transcript.checkoutTreeOid !== this.config.checkoutTreeOid || transcript.eventChainSeedHash !== this.config.eventChainSeedHash || typeof transcript.hadFailure !== "boolean" || !Number.isSafeInteger(transcript.updatedAtMs) || transcript.updatedAtMs < 0 || !Array.isArray(transcript.dependencies) || transcript.dependencies.length > CONTEXT_GATEWAY_MAX_OPERATIONS) {
+      throw new Error("context_gateway_recorder_transcript_identity_invalid");
+    }
+    let previousEventHash = this.config.eventChainSeedHash;
+    for (let index = 0; index < transcript.dependencies.length; index += 1) {
+      const entry = transcript.dependencies[index];
+      if (!entry || entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha256(canonicalJson(entry.operation)) || entry.eventHash !== keyedSha256(
+        this.config.secret,
+        canonicalizeReviewContextGatewayEvent({
+          sessionId: this.config.sessionId,
+          sequence: entry.sequence,
+          previousEventHash: entry.previousEventHash,
+          operationKey: entry.operationKey,
+          operation: entry.operation,
+          result: entry.result
+        })
+      ) || typeof entry.result?.complete !== "boolean" || typeof entry.result?.truncated !== "boolean") {
+        throw new Error("context_gateway_recorder_transcript_chain_invalid");
+      }
+      this.dependencies.push(Object.freeze(entry));
+      previousEventHash = entry.eventHash;
+    }
+    if (transcript.authenticatedChainHash !== previousEventHash || this.dependencies.some(
+      (entry) => entry.result.complete !== true || entry.result.truncated !== false
+    ) && !transcript.hadFailure) {
+      throw new Error("context_gateway_recorder_transcript_state_invalid");
+    }
+    this.hadFailure = transcript.hadFailure;
+  }
+  restoreReplayMaterial(replay) {
+    if (replay.replayMaterialVersion !== 1 || replay.sessionId !== this.config.sessionId || !Array.isArray(replay.entries) || replay.entries.length > this.dependencies.length) {
+      throw new Error("context_gateway_recorder_replay_identity_invalid");
+    }
+    for (const entry of replay.entries) {
+      if (!entry || entry.kind !== "text_search" || typeof entry.query !== "string" || !/^[a-f0-9]{64}$/u.test(entry.operationKey) || !/^[a-f0-9]{64}$/u.test(entry.replayHandle)) {
+        throw new Error("context_gateway_recorder_replay_entry_invalid");
+      }
+      const matchingDependency = this.dependencies.find(
+        (dependency) => dependency.operationKey === entry.operationKey && dependency.operation.kind === "text_search" && entry.replayHandle === keyedSha256(
+          this.config.secret,
+          canonicalizeReviewContextReplayHandle({
+            sessionId: this.config.sessionId,
+            sequence: dependency.sequence,
+            query: entry.query
+          })
+        )
+      );
+      if (!matchingDependency) {
+        throw new Error("context_gateway_recorder_replay_chain_invalid");
+      }
+      this.replayEntries.push(Object.freeze(entry));
+    }
+  }
   async flush() {
     const transcript = Object.freeze({
       transcriptVersion: 1,
@@ -14190,6 +14264,25 @@ var ContextGatewayRecorder = class {
     ]);
   }
 };
+async function readBoundedState(file) {
+  const value = await (0, import_promises.readFile)(file, "utf8");
+  if (value.length < 2 || Buffer.byteLength(value, "utf8") > MAX_RECORDER_STATE_BYTES) {
+    throw new Error("context_gateway_recorder_state_size_invalid");
+  }
+  return value;
+}
+function parseCanonicalState(raw, kind) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`context_gateway_recorder_${kind}_json_invalid`);
+  }
+  if (canonicalJson(parsed) !== raw) {
+    throw new Error(`context_gateway_recorder_${kind}_canonical_invalid`);
+  }
+  return parsed;
+}
 async function atomicPrivateWrite(target, content) {
   await (0, import_promises.mkdir)(path.dirname(target), { recursive: true, mode: 448 });
   const temporary = `${target}.${process.pid}.${(0, import_crypto2.randomBytes)(6).toString("hex")}.tmp`;
@@ -14669,6 +14762,7 @@ async function captureRequiredContextWitness(gateway) {
 // src/context-gateway/stdio-entry.ts
 async function main() {
   const config2 = readConfig();
+  const preflightOnly = readMode(process.argv.slice(2));
   const recorder = new ContextGatewayRecorder({
     sessionId: config2.sessionId,
     transcriptPath: config2.transcriptPath,
@@ -14678,7 +14772,11 @@ async function main() {
     checkoutTreeOid: config2.checkoutTreeOid,
     eventChainSeedHash: config2.eventChainSeedHash
   });
-  await recorder.initialize();
+  if (preflightOnly) {
+    await recorder.initialize();
+  } else {
+    await recorder.resume();
+  }
   const gateway = await FilesystemContextGateway.create({
     root: config2.root,
     checkoutTreeOid: config2.checkoutTreeOid,
@@ -14686,7 +14784,10 @@ async function main() {
     headSha: config2.headSha,
     recorder
   });
-  await captureRequiredContextWitness(gateway);
+  if (preflightOnly) {
+    await captureRequiredContextWitness(gateway);
+    return;
+  }
   const server = new Server(
     {
       name: "reviewrouter-context-gateway",
@@ -14737,6 +14838,11 @@ async function main() {
     }
   });
   await server.connect(new StdioServerTransport());
+}
+function readMode(args) {
+  if (args.length === 0) return false;
+  if (args.length === 1 && args[0] === "--preflight") return true;
+  throw new Error("context_gateway_mode_invalid");
 }
 function response(value) {
   return {

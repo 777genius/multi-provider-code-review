@@ -77,6 +77,41 @@ export interface ContextGatewayInvocationSessionFactoryPort {
   ): Promise<ContextGatewayInvocationSessionPort>;
 }
 
+export interface RequiredContextWitnessRunnerPort {
+  capture(input: {
+    readonly gatewayBundlePath: string;
+    readonly checkoutRoot: string;
+    readonly runtimeEnvironment: Readonly<Record<string, string | undefined>>;
+    readonly gatewaySessionSecret: string;
+  }): Promise<void>;
+}
+
+export class SubprocessRequiredContextWitnessRunner implements RequiredContextWitnessRunnerPort {
+  async capture(input: {
+    readonly gatewayBundlePath: string;
+    readonly checkoutRoot: string;
+    readonly runtimeEnvironment: Readonly<Record<string, string | undefined>>;
+    readonly gatewaySessionSecret: string;
+  }): Promise<void> {
+    await execFileAsync(
+      process.execPath,
+      [input.gatewayBundlePath, '--preflight'],
+      {
+        cwd: input.checkoutRoot,
+        env: {
+          PATH: process.env.PATH,
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+          ...input.runtimeEnvironment,
+          REVIEWROUTER_CONTEXT_GATEWAY_SECRET: input.gatewaySessionSecret,
+        },
+        timeout: 45_000,
+        maxBuffer: 64 * 1024,
+      }
+    );
+  }
+}
+
 export class ContextGatewayInvocationSessionFactory implements ContextGatewayInvocationSessionFactoryPort {
   private gatewayBundleSnapshotPromise: Promise<Buffer> | undefined;
   private checkoutTreeOidPromise: Promise<string> | undefined;
@@ -86,7 +121,8 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     private readonly options: Readonly<{
       checkoutRoot: string;
       gatewayBundlePath: string;
-    }>
+    }>,
+    private readonly requiredWitnessRunner: RequiredContextWitnessRunnerPort
   ) {
     if (
       !path.isAbsolute(options.checkoutRoot) ||
@@ -188,6 +224,18 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       replayMaterialPath,
       gatewayBundlePath,
     });
+    try {
+      await this.requiredWitnessRunner.capture({
+        gatewayBundlePath,
+        checkoutRoot: this.options.checkoutRoot,
+        runtimeEnvironment: providerConfig.runtimeEnvironment,
+        gatewaySessionSecret: serverSession.gatewaySessionSecret,
+      });
+    } catch (error) {
+      secret.fill(0);
+      await rm(directory, { recursive: true, force: true });
+      throw error;
+    }
     return new ContextGatewayInvocationSession(
       this.attestations,
       input.invocationLease,

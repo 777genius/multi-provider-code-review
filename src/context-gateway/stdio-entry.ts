@@ -17,6 +17,7 @@ import { captureRequiredContextWitness } from './required-context-witness';
 
 async function main(): Promise<void> {
   const config = readConfig();
+  const preflightOnly = readMode(process.argv.slice(2));
   const recorder = new ContextGatewayRecorder({
     sessionId: config.sessionId,
     transcriptPath: config.transcriptPath,
@@ -26,7 +27,11 @@ async function main(): Promise<void> {
     checkoutTreeOid: config.checkoutTreeOid,
     eventChainSeedHash: config.eventChainSeedHash,
   });
-  await recorder.initialize();
+  if (preflightOnly) {
+    await recorder.initialize();
+  } else {
+    await recorder.resume();
+  }
   const gateway = await FilesystemContextGateway.create({
     root: config.root,
     checkoutTreeOid: config.checkoutTreeOid,
@@ -34,7 +39,10 @@ async function main(): Promise<void> {
     headSha: config.headSha,
     recorder,
   });
-  await captureRequiredContextWitness(gateway);
+  if (preflightOnly) {
+    await captureRequiredContextWitness(gateway);
+    return;
+  }
   const server = new Server(
     {
       name: 'reviewrouter-context-gateway',
@@ -88,6 +96,12 @@ async function main(): Promise<void> {
   });
 
   await server.connect(new StdioServerTransport());
+}
+
+function readMode(args: readonly string[]): boolean {
+  if (args.length === 0) return false;
+  if (args.length === 1 && args[0] === '--preflight') return true;
+  throw new Error('context_gateway_mode_invalid');
 }
 
 function response(value: unknown) {

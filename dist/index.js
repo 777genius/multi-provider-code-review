@@ -75011,10 +75011,31 @@ var ENABLED_TOOLS = Object.freeze([
   "review_search_text",
   "review_git_fact"
 ]);
+var SubprocessRequiredContextWitnessRunner = class {
+  async capture(input) {
+    await execFileAsync2(
+      process.execPath,
+      [input.gatewayBundlePath, "--preflight"],
+      {
+        cwd: input.checkoutRoot,
+        env: {
+          PATH: process.env.PATH,
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          ...input.runtimeEnvironment,
+          REVIEWROUTER_CONTEXT_GATEWAY_SECRET: input.gatewaySessionSecret
+        },
+        timeout: 45e3,
+        maxBuffer: 64 * 1024
+      }
+    );
+  }
+};
 var ContextGatewayInvocationSessionFactory = class {
-  constructor(attestations, options) {
+  constructor(attestations, options, requiredWitnessRunner) {
     this.attestations = attestations;
     this.options = options;
+    this.requiredWitnessRunner = requiredWitnessRunner;
     if (!path19.isAbsolute(options.checkoutRoot) || !path19.isAbsolute(options.gatewayBundlePath)) {
       throw new Error("context_gateway_factory_path_invalid");
     }
@@ -75108,6 +75129,18 @@ var ContextGatewayInvocationSessionFactory = class {
       replayMaterialPath,
       gatewayBundlePath
     });
+    try {
+      await this.requiredWitnessRunner.capture({
+        gatewayBundlePath,
+        checkoutRoot: this.options.checkoutRoot,
+        runtimeEnvironment: providerConfig.runtimeEnvironment,
+        gatewaySessionSecret: serverSession.gatewaySessionSecret
+      });
+    } catch (error2) {
+      secret.fill(0);
+      await (0, import_promises.rm)(directory, { recursive: true, force: true });
+      throw error2;
+    }
     return new ContextGatewayInvocationSession(
       this.attestations,
       input.invocationLease,
@@ -75378,6 +75411,7 @@ var import_util8 = require("util");
 var import_crypto25 = require("crypto");
 var import_promises2 = require("fs/promises");
 var path20 = __toESM(require("path"));
+var MAX_RECORDER_STATE_BYTES = 512 * 1024;
 var ContextGatewayRecorder = class {
   constructor(config) {
     this.config = config;
@@ -75414,6 +75448,25 @@ var ContextGatewayRecorder = class {
       throw new Error("context_gateway_recorder_already_initialized");
     }
     await this.flush();
+  }
+  async resume() {
+    if (this.dependencies.length > 0 || this.replayEntries.length > 0) {
+      throw new Error("context_gateway_recorder_already_active");
+    }
+    const [transcriptRaw, replayRaw] = await Promise.all([
+      readBoundedState(this.config.transcriptPath),
+      readBoundedState(this.config.replayMaterialPath)
+    ]);
+    const transcript = parseCanonicalState(
+      transcriptRaw,
+      "transcript"
+    );
+    const replay = parseCanonicalState(
+      replayRaw,
+      "replay_material"
+    );
+    this.restoreTranscript(transcript);
+    this.restoreReplayMaterial(replay);
   }
   async record(operation, result, replayQuery) {
     if (this.dependencies.length >= CONTEXT_GATEWAY_MAX_OPERATIONS) {
@@ -75492,6 +75545,60 @@ var ContextGatewayRecorder = class {
   snapshotDependencies() {
     return Object.freeze([...this.dependencies]);
   }
+  restoreTranscript(transcript) {
+    if (transcript.transcriptVersion !== 1 || transcript.sessionId !== this.config.sessionId || transcript.gatewayPolicyVersion !== CONTEXT_GATEWAY_POLICY_VERSION || transcript.gatewayBinaryHash !== this.config.gatewayBinaryHash || transcript.checkoutTreeOid !== this.config.checkoutTreeOid || transcript.eventChainSeedHash !== this.config.eventChainSeedHash || typeof transcript.hadFailure !== "boolean" || !Number.isSafeInteger(transcript.updatedAtMs) || transcript.updatedAtMs < 0 || !Array.isArray(transcript.dependencies) || transcript.dependencies.length > CONTEXT_GATEWAY_MAX_OPERATIONS) {
+      throw new Error("context_gateway_recorder_transcript_identity_invalid");
+    }
+    let previousEventHash = this.config.eventChainSeedHash;
+    for (let index = 0; index < transcript.dependencies.length; index += 1) {
+      const entry = transcript.dependencies[index];
+      if (!entry || entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha25610(canonicalJson9(entry.operation)) || entry.eventHash !== keyedSha256(
+        this.config.secret,
+        canonicalizeReviewContextGatewayEvent({
+          sessionId: this.config.sessionId,
+          sequence: entry.sequence,
+          previousEventHash: entry.previousEventHash,
+          operationKey: entry.operationKey,
+          operation: entry.operation,
+          result: entry.result
+        })
+      ) || typeof entry.result?.complete !== "boolean" || typeof entry.result?.truncated !== "boolean") {
+        throw new Error("context_gateway_recorder_transcript_chain_invalid");
+      }
+      this.dependencies.push(Object.freeze(entry));
+      previousEventHash = entry.eventHash;
+    }
+    if (transcript.authenticatedChainHash !== previousEventHash || this.dependencies.some(
+      (entry) => entry.result.complete !== true || entry.result.truncated !== false
+    ) && !transcript.hadFailure) {
+      throw new Error("context_gateway_recorder_transcript_state_invalid");
+    }
+    this.hadFailure = transcript.hadFailure;
+  }
+  restoreReplayMaterial(replay) {
+    if (replay.replayMaterialVersion !== 1 || replay.sessionId !== this.config.sessionId || !Array.isArray(replay.entries) || replay.entries.length > this.dependencies.length) {
+      throw new Error("context_gateway_recorder_replay_identity_invalid");
+    }
+    for (const entry of replay.entries) {
+      if (!entry || entry.kind !== "text_search" || typeof entry.query !== "string" || !/^[a-f0-9]{64}$/u.test(entry.operationKey) || !/^[a-f0-9]{64}$/u.test(entry.replayHandle)) {
+        throw new Error("context_gateway_recorder_replay_entry_invalid");
+      }
+      const matchingDependency = this.dependencies.find(
+        (dependency) => dependency.operationKey === entry.operationKey && dependency.operation.kind === "text_search" && entry.replayHandle === keyedSha256(
+          this.config.secret,
+          canonicalizeReviewContextReplayHandle({
+            sessionId: this.config.sessionId,
+            sequence: dependency.sequence,
+            query: entry.query
+          })
+        )
+      );
+      if (!matchingDependency) {
+        throw new Error("context_gateway_recorder_replay_chain_invalid");
+      }
+      this.replayEntries.push(Object.freeze(entry));
+    }
+  }
   async flush() {
     const transcript = Object.freeze({
       transcriptVersion: 1,
@@ -75516,6 +75623,25 @@ var ContextGatewayRecorder = class {
     ]);
   }
 };
+async function readBoundedState(file) {
+  const value = await (0, import_promises2.readFile)(file, "utf8");
+  if (value.length < 2 || Buffer.byteLength(value, "utf8") > MAX_RECORDER_STATE_BYTES) {
+    throw new Error("context_gateway_recorder_state_size_invalid");
+  }
+  return value;
+}
+function parseCanonicalState(raw, kind) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`context_gateway_recorder_${kind}_json_invalid`);
+  }
+  if (canonicalJson9(parsed) !== raw) {
+    throw new Error(`context_gateway_recorder_${kind}_canonical_invalid`);
+  }
+  return parsed;
+}
 async function atomicPrivateWrite(target, content) {
   await (0, import_promises2.mkdir)(path20.dirname(target), { recursive: true, mode: 448 });
   const temporary = `${target}.${process.pid}.${(0, import_crypto25.randomBytes)(6).toString("hex")}.tmp`;
@@ -79297,10 +79423,14 @@ var ProductionT0ReviewRunner = class {
       process.env.REVIEWROUTER_RUNTIME_CONFIG_VERSION
     );
     const gatewayBundlePath = resolveContextGatewayBundlePath();
-    const contextGateway = agenticContext ? new ContextGatewayInvocationSessionFactory(controlPlane, {
-      checkoutRoot: path23.resolve(input.workspacePath),
-      gatewayBundlePath
-    }) : void 0;
+    const contextGateway = agenticContext ? new ContextGatewayInvocationSessionFactory(
+      controlPlane,
+      {
+        checkoutRoot: path23.resolve(input.workspacePath),
+        gatewayBundlePath
+      },
+      new SubprocessRequiredContextWitnessRunner()
+    ) : void 0;
     const planned = planAssignments({
       authorization,
       pr: pr2,

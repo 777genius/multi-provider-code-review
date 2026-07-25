@@ -16,7 +16,10 @@ import {
   ReviewContextInspectionFailureReason,
   type ReviewContextAttestationPort,
 } from '../../../src/review-orchestration/application';
-import { ContextGatewayInvocationSessionFactory } from '../../../src/review-orchestration/infrastructure/context-gateway-invocation-session';
+import {
+  ContextGatewayInvocationSessionFactory,
+  type RequiredContextWitnessRunnerPort,
+} from '../../../src/review-orchestration/infrastructure/context-gateway-invocation-session';
 
 const execFileAsync = promisify(execFile);
 
@@ -71,6 +74,12 @@ describe('ContextGatewayInvocationSessionFactory', () => {
       expect(fixture.session.providerConfig.gatewayBinaryHash).toBe(
         fixture.gatewayHash
       );
+      expect(fixture.requiredWitnessRunner.capture).toHaveBeenCalledWith({
+        gatewayBundlePath: fixture.session.providerConfig.args[0],
+        checkoutRoot: fixture.checkoutRoot,
+        runtimeEnvironment: fixture.session.providerConfig.runtimeEnvironment,
+        gatewaySessionSecret: fixture.serverSession.gatewaySessionSecret,
+      });
       expect(
         await readFile(fixture.session.providerConfig.args[0], 'utf8')
       ).toBe('gateway-v1\n');
@@ -271,9 +280,13 @@ async function openSessionFixture() {
     }),
     commitContextReplay: jest.fn(),
   };
+  const requiredWitnessRunner = {
+    capture: jest.fn().mockResolvedValue(undefined),
+  };
   const factory = new ContextGatewayInvocationSessionFactory(
     attestations as unknown as ReviewContextAttestationPort,
-    { checkoutRoot, gatewayBundlePath }
+    { checkoutRoot, gatewayBundlePath },
+    requiredWitnessRunner as RequiredContextWitnessRunnerPort
   );
   const revision = {
     baseSha: (await git(checkoutRoot, ['rev-parse', 'HEAD'])).trim(),
@@ -312,6 +325,7 @@ async function openSessionFixture() {
     gatewayHash,
     invocationLease,
     planningGatewayHash: planning.gatewayBinaryHash,
+    requiredWitnessRunner,
     revision,
     secret,
     serverSession,
