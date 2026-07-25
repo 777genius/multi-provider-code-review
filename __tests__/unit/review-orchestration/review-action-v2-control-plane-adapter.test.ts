@@ -1,6 +1,11 @@
 import { createHash } from 'crypto';
-import { ReviewActionV2Client } from '../../../src/control-plane/review-action-v2-client';
 import {
+  ReviewActionV2Client,
+  ReviewActionV2ClientError,
+  ReviewActionV2ClientFailureCode,
+} from '../../../src/control-plane/review-action-v2-client';
+import {
+  ReviewActionV2ProtocolErrorCode,
   ReviewEvidenceLookupResultStatus,
   ReviewEvidenceCommitResultStatus,
   ReviewActionV2OperationId,
@@ -585,6 +590,42 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         contextDependencyAttestationId: attestationId,
         contextDependencyAttestationHash: attestationHash,
       })
+    );
+  });
+
+  it('translates evidence protocol failures into safe actionable codes', async () => {
+    const execute = jest.fn().mockRejectedValue(
+      new ReviewActionV2ClientError(
+        ReviewActionV2ClientFailureCode.ProtocolError,
+        ReviewActionV2OperationId.ReviewEvidenceCommit,
+        {
+          httpStatus: 422,
+          protocolErrorCode: ReviewActionV2ProtocolErrorCode.InvalidRequest,
+          issues: ['payload_hash_mismatch'],
+        }
+      )
+    );
+
+    await expect(
+      createAdapter(execute).commitEvidence({
+        authorization,
+        idempotencyKey: 'idem:commit:diagnostic',
+        lease: baseLease,
+        ownerIdHash: hash('owner'),
+        observation: {
+          payloadCanonicalJson: '{"findings":[]}',
+          payloadHash: hash('{"findings":[]}'),
+          byteCount: 15,
+          findingCount: 0,
+          actualModel: 'gpt-test',
+          qualityFlags: [],
+          transportAttemptCount: 1,
+          schemaValidated: true,
+          fullyConsumed: true,
+        },
+      })
+    ).rejects.toThrow(
+      'review_action_v2:review_evidence_commit:invalid_request:payload_hash_mismatch'
     );
   });
 
