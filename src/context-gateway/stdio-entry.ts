@@ -25,6 +25,7 @@ async function main(): Promise<void> {
     checkoutTreeOid: config.checkoutTreeOid,
     eventChainSeedHash: config.eventChainSeedHash,
   });
+  await recorder.initialize();
   const gateway = await FilesystemContextGateway.create({
     root: config.root,
     checkoutTreeOid: config.checkoutTreeOid,

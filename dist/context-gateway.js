@@ -14062,6 +14062,9 @@ var ContextGatewayRecorder = class {
   dependencies = [];
   replayEntries = [];
   hadFailure = false;
+  async initialize() {
+    await this.flush();
+  }
   async record(operation, result, replayQuery) {
     if (this.dependencies.length >= CONTEXT_GATEWAY_MAX_OPERATIONS) {
       await this.recordFailure();
@@ -14641,6 +14644,7 @@ async function main() {
     checkoutTreeOid: config2.checkoutTreeOid,
     eventChainSeedHash: config2.eventChainSeedHash
   });
+  await recorder.initialize();
   const gateway = await FilesystemContextGateway.create({
     root: config2.root,
     checkoutTreeOid: config2.checkoutTreeOid,
