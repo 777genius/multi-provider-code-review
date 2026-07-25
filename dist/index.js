@@ -78470,24 +78470,30 @@ var ReviewActionV2ControlPlaneAdapter = class {
     };
   }
   async finalizeExecution(input) {
-    const result = await this.client.execute(
-      "review_execution_finalize" /* ReviewExecutionFinalize */,
-      {
-        authorizationToken: input.authorization.authorizationToken,
-        idempotencyKey: input.idempotencyKey,
-        executionId: input.execution.executionId,
-        expectedStreamVersion: input.execution.streamVersion,
-        expectedExecutionVersion: input.execution.executionVersion,
-        artifactId: input.projection.artifactId,
-        artifactHash: input.projection.artifactHash,
-        projectionEnvelopeVersion: input.projection.projectionEnvelopeVersion,
-        projectionEnvelopeCanonicalJson: input.projection.projectionEnvelopeCanonicalJson,
-        projectionHash: input.projection.projectionHash,
-        lifecycleStateHash: input.projection.lifecycleStateHash,
-        commandLedgerWatermark: input.projection.commandLedgerWatermark,
-        allowPartial: input.allowPartial
+    const result = await (async () => {
+      try {
+        return await this.client.execute(
+          "review_execution_finalize" /* ReviewExecutionFinalize */,
+          {
+            authorizationToken: input.authorization.authorizationToken,
+            idempotencyKey: input.idempotencyKey,
+            executionId: input.execution.executionId,
+            expectedStreamVersion: input.execution.streamVersion,
+            expectedExecutionVersion: input.execution.executionVersion,
+            artifactId: input.projection.artifactId,
+            artifactHash: input.projection.artifactHash,
+            projectionEnvelopeVersion: input.projection.projectionEnvelopeVersion,
+            projectionEnvelopeCanonicalJson: input.projection.projectionEnvelopeCanonicalJson,
+            projectionHash: input.projection.projectionHash,
+            lifecycleStateHash: input.projection.lifecycleStateHash,
+            commandLedgerWatermark: input.projection.commandLedgerWatermark,
+            allowPartial: input.allowPartial
+          }
+        );
+      } catch (error2) {
+        throw controlPlaneFailure(error2);
       }
-    );
+    })();
     requireMutationApplied(result.status, "execution_finalize");
     return {
       publicationPermit: requireString2(

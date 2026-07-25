@@ -630,6 +630,46 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     );
   });
 
+  it('translates finalize protocol failures into safe actionable codes', async () => {
+    const execute = jest.fn().mockRejectedValue(
+      new ReviewActionV2ClientError(
+        ReviewActionV2ClientFailureCode.ProtocolError,
+        ReviewActionV2OperationId.ReviewExecutionFinalize,
+        {
+          httpStatus: 422,
+          protocolErrorCode: ReviewActionV2ProtocolErrorCode.InvariantViolation,
+          issues: ['artifact_hash_mismatch'],
+        }
+      )
+    );
+    const projectionEnvelopeCanonicalJson = '{"findings":[]}';
+
+    await expect(
+      createAdapter(execute).finalizeExecution({
+        authorization,
+        idempotencyKey: 'idem:finalize:diagnostic',
+        execution,
+        projection: {
+          artifactId: 'artifact-1',
+          artifactHash: hash('artifact'),
+          projectionEnvelopeVersion: 1,
+          projectionEnvelopeCanonicalJson,
+          projectionHash: hash(projectionEnvelopeCanonicalJson),
+          lifecycleStateHash: hash('lifecycle'),
+          commandLedgerWatermark: '0',
+          operationsCanonicalJson: '[]',
+          findingCount: 0,
+          publicationOperationCount: 0,
+          publicationChunkCount: 0,
+          coverageComplete: true,
+        },
+        allowPartial: false,
+      })
+    ).rejects.toThrow(
+      'review_action_v2:review_execution_finalize:invariant_violation:artifact_hash_mismatch'
+    );
+  });
+
   it('adopts same-execution evidence with exact source and response identities', async () => {
     const observation = acceptedObservation();
     const source = {
