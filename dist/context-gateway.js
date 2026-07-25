@@ -14063,6 +14063,30 @@ var ContextGatewayRecorder = class {
   replayEntries = [];
   hadFailure = false;
   async initialize() {
+    await Promise.all([
+      (0, import_promises.mkdir)(path.dirname(this.config.transcriptPath), {
+        recursive: true,
+        mode: 448
+      }),
+      (0, import_promises.mkdir)(path.dirname(this.config.replayMaterialPath), {
+        recursive: true,
+        mode: 448
+      })
+    ]);
+    try {
+      await (0, import_promises.writeFile)(this.config.transcriptPath, "", {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 384
+      });
+      await (0, import_promises.writeFile)(this.config.replayMaterialPath, "", {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 384
+      });
+    } catch {
+      throw new Error("context_gateway_recorder_already_initialized");
+    }
     await this.flush();
   }
   async record(operation, result, replayQuery) {
@@ -14632,6 +14656,16 @@ function boundedInteger(value, minimum, maximum, field) {
   return value;
 }
 
+// src/context-gateway/required-context-witness.ts
+async function captureRequiredContextWitness(gateway) {
+  try {
+    await gateway.gitFact({ fact: "changed_paths" });
+    return "captured" /* Captured */;
+  } catch {
+    return "unavailable" /* Unavailable */;
+  }
+}
+
 // src/context-gateway/stdio-entry.ts
 async function main() {
   const config2 = readConfig();
@@ -14652,6 +14686,7 @@ async function main() {
     headSha: config2.headSha,
     recorder
   });
+  await captureRequiredContextWitness(gateway);
   const server = new Server(
     {
       name: "reviewrouter-context-gateway",

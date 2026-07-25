@@ -22361,7 +22361,7 @@ var CodexProvider = class _CodexProvider extends Provider {
         "-c",
         "mcp_servers.reviewrouter.required=true",
         "-c",
-        "mcp_servers.reviewrouter.startup_timeout_sec=15",
+        "mcp_servers.reviewrouter.startup_timeout_sec=45",
         "-c",
         "mcp_servers.reviewrouter.tool_timeout_sec=30",
         "-c",
@@ -22674,7 +22674,6 @@ var CodexProvider = class _CodexProvider extends Provider {
       "- review_list_directory",
       "- review_search_text",
       "- review_git_fact",
-      'Before returning the final JSON, you MUST call review_git_fact with fact="changed_paths" at least once.',
       "Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.",
       "Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.",
       "Use repository-relative paths only. Only report concrete bugs on changed lines.",
@@ -75390,6 +75389,30 @@ var ContextGatewayRecorder = class {
   replayEntries = [];
   hadFailure = false;
   async initialize() {
+    await Promise.all([
+      (0, import_promises2.mkdir)(path20.dirname(this.config.transcriptPath), {
+        recursive: true,
+        mode: 448
+      }),
+      (0, import_promises2.mkdir)(path20.dirname(this.config.replayMaterialPath), {
+        recursive: true,
+        mode: 448
+      })
+    ]);
+    try {
+      await (0, import_promises2.writeFile)(this.config.transcriptPath, "", {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 384
+      });
+      await (0, import_promises2.writeFile)(this.config.replayMaterialPath, "", {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 384
+      });
+    } catch {
+      throw new Error("context_gateway_recorder_already_initialized");
+    }
     await this.flush();
   }
   async record(operation, result, replayQuery) {

@@ -43,6 +43,30 @@ export class ContextGatewayRecorder {
   }
 
   async initialize(): Promise<void> {
+    await Promise.all([
+      mkdir(path.dirname(this.config.transcriptPath), {
+        recursive: true,
+        mode: 0o700,
+      }),
+      mkdir(path.dirname(this.config.replayMaterialPath), {
+        recursive: true,
+        mode: 0o700,
+      }),
+    ]);
+    try {
+      await writeFile(this.config.transcriptPath, '', {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600,
+      });
+      await writeFile(this.config.replayMaterialPath, '', {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600,
+      });
+    } catch {
+      throw new Error('context_gateway_recorder_already_initialized');
+    }
     await this.flush();
   }
 
