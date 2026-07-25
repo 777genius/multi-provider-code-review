@@ -22674,7 +22674,8 @@ var CodexProvider = class _CodexProvider extends Provider {
       "- review_list_directory",
       "- review_search_text",
       "- review_git_fact",
-      "Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.",
+      "Before returning final JSON, you MUST call at least one ReviewRouter MCP tool to inspect repository context beyond the deterministic prompt.",
+      "Inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.",
       "Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.",
       "Use repository-relative paths only. Only report concrete bugs on changed lines.",
       "",
@@ -74750,10 +74751,10 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
         result,
         qualityFlags: result.actualModel ? [] : ["provider_warning"]
       });
-      if (!result.actualModel) return initial;
+      const providerQualityFlags = result.actualModel ? [] : ["provider_warning"];
       try {
         const attestation = await session.seal({
-          actualModel: result.actualModel,
+          actualModel: result.actualModel ?? input.invocation.requestedModel,
           terminalOutcomeHash: initial.payloadHash
         });
         return normalizeReviewObservation({
@@ -74762,7 +74763,8 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: attestation ? [] : [
+          qualityFlags: attestation ? providerQualityFlags : [
+            ...providerQualityFlags,
             "context_attestation_unavailable",
             "cross_revision_reuse_disabled"
           ],
@@ -74777,6 +74779,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             requestedModel: input.invocation.requestedModel,
             result,
             qualityFlags: [
+              ...providerQualityFlags,
               "context_inspection_incomplete",
               "cross_revision_reuse_disabled"
             ]
@@ -74799,6 +74802,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           requestedModel: input.invocation.requestedModel,
           result,
           qualityFlags: [
+            ...providerQualityFlags,
             "context_attestation_unavailable",
             "cross_revision_reuse_disabled"
           ]
@@ -75327,6 +75331,11 @@ var ContextGatewayInvocationSession = class {
         );
       case "present" /* Present */:
         break;
+    }
+    if (transcript.dependencies.length < 2) {
+      throw new ReviewContextInspectionFailure(
+        "missing_provider_inspection" /* MissingProviderInspection */
+      );
     }
     const { transcriptCanonicalJson, replayMaterialCanonicalJson } = createWireSealPayload(transcript, replayMaterial);
     return this.attestations.sealGatewaySession({
