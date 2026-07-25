@@ -747,16 +747,22 @@ export class ReviewActionV2ControlPlaneAdapter
   async requestPublication(
     input: Parameters<ReviewActionV2ControlPlanePort['requestPublication']>[0]
   ): ReturnType<ReviewActionV2ControlPlanePort['requestPublication']> {
-    const result = await this.client.execute(
-      ReviewActionV2OperationId.ReviewPublicationRequest,
-      {
-        authorizationToken: input.authorization.authorizationToken,
-        idempotencyKey: input.idempotencyKey,
-        publicationPermit: input.publicationPermit,
-        projectionHash: input.projection.projectionHash,
-        operationsCanonicalJson: input.projection.operationsCanonicalJson,
+    const result = await (async () => {
+      try {
+        return await this.client.execute(
+          ReviewActionV2OperationId.ReviewPublicationRequest,
+          {
+            authorizationToken: input.authorization.authorizationToken,
+            idempotencyKey: input.idempotencyKey,
+            publicationPermit: input.publicationPermit,
+            projectionHash: input.projection.projectionHash,
+            operationsCanonicalJson: input.projection.operationsCanonicalJson,
+          }
+        );
+      } catch (error) {
+        throw controlPlaneFailure(error);
       }
-    );
+    })();
     if (
       result.status !== ReviewPublicationRequestResultStatus.Accepted &&
       result.status !== ReviewPublicationRequestResultStatus.Restored
@@ -808,6 +814,14 @@ export class ReviewActionV2ControlPlaneAdapter
   }
 }
 
+const SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = new Set([
+  'artifact_hash_mismatch',
+  'payload_hash_mismatch',
+  'projection_authority_mismatch',
+  'publication_permit_authority_mismatch',
+  'publication_release_or_limits_invalid',
+]);
+
 function controlPlaneFailure(error: unknown): Error {
   if (!(error instanceof ReviewActionV2ClientError)) {
     return error instanceof Error
@@ -817,7 +831,7 @@ function controlPlaneFailure(error: unknown): Error {
   const category = error.protocolErrorCode ?? error.code;
   const base = `review_action_v2:${error.operationId}:${category}`;
   const issue = error.issues?.find((value) =>
-    /^[a-z0-9_:-]{1,64}$/u.test(value)
+    SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES.has(value)
   );
   const diagnostic = issue ? `${base}:${issue}` : base;
   return new Error(diagnostic.length <= 120 ? diagnostic : base, {

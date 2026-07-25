@@ -78503,16 +78503,22 @@ var ReviewActionV2ControlPlaneAdapter = class {
     };
   }
   async requestPublication(input) {
-    const result = await this.client.execute(
-      "review_publication_request" /* ReviewPublicationRequest */,
-      {
-        authorizationToken: input.authorization.authorizationToken,
-        idempotencyKey: input.idempotencyKey,
-        publicationPermit: input.publicationPermit,
-        projectionHash: input.projection.projectionHash,
-        operationsCanonicalJson: input.projection.operationsCanonicalJson
+    const result = await (async () => {
+      try {
+        return await this.client.execute(
+          "review_publication_request" /* ReviewPublicationRequest */,
+          {
+            authorizationToken: input.authorization.authorizationToken,
+            idempotencyKey: input.idempotencyKey,
+            publicationPermit: input.publicationPermit,
+            projectionHash: input.projection.projectionHash,
+            operationsCanonicalJson: input.projection.operationsCanonicalJson
+          }
+        );
+      } catch (error2) {
+        throw controlPlaneFailure(error2);
       }
-    );
+    })();
     if (result.status !== "accepted" /* Accepted */ && result.status !== "restored" /* Restored */) {
       throw new Error(`review_action_v2_publication_${result.status}`);
     }
@@ -78553,6 +78559,13 @@ var ReviewActionV2ControlPlaneAdapter = class {
     };
   }
 };
+var SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = /* @__PURE__ */ new Set([
+  "artifact_hash_mismatch",
+  "payload_hash_mismatch",
+  "projection_authority_mismatch",
+  "publication_permit_authority_mismatch",
+  "publication_release_or_limits_invalid"
+]);
 function controlPlaneFailure(error2) {
   if (!(error2 instanceof ReviewActionV2ClientError)) {
     return error2 instanceof Error ? error2 : new Error("review_action_v2:unknown_failure");
@@ -78560,7 +78573,7 @@ function controlPlaneFailure(error2) {
   const category = error2.protocolErrorCode ?? error2.code;
   const base = `review_action_v2:${error2.operationId}:${category}`;
   const issue = error2.issues?.find(
-    (value) => /^[a-z0-9_:-]{1,64}$/u.test(value)
+    (value) => SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES.has(value)
   );
   const diagnostic = issue ? `${base}:${issue}` : base;
   return new Error(diagnostic.length <= 120 ? diagnostic : base, {
