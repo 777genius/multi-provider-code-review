@@ -267,7 +267,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Install Codex CLI
-        if: ${{ steps.runtime.outputs.can_run == 'true' && steps.provider-tooling.outputs.codex_cli_needed == 'true' }}
+        if: ${{ inputs.review_action_lane == 'legacy' && steps.runtime.outputs.can_run == 'true' && steps.provider-tooling.outputs.codex_cli_needed == 'true' }}
         shell: bash
         run: npm install -g @openai/codex@0.145.0
 
@@ -279,7 +279,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Restore Codex subscription auth
-        if: ${{ steps.runtime.outputs.can_run == 'true' && steps.provider-tooling.outputs.codex_oauth_needed == 'true' && env.CODEX_AUTH_JSON_PRESENT == '1' }}
+        if: ${{ inputs.review_action_lane == 'legacy' && steps.runtime.outputs.can_run == 'true' && steps.provider-tooling.outputs.codex_oauth_needed == 'true' && env.CODEX_AUTH_JSON_PRESENT == '1' }}
         shell: bash
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}

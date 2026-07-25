@@ -140,6 +140,12 @@ describe('production reusable workflows', () => {
     const legacyRun = steps.find(
       (step) => step.name === 'Run ReviewRouter legacy'
     );
+    const codexInstall = steps.find(
+      (step) => step.name === 'Install Codex CLI'
+    );
+    const codexAuthRestore = steps.find(
+      (step) => step.name === 'Restore Codex subscription auth'
+    );
 
     expect(workflowSource).toContain('workflow_call:');
     expect(workflowSource).toContain('runtime_ref:');
@@ -217,6 +223,12 @@ describe('production reusable workflows', () => {
     expect(workflowSource).not.toContain('REVIEW_ROUTER_THREAD_RESOLVE_TOKEN');
 
     expect(t0Run?.if).toContain("inputs.review_action_lane == 't0'");
+    expect(codexInstall?.if).toContain(
+      "inputs.review_action_lane == 'legacy'"
+    );
+    expect(codexAuthRestore?.if).toContain(
+      "inputs.review_action_lane == 'legacy'"
+    );
     expect(t0Run?.env?.REVIEWROUTER_ACTION_V2_MODE).toBe('t0');
     expect(t0Run?.env?.REVIEW_ROUTER_MODE).toBe('codex-oauth-rotating');
     expect(t0Run?.env).toHaveProperty('INPUT_PROVIDER_INSTANCE_ID');
