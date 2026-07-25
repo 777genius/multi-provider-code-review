@@ -124,6 +124,40 @@ describe('Codex OAuth rotating setup PR preview', () => {
     );
   });
 
+  it('reports a server-authoritative size skip without failing the workflow', async () => {
+    mockedRuntime.mockImplementation(async () => {
+      expect(process.env['INPUT_OPENROUTER-API-KEY']).toBe(
+        'provider-secret-not-read-before-admission'
+      );
+      return {
+        status: 'skipped',
+        reason: 'max_changed_lines_exceeded',
+        changedLines: 346_978,
+        maxChangedLines: 250_000,
+        decisionHash: 'a'.repeat(64),
+      };
+    });
+    process.env = {
+      ...actionEnv({
+        eventPath,
+        outputPath,
+        headRef: 'feature/change',
+      }),
+      'INPUT_OPENROUTER-API-KEY': 'provider-secret-not-read-before-admission',
+    };
+
+    await runCodexOAuthRotatingAction();
+
+    expect(mockedRuntime).toHaveBeenCalledTimes(1);
+    expect(mockedRuntime.mock.calls[0]![0]).toMatchObject({
+      pullRequestNumber: 1,
+    });
+    expect(process.exitCode).toBeUndefined();
+    expect(fs.readFileSync(outputPath, 'utf8')).toContain(
+      'max_changed_lines_exceeded'
+    );
+  });
+
   it('wires verified v2 without exposing legacy comment capabilities', async () => {
     mockedRuntime.mockResolvedValue({
       status: 'completed',

@@ -1,15 +1,24 @@
 export type FetchLike = typeof fetch;
 
-export type CodexRotatingPreleaseResponse = {
-  protocolVersion: 1;
-  leaseId: string;
-  providerInstanceId: string;
-  repository: string;
-  generationHashSalt: string;
-  currentGeneration: number;
-  currentGenerationHash?: string;
-  expiresAt: string;
-};
+export type CodexRotatingPreleaseResponse =
+  | {
+      protocolVersion: 1;
+      leaseId: string;
+      providerInstanceId: string;
+      repository: string;
+      generationHashSalt: string;
+      currentGeneration: number;
+      currentGenerationHash?: string;
+      expiresAt: string;
+    }
+  | {
+      protocolVersion: 1;
+      status: 'skipped';
+      reason: 'max_changed_lines_exceeded';
+      changedLines: number;
+      maxChangedLines: number;
+      decisionHash: string;
+    };
 
 export type CodexRotatingFinalizeResponse = {
   protocolVersion: 1;
@@ -184,8 +193,26 @@ function isCodexRotatingPreleaseResponse(
   value: unknown
 ): value is CodexRotatingPreleaseResponse {
   const input = asRecord(value);
+  if (input?.protocolVersion !== 1) return false;
+  if (input.status === 'skipped') {
+    return (
+      input.reason === 'max_changed_lines_exceeded' &&
+      isNonNegativeSafeInteger(input.changedLines) &&
+      isNonNegativeSafeInteger(input.maxChangedLines) &&
+      input.maxChangedLines > 0 &&
+      input.changedLines > input.maxChangedLines &&
+      isSha256(input.decisionHash) &&
+      input.leaseId === undefined &&
+      input.providerInstanceId === undefined &&
+      input.repository === undefined &&
+      input.generationHashSalt === undefined &&
+      input.currentGeneration === undefined &&
+      input.currentGenerationHash === undefined &&
+      input.expiresAt === undefined
+    );
+  }
+  if (input.status !== undefined) return false;
   return (
-    input?.protocolVersion === 1 &&
     isNonEmptyString(input.leaseId) &&
     isNonEmptyString(input.providerInstanceId) &&
     isNonEmptyString(input.repository) &&
@@ -195,6 +222,14 @@ function isCodexRotatingPreleaseResponse(
     input.currentGeneration > 0 &&
     isNonEmptyString(input.expiresAt)
   );
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 }
 
 function isCodexRotatingFinalizeResponse(

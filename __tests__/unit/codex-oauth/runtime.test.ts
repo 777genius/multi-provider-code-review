@@ -98,6 +98,53 @@ describe('Codex OAuth rotating runtime', () => {
     expect(process.env['INPUT_AUTH-JSON']).toBeUndefined();
   });
 
+  it('stops before reading auth or preparing Codex when server admission skips the PR', async () => {
+    const events: string[] = [];
+    const ports = buildPorts(events);
+    ports.controlPlane.prelease = jest.fn(async () => {
+      events.push('prelease');
+      expect(process.env['INPUT_AUTH-JSON']).toBe(authJsonBytes);
+      return {
+        protocolVersion: 1 as const,
+        status: 'skipped' as const,
+        reason: 'max_changed_lines_exceeded' as const,
+        changedLines: 346_978,
+        maxChangedLines: 250_000,
+        decisionHash: 'a'.repeat(64),
+        leaseId: 'defense-in-depth-unexpected-lease',
+      };
+    });
+
+    const result = await runCodexOAuthRotatingRuntime(
+      {
+        apiUrl: 'https://api.reviewrouter.site',
+        audience: 'reviewrouter',
+        providerInstanceId: 'codex-rotating:123456',
+        workflowSchemaVersion: 1,
+        repository: '777genius/agent-teams-ai',
+        pullRequestNumber: 252,
+        headSha: '0123456789abcdef0123456789abcdef01234567',
+        workspacePath: '/tmp/workspace',
+      },
+      ports
+    );
+
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'max_changed_lines_exceeded',
+      changedLines: 346_978,
+      maxChangedLines: 250_000,
+      decisionHash: 'a'.repeat(64),
+    });
+    expect(events).toEqual([
+      'oidc',
+      'prelease',
+      'clear-oidc-env',
+      'clear-process-auth-env',
+    ]);
+    expect(process.env['INPUT_AUTH-JSON']).toBe(authJsonBytes);
+  });
+
   it('skips stale queued secrets without refreshing, checkout, or comments', async () => {
     const events: string[] = [];
     const ports = buildPorts(events);

@@ -185,7 +185,7 @@ export async function runCodexOAuthRotatingAction(
                   codexHome: input.codexHome,
                   codexBinaryPath: input.codexBinaryPath,
                   fetchImpl: options.fetchImpl,
-                  providerSecrets: inputs.providerSecrets,
+                  providerSecrets: readCodexRotatingProviderSecretInputs(),
                 }),
             },
             comments: {
@@ -200,6 +200,12 @@ export async function runCodexOAuthRotatingAction(
     core.setOutput('reviewrouter_state', runtime.status);
     if (runtime.status === 'skipped') {
       core.setOutput('reviewrouter_skipped_reason', runtime.reason);
+      if (runtime.reason === 'max_changed_lines_exceeded') {
+        core.info(
+          `ReviewRouter skipped PR #${inputs.pullRequestNumber}: ${runtime.changedLines} changed lines exceed the configured maximum of ${runtime.maxChangedLines}.`
+        );
+        return;
+      }
       const message =
         runtime.reason === 'stale_queued_secret'
           ? 'Codex OAuth rotating review did not run because this workflow restored an older queued secret generation. Re-run the latest workflow after reconnecting Codex if needed.'
@@ -244,7 +250,6 @@ function readCodexOAuthActionInputs() {
     audience,
     providerInstanceId,
     workflowSchemaVersion,
-    providerSecrets: readCodexRotatingProviderSecretInputs(),
     repository: event.repository,
     pullRequestNumber: event.number,
     headSha: event.headSha,
