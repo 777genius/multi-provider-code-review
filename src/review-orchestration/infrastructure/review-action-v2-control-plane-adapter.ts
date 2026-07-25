@@ -1,5 +1,8 @@
 import { createHash } from 'crypto';
-import { ReviewActionV2Client } from '../../control-plane/review-action-v2-client';
+import {
+  ReviewActionV2Client,
+  ReviewActionV2ClientError,
+} from '../../control-plane/review-action-v2-client';
 import {
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
@@ -580,30 +583,36 @@ export class ReviewActionV2ControlPlaneAdapter
   async commitEvidence(
     input: Parameters<ReviewActionV2ControlPlanePort['commitEvidence']>[0]
   ): ReturnType<ReviewActionV2ControlPlanePort['commitEvidence']> {
-    const result = await this.client.execute(
-      ReviewActionV2OperationId.ReviewEvidenceCommit,
-      {
-        authorizationToken: input.authorization.authorizationToken,
-        leaseCapability: input.lease.leaseCapability,
-        idempotencyKey: input.idempotencyKey,
-        attemptId: input.lease.attemptId,
-        sourceLeaseId: input.lease.leaseId,
-        ownerIdHash: input.ownerIdHash,
-        fencingToken: input.lease.fencingToken,
-        completionStatus: 'succeeded',
-        schemaValidated: input.observation.schemaValidated,
-        fullyConsumed: input.observation.fullyConsumed,
-        actualModel: input.observation.actualModel,
-        contextDependencyAttestationId:
-          input.observation.contextDependencyAttestationId ?? null,
-        contextDependencyAttestationHash:
-          input.observation.contextDependencyAttestationHash ?? null,
-        payloadCanonicalJson: input.observation.payloadCanonicalJson,
-        payloadHash: input.observation.payloadHash,
-        qualityFlags: input.observation.qualityFlags,
-        transportAttemptCount: input.observation.transportAttemptCount,
+    const result = await (async () => {
+      try {
+        return await this.client.execute(
+          ReviewActionV2OperationId.ReviewEvidenceCommit,
+          {
+            authorizationToken: input.authorization.authorizationToken,
+            leaseCapability: input.lease.leaseCapability,
+            idempotencyKey: input.idempotencyKey,
+            attemptId: input.lease.attemptId,
+            sourceLeaseId: input.lease.leaseId,
+            ownerIdHash: input.ownerIdHash,
+            fencingToken: input.lease.fencingToken,
+            completionStatus: 'succeeded',
+            schemaValidated: input.observation.schemaValidated,
+            fullyConsumed: input.observation.fullyConsumed,
+            actualModel: input.observation.actualModel,
+            contextDependencyAttestationId:
+              input.observation.contextDependencyAttestationId ?? null,
+            contextDependencyAttestationHash:
+              input.observation.contextDependencyAttestationHash ?? null,
+            payloadCanonicalJson: input.observation.payloadCanonicalJson,
+            payloadHash: input.observation.payloadHash,
+            qualityFlags: input.observation.qualityFlags,
+            transportAttemptCount: input.observation.transportAttemptCount,
+          }
+        );
+      } catch (error) {
+        throw controlPlaneFailure(error);
       }
-    );
+    })();
     if (
       result.status !== ReviewEvidenceCommitResultStatus.Accepted &&
       result.status !== ReviewEvidenceCommitResultStatus.Idempotent
@@ -790,6 +799,23 @@ export class ReviewActionV2ControlPlaneAdapter
       },
     };
   }
+}
+
+function controlPlaneFailure(error: unknown): Error {
+  if (!(error instanceof ReviewActionV2ClientError)) {
+    return error instanceof Error
+      ? error
+      : new Error('review_action_v2:unknown_failure');
+  }
+  const category = error.protocolErrorCode ?? error.code;
+  const base = `review_action_v2:${error.operationId}:${category}`;
+  const issue = error.issues?.find((value) =>
+    /^[a-z0-9_:-]{1,64}$/u.test(value)
+  );
+  const diagnostic = issue ? `${base}:${issue}` : base;
+  return new Error(diagnostic.length <= 120 ? diagnostic : base, {
+    cause: error,
+  });
 }
 
 function parseLookupObservation(

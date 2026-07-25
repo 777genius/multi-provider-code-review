@@ -78365,28 +78365,34 @@ var ReviewActionV2ControlPlaneAdapter = class {
     }
   }
   async commitEvidence(input) {
-    const result = await this.client.execute(
-      "review_evidence_commit" /* ReviewEvidenceCommit */,
-      {
-        authorizationToken: input.authorization.authorizationToken,
-        leaseCapability: input.lease.leaseCapability,
-        idempotencyKey: input.idempotencyKey,
-        attemptId: input.lease.attemptId,
-        sourceLeaseId: input.lease.leaseId,
-        ownerIdHash: input.ownerIdHash,
-        fencingToken: input.lease.fencingToken,
-        completionStatus: "succeeded",
-        schemaValidated: input.observation.schemaValidated,
-        fullyConsumed: input.observation.fullyConsumed,
-        actualModel: input.observation.actualModel,
-        contextDependencyAttestationId: input.observation.contextDependencyAttestationId ?? null,
-        contextDependencyAttestationHash: input.observation.contextDependencyAttestationHash ?? null,
-        payloadCanonicalJson: input.observation.payloadCanonicalJson,
-        payloadHash: input.observation.payloadHash,
-        qualityFlags: input.observation.qualityFlags,
-        transportAttemptCount: input.observation.transportAttemptCount
+    const result = await (async () => {
+      try {
+        return await this.client.execute(
+          "review_evidence_commit" /* ReviewEvidenceCommit */,
+          {
+            authorizationToken: input.authorization.authorizationToken,
+            leaseCapability: input.lease.leaseCapability,
+            idempotencyKey: input.idempotencyKey,
+            attemptId: input.lease.attemptId,
+            sourceLeaseId: input.lease.leaseId,
+            ownerIdHash: input.ownerIdHash,
+            fencingToken: input.lease.fencingToken,
+            completionStatus: "succeeded",
+            schemaValidated: input.observation.schemaValidated,
+            fullyConsumed: input.observation.fullyConsumed,
+            actualModel: input.observation.actualModel,
+            contextDependencyAttestationId: input.observation.contextDependencyAttestationId ?? null,
+            contextDependencyAttestationHash: input.observation.contextDependencyAttestationHash ?? null,
+            payloadCanonicalJson: input.observation.payloadCanonicalJson,
+            payloadHash: input.observation.payloadHash,
+            qualityFlags: input.observation.qualityFlags,
+            transportAttemptCount: input.observation.transportAttemptCount
+          }
+        );
+      } catch (error2) {
+        throw controlPlaneFailure(error2);
       }
-    );
+    })();
     if (result.status !== "accepted" /* Accepted */ && result.status !== "idempotent" /* Idempotent */) {
       throw new Error(`review_action_v2_evidence_commit_${result.status}`);
     }
@@ -78541,6 +78547,20 @@ var ReviewActionV2ControlPlaneAdapter = class {
     };
   }
 };
+function controlPlaneFailure(error2) {
+  if (!(error2 instanceof ReviewActionV2ClientError)) {
+    return error2 instanceof Error ? error2 : new Error("review_action_v2:unknown_failure");
+  }
+  const category = error2.protocolErrorCode ?? error2.code;
+  const base = `review_action_v2:${error2.operationId}:${category}`;
+  const issue = error2.issues?.find(
+    (value) => /^[a-z0-9_:-]{1,64}$/u.test(value)
+  );
+  const diagnostic = issue ? `${base}:${issue}` : base;
+  return new Error(diagnostic.length <= 120 ? diagnostic : base, {
+    cause: error2
+  });
+}
 function parseLookupObservation(result, input) {
   const payloadCanonicalJson = requireCanonicalJson(
     result.payloadCanonicalJson,
