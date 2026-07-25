@@ -4,11 +4,18 @@ import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 import {
+  ChangedPathsWitnessStatus,
+  canonicalJson,
+  changedPathsWitnessStatus,
   type ContextGatewayTranscript,
   sha256,
 } from '../../../src/context-gateway/context-gateway-contract';
 import { ContextGatewayRecorder } from '../../../src/context-gateway/context-gateway-recorder';
 import { FilesystemContextGateway } from '../../../src/context-gateway/filesystem-context-gateway';
+import {
+  RequiredContextWitnessCaptureStatus,
+  captureRequiredContextWitness,
+} from '../../../src/context-gateway/required-context-witness';
 
 const execFileAsync = promisify(execFile);
 
@@ -50,6 +57,71 @@ describe('FilesystemContextGateway', () => {
       hadFailure: false,
     });
     expect(replayMaterial.entries).toEqual([]);
+  });
+
+  it('captures a complete changed_paths witness before optional model tool calls', async () => {
+    const baseSha = await gitText(root, ['rev-parse', 'HEAD']);
+    await writeFile(path.join(root, 'b.ts'), 'export const gamma = 3;\n');
+    await git(root, ['add', 'b.ts']);
+    await git(root, ['commit', '-qm', 'add changed path']);
+    const fixture = await gatewayFixture(root, 'required-witness', baseSha);
+
+    await expect(captureRequiredContextWitness(fixture.gateway)).resolves.toBe(
+      RequiredContextWitnessCaptureStatus.Captured
+    );
+    await fixture.gateway.gitFact({ fact: 'changed_paths' });
+
+    const transcript = await readJson<ContextGatewayTranscript>(
+      fixture.transcriptPath
+    );
+    const expectedOperandsHash = sha256(
+      canonicalJson({
+        baseSha: fixture.baseSha,
+        headSha: fixture.headSha,
+      })
+    );
+    expect(transcript.dependencies).toHaveLength(2);
+    expect(transcript.dependencies[0]).toMatchObject({
+      sequence: 1,
+      operation: {
+        kind: 'git_fact',
+        fact: 'changed_paths',
+        operandsHash: expectedOperandsHash,
+      },
+      result: {
+        kind: 'git_fact',
+        itemCount: 1,
+        complete: true,
+        truncated: false,
+      },
+    });
+    expect(changedPathsWitnessStatus(transcript, expectedOperandsHash)).toBe(
+      ChangedPathsWitnessStatus.Present
+    );
+  });
+
+  it('keeps the gateway available when the required witness cannot be captured', async () => {
+    const gateway = {
+      gitFact: jest.fn().mockRejectedValue(new Error('git unavailable')),
+    };
+
+    await expect(captureRequiredContextWitness(gateway)).resolves.toBe(
+      RequiredContextWitnessCaptureStatus.Unavailable
+    );
+    expect(gateway.gitFact).toHaveBeenCalledWith({ fact: 'changed_paths' });
+  });
+
+  it('fails closed instead of resetting an initialized transcript', async () => {
+    const fixture = await gatewayFixture(root);
+    await fixture.gateway.readFile({ path: 'a.ts' });
+    const before = await readFile(fixture.transcriptPath, 'utf8');
+
+    await expect(fixture.recorder.initialize()).rejects.toThrow(
+      'context_gateway_recorder_already_initialized'
+    );
+    await expect(readFile(fixture.transcriptPath, 'utf8')).resolves.toBe(
+      before
+    );
   });
 
   it('records bounded file, list and search dependencies without raw queries', async () => {
@@ -195,7 +267,11 @@ describe('FilesystemContextGateway', () => {
   });
 });
 
-async function gatewayFixture(root: string, suffix = 'default') {
+async function gatewayFixture(
+  root: string,
+  suffix = 'default',
+  baseSha?: string
+) {
   const headSha = await gitText(root, ['rev-parse', 'HEAD']);
   const checkoutTreeOid = await gitText(root, ['rev-parse', 'HEAD^{tree}']);
   const transcriptPath = path.join(root, '.test-output', `${suffix}.json`);
@@ -215,15 +291,18 @@ async function gatewayFixture(root: string, suffix = 'default') {
   });
   await recorder.initialize();
   return {
+    baseSha: baseSha ?? headSha,
     gateway: await FilesystemContextGateway.create({
       root,
       checkoutTreeOid,
-      baseSha: headSha,
+      baseSha: baseSha ?? headSha,
       headSha,
       recorder,
     }),
+    recorder,
     transcriptPath,
     replayMaterialPath,
+    headSha,
   };
 }
 

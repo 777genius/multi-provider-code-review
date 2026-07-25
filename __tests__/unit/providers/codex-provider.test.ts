@@ -284,6 +284,7 @@ describe('CodexProvider', () => {
           ].sort()
         )}`,
         'mcp_servers.reviewrouter.required=true',
+        'mcp_servers.reviewrouter.startup_timeout_sec=45',
       ])
     );
     expect(args.join('\n')).toContain(
@@ -293,19 +294,14 @@ describe('CodexProvider', () => {
     expect(args).not.toContain('--dangerously-bypass-approvals-and-sandbox');
   });
 
-  it('requires an attested repository inspection before context-gateway output', () => {
+  it('does not delegate the required changed-paths witness to the model', () => {
     const provider = new CodexProvider('gpt-5.4-mini');
     const prompt = (provider as any).wrapContextGatewayReviewPrompt(
       'deterministic review input'
     );
 
-    expect(prompt).toContain(
-      'you MUST call review_git_fact with fact="changed_paths" at least once'
-    );
+    expect(prompt).not.toContain('MUST call review_git_fact');
     expect(prompt).toContain('Then inspect changed hunks');
-    expect(prompt.indexOf('you MUST call review_git_fact')).toBeLessThan(
-      prompt.indexOf('FINAL OUTPUT CONTRACT:')
-    );
   });
 
   it('keeps gateway session paths and revision hashes out of semantic identity', async () => {

@@ -13,6 +13,7 @@ import {
 import { ContextGatewayRecorder } from './context-gateway-recorder';
 import { CONTEXT_GATEWAY_TOOL_DEFINITIONS } from './context-gateway-tool-definitions';
 import { FilesystemContextGateway } from './filesystem-context-gateway';
+import { captureRequiredContextWitness } from './required-context-witness';
 
 async function main(): Promise<void> {
   const config = readConfig();
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
     headSha: config.headSha,
     recorder,
   });
+  await captureRequiredContextWitness(gateway);
   const server = new Server(
     {
       name: 'reviewrouter-context-gateway',
