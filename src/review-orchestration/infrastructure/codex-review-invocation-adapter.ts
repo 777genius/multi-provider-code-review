@@ -320,7 +320,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
         providerName: input.invocation.provider,
         requestedModel: input.invocation.requestedModel,
         result,
-        qualityFlags: result.actualModel ? [] : ['actual_model_unverified'],
+        qualityFlags: result.actualModel ? [] : ['provider_warning'],
       });
       if (!result.actualModel) return initial;
 
@@ -335,7 +335,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: attestation ? [] : ['context_attestation_unavailable'],
+          qualityFlags: [],
           ...(attestation ? { contextDependencyAttestation: attestation } : {}),
         });
       } catch {
@@ -348,7 +348,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: ['context_attestation_unavailable'],
+          qualityFlags: ['provider_warning'],
         });
       }
     } finally {

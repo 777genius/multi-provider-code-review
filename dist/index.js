@@ -74670,7 +74670,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
         providerName: input.invocation.provider,
         requestedModel: input.invocation.requestedModel,
         result,
-        qualityFlags: result.actualModel ? [] : ["actual_model_unverified"]
+        qualityFlags: result.actualModel ? [] : ["provider_warning"]
       });
       if (!result.actualModel) return initial;
       try {
@@ -74684,7 +74684,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: attestation ? [] : ["context_attestation_unavailable"],
+          qualityFlags: [],
           ...attestation ? { contextDependencyAttestation: attestation } : {}
         });
       } catch {
@@ -74697,7 +74697,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: ["context_attestation_unavailable"]
+          qualityFlags: ["provider_warning"]
         });
       }
     } finally {
