@@ -22,6 +22,7 @@ import {
   type ReviewContextAttestationPort,
   type ReviewExecutionAdmission,
   type ReviewInvocationLease,
+  type ReviewInvocationDiagnosticsPort,
   type ReviewInvocationFailureClassifierPort,
   type ReviewInvocationLeaseSupervisorPort,
   type ReviewOidcTokenPort,
@@ -80,6 +81,7 @@ export type RunT0ReviewOrchestrationDependencies = {
   readonly invocationManifestAssembler: ProviderInvocationManifestAssemblerPort;
   readonly invocations: PreparedReviewInvocationPort;
   readonly invocationFailureClassifier: ReviewInvocationFailureClassifierPort;
+  readonly invocationDiagnostics?: ReviewInvocationDiagnosticsPort;
   readonly leaseSupervisor: ReviewInvocationLeaseSupervisorPort;
   readonly projectionBuilder: CurrentReviewProjectionBuilderPort;
   readonly contextReplay?: ContextDependencyReplayPort;
@@ -570,6 +572,16 @@ export class RunT0ReviewOrchestration {
           await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
           const failureClass =
             this.dependencies.invocationFailureClassifier.classify(error);
+          try {
+            this.dependencies.invocationDiagnostics?.recordFailure({
+              invocation,
+              attemptBudget: input.workSlot.attemptBudget,
+              failureClass,
+              error,
+            });
+          } catch {
+            // Diagnostics must never change review retry or safety decisions.
+          }
           if (
             failureClass === ReviewInvocationFailureClass.CapacityUnavailable
           ) {

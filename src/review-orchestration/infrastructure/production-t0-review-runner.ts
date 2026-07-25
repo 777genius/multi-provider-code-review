@@ -16,6 +16,7 @@ import { ReviewLedger } from '../../github/ledger';
 import { PullRequestLoader } from '../../github/pr-loader';
 import { CodexProvider } from '../../providers/codex';
 import { recoverDiffForFiles } from '../../utils/diff';
+import { logger } from '../../utils/logger';
 import type {
   FileChange,
   LifecycleTarget,
@@ -52,6 +53,7 @@ import {
 } from './context-gateway-invocation-session';
 import { ContextAttestationReplayRunner } from './context-attestation-replay-runner';
 import { ProviderInvocationFailureClassifier } from './provider-invocation-failure-classifier';
+import { LoggingReviewInvocationDiagnostics } from './review-invocation-diagnostics';
 import {
   FreshGitHubLifecycleInventory,
   GitHubReviewRevisionGuard,
@@ -178,6 +180,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
         ),
       invocations: invocationAdapter,
       invocationFailureClassifier: new ProviderInvocationFailureClassifier(),
+      invocationDiagnostics: new LoggingReviewInvocationDiagnostics(logger),
       leaseSupervisor: new CooperativeReviewLeaseSupervisor(),
       projectionBuilder: createProductionReviewProjectionBuilder({
         authorizationFacts: authorization.facts,

@@ -1245,6 +1245,8 @@ function parsePublicationOutcome(value: string | null | undefined) {
   switch (value) {
     case ReviewPublicationState.Succeeded:
       return ReviewPublicationState.Succeeded;
+    case 'superseded_no_effect':
+    case 'failed_no_effect':
     case ReviewPublicationState.NotApplied:
       return ReviewPublicationState.NotApplied;
     case ReviewPublicationState.StaleCompensated:
