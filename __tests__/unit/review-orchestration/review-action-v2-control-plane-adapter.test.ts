@@ -16,11 +16,13 @@ import {
   ReviewExecutionRestoreResultStatus,
   ReviewExecutionStartResultStatus,
   ReviewInvocationLeaseResultStatus,
+  ReviewPublicationStatusResultStatus,
   ReviewRunAuthorizationResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
 import {
   ReviewExecutionProviderKind,
   ReviewEvidenceLookupKind,
+  ReviewPublicationState,
   ReviewTaskKind,
   RestoredReviewExecutionState,
   RestoredReviewWorkSlotState,
@@ -52,6 +54,46 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         facts: authorizationFacts,
       })
     );
+  });
+
+  it.each(['superseded_no_effect', 'failed_no_effect'])(
+    'maps terminal server outcome %s to publication not applied',
+    async (terminalOutcome) => {
+      const execute = jest.fn().mockResolvedValue({
+        status: ReviewPublicationStatusResultStatus.Terminal,
+        publicationAttemptId: 'publication-1',
+        terminalOutcome,
+        canonicalReceiptSetHash: null,
+        pollAfterMs: null,
+      });
+
+      await expect(
+        createAdapter(execute).readPublicationStatus({
+          authorization,
+          publicationAttemptId: 'publication-1',
+        })
+      ).resolves.toEqual({
+        terminal: true,
+        outcome: { state: ReviewPublicationState.NotApplied },
+      });
+    }
+  );
+
+  it('rejects an unknown terminal publication outcome', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewPublicationStatusResultStatus.Terminal,
+      publicationAttemptId: 'publication-1',
+      terminalOutcome: 'future_unknown_outcome',
+      canonicalReceiptSetHash: null,
+      pollAfterMs: null,
+    });
+
+    await expect(
+      createAdapter(execute).readPublicationStatus({
+        authorization,
+        publicationAttemptId: 'publication-1',
+      })
+    ).rejects.toThrow('review_action_v2_publication_outcome_unknown');
   });
 
   it('opens and seals a target-bound context gateway session', async () => {

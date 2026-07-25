@@ -123,6 +123,15 @@ export interface ReviewInvocationFailureClassifierPort {
   classify(error: unknown): ReviewInvocationFailureClass;
 }
 
+export interface ReviewInvocationDiagnosticsPort {
+  recordFailure(input: {
+    readonly invocation: PreparedReviewInvocation;
+    readonly attemptBudget: number;
+    readonly failureClass: ReviewInvocationFailureClass;
+    readonly error: unknown;
+  }): void;
+}
+
 export type PreparedReviewInvocationManifestFacts = {
   readonly taskKindSet: readonly ReviewTaskKind[];
   readonly providerKind: ReviewExecutionProviderKind;

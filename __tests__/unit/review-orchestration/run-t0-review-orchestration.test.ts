@@ -346,6 +346,37 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps retry decisions independent from failure diagnostics', async () => {
+    const fixture = createFixture({ maxAttempts: 2 });
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockRejectedValueOnce(new Error('provider_failed'))
+      .mockResolvedValueOnce(observationPayload);
+    jest
+      .mocked(fixture.dependencies.invocationDiagnostics!.recordFailure)
+      .mockImplementation(() => {
+        throw new Error('diagnostics_failed');
+      });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(
+      fixture.dependencies.invocationDiagnostics!.recordFailure
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptBudget: 2,
+        failureClass: ReviewInvocationFailureClass.Retryable,
+        invocation: expect.objectContaining({
+          attemptOrdinal: 1,
+          workSlotId: 'slot-1',
+        }),
+      })
+    );
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(2);
+    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledTimes(1);
+  });
+
   it('retries a missing context witness within the existing attempt budget', async () => {
     const fixture = createFixture({
       executionProfile: 'context_gateway_v1',
@@ -1034,6 +1065,9 @@ function createFixture(
       classify: jest
         .fn()
         .mockReturnValue(ReviewInvocationFailureClass.Retryable),
+    },
+    invocationDiagnostics: {
+      recordFailure: jest.fn(),
     },
     leaseSupervisor: {
       run: jest
