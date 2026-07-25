@@ -709,25 +709,32 @@ export class ReviewActionV2ControlPlaneAdapter
   async finalizeExecution(
     input: Parameters<ReviewActionV2ControlPlanePort['finalizeExecution']>[0]
   ): ReturnType<ReviewActionV2ControlPlanePort['finalizeExecution']> {
-    const result = await this.client.execute(
-      ReviewActionV2OperationId.ReviewExecutionFinalize,
-      {
-        authorizationToken: input.authorization.authorizationToken,
-        idempotencyKey: input.idempotencyKey,
-        executionId: input.execution.executionId,
-        expectedStreamVersion: input.execution.streamVersion,
-        expectedExecutionVersion: input.execution.executionVersion,
-        artifactId: input.projection.artifactId,
-        artifactHash: input.projection.artifactHash,
-        projectionEnvelopeVersion: input.projection.projectionEnvelopeVersion,
-        projectionEnvelopeCanonicalJson:
-          input.projection.projectionEnvelopeCanonicalJson,
-        projectionHash: input.projection.projectionHash,
-        lifecycleStateHash: input.projection.lifecycleStateHash,
-        commandLedgerWatermark: input.projection.commandLedgerWatermark,
-        allowPartial: input.allowPartial,
+    const result = await (async () => {
+      try {
+        return await this.client.execute(
+          ReviewActionV2OperationId.ReviewExecutionFinalize,
+          {
+            authorizationToken: input.authorization.authorizationToken,
+            idempotencyKey: input.idempotencyKey,
+            executionId: input.execution.executionId,
+            expectedStreamVersion: input.execution.streamVersion,
+            expectedExecutionVersion: input.execution.executionVersion,
+            artifactId: input.projection.artifactId,
+            artifactHash: input.projection.artifactHash,
+            projectionEnvelopeVersion:
+              input.projection.projectionEnvelopeVersion,
+            projectionEnvelopeCanonicalJson:
+              input.projection.projectionEnvelopeCanonicalJson,
+            projectionHash: input.projection.projectionHash,
+            lifecycleStateHash: input.projection.lifecycleStateHash,
+            commandLedgerWatermark: input.projection.commandLedgerWatermark,
+            allowPartial: input.allowPartial,
+          }
+        );
+      } catch (error) {
+        throw controlPlaneFailure(error);
       }
-    );
+    })();
     requireMutationApplied(result.status, 'execution_finalize');
     return {
       publicationPermit: requireString(
