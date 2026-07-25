@@ -22675,7 +22675,7 @@ var CodexProvider = class _CodexProvider extends Provider {
       "- review_search_text",
       "- review_git_fact",
       "Before returning final JSON, you MUST call at least one ReviewRouter MCP tool to inspect repository context beyond the deterministic prompt.",
-      "Inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.",
+      "Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.",
       "Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.",
       "Use repository-relative paths only. Only report concrete bugs on changed lines.",
       "",
