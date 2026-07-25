@@ -670,6 +670,80 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     );
   });
 
+  it('translates publication request failures into safe actionable codes', async () => {
+    const execute = jest.fn().mockRejectedValue(
+      new ReviewActionV2ClientError(
+        ReviewActionV2ClientFailureCode.ProtocolError,
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        {
+          httpStatus: 403,
+          protocolErrorCode: ReviewActionV2ProtocolErrorCode.Forbidden,
+          issues: ['publication_permit_authority_mismatch'],
+        }
+      )
+    );
+
+    await expect(
+      createAdapter(execute).requestPublication({
+        authorization,
+        idempotencyKey: 'idem:publication:diagnostic',
+        publicationPermit: 'publication-permit',
+        projection: {
+          artifactId: 'artifact-1',
+          artifactHash: hash('artifact'),
+          projectionEnvelopeVersion: 1,
+          projectionEnvelopeCanonicalJson: '{"findings":[]}',
+          projectionHash: hash('projection'),
+          lifecycleStateHash: hash('lifecycle'),
+          commandLedgerWatermark: '0',
+          operationsCanonicalJson: '[]',
+          findingCount: 0,
+          publicationOperationCount: 0,
+          publicationChunkCount: 0,
+          coverageComplete: true,
+        },
+      })
+    ).rejects.toThrow(
+      'review_action_v2:review_publication_request:forbidden:publication_permit_authority_mismatch'
+    );
+  });
+
+  it('does not expose unrecognized publication request issue values', async () => {
+    const execute = jest.fn().mockRejectedValue(
+      new ReviewActionV2ClientError(
+        ReviewActionV2ClientFailureCode.ProtocolError,
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        {
+          httpStatus: 403,
+          protocolErrorCode: ReviewActionV2ProtocolErrorCode.Forbidden,
+          issues: ['refresh_token:credentialshapedvalue'],
+        }
+      )
+    );
+
+    await expect(
+      createAdapter(execute).requestPublication({
+        authorization,
+        idempotencyKey: 'idem:publication:safe-diagnostic',
+        publicationPermit: 'publication-permit',
+        projection: {
+          artifactId: 'artifact-1',
+          artifactHash: hash('artifact'),
+          projectionEnvelopeVersion: 1,
+          projectionEnvelopeCanonicalJson: '{"findings":[]}',
+          projectionHash: hash('projection'),
+          lifecycleStateHash: hash('lifecycle'),
+          commandLedgerWatermark: '0',
+          operationsCanonicalJson: '[]',
+          findingCount: 0,
+          publicationOperationCount: 0,
+          publicationChunkCount: 0,
+          coverageComplete: true,
+        },
+      })
+    ).rejects.toThrow('review_action_v2:review_publication_request:forbidden');
+  });
+
   it('adopts same-execution evidence with exact source and response identities', async () => {
     const observation = acceptedObservation();
     const source = {
