@@ -111,6 +111,7 @@ describe('Codex OAuth rotating runtime', () => {
         changedLines: 346_978,
         maxChangedLines: 250_000,
         decisionHash: 'a'.repeat(64),
+        leaseId: 'defense-in-depth-unexpected-lease',
       };
     });
 

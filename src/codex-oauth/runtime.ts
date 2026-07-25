@@ -265,7 +265,7 @@ export async function runCodexOAuthRotatingRuntime(
       providerInstanceId: input.providerInstanceId,
       workflowSchemaVersion: input.workflowSchemaVersion,
     });
-    if (!('leaseId' in prelease)) {
+    if ('status' in prelease) {
       await clearAuth();
       return {
         status: 'skipped',

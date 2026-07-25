@@ -201,7 +201,14 @@ function isCodexRotatingPreleaseResponse(
       isNonNegativeSafeInteger(input.maxChangedLines) &&
       input.maxChangedLines > 0 &&
       input.changedLines > input.maxChangedLines &&
-      isSha256(input.decisionHash)
+      isSha256(input.decisionHash) &&
+      input.leaseId === undefined &&
+      input.providerInstanceId === undefined &&
+      input.repository === undefined &&
+      input.generationHashSalt === undefined &&
+      input.currentGeneration === undefined &&
+      input.currentGenerationHash === undefined &&
+      input.expiresAt === undefined
     );
   }
   if (input.status !== undefined) return false;

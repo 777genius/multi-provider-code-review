@@ -185,7 +185,7 @@ export async function runCodexOAuthRotatingAction(
                   codexHome: input.codexHome,
                   codexBinaryPath: input.codexBinaryPath,
                   fetchImpl: options.fetchImpl,
-                  providerSecrets: inputs.providerSecrets,
+                  providerSecrets: readCodexRotatingProviderSecretInputs(),
                 }),
             },
             comments: {
@@ -250,7 +250,6 @@ function readCodexOAuthActionInputs() {
     audience,
     providerInstanceId,
     workflowSchemaVersion,
-    providerSecrets: readCodexRotatingProviderSecretInputs(),
     repository: event.repository,
     pullRequestNumber: event.number,
     headSha: event.headSha,

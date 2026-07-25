@@ -48615,7 +48615,7 @@ function isCodexRotatingPreleaseResponse(value) {
   const input = asRecord2(value);
   if (input?.protocolVersion !== 1) return false;
   if (input.status === "skipped") {
-    return input.reason === "max_changed_lines_exceeded" && isNonNegativeSafeInteger(input.changedLines) && isNonNegativeSafeInteger(input.maxChangedLines) && input.maxChangedLines > 0 && input.changedLines > input.maxChangedLines && isSha256(input.decisionHash);
+    return input.reason === "max_changed_lines_exceeded" && isNonNegativeSafeInteger(input.changedLines) && isNonNegativeSafeInteger(input.maxChangedLines) && input.maxChangedLines > 0 && input.changedLines > input.maxChangedLines && isSha256(input.decisionHash) && input.leaseId === void 0 && input.providerInstanceId === void 0 && input.repository === void 0 && input.generationHashSalt === void 0 && input.currentGeneration === void 0 && input.currentGenerationHash === void 0 && input.expiresAt === void 0;
   }
   if (input.status !== void 0) return false;
   return isNonEmptyString(input.leaseId) && isNonEmptyString(input.providerInstanceId) && isNonEmptyString(input.repository) && isNonEmptyString(input.generationHashSalt) && typeof input.currentGeneration === "number" && Number.isInteger(input.currentGeneration) && input.currentGeneration > 0 && isNonEmptyString(input.expiresAt);
@@ -52657,7 +52657,7 @@ async function runCodexOAuthRotatingRuntime(input, ports) {
       providerInstanceId: input.providerInstanceId,
       workflowSchemaVersion: input.workflowSchemaVersion
     });
-    if (!("leaseId" in prelease)) {
+    if ("status" in prelease) {
       await clearAuth();
       return {
         status: "skipped",
@@ -79884,7 +79884,7 @@ async function runCodexOAuthRotatingAction(options = {}) {
           codexHome: input.codexHome,
           codexBinaryPath: input.codexBinaryPath,
           fetchImpl: options.fetchImpl,
-          providerSecrets: inputs.providerSecrets
+          providerSecrets: readCodexRotatingProviderSecretInputs()
         })
       },
       comments: {
@@ -79943,7 +79943,6 @@ function readCodexOAuthActionInputs() {
     audience,
     providerInstanceId,
     workflowSchemaVersion,
-    providerSecrets: readCodexRotatingProviderSecretInputs(),
     repository: event.repository,
     pullRequestNumber: event.number,
     headSha: event.headSha,
