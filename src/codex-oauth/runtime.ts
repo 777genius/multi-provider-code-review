@@ -191,6 +191,13 @@ export type CodexOAuthRuntimeResult =
     }
   | {
       status: 'skipped';
+      reason: 'max_changed_lines_exceeded';
+      changedLines: number;
+      maxChangedLines: number;
+      decisionHash: string;
+    }
+  | {
+      status: 'skipped';
       reason:
         | 'stale_queued_secret'
         | 'lease_not_active'
@@ -258,6 +265,16 @@ export async function runCodexOAuthRotatingRuntime(
       providerInstanceId: input.providerInstanceId,
       workflowSchemaVersion: input.workflowSchemaVersion,
     });
+    if (!('leaseId' in prelease)) {
+      await clearAuth();
+      return {
+        status: 'skipped',
+        reason: prelease.reason,
+        changedLines: prelease.changedLines,
+        maxChangedLines: prelease.maxChangedLines,
+        decisionHash: prelease.decisionHash,
+      };
+    }
     preparedCodexCli = await ports.codex.prepareCli?.();
     if (preparedCodexCli) {
       previousCodexBinary = process.env.REVIEWROUTER_CODEX_BINARY;

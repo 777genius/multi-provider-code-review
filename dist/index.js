@@ -48613,7 +48613,17 @@ var CodexOAuthControlPlaneClient = class {
 };
 function isCodexRotatingPreleaseResponse(value) {
   const input = asRecord2(value);
-  return input?.protocolVersion === 1 && isNonEmptyString(input.leaseId) && isNonEmptyString(input.providerInstanceId) && isNonEmptyString(input.repository) && isNonEmptyString(input.generationHashSalt) && typeof input.currentGeneration === "number" && Number.isInteger(input.currentGeneration) && input.currentGeneration > 0 && isNonEmptyString(input.expiresAt);
+  if (input?.protocolVersion !== 1) return false;
+  if (input.status === "skipped") {
+    return input.reason === "max_changed_lines_exceeded" && isNonNegativeSafeInteger(input.changedLines) && isNonNegativeSafeInteger(input.maxChangedLines) && input.maxChangedLines > 0 && input.changedLines > input.maxChangedLines && isSha256(input.decisionHash);
+  }
+  return isNonEmptyString(input.leaseId) && isNonEmptyString(input.providerInstanceId) && isNonEmptyString(input.repository) && isNonEmptyString(input.generationHashSalt) && typeof input.currentGeneration === "number" && Number.isInteger(input.currentGeneration) && input.currentGeneration > 0 && isNonEmptyString(input.expiresAt);
+}
+function isNonNegativeSafeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+function isSha256(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 function isCodexRotatingFinalizeResponse(value) {
   const input = asRecord2(value);
@@ -52646,6 +52656,16 @@ async function runCodexOAuthRotatingRuntime(input, ports) {
       providerInstanceId: input.providerInstanceId,
       workflowSchemaVersion: input.workflowSchemaVersion
     });
+    if (!("leaseId" in prelease)) {
+      await clearAuth();
+      return {
+        status: "skipped",
+        reason: prelease.reason,
+        changedLines: prelease.changedLines,
+        maxChangedLines: prelease.maxChangedLines,
+        decisionHash: prelease.decisionHash
+      };
+    }
     preparedCodexCli = await ports.codex.prepareCli?.();
     if (preparedCodexCli) {
       previousCodexBinary = process.env.REVIEWROUTER_CODEX_BINARY;
@@ -74945,7 +74965,7 @@ function changedPathsWitnessStatus(transcript, expectedOperandsHash) {
       "byteCount",
       "complete",
       "truncated"
-    ]) && operation.operandsHash === expectedOperandsHash && result.kind === "git_fact" && isSha256(result.resultHash) && isNonNegativeSafeInteger(result.itemCount) && isNonNegativeSafeInteger(result.byteCount) && result.complete === true && result.truncated === false) {
+    ]) && operation.operandsHash === expectedOperandsHash && result.kind === "git_fact" && isSha2562(result.resultHash) && isNonNegativeSafeInteger2(result.itemCount) && isNonNegativeSafeInteger2(result.byteCount) && result.complete === true && result.truncated === false) {
       return "present" /* Present */;
     }
   }
@@ -74994,10 +75014,10 @@ function hasExactKeys(value, expected) {
   const sortedExpected = [...expected].sort();
   return actual.length === sortedExpected.length && actual.every((key, index) => key === sortedExpected[index]);
 }
-function isSha256(value) {
+function isSha2562(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }
-function isNonNegativeSafeInteger(value) {
+function isNonNegativeSafeInteger2(value) {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
 
@@ -79876,6 +79896,12 @@ async function runCodexOAuthRotatingAction(options = {}) {
     setOutput("reviewrouter_state", runtime.status);
     if (runtime.status === "skipped") {
       setOutput("reviewrouter_skipped_reason", runtime.reason);
+      if (runtime.reason === "max_changed_lines_exceeded") {
+        info(
+          `ReviewRouter skipped PR #${inputs.pullRequestNumber}: ${runtime.changedLines} changed lines exceed the configured maximum of ${runtime.maxChangedLines}.`
+        );
+        return;
+      }
       const message = runtime.reason === "stale_queued_secret" ? "Codex OAuth rotating review did not run because this workflow restored an older queued secret generation. Re-run the latest workflow after reconnecting Codex if needed." : `Codex OAuth rotating review skipped: ${runtime.reason}`;
       setFailed(message);
       return;
