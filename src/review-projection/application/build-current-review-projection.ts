@@ -179,7 +179,7 @@ export class BuildCurrentReviewProjection {
       : buildInlineChunks(occurrences, this.limits);
     const summaryBody = coverageOnly
       ? [
-          'Review coverage is partial. ReviewRouter published a summary only; inline findings and lifecycle changes were held back.',
+          'Review coverage is partial. ReviewRouter published this summary, but inline findings and lifecycle changes were held back.',
           '',
           removeAllClearClaims(presentation.summaryBody),
         ].join('\n')

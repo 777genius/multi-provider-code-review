@@ -365,19 +365,37 @@ describe('PullRequestLoader', () => {
       expect(context.diff).toContain('@@ -8,3 +8,4 @@');
     });
 
-    it('does not hide unrelated raw diff failures', async () => {
+    it('falls back to file patches when the raw diff endpoint returns a GitHub HttpError', async () => {
       const mockOctokit = createMockOctokit();
-      mockOctokit.request = jest.fn().mockRejectedValue({
-        status: 500,
-        message: 'Internal Server Error',
-      });
+      mockOctokit.request = jest.fn().mockRejectedValue(
+        Object.assign(new Error('Not Found'), {
+          name: 'HttpError',
+          status: 404,
+          response: { data: { message: 'Not Found' } },
+        })
+      );
       const mockClient = createMockClient(mockOctokit);
 
-      await expect(
-        new PullRequestLoader(mockClient).load(1)
-      ).rejects.toMatchObject({
-        status: 500,
+      const context = await new PullRequestLoader(mockClient).load(1);
+
+      expect(context.loadCompleteness).toEqual({
+        status: PullRequestLoadStatus.Complete,
+        omissions: [],
       });
+      expect(context.diff).toContain('diff --git a/src/test.ts b/src/test.ts');
+      expect(context.diff).toContain('@@ -8,3 +8,4 @@');
+    });
+
+    it('does not hide non-HTTP raw diff failures', async () => {
+      const mockOctokit = createMockOctokit();
+      mockOctokit.request = jest
+        .fn()
+        .mockRejectedValue(new Error('Unexpected client failure'));
+      const mockClient = createMockClient(mockOctokit);
+
+      await expect(new PullRequestLoader(mockClient).load(1)).rejects.toThrow(
+        'Unexpected client failure'
+      );
     });
 
     it('represents binary files in a synthesized diff', async () => {

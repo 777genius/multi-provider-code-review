@@ -28743,8 +28743,14 @@ var PullRequestLoader = class {
         omittedFiles: []
       };
     } catch (error2) {
-      if (!this.isDiffTooLargeError(error2)) {
+      if (!this.isRawDiffFallbackError(error2)) {
         throw error2;
+      }
+      if (!this.isDiffTooLargeError(error2)) {
+        logger.warn(
+          `GitHub raw diff request for PR #${prNumber} failed with HTTP ${this.getGitHubHttpStatus(error2)}; using paginated file patches.`
+        );
+        return this.synthesizeDiff(prNumber, files);
       }
       logger.warn(
         `GitHub rejected the raw diff for PR #${prNumber} as too large; using paginated file patches.`
@@ -28843,6 +28849,23 @@ var PullRequestLoader = class {
       ({ code }) => code === "too_large"
     );
     return candidate.status === 422 && (Boolean(hasTooLargeCode) || /diff exceeded|maximum number of files|too large/i.test(message));
+  }
+  isRawDiffFallbackError(error2) {
+    return this.isDiffTooLargeError(error2) || this.isGitHubHttpError(error2);
+  }
+  isGitHubHttpError(error2) {
+    if (!error2 || typeof error2 !== "object") {
+      return false;
+    }
+    const candidate = error2;
+    return typeof candidate.status === "number" && (candidate.name === "HttpError" || candidate.status >= 400);
+  }
+  getGitHubHttpStatus(error2) {
+    if (!error2 || typeof error2 !== "object") {
+      return "unknown";
+    }
+    const status = error2.status;
+    return typeof status === "number" ? status : "unknown";
   }
 };
 
@@ -77182,7 +77205,7 @@ var BuildCurrentReviewProjection = class {
     );
     const inlineChunks = coverageOnly ? [] : buildInlineChunks(occurrences, this.limits);
     const summaryBody = coverageOnly ? [
-      "Review coverage is partial. ReviewRouter published a summary only; inline findings and lifecycle changes were held back.",
+      "Review coverage is partial. ReviewRouter published this summary, but inline findings and lifecycle changes were held back.",
       "",
       removeAllClearClaims(presentation.summaryBody)
     ].join("\n") : allClear ? presentation.summaryBody : removeAllClearClaims(presentation.summaryBody);

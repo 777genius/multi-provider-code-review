@@ -181,8 +181,14 @@ export class PullRequestLoader {
         omittedFiles: [],
       };
     } catch (error) {
-      if (!this.isDiffTooLargeError(error)) {
+      if (!this.isRawDiffFallbackError(error)) {
         throw error;
+      }
+      if (!this.isDiffTooLargeError(error)) {
+        logger.warn(
+          `GitHub raw diff request for PR #${prNumber} failed with HTTP ${this.getGitHubHttpStatus(error)}; using paginated file patches.`
+        );
+        return this.synthesizeDiff(prNumber, files);
       }
       logger.warn(
         `GitHub rejected the raw diff for PR #${prNumber} as too large; using paginated file patches.`
@@ -339,5 +345,30 @@ export class PullRequestLoader {
       (Boolean(hasTooLargeCode) ||
         /diff exceeded|maximum number of files|too large/i.test(message))
     );
+  }
+
+  private isRawDiffFallbackError(error: unknown): boolean {
+    return this.isDiffTooLargeError(error) || this.isGitHubHttpError(error);
+  }
+
+  private isGitHubHttpError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const candidate = error as { name?: string; status?: unknown };
+    return (
+      typeof candidate.status === 'number' &&
+      (candidate.name === 'HttpError' || candidate.status >= 400)
+    );
+  }
+
+  private getGitHubHttpStatus(error: unknown): number | string {
+    if (!error || typeof error !== 'object') {
+      return 'unknown';
+    }
+
+    const status = (error as { status?: unknown }).status;
+    return typeof status === 'number' ? status : 'unknown';
   }
 }
