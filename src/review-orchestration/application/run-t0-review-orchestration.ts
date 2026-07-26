@@ -516,7 +516,11 @@ export class RunT0ReviewOrchestration {
       let lease: ReviewInvocationLease | null = null;
       for (let busyPollCount = 0; lease === null; busyPollCount += 1) {
         if (busyPollCount >= this.maxBusyPollsPerSlot) {
-          throw new Error('review_orchestration_slot_busy_timeout');
+          input.onEvent({
+            type: ReviewOrchestrationEventType.SlotExhausted,
+            workSlotId: input.workSlot.workSlotId,
+          });
+          return { streamVersion };
         }
         if (busyPollCount > 0) {
           await this.dependencies.delay.sleep(

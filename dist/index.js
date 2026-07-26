@@ -73532,7 +73532,11 @@ var RunT0ReviewOrchestration = class {
       let lease = null;
       for (let busyPollCount = 0; lease === null; busyPollCount += 1) {
         if (busyPollCount >= this.maxBusyPollsPerSlot) {
-          throw new Error("review_orchestration_slot_busy_timeout");
+          input.onEvent({
+            type: "slot_exhausted" /* SlotExhausted */,
+            workSlotId: input.workSlot.workSlotId
+          });
+          return { streamVersion };
         }
         if (busyPollCount > 0) {
           await this.dependencies.delay.sleep(

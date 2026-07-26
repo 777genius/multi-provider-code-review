@@ -723,7 +723,7 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
   });
 
-  it('fails retryably instead of publishing partial coverage while a lease remains busy', async () => {
+  it('treats a persistently busy lease as exhausted controlled coverage', async () => {
     const fixture = createFixture({ maxAttempts: 1 });
     fixture.controlPlane.acquireInvocationLease.mockResolvedValue({
       status: ReviewInvocationLeaseAcquireOutcomeStatus.Busy,
@@ -736,15 +736,18 @@ describe('RunT0ReviewOrchestration', () => {
     });
 
     expect(result).toMatchObject({
-      status: ReviewOrchestrationResultStatus.Failed,
-      failureCode: 'review_orchestration_slot_busy_timeout',
+      status: ReviewOrchestrationResultStatus.PartialCompleted,
     });
     expect(fixture.controlPlane.acquireInvocationLease).toHaveBeenCalledTimes(
       2
     );
     expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
-    expect(fixture.dependencies.projectionBuilder.build).not.toHaveBeenCalled();
-    expect(fixture.controlPlane.finalizeExecution).not.toHaveBeenCalled();
+    expect(fixture.dependencies.projectionBuilder.build).toHaveBeenCalledWith(
+      expect.objectContaining({ exhaustedWorkSlotIds: ['slot-1'] })
+    );
+    expect(fixture.controlPlane.finalizeExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ allowPartial: true })
+    );
   });
 
   it('treats a server-side attempt budget exhaustion as an exhausted slot', async () => {
