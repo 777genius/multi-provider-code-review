@@ -21930,6 +21930,7 @@ var CONTEXT_GATEWAY_RUNTIME_ENV_KEYS = /* @__PURE__ */ new Set([
   "REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID",
   "REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH",
   "REVIEWROUTER_CONTEXT_BASE_SHA",
+  "REVIEWROUTER_CONTEXT_MERGE_BASE_SHA",
   "REVIEWROUTER_CONTEXT_HEAD_SHA"
 ]);
 var CONTEXT_GATEWAY_MCP_ENV_VARS = Object.freeze(
@@ -47740,9 +47741,11 @@ var package_default = {
     build: "npm run build:action && npm run build:cli",
     "build:action": "npm run build:action:main && npm run build:context-gateway",
     "build:action:main": "esbuild src/main.ts --bundle --platform=node --target=node24 --outfile=dist/index.js --sourcemap --external:tree-sitter --external:tree-sitter-*",
-    "build:context-gateway": "esbuild src/context-gateway/stdio-entry.ts --bundle --platform=node --target=node24 --outfile=dist/context-gateway.js --sourcemap",
+    "build:context-gateway": "npm run build:context-gateway:bundle && node scripts/generate-context-gateway-release-metadata.mjs",
+    "build:context-gateway:bundle": "esbuild src/context-gateway/stdio-entry.ts --bundle --platform=node --target=node24 --outfile=dist/context-gateway.js --sourcemap",
+    "check:context-gateway-release-metadata": "node scripts/generate-context-gateway-release-metadata.mjs --check",
     "build:cli": "esbuild src/cli/index.ts --bundle --platform=node --target=node24 --outfile=dist/cli/index.js --sourcemap --external:tree-sitter --external:tree-sitter-*",
-    "build:prod": "npm run build:action:main -- --minify && npm run build:context-gateway -- --minify && npm run build:cli -- --minify",
+    "build:prod": "npm run build:action:main -- --minify && npm run build:context-gateway:bundle -- --minify && node scripts/generate-context-gateway-release-metadata.mjs && npm run build:cli -- --minify",
     test: "jest",
     "test:coverage": "jest --coverage",
     "test:unit": "jest --testPathIgnorePatterns=integration --testPathIgnorePatterns=benchmarks",
@@ -74575,6 +74578,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
     ).toString("base64url")}`;
     const gatewayPlanningConfig = this.contextGateway ? await this.contextGateway.planningConfig({
       baseSha: assignment.context.baseSha,
+      mergeBaseSha: assignment.mergeBaseSha,
       headSha: assignment.context.headSha
     }) : void 0;
     const prepared = await this.provider.prepareInvocation(
@@ -74723,6 +74727,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
       toolPolicyHash: input.invocation.manifestFacts.toolPolicyHash,
       revision: {
         baseSha: preparedFacts.assignment.context.baseSha,
+        mergeBaseSha: preparedFacts.assignment.mergeBaseSha,
         headSha: preparedFacts.assignment.context.headSha
       }
     });
@@ -74987,7 +74992,7 @@ var import_util6 = require("util");
 
 // src/context-gateway/context-gateway-contract.ts
 var import_crypto23 = require("crypto");
-var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v2";
+var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v3";
 var CONTEXT_GATEWAY_MAX_OPERATIONS = 2e3;
 function changedPathsWitnessStatus(transcript, expectedOperandsHash) {
   let foundCandidate = false;
@@ -75229,6 +75234,7 @@ var ContextGatewayInvocationSessionFactory = class {
         REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID: input.checkoutTreeOid,
         REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH: input.eventChainSeedHash,
         REVIEWROUTER_CONTEXT_BASE_SHA: input.revision.baseSha,
+        REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: input.revision.mergeBaseSha,
         REVIEWROUTER_CONTEXT_HEAD_SHA: input.revision.headSha
       })
     });
@@ -75317,6 +75323,7 @@ var ContextGatewayInvocationSession = class {
     const expectedChangedPathsOperandsHash = sha25611(
       canonicalJson9({
         baseSha: this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_BASE_SHA,
+        mergeBaseSha: this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_MERGE_BASE_SHA,
         headSha: this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_HEAD_SHA
       })
     );
@@ -75724,10 +75731,11 @@ var MAX_FILE_BYTES = 2 * 1024 * 1024;
 var MAX_DIRECTORY_ENTRIES = 2e4;
 var MAX_SEARCH_RESULTS = 2e4;
 var FilesystemContextGateway = class _FilesystemContextGateway {
-  constructor(root, checkoutTreeOid, baseSha, headSha, recorder) {
+  constructor(root, checkoutTreeOid, baseSha, mergeBaseSha, headSha, recorder) {
     this.root = root;
     this.checkoutTreeOid = checkoutTreeOid;
     this.baseSha = baseSha;
+    this.mergeBaseSha = mergeBaseSha;
     this.headSha = headSha;
     this.recorder = recorder;
   }
@@ -75735,11 +75743,13 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     const root = await (0, import_promises3.realpath)(input.root);
     requireGitOid(input.checkoutTreeOid, "checkout_tree_oid");
     requireGitOid(input.baseSha, "base_sha");
+    requireGitOid(input.mergeBaseSha, "merge_base_sha");
     requireGitOid(input.headSha, "head_sha");
     return new _FilesystemContextGateway(
       root,
       input.checkoutTreeOid,
       input.baseSha,
+      input.mergeBaseSha,
       input.headSha,
       input.recorder
     );
@@ -75947,14 +75957,22 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
             "diff",
             "--name-status",
             "--no-renames",
-            `${this.baseSha}...${this.headSha}`
+            `${this.mergeBaseSha}..${this.headSha}`
           ];
           break;
         case "diff_stat":
-          args = ["diff", "--numstat", `${this.baseSha}...${this.headSha}`];
+          args = [
+            "diff",
+            "--numstat",
+            `${this.mergeBaseSha}..${this.headSha}`
+          ];
           break;
         case "merge_base":
-          args = ["merge-base", this.baseSha, this.headSha];
+          args = [
+            "rev-parse",
+            "--verify",
+            `${this.mergeBaseSha}^{commit}`
+          ];
           break;
         default:
           throw new Error("git_fact_invalid");
@@ -75965,7 +75983,11 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         kind: "git_fact",
         fact: input.fact,
         operandsHash: sha25610(
-          canonicalJson9({ baseSha: this.baseSha, headSha: this.headSha })
+          canonicalJson9({
+            baseSha: this.baseSha,
+            mergeBaseSha: this.mergeBaseSha,
+            headSha: this.headSha
+          })
         )
       });
       const result = Object.freeze({
@@ -76130,6 +76152,10 @@ var ContextAttestationReplayRunner = class {
         baseSha: requireGitOid(
           input.targetRevision.baseSha.toLowerCase(),
           "target_base_sha"
+        ),
+        mergeBaseSha: requireGitOid(
+          input.targetRevision.mergeBaseSha.toLowerCase(),
+          "target_merge_base_sha"
         ),
         headSha: requireGitOid(
           input.targetRevision.headSha.toLowerCase(),
@@ -76453,6 +76479,96 @@ function diagnosticText(error2) {
   }
   const record = error2;
   return [record.name, record.code, record.message].filter((value) => typeof value === "string").join(" ");
+}
+
+// src/review-orchestration/infrastructure/git-review-revision-materializer.ts
+var import_node_child_process = require("node:child_process");
+var import_node_util = require("node:util");
+var execFileAsync5 = (0, import_node_util.promisify)(import_node_child_process.execFile);
+var COMMIT_SHA = /^[a-f0-9]{40}$/;
+var GITHUB_REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+var GitReviewRevisionMaterializer = class {
+  constructor(runGit3 = runGitCommand) {
+    this.runGit = runGit3;
+  }
+  async ensureAvailable(input) {
+    if (!GITHUB_REPOSITORY.test(input.repository) || input.scmReadToken.length === 0) {
+      throw new Error("review_revision_materialization_input_invalid");
+    }
+    const commitShas = [...new Set(input.commitShas.map(normalizeCommitSha))];
+    const missing = [];
+    for (const commitSha of commitShas) {
+      try {
+        await this.runGit(["cat-file", "-e", `${commitSha}^{commit}`], {
+          cwd: input.checkoutRoot,
+          env: hardenedGitEnvironment()
+        });
+      } catch {
+        missing.push(commitSha);
+      }
+    }
+    if (missing.length === 0) return;
+    const authorization = Buffer.from(
+      `x-access-token:${input.scmReadToken}`,
+      "utf8"
+    ).toString("base64");
+    await this.runGit(
+      [
+        "fetch",
+        "--no-tags",
+        "--no-recurse-submodules",
+        "--depth=1",
+        `https://github.com/${input.repository}.git`,
+        ...missing
+      ],
+      {
+        cwd: input.checkoutRoot,
+        env: {
+          ...hardenedGitEnvironment(),
+          GIT_CONFIG_COUNT: "2",
+          GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+          GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${authorization}`,
+          GIT_CONFIG_KEY_1: "credential.helper",
+          GIT_CONFIG_VALUE_1: ""
+        }
+      }
+    );
+    for (const commitSha of missing) {
+      try {
+        await this.runGit(["cat-file", "-e", `${commitSha}^{commit}`], {
+          cwd: input.checkoutRoot,
+          env: hardenedGitEnvironment()
+        });
+      } catch (error2) {
+        throw new Error("review_revision_materialization_incomplete", {
+          cause: error2
+        });
+      }
+    }
+  }
+};
+function normalizeCommitSha(value) {
+  const normalized = value.toLowerCase();
+  if (!COMMIT_SHA.test(normalized)) {
+    throw new Error("review_revision_materialization_sha_invalid");
+  }
+  return normalized;
+}
+function hardenedGitEnvironment() {
+  return {
+    PATH: process.env.PATH,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_TERMINAL_PROMPT: "0"
+  };
+}
+async function runGitCommand(args, options) {
+  await execFileAsync5("git", args, {
+    cwd: options.cwd,
+    env: options.env,
+    timeout: 6e4,
+    maxBuffer: 256 * 1024
+  });
 }
 
 // src/review-orchestration/infrastructure/github-review-state-adapter.ts
@@ -79531,7 +79647,7 @@ function deterministicIdempotencyKey(purpose, parts) {
 }
 
 // src/review-orchestration/infrastructure/production-t0-review-runner.ts
-var execFileAsync5 = (0, import_util9.promisify)(import_child_process15.execFile);
+var execFileAsync6 = (0, import_util9.promisify)(import_child_process15.execFile);
 var CODEX_RETRY_POLICY_VERSION = "codex-semantic-retry.v1";
 var ProductionT0ReviewRunner = class {
   constructor(fetchImpl = fetch) {
@@ -79578,6 +79694,16 @@ var ProductionT0ReviewRunner = class {
     if (pr2.baseSha.toLowerCase() !== authorization.facts.baseSha || pr2.headSha.toLowerCase() !== authorization.facts.headSha) {
       return { outcome: "superseded" /* Superseded */ };
     }
+    await new GitReviewRevisionMaterializer().ensureAvailable({
+      checkoutRoot: path23.resolve(input.workspacePath),
+      repository: input.repository,
+      scmReadToken: input.scmReadToken,
+      commitShas: [
+        authorization.facts.baseSha,
+        authorization.facts.mergeBaseSha,
+        authorization.facts.headSha
+      ]
+    });
     const lifecycleInventory = new FreshGitHubLifecycleInventory(
       github,
       new ReviewLedger(github, process.env.REVIEW_ROUTER_LEDGER_KEY)
@@ -79810,6 +79936,7 @@ function planAssignments(input) {
     return Object.freeze({
       workSlot: assignment.workSlot,
       reviewRevisionHash: input.authorization.facts.reviewRevisionHash,
+      mergeBaseSha: input.authorization.facts.mergeBaseSha,
       context: batchContext(input.pr, batch.files),
       lifecycleTargets: Object.freeze([...batch.lifecycleTargets]),
       liveLifecycleStateHash: input.liveLifecycleStateHash
@@ -79910,7 +80037,7 @@ function sameAuthorizedRevision(revision, authorization) {
   return revision.baseSha === authorization.facts.baseSha && revision.mergeBaseSha === authorization.facts.mergeBaseSha && revision.headSha === authorization.facts.headSha && revision.reviewRevisionHash === authorization.facts.reviewRevisionHash;
 }
 async function readCheckedOutHead(workspacePath) {
-  const result = await execFileAsync5("git", ["rev-parse", "HEAD"], {
+  const result = await execFileAsync6("git", ["rev-parse", "HEAD"], {
     cwd: workspacePath,
     env: {
       PATH: process.env.PATH,

@@ -42,6 +42,7 @@ const ENABLED_TOOLS = Object.freeze([
 
 export type ContextGatewayRevision = Readonly<{
   baseSha: string;
+  mergeBaseSha: string;
   headSha: string;
 }>;
 
@@ -274,6 +275,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID: input.checkoutTreeOid,
         REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH: input.eventChainSeedHash,
         REVIEWROUTER_CONTEXT_BASE_SHA: input.revision.baseSha,
+        REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: input.revision.mergeBaseSha,
         REVIEWROUTER_CONTEXT_HEAD_SHA: input.revision.headSha,
       }),
     });
@@ -377,6 +379,9 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
       canonicalJson({
         baseSha:
           this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_BASE_SHA!,
+        mergeBaseSha:
+          this.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_MERGE_BASE_SHA!,
         headSha:
           this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_HEAD_SHA!,
       })

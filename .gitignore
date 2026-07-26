@@ -4,6 +4,7 @@ dist/**
 !dist/index.js
 !dist/index.js.map
 !dist/context-gateway.js
+!dist/context-gateway.release.json
 .mpr-cache
 .mpr-cache-test-*
 npm-debug.log*

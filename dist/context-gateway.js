@@ -13982,7 +13982,7 @@ var StdioServerTransport = class {
 
 // src/context-gateway/context-gateway-contract.ts
 var import_crypto = require("crypto");
-var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v2";
+var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v3";
 var CONTEXT_GATEWAY_MAX_OPERATIONS = 2e3;
 function canonicalJson(value) {
   if (value === void 0) return '{"$undefined":true}';
@@ -14390,10 +14390,11 @@ var MAX_FILE_BYTES = 2 * 1024 * 1024;
 var MAX_DIRECTORY_ENTRIES = 2e4;
 var MAX_SEARCH_RESULTS = 2e4;
 var FilesystemContextGateway = class _FilesystemContextGateway {
-  constructor(root, checkoutTreeOid, baseSha, headSha, recorder) {
+  constructor(root, checkoutTreeOid, baseSha, mergeBaseSha, headSha, recorder) {
     this.root = root;
     this.checkoutTreeOid = checkoutTreeOid;
     this.baseSha = baseSha;
+    this.mergeBaseSha = mergeBaseSha;
     this.headSha = headSha;
     this.recorder = recorder;
   }
@@ -14401,11 +14402,13 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     const root = await (0, import_promises2.realpath)(input.root);
     requireGitOid(input.checkoutTreeOid, "checkout_tree_oid");
     requireGitOid(input.baseSha, "base_sha");
+    requireGitOid(input.mergeBaseSha, "merge_base_sha");
     requireGitOid(input.headSha, "head_sha");
     return new _FilesystemContextGateway(
       root,
       input.checkoutTreeOid,
       input.baseSha,
+      input.mergeBaseSha,
       input.headSha,
       input.recorder
     );
@@ -14613,14 +14616,22 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
             "diff",
             "--name-status",
             "--no-renames",
-            `${this.baseSha}...${this.headSha}`
+            `${this.mergeBaseSha}..${this.headSha}`
           ];
           break;
         case "diff_stat":
-          args = ["diff", "--numstat", `${this.baseSha}...${this.headSha}`];
+          args = [
+            "diff",
+            "--numstat",
+            `${this.mergeBaseSha}..${this.headSha}`
+          ];
           break;
         case "merge_base":
-          args = ["merge-base", this.baseSha, this.headSha];
+          args = [
+            "rev-parse",
+            "--verify",
+            `${this.mergeBaseSha}^{commit}`
+          ];
           break;
         default:
           throw new Error("git_fact_invalid");
@@ -14631,7 +14642,11 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         kind: "git_fact",
         fact: input.fact,
         operandsHash: sha256(
-          canonicalJson({ baseSha: this.baseSha, headSha: this.headSha })
+          canonicalJson({
+            baseSha: this.baseSha,
+            mergeBaseSha: this.mergeBaseSha,
+            headSha: this.headSha
+          })
         )
       });
       const result = Object.freeze({
@@ -14761,8 +14776,20 @@ async function captureRequiredContextWitness(gateway) {
 
 // src/context-gateway/stdio-entry.ts
 async function main() {
+  const mode = readMode(process.argv.slice(2));
+  if (mode === "describe" /* Describe */) {
+    process.stdout.write(
+      `${JSON.stringify({
+        artifactKind: "reviewrouter-context-gateway",
+        contextGatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
+        metadataVersion: 1
+      })}
+`
+    );
+    return;
+  }
   const config2 = readConfig();
-  const preflightOnly = readMode(process.argv.slice(2));
+  const preflightOnly = mode === "preflight" /* Preflight */;
   const recorder = new ContextGatewayRecorder({
     sessionId: config2.sessionId,
     transcriptPath: config2.transcriptPath,
@@ -14781,6 +14808,7 @@ async function main() {
     root: config2.root,
     checkoutTreeOid: config2.checkoutTreeOid,
     baseSha: config2.baseSha,
+    mergeBaseSha: config2.mergeBaseSha,
     headSha: config2.headSha,
     recorder
   });
@@ -14840,8 +14868,13 @@ async function main() {
   await server.connect(new StdioServerTransport());
 }
 function readMode(args) {
-  if (args.length === 0) return false;
-  if (args.length === 1 && args[0] === "--preflight") return true;
+  if (args.length === 0) return "serve" /* Serve */;
+  if (args.length === 1 && args[0] === "--preflight") {
+    return "preflight" /* Preflight */;
+  }
+  if (args.length === 1 && args[0] === "--describe") {
+    return "describe" /* Describe */;
+  }
   throw new Error("context_gateway_mode_invalid");
 }
 function response(value) {
@@ -14873,6 +14906,10 @@ function readConfig() {
     baseSha: requireGitOid(
       requiredEnv("REVIEWROUTER_CONTEXT_BASE_SHA"),
       "base_sha"
+    ),
+    mergeBaseSha: requireGitOid(
+      requiredEnv("REVIEWROUTER_CONTEXT_MERGE_BASE_SHA"),
+      "merge_base_sha"
     ),
     headSha: requireGitOid(
       requiredEnv("REVIEWROUTER_CONTEXT_HEAD_SHA"),

@@ -16,8 +16,19 @@ import { FilesystemContextGateway } from './filesystem-context-gateway';
 import { captureRequiredContextWitness } from './required-context-witness';
 
 async function main(): Promise<void> {
+  const mode = readMode(process.argv.slice(2));
+  if (mode === ContextGatewayMode.Describe) {
+    process.stdout.write(
+      `${JSON.stringify({
+        artifactKind: 'reviewrouter-context-gateway',
+        contextGatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
+        metadataVersion: 1,
+      })}\n`
+    );
+    return;
+  }
   const config = readConfig();
-  const preflightOnly = readMode(process.argv.slice(2));
+  const preflightOnly = mode === ContextGatewayMode.Preflight;
   const recorder = new ContextGatewayRecorder({
     sessionId: config.sessionId,
     transcriptPath: config.transcriptPath,
@@ -36,6 +47,7 @@ async function main(): Promise<void> {
     root: config.root,
     checkoutTreeOid: config.checkoutTreeOid,
     baseSha: config.baseSha,
+    mergeBaseSha: config.mergeBaseSha,
     headSha: config.headSha,
     recorder,
   });
@@ -98,9 +110,20 @@ async function main(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
-function readMode(args: readonly string[]): boolean {
-  if (args.length === 0) return false;
-  if (args.length === 1 && args[0] === '--preflight') return true;
+enum ContextGatewayMode {
+  Serve = 'serve',
+  Preflight = 'preflight',
+  Describe = 'describe',
+}
+
+function readMode(args: readonly string[]): ContextGatewayMode {
+  if (args.length === 0) return ContextGatewayMode.Serve;
+  if (args.length === 1 && args[0] === '--preflight') {
+    return ContextGatewayMode.Preflight;
+  }
+  if (args.length === 1 && args[0] === '--describe') {
+    return ContextGatewayMode.Describe;
+  }
   throw new Error('context_gateway_mode_invalid');
 }
 
@@ -134,6 +157,10 @@ function readConfig() {
     baseSha: requireGitOid(
       requiredEnv('REVIEWROUTER_CONTEXT_BASE_SHA'),
       'base_sha'
+    ),
+    mergeBaseSha: requireGitOid(
+      requiredEnv('REVIEWROUTER_CONTEXT_MERGE_BASE_SHA'),
+      'merge_base_sha'
     ),
     headSha: requireGitOid(
       requiredEnv('REVIEWROUTER_CONTEXT_HEAD_SHA'),

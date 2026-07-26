@@ -300,6 +300,7 @@ async function openSessionFixture() {
   );
   const revision = {
     baseSha: (await git(checkoutRoot, ['rev-parse', 'HEAD'])).trim(),
+    mergeBaseSha: (await git(checkoutRoot, ['rev-parse', 'HEAD'])).trim(),
     headSha: (await git(checkoutRoot, ['rev-parse', 'HEAD'])).trim(),
   };
   const planning = await factory.planningConfig(revision);
@@ -391,6 +392,7 @@ function changedPathsDependency(fixture: SessionFixture) {
       operandsHash: hash(
         canonicalJson({
           baseSha: fixture.revision.baseSha,
+          mergeBaseSha: fixture.revision.mergeBaseSha,
           headSha: fixture.revision.headSha,
         })
       ),

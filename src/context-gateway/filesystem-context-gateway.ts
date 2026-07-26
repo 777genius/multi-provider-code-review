@@ -20,6 +20,7 @@ export class FilesystemContextGateway {
     private readonly root: string,
     private readonly checkoutTreeOid: string,
     private readonly baseSha: string,
+    private readonly mergeBaseSha: string,
     private readonly headSha: string,
     private readonly recorder: ContextGatewayRecorder
   ) {}
@@ -28,17 +29,20 @@ export class FilesystemContextGateway {
     root: string;
     checkoutTreeOid: string;
     baseSha: string;
+    mergeBaseSha: string;
     headSha: string;
     recorder: ContextGatewayRecorder;
   }): Promise<FilesystemContextGateway> {
     const root = await realpath(input.root);
     requireGitOid(input.checkoutTreeOid, 'checkout_tree_oid');
     requireGitOid(input.baseSha, 'base_sha');
+    requireGitOid(input.mergeBaseSha, 'merge_base_sha');
     requireGitOid(input.headSha, 'head_sha');
     return new FilesystemContextGateway(
       root,
       input.checkoutTreeOid,
       input.baseSha,
+      input.mergeBaseSha,
       input.headSha,
       input.recorder
     );
@@ -283,14 +287,22 @@ export class FilesystemContextGateway {
             'diff',
             '--name-status',
             '--no-renames',
-            `${this.baseSha}...${this.headSha}`,
+            `${this.mergeBaseSha}..${this.headSha}`,
           ];
           break;
         case 'diff_stat':
-          args = ['diff', '--numstat', `${this.baseSha}...${this.headSha}`];
+          args = [
+            'diff',
+            '--numstat',
+            `${this.mergeBaseSha}..${this.headSha}`,
+          ];
           break;
         case 'merge_base':
-          args = ['merge-base', this.baseSha, this.headSha];
+          args = [
+            'rev-parse',
+            '--verify',
+            `${this.mergeBaseSha}^{commit}`,
+          ];
           break;
         default:
           throw new Error('git_fact_invalid');
@@ -301,7 +313,11 @@ export class FilesystemContextGateway {
         kind: 'git_fact' as const,
         fact: input.fact,
         operandsHash: sha256(
-          canonicalJson({ baseSha: this.baseSha, headSha: this.headSha })
+          canonicalJson({
+            baseSha: this.baseSha,
+            mergeBaseSha: this.mergeBaseSha,
+            headSha: this.headSha,
+          })
         ),
       });
       const result = Object.freeze({
