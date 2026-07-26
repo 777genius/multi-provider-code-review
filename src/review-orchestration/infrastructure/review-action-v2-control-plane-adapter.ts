@@ -19,6 +19,7 @@ import {
   ReviewPublicationRequestResultStatus,
   ReviewPublicationStatusResultStatus,
   ReviewRunAuthorizationResultStatus,
+  ReviewActionV2ProtocolErrorCode,
   type ReviewEvidenceLookupResult,
   type ReviewExecutionStartResult,
 } from '../../control-plane/generated/review-action-v2/review-action-v2';
@@ -361,16 +362,24 @@ export class ReviewActionV2ControlPlaneAdapter
     readonly execution: ReviewExecutionAdmission;
     readonly targetRevisionHash: string;
   }): Promise<void> {
-    const result = await this.client.execute(
-      ReviewActionV2OperationId.ReviewExecutionSupersede,
-      {
-        authorizationToken: input.authorization.authorizationToken,
-        idempotencyKey: input.idempotencyKey,
-        executionId: input.execution.executionId,
-        expectedStreamVersion: input.execution.streamVersion,
-        targetRevisionHash: input.targetRevisionHash,
+    const operationId = ReviewActionV2OperationId.ReviewExecutionSupersede;
+    const request = {
+      authorizationToken: input.authorization.authorizationToken,
+      idempotencyKey: input.idempotencyKey,
+      executionId: input.execution.executionId,
+      expectedStreamVersion: input.execution.streamVersion,
+      targetRevisionHash: input.targetRevisionHash,
+    } as const;
+    const result = await this.client.execute(operationId, request).catch((error) => {
+      if (isBenignSupersedeTargetRevisionMismatch(error)) {
+        return {
+          status: ReviewExecutionMutationResultStatus.Restored,
+          executionId: input.execution.executionId,
+          streamVersion: input.execution.streamVersion,
+        };
       }
-    );
+      throw error;
+    });
     requireMutationApplied(result.status, 'execution_supersede');
   }
 
@@ -1360,6 +1369,15 @@ function requireMutationApplied(
   ) {
     throw new Error(`review_action_v2_${operation}_${status}`);
   }
+}
+
+function isBenignSupersedeTargetRevisionMismatch(error: unknown): boolean {
+  return (
+    error instanceof ReviewActionV2ClientError &&
+    error.operationId === ReviewActionV2OperationId.ReviewExecutionSupersede &&
+    error.protocolErrorCode === ReviewActionV2ProtocolErrorCode.Forbidden &&
+    error.issues?.includes('target_revision_mismatch') === true
+  );
 }
 
 function parseCanonicalObject(value: string | null | undefined) {

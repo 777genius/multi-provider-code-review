@@ -78752,16 +78752,24 @@ var ReviewActionV2ControlPlaneAdapter = class {
     return parseExecutionAdmission(result, input);
   }
   async supersedeExecution(input) {
-    const result = await this.client.execute(
-      "review_execution_supersede" /* ReviewExecutionSupersede */,
-      {
-        authorizationToken: input.authorization.authorizationToken,
-        idempotencyKey: input.idempotencyKey,
-        executionId: input.execution.executionId,
-        expectedStreamVersion: input.execution.streamVersion,
-        targetRevisionHash: input.targetRevisionHash
+    const operationId = "review_execution_supersede" /* ReviewExecutionSupersede */;
+    const request = {
+      authorizationToken: input.authorization.authorizationToken,
+      idempotencyKey: input.idempotencyKey,
+      executionId: input.execution.executionId,
+      expectedStreamVersion: input.execution.streamVersion,
+      targetRevisionHash: input.targetRevisionHash
+    };
+    const result = await this.client.execute(operationId, request).catch((error2) => {
+      if (isBenignSupersedeTargetRevisionMismatch(error2)) {
+        return {
+          status: "restored" /* Restored */,
+          executionId: input.execution.executionId,
+          streamVersion: input.execution.streamVersion
+        };
       }
-    );
+      throw error2;
+    });
     requireMutationApplied(result.status, "execution_supersede");
   }
   async lookupEvidence(input) {
@@ -79533,6 +79541,9 @@ function requireMutationApplied(status, operation) {
   if (status !== "applied" /* Applied */ && status !== "restored" /* Restored */) {
     throw new Error(`review_action_v2_${operation}_${status}`);
   }
+}
+function isBenignSupersedeTargetRevisionMismatch(error2) {
+  return error2 instanceof ReviewActionV2ClientError && error2.operationId === "review_execution_supersede" /* ReviewExecutionSupersede */ && error2.protocolErrorCode === "forbidden" /* Forbidden */ && error2.issues?.includes("target_revision_mismatch") === true;
 }
 function parseCanonicalObject2(value) {
   if (!value) throw new Error("review_action_v2_canonical_json_missing");

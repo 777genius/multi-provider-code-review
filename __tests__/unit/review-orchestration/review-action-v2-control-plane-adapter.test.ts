@@ -96,6 +96,29 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     ).rejects.toThrow('review_action_v2_publication_outcome_unknown');
   });
 
+  it('treats a supersede target revision mismatch as a benign stale race', async () => {
+    const execute = jest.fn().mockRejectedValue(
+      new ReviewActionV2ClientError(
+        ReviewActionV2ClientFailureCode.ProtocolError,
+        ReviewActionV2OperationId.ReviewExecutionSupersede,
+        {
+          httpStatus: 403,
+          protocolErrorCode: ReviewActionV2ProtocolErrorCode.Forbidden,
+          issues: ['target_revision_mismatch'],
+        }
+      )
+    );
+
+    await expect(
+      createAdapter(execute).supersedeExecution({
+        authorization,
+        idempotencyKey: 'supersede-key',
+        execution,
+        targetRevisionHash: hash('new-revision'),
+      })
+    ).resolves.toBeUndefined();
+  });
+
   it('opens and seals a target-bound context gateway session', async () => {
     const execute = jest
       .fn()
