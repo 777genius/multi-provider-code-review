@@ -77162,7 +77162,7 @@ var BuildCurrentReviewProjection = class {
     );
     const inlineChunks = coverageOnly ? [] : buildInlineChunks(occurrences, this.limits);
     const summaryBody = coverageOnly ? [
-      "Review coverage is partial. Findings and lifecycle decisions were not published.",
+      "Review coverage is partial. ReviewRouter published a summary only; inline findings and lifecycle changes were held back.",
       "",
       removeAllClearClaims(presentation.summaryBody)
     ].join("\n") : allClear ? presentation.summaryBody : removeAllClearClaims(presentation.summaryBody);
