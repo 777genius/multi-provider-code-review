@@ -29,7 +29,7 @@ export type ContextGatewayRecorderConfig = Readonly<{
   eventChainSeedHash: string;
 }>;
 
-const MAX_RECORDER_STATE_BYTES = 512 * 1024;
+const MAX_RECORDER_STATE_BYTES = 2 * 1024 * 1024;
 
 export class ContextGatewayRecorder {
   private readonly dependencies: ContextDependencyEntry[] = [];

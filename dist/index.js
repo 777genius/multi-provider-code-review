@@ -75075,8 +75075,8 @@ function isNonNegativeSafeInteger2(value) {
 
 // src/review-orchestration/infrastructure/context-gateway-invocation-session.ts
 var execFileAsync2 = (0, import_util6.promisify)(import_child_process12.execFile);
-var MAX_TRANSCRIPT_BYTES = 512 * 1024;
-var MAX_REPLAY_MATERIAL_BYTES = 512 * 1024;
+var MAX_TRANSCRIPT_BYTES = 2 * 1024 * 1024;
+var MAX_REPLAY_MATERIAL_BYTES = 2 * 1024 * 1024;
 var ENABLED_TOOLS = Object.freeze([
   "review_read_file",
   "review_list_directory",
@@ -75490,7 +75490,7 @@ var import_util8 = require("util");
 var import_crypto25 = require("crypto");
 var import_promises2 = require("fs/promises");
 var path20 = __toESM(require("path"));
-var MAX_RECORDER_STATE_BYTES = 512 * 1024;
+var MAX_RECORDER_STATE_BYTES = 2 * 1024 * 1024;
 var ContextGatewayRecorder = class {
   constructor(config) {
     this.config = config;

@@ -14052,7 +14052,7 @@ function isRecord(value) {
 }
 
 // src/context-gateway/context-gateway-recorder.ts
-var MAX_RECORDER_STATE_BYTES = 512 * 1024;
+var MAX_RECORDER_STATE_BYTES = 2 * 1024 * 1024;
 var ContextGatewayRecorder = class {
   constructor(config2) {
     this.config = config2;

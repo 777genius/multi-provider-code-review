@@ -31,8 +31,8 @@ import {
 } from '../application';
 
 const execFileAsync = promisify(execFile);
-const MAX_TRANSCRIPT_BYTES = 512 * 1024;
-const MAX_REPLAY_MATERIAL_BYTES = 512 * 1024;
+const MAX_TRANSCRIPT_BYTES = 2 * 1024 * 1024;
+const MAX_REPLAY_MATERIAL_BYTES = 2 * 1024 * 1024;
 const ENABLED_TOOLS = Object.freeze([
   'review_read_file',
   'review_list_directory',
