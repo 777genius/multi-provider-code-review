@@ -54,6 +54,7 @@ import {
 import { ContextAttestationReplayRunner } from './context-attestation-replay-runner';
 import { ProviderInvocationFailureClassifier } from './provider-invocation-failure-classifier';
 import { LoggingReviewInvocationDiagnostics } from './review-invocation-diagnostics';
+import { GitReviewRevisionMaterializer } from './git-review-revision-materializer';
 import {
   FreshGitHubLifecycleInventory,
   GitHubReviewRevisionGuard,
@@ -116,6 +117,16 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     ) {
       return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
     }
+    await new GitReviewRevisionMaterializer().ensureAvailable({
+      checkoutRoot: path.resolve(input.workspacePath),
+      repository: input.repository,
+      scmReadToken: input.scmReadToken,
+      commitShas: [
+        authorization.facts.baseSha,
+        authorization.facts.mergeBaseSha,
+        authorization.facts.headSha,
+      ],
+    });
     const lifecycleInventory = new FreshGitHubLifecycleInventory(
       github,
       new ReviewLedger(github, process.env.REVIEW_ROUTER_LEDGER_KEY)
@@ -390,6 +401,7 @@ export function planAssignments(input: {
     return Object.freeze({
       workSlot: assignment.workSlot,
       reviewRevisionHash: input.authorization.facts.reviewRevisionHash,
+      mergeBaseSha: input.authorization.facts.mergeBaseSha,
       context: batchContext(input.pr, batch.files),
       lifecycleTargets: Object.freeze([...batch.lifecycleTargets]),
       liveLifecycleStateHash: input.liveLifecycleStateHash,

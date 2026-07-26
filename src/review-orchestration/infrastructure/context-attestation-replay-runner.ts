@@ -104,6 +104,10 @@ export class ContextAttestationReplayRunner implements ContextDependencyReplayPo
           input.targetRevision.baseSha.toLowerCase(),
           'target_base_sha'
         ),
+        mergeBaseSha: requireGitOid(
+          input.targetRevision.mergeBaseSha.toLowerCase(),
+          'target_merge_base_sha'
+        ),
         headSha: requireGitOid(
           input.targetRevision.headSha.toLowerCase(),
           'target_head_sha'

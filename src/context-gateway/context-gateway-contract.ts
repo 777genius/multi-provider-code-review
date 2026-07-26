@@ -1,7 +1,7 @@
 import { createHash, createHmac } from 'crypto';
 
 export const CONTEXT_GATEWAY_MANIFEST_VERSION = 2 as const;
-export const CONTEXT_GATEWAY_POLICY_VERSION = 'context-gateway-v2' as const;
+export const CONTEXT_GATEWAY_POLICY_VERSION = 'context-gateway-v3' as const;
 export const CONTEXT_GATEWAY_MAX_OPERATIONS = 2_000;
 
 export type ContextDependencyKind =

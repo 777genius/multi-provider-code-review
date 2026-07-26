@@ -77,6 +77,7 @@ describe('FilesystemContextGateway', () => {
     const expectedOperandsHash = sha256(
       canonicalJson({
         baseSha: fixture.baseSha,
+        mergeBaseSha: fixture.mergeBaseSha,
         headSha: fixture.headSha,
       })
     );
@@ -111,6 +112,28 @@ describe('FilesystemContextGateway', () => {
     expect(gateway.gitFact).toHaveBeenCalledWith({ fact: 'changed_paths' });
   });
 
+  it('captures changed paths without traversing disconnected shallow history', async () => {
+    const mergeBaseSha = await gitText(root, ['rev-parse', 'HEAD']);
+    await writeFile(path.join(root, 'shallow.ts'), 'export const shallow = 1;\n');
+    await git(root, ['add', 'shallow.ts']);
+    await git(root, ['commit', '-qm', 'add shallow path']);
+    const headSha = await gitText(root, ['rev-parse', 'HEAD']);
+    await writeFile(path.join(root, '.git', 'shallow'), `${headSha}\n`);
+    const fixture = await gatewayFixture(
+      root,
+      'shallow-history',
+      mergeBaseSha,
+      mergeBaseSha
+    );
+
+    await expect(captureRequiredContextWitness(fixture.gateway)).resolves.toBe(
+      RequiredContextWitnessCaptureStatus.Captured
+    );
+    await expect(
+      fixture.gateway.gitFact({ fact: 'merge_base' })
+    ).resolves.toMatchObject({ values: [mergeBaseSha] });
+  });
+
   it('fails closed instead of resetting an initialized transcript', async () => {
     const fixture = await gatewayFixture(root);
     await fixture.gateway.readFile({ path: 'a.ts' });
@@ -134,6 +157,7 @@ describe('FilesystemContextGateway', () => {
       root,
       checkoutTreeOid: fixture.recorderConfig.checkoutTreeOid,
       baseSha: fixture.baseSha,
+      mergeBaseSha: fixture.mergeBaseSha,
       headSha: fixture.headSha,
       recorder: resumedRecorder,
     });
@@ -317,7 +341,8 @@ describe('FilesystemContextGateway', () => {
 async function gatewayFixture(
   root: string,
   suffix = 'default',
-  baseSha?: string
+  baseSha?: string,
+  mergeBaseSha?: string
 ) {
   const headSha = await gitText(root, ['rev-parse', 'HEAD']);
   const checkoutTreeOid = await gitText(root, ['rev-parse', 'HEAD^{tree}']);
@@ -340,10 +365,12 @@ async function gatewayFixture(
   await recorder.initialize();
   return {
     baseSha: baseSha ?? headSha,
+    mergeBaseSha: mergeBaseSha ?? baseSha ?? headSha,
     gateway: await FilesystemContextGateway.create({
       root,
       checkoutTreeOid,
       baseSha: baseSha ?? headSha,
+      mergeBaseSha: mergeBaseSha ?? baseSha ?? headSha,
       headSha,
       recorder,
     }),

@@ -531,6 +531,7 @@ const workSlot = Object.freeze({
 const assignment = Object.freeze({
   workSlot,
   reviewRevisionHash: hash('revision'),
+  mergeBaseSha: '2'.repeat(40),
   context: {
     number: 252,
     title: 'PR',
@@ -618,7 +619,7 @@ const gatewayConfig = Object.freeze({
   args: Object.freeze(['/tmp/context-gateway.js']),
   cwd: '/tmp/checkout',
   gatewayBinaryHash: hash('gateway'),
-  gatewayPolicyVersion: 'context-gateway-v2',
+  gatewayPolicyVersion: 'context-gateway-v3',
   enabledTools: Object.freeze([
     'review_read_file',
     'review_list_directory',
@@ -634,6 +635,7 @@ const gatewayConfig = Object.freeze({
     REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID: '4'.repeat(40),
     REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH: hash('seed'),
     REVIEWROUTER_CONTEXT_BASE_SHA: '1'.repeat(40),
+    REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: '2'.repeat(40),
     REVIEWROUTER_CONTEXT_HEAD_SHA: '3'.repeat(40),
   }),
 });

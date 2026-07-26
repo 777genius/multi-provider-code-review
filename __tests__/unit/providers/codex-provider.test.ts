@@ -41,7 +41,7 @@ function contextGatewayConfig(
     args: ['/tmp/reviewrouter-context-gateway.js'],
     cwd: '/tmp/reviewrouter-checkout',
     gatewayBinaryHash: 'a'.repeat(64),
-    gatewayPolicyVersion: 'context-gateway-v2',
+    gatewayPolicyVersion: 'context-gateway-v3',
     enabledTools: [
       'review_read_file',
       'review_list_directory',
@@ -57,6 +57,7 @@ function contextGatewayConfig(
       REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID: 'b'.repeat(40),
       REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH: 'c'.repeat(64),
       REVIEWROUTER_CONTEXT_BASE_SHA: 'd'.repeat(40),
+      REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: 'f'.repeat(40),
       REVIEWROUTER_CONTEXT_HEAD_SHA: 'e'.repeat(40),
     },
   };

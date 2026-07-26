@@ -39,6 +39,7 @@ import type { ContextGatewayInvocationSessionFactoryPort } from './context-gatew
 export type CodexReviewAssignment = {
   readonly workSlot: ReviewWorkSlotPlan;
   readonly reviewRevisionHash: string;
+  readonly mergeBaseSha: string;
   readonly context: PRContext;
   readonly lifecycleTargets: readonly LifecycleTarget[];
   readonly liveLifecycleStateHash: string;
@@ -101,6 +102,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
     const gatewayPlanningConfig = this.contextGateway
       ? await this.contextGateway.planningConfig({
           baseSha: assignment.context.baseSha,
+          mergeBaseSha: assignment.mergeBaseSha,
           headSha: assignment.context.headSha,
         })
       : undefined;
@@ -293,6 +295,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
       toolPolicyHash: input.invocation.manifestFacts.toolPolicyHash,
       revision: {
         baseSha: preparedFacts.assignment.context.baseSha,
+        mergeBaseSha: preparedFacts.assignment.mergeBaseSha,
         headSha: preparedFacts.assignment.context.headSha,
       },
     });

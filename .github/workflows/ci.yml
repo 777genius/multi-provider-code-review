@@ -28,3 +28,8 @@ jobs:
       # Use per-test timeout and open-handle detection to avoid hangs
       - run: npm run test -- --maxWorkers=2 --detectOpenHandles --testTimeout=20000
       - run: npm run build
+      - name: Verify committed runtime artifacts
+        run: |
+          npm run check:context-gateway-release-metadata
+          git diff --exit-code
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
