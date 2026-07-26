@@ -40,6 +40,7 @@ __export(github_action_exports, {
   didReviewRuntimeComplete: () => didReviewRuntimeComplete,
   extractReviewRouterRuntimeFailure: () => extractReviewRouterRuntimeFailure,
   formatTopLevelActionErrorMessage: () => formatTopLevelActionErrorMessage,
+  isReviewRouterTargetRevisionMismatchFailure: () => isReviewRouterTargetRevisionMismatchFailure,
   postPullRequestComment: () => postPullRequestComment,
   readActionAuthJson: () => readActionAuthJson,
   readActionInputs: () => readActionInputs,
@@ -24666,6 +24667,9 @@ function classifyPostWritebackCodexFailure(error51) {
     return new Error("review_runtime_timeout");
   }
   const output = getProcessFailureOutput(error51);
+  if (isReviewRouterTargetRevisionMismatchFailure(output)) {
+    return new Error(stalePullRequestHeadErrorCode);
+  }
   const reviewFailure = extractReviewRouterRuntimeFailure(output);
   if (reviewFailure) {
     return new AlreadyReportedRuntimeFailure(reviewFailure);
@@ -24683,6 +24687,9 @@ function extractReviewRouterRuntimeFailure(output) {
     /(?:ReviewRouter found [^\r\n]+|Review failed \[[^\r\n]+)(?:\r?\n|$)/
   );
   return match?.[0]?.trim();
+}
+function isReviewRouterTargetRevisionMismatchFailure(output) {
+  return output.includes("review_action_v2_protocol_error") && output.includes("operation=review_execution_supersede") && output.includes("issues=target_revision_mismatch");
 }
 function shouldSuppressTopLevelActionError(error51) {
   return error51 instanceof AlreadyReportedRuntimeFailure || typeof error51 === "object" && error51 !== null && error51.alreadyReportedToGitHub === true;
@@ -24866,6 +24873,7 @@ if (shouldAutoRunCodexRotatingAction({ env: process.env, argv: process.argv })) 
   didReviewRuntimeComplete,
   extractReviewRouterRuntimeFailure,
   formatTopLevelActionErrorMessage,
+  isReviewRouterTargetRevisionMismatchFailure,
   postPullRequestComment,
   readActionAuthJson,
   readActionInputs,
