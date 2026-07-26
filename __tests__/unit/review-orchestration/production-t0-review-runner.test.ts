@@ -1,8 +1,13 @@
 import {
+  mapOrchestrationResultToCodexOutcome,
   planAssignments,
   resolveT0AttemptBudget,
 } from '../../../src/review-orchestration/infrastructure/production-t0-review-runner';
-import { ReviewExecutionProviderKind } from '../../../src/review-orchestration/application';
+import {
+  ReviewExecutionProviderKind,
+  ReviewOrchestrationResultStatus,
+} from '../../../src/review-orchestration/application';
+import { CodexOAuthV2ReviewOutcome } from '../../../src/codex-oauth/runtime';
 import type { PRContext, ReviewConfig } from '../../../src/types';
 import { compareCodeUnits } from '../../../src/review-orchestration/infrastructure/production-review-projection';
 
@@ -46,6 +51,29 @@ describe('ProductionT0ReviewRunner policy', () => {
 
   it('uses locale-independent code-unit ordering for v2 projection inputs', () => {
     expect(['ä', 'z', 'A'].sort(compareCodeUnits)).toEqual(['A', 'z', 'ä']);
+  });
+
+  it('does not fail the action when publication was safely not applied', () => {
+    for (const status of [
+      ReviewOrchestrationResultStatus.PublicationNotApplied,
+      ReviewOrchestrationResultStatus.PublicationStale,
+    ]) {
+      expect(mapOrchestrationResultToCodexOutcome({ status })).toEqual({
+        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+      });
+    }
+  });
+
+  it('keeps real orchestration failures blocking', () => {
+    expect(
+      mapOrchestrationResultToCodexOutcome({
+        status: ReviewOrchestrationResultStatus.Failed,
+        failureCode: 'provider_failed',
+      })
+    ).toEqual({
+      outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+      blockingFailure: 'provider_failed',
+    });
   });
 });
 

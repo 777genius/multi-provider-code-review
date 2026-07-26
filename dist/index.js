@@ -79955,21 +79955,26 @@ var ProductionT0ReviewRunner = class {
       },
       authorization
     );
-    switch (result.status) {
-      case "completed" /* Completed */:
-        return { outcome: "completed" /* Completed */ };
-      case "partial_completed" /* PartialCompleted */:
-        return { outcome: "partial_completed" /* PartialCompleted */ };
-      case "superseded" /* Superseded */:
-        return { outcome: "superseded" /* Superseded */ };
-      default:
-        return {
-          outcome: "partial_completed" /* PartialCompleted */,
-          blockingFailure: result.failureCode ?? `review_action_v2_${result.status}`
-        };
-    }
+    return mapOrchestrationResultToCodexOutcome(result);
   }
 };
+function mapOrchestrationResultToCodexOutcome(result) {
+  switch (result.status) {
+    case "completed" /* Completed */:
+      return { outcome: "completed" /* Completed */ };
+    case "partial_completed" /* PartialCompleted */:
+    case "publication_not_applied" /* PublicationNotApplied */:
+    case "publication_stale" /* PublicationStale */:
+      return { outcome: "partial_completed" /* PartialCompleted */ };
+    case "superseded" /* Superseded */:
+      return { outcome: "superseded" /* Superseded */ };
+    default:
+      return {
+        outcome: "partial_completed" /* PartialCompleted */,
+        blockingFailure: result.failureCode ?? `review_action_v2_${result.status}`
+      };
+  }
+}
 function resolveContextGatewayBundlePath() {
   const entrypoint = process.argv[1];
   if (!entrypoint) {

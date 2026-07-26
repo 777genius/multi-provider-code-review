@@ -252,20 +252,32 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       },
       authorization
     );
-    switch (result.status) {
-      case ReviewOrchestrationResultStatus.Completed:
-        return { outcome: CodexOAuthV2ReviewOutcome.Completed };
-      case ReviewOrchestrationResultStatus.PartialCompleted:
-        return { outcome: CodexOAuthV2ReviewOutcome.PartialCompleted };
-      case ReviewOrchestrationResultStatus.Superseded:
-        return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
-      default:
-        return {
-          outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
-          blockingFailure:
-            result.failureCode ?? `review_action_v2_${result.status}`,
-        };
-    }
+    return mapOrchestrationResultToCodexOutcome(result);
+  }
+}
+
+export function mapOrchestrationResultToCodexOutcome(result: {
+  readonly status: ReviewOrchestrationResultStatus;
+  readonly failureCode?: string;
+}): {
+  readonly outcome: CodexOAuthV2ReviewOutcome;
+  readonly blockingFailure?: string;
+} {
+  switch (result.status) {
+    case ReviewOrchestrationResultStatus.Completed:
+      return { outcome: CodexOAuthV2ReviewOutcome.Completed };
+    case ReviewOrchestrationResultStatus.PartialCompleted:
+    case ReviewOrchestrationResultStatus.PublicationNotApplied:
+    case ReviewOrchestrationResultStatus.PublicationStale:
+      return { outcome: CodexOAuthV2ReviewOutcome.PartialCompleted };
+    case ReviewOrchestrationResultStatus.Superseded:
+      return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
+    default:
+      return {
+        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        blockingFailure:
+          result.failureCode ?? `review_action_v2_${result.status}`,
+      };
   }
 }
 
