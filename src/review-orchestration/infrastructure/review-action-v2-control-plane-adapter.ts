@@ -164,33 +164,38 @@ export class ReviewActionV2ControlPlaneAdapter
     input: Parameters<ReviewContextAttestationPort['sealGatewaySession']>[0]
   ): ReturnType<ReviewContextAttestationPort['sealGatewaySession']> {
     const authorization = this.requireActiveAuthorization();
-    const result = await this.client.execute(
-      ReviewActionV2OperationId.ReviewContextGatewaySeal,
-      {
-        authorizationToken: authorization.authorizationToken,
-        leaseCapability: input.invocationLease.leaseCapability,
-        idempotencyKey: deterministicIdempotencyKey('context-gateway-seal', [
-          input.session.sessionId,
-          input.transcriptHash,
-          input.replayMaterialHash,
-          input.terminalOutcomeHash,
-        ]),
-        sessionId: input.session.sessionId,
-        sealCapability: input.session.sealCapability,
-        attemptId: input.invocationLease.attemptId,
-        sourceLeaseId: input.invocationLease.leaseId,
-        fencingToken: input.invocationLease.fencingToken,
-        providerSucceeded: input.providerSucceeded,
-        schemaValidated: input.schemaValidated,
-        fullyConsumed: input.fullyConsumed,
-        actualModel: input.actualModel,
-        terminalOutcomeHash: input.terminalOutcomeHash,
-        transcriptCanonicalJson: input.transcriptCanonicalJson,
-        transcriptHash: input.transcriptHash,
-        replayMaterialCanonicalJson: input.replayMaterialCanonicalJson,
-        replayMaterialHash: input.replayMaterialHash,
-      }
-    );
+    let result;
+    try {
+      result = await this.client.execute(
+        ReviewActionV2OperationId.ReviewContextGatewaySeal,
+        {
+          authorizationToken: authorization.authorizationToken,
+          leaseCapability: input.invocationLease.leaseCapability,
+          idempotencyKey: deterministicIdempotencyKey('context-gateway-seal', [
+            input.session.sessionId,
+            input.transcriptHash,
+            input.replayMaterialHash,
+            input.terminalOutcomeHash,
+          ]),
+          sessionId: input.session.sessionId,
+          sealCapability: input.session.sealCapability,
+          attemptId: input.invocationLease.attemptId,
+          sourceLeaseId: input.invocationLease.leaseId,
+          fencingToken: input.invocationLease.fencingToken,
+          providerSucceeded: input.providerSucceeded,
+          schemaValidated: input.schemaValidated,
+          fullyConsumed: input.fullyConsumed,
+          actualModel: input.actualModel,
+          terminalOutcomeHash: input.terminalOutcomeHash,
+          transcriptCanonicalJson: input.transcriptCanonicalJson,
+          transcriptHash: input.transcriptHash,
+          replayMaterialCanonicalJson: input.replayMaterialCanonicalJson,
+          replayMaterialHash: input.replayMaterialHash,
+        }
+      );
+    } catch (error) {
+      throw controlPlaneFailure(error);
+    }
     if (
       result.status === ReviewContextGatewaySealResultStatus.Denied ||
       result.status === ReviewContextGatewaySealResultStatus.Conflict
@@ -849,6 +854,14 @@ export class ReviewActionV2ControlPlaneAdapter
 
 const SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = new Set([
   'artifact_hash_mismatch',
+  'context_actual_model_mismatch',
+  'context_checkout_tree_mismatch',
+  'context_gateway_binary_mismatch',
+  'context_gateway_policy_mismatch',
+  'context_replay_material_hash_mismatch',
+  'context_seal_authority_mismatch',
+  'context_transcript_hash_mismatch',
+  'context_transcript_hmac_chain_invalid',
   'payload_hash_mismatch',
   'projection_authority_mismatch',
   'publication_permit_authority_mismatch',

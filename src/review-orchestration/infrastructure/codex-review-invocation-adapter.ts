@@ -374,7 +374,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           );
         }
         logger.warn(
-          'Context attestation sealing failed; preserving fresh review as non-reusable'
+          `Context attestation sealing failed${safeFailureDiagnostic(error)}; preserving fresh review as non-reusable`
         );
         return normalizeReviewObservation({
           workSlotId: input.invocation.workSlotId,
@@ -572,6 +572,14 @@ function canonicalJson(value: unknown): string {
       .join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+function safeFailureDiagnostic(error: unknown): string {
+  if (!(error instanceof Error)) return '';
+  if (!/^review_action_v2:[a-z0-9_:-]{1,160}$/u.test(error.message)) {
+    return '';
+  }
+  return ` (${error.message})`;
 }
 
 function sha256(value: string): string {

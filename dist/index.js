@@ -74880,7 +74880,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           );
         }
         logger.warn(
-          "Context attestation sealing failed; preserving fresh review as non-reusable"
+          `Context attestation sealing failed${safeFailureDiagnostic(error2)}; preserving fresh review as non-reusable`
         );
         return normalizeReviewObservation({
           workSlotId: input.invocation.workSlotId,
@@ -75051,6 +75051,13 @@ function canonicalJson8(value) {
     ).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+function safeFailureDiagnostic(error2) {
+  if (!(error2 instanceof Error)) return "";
+  if (!/^review_action_v2:[a-z0-9_:-]{1,160}$/u.test(error2.message)) {
+    return "";
+  }
+  return ` (${error2.message})`;
 }
 function sha2569(value) {
   return (0, import_crypto22.createHash)("sha256").update(value).digest("hex");
@@ -78682,33 +78689,38 @@ var ReviewActionV2ControlPlaneAdapter = class {
   }
   async sealGatewaySession(input) {
     const authorization = this.requireActiveAuthorization();
-    const result = await this.client.execute(
-      "review_context_gateway_seal" /* ReviewContextGatewaySeal */,
-      {
-        authorizationToken: authorization.authorizationToken,
-        leaseCapability: input.invocationLease.leaseCapability,
-        idempotencyKey: deterministicIdempotencyKey("context-gateway-seal", [
-          input.session.sessionId,
-          input.transcriptHash,
-          input.replayMaterialHash,
-          input.terminalOutcomeHash
-        ]),
-        sessionId: input.session.sessionId,
-        sealCapability: input.session.sealCapability,
-        attemptId: input.invocationLease.attemptId,
-        sourceLeaseId: input.invocationLease.leaseId,
-        fencingToken: input.invocationLease.fencingToken,
-        providerSucceeded: input.providerSucceeded,
-        schemaValidated: input.schemaValidated,
-        fullyConsumed: input.fullyConsumed,
-        actualModel: input.actualModel,
-        terminalOutcomeHash: input.terminalOutcomeHash,
-        transcriptCanonicalJson: input.transcriptCanonicalJson,
-        transcriptHash: input.transcriptHash,
-        replayMaterialCanonicalJson: input.replayMaterialCanonicalJson,
-        replayMaterialHash: input.replayMaterialHash
-      }
-    );
+    let result;
+    try {
+      result = await this.client.execute(
+        "review_context_gateway_seal" /* ReviewContextGatewaySeal */,
+        {
+          authorizationToken: authorization.authorizationToken,
+          leaseCapability: input.invocationLease.leaseCapability,
+          idempotencyKey: deterministicIdempotencyKey("context-gateway-seal", [
+            input.session.sessionId,
+            input.transcriptHash,
+            input.replayMaterialHash,
+            input.terminalOutcomeHash
+          ]),
+          sessionId: input.session.sessionId,
+          sealCapability: input.session.sealCapability,
+          attemptId: input.invocationLease.attemptId,
+          sourceLeaseId: input.invocationLease.leaseId,
+          fencingToken: input.invocationLease.fencingToken,
+          providerSucceeded: input.providerSucceeded,
+          schemaValidated: input.schemaValidated,
+          fullyConsumed: input.fullyConsumed,
+          actualModel: input.actualModel,
+          terminalOutcomeHash: input.terminalOutcomeHash,
+          transcriptCanonicalJson: input.transcriptCanonicalJson,
+          transcriptHash: input.transcriptHash,
+          replayMaterialCanonicalJson: input.replayMaterialCanonicalJson,
+          replayMaterialHash: input.replayMaterialHash
+        }
+      );
+    } catch (error2) {
+      throw controlPlaneFailure(error2);
+    }
     if (result.status === "denied" /* Denied */ || result.status === "conflict" /* Conflict */) {
       return null;
     }
@@ -79224,6 +79236,14 @@ var ReviewActionV2ControlPlaneAdapter = class {
 };
 var SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = /* @__PURE__ */ new Set([
   "artifact_hash_mismatch",
+  "context_actual_model_mismatch",
+  "context_checkout_tree_mismatch",
+  "context_gateway_binary_mismatch",
+  "context_gateway_policy_mismatch",
+  "context_replay_material_hash_mismatch",
+  "context_seal_authority_mismatch",
+  "context_transcript_hash_mismatch",
+  "context_transcript_hmac_chain_invalid",
   "payload_hash_mismatch",
   "projection_authority_mismatch",
   "publication_permit_authority_mismatch",
