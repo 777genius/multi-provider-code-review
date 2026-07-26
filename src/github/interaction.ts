@@ -131,7 +131,7 @@ export class ReviewInteractionHandler {
       return;
     }
 
-    const command = parseCommand(body);
+    const command = parseInteractionCommand(body);
     const memoryInteraction = parseMemoryInteraction(body);
     if (!command && isMemoryInteraction(memoryInteraction)) {
       await this.handleMemoryInteraction(payload, memoryInteraction);
@@ -969,8 +969,15 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parseCommand(body: string): ParsedCommand | null {
+export function parseInteractionCommand(body: string): ParsedCommand | null {
   const trimmed = body.trim();
+  const codexReviewMatch = trimmed.match(/^@codex\s+review\b[\s:,-]*(.*)$/is);
+  if (codexReviewMatch) {
+    return {
+      kind: 'review',
+      reason: (codexReviewMatch[1] || '').trim(),
+    };
+  }
   const match = trimmed.match(
     /^\/rr\s+(skip|unskip|status|review)\b[\s:,-]*(.*)$/is
   );

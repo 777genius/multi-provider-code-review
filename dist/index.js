@@ -46536,7 +46536,7 @@ var ReviewInteractionHandler = class {
       logger.info("Ignoring review interaction from a bot user.");
       return;
     }
-    const command = parseCommand(body);
+    const command = parseInteractionCommand(body);
     const memoryInteraction = parseMemoryInteraction(body);
     if (!command && isMemoryInteraction(memoryInteraction)) {
       await this.handleMemoryInteraction(payload, memoryInteraction);
@@ -47203,8 +47203,15 @@ async function sleep(ms) {
   if (ms <= 0) return;
   await new Promise((resolve4) => setTimeout(resolve4, ms));
 }
-function parseCommand(body) {
+function parseInteractionCommand(body) {
   const trimmed = body.trim();
+  const codexReviewMatch = trimmed.match(/^@codex\s+review\b[\s:,-]*(.*)$/is);
+  if (codexReviewMatch) {
+    return {
+      kind: "review",
+      reason: (codexReviewMatch[1] || "").trim()
+    };
+  }
   const match2 = trimmed.match(
     /^\/rr\s+(skip|unskip|status|review)\b[\s:,-]*(.*)$/is
   );
@@ -80744,7 +80751,7 @@ async function runInteractionPreflight(token) {
   );
   const body = String(payload?.comment?.body || "");
   const botComment = payload?.comment?.user?.type === "Bot" || String(payload?.comment?.user?.login || "").endsWith("[bot]");
-  const command = body.trim().startsWith("/rr ");
+  const command = parseInteractionCommand(body);
   const memoryInteraction = parseMemoryInteraction(body);
   const memoryRequest = memoryInteraction.instructions.length > 0 || Boolean(memoryInteraction.invalidReason);
   const result = botComment ? {

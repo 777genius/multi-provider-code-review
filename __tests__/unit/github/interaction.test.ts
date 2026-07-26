@@ -295,6 +295,48 @@ describe('ReviewInteractionHandler', () => {
     expect(octokit.rest.actions.listWorkflowRunsForRepo).not.toHaveBeenCalled();
   });
 
+  it('queues a top-level @codex review as a distinct same-head request', async () => {
+    const { client, octokit } = makeClient();
+    const reviewRequests = new CapturingReviewRequestClient();
+    process.env.GITHUB_EVENT_PATH = writeEvent({
+      comment: {
+        id: 23,
+        body: '@codex review',
+        user: { login: 'maintainer' },
+      },
+      issue: { number: 123, pull_request: {} },
+    });
+    octokit.rest.pulls.get.mockResolvedValue({
+      data: {
+        number: 123,
+        head: { sha: 'c'.repeat(40), repo: { fork: false } },
+        user: { login: 'author' },
+      },
+    });
+    octokit.rest.repos.getCollaboratorPermissionLevel.mockResolvedValue({
+      data: { permission: 'write', role_name: 'maintain' },
+    });
+
+    await new ReviewInteractionHandler(
+      client,
+      new ReviewLedger(client, 'test-secret'),
+      undefined,
+      client,
+      undefined,
+      reviewRequests
+    ).execute();
+
+    expect(reviewRequests.requests).toEqual([
+      {
+        pullRequestNumber: 123,
+        expectedHeadSha: 'c'.repeat(40),
+        sourceId: 'manual-comment:23',
+        commandKind: 'review',
+      },
+    ]);
+    expect(octokit.rest.actions.listWorkflowRunsForRepo).not.toHaveBeenCalled();
+  });
+
   it('does not rerun a legacy attempt when control-plane availability is ambiguous', async () => {
     const { client, octokit } = makeClient();
     const reviewRequests = new CapturingReviewRequestClient(

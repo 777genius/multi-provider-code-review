@@ -19,7 +19,10 @@ import {
 } from './errors/review-router-error';
 import { GitHubClient } from './github/client';
 import { ReviewLedger } from './github/ledger';
-import { ReviewInteractionHandler } from './github/interaction';
+import {
+  parseInteractionCommand,
+  ReviewInteractionHandler,
+} from './github/interaction';
 import {
   loadDiscussionOptionsFromEnv,
   ReviewDiscussionHandler,
@@ -438,7 +441,7 @@ async function runInteractionPreflight(token: string): Promise<void> {
   const botComment =
     payload?.comment?.user?.type === 'Bot' ||
     String(payload?.comment?.user?.login || '').endsWith('[bot]');
-  const command = body.trim().startsWith('/rr ');
+  const command = parseInteractionCommand(body);
   const memoryInteraction = parseMemoryInteraction(body);
   const memoryRequest =
     memoryInteraction.instructions.length > 0 ||
