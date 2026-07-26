@@ -26,6 +26,7 @@ import {
 import {
   ReviewEvidenceLookupKind,
   ReviewExecutionProviderKind,
+  ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationState,
   RestoredReviewExecutionState,
   RestoredReviewWorkSlotState,
@@ -496,14 +497,22 @@ export class ReviewActionV2ControlPlaneAdapter
         ownerIdHash: input.ownerIdHash,
       }
     );
-    if (result.status === ReviewInvocationLeaseResultStatus.Busy) return null;
+    if (result.status === ReviewInvocationLeaseResultStatus.Busy) {
+      return { status: ReviewInvocationLeaseAcquireOutcomeStatus.Busy };
+    }
+    if (result.status === ReviewInvocationLeaseResultStatus.Rejected) {
+      return leaseAcquireRejectedOutcome(result.rejectionReason);
+    }
     if (
       result.status !== ReviewInvocationLeaseResultStatus.Acquired &&
       result.status !== ReviewInvocationLeaseResultStatus.Restored
     ) {
       throw new Error(`review_action_v2_lease_${result.status}`);
     }
-    return parseLease(result);
+    return {
+      status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
+      lease: parseLease(result),
+    };
   }
 
   async renewInvocationLease(
@@ -1223,6 +1232,24 @@ function parseLease(result: {
     ),
     renewalCeilingReached: false,
   };
+}
+
+function leaseAcquireRejectedOutcome(reason: string | null | undefined): {
+  readonly status:
+    | ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted
+    | ReviewInvocationLeaseAcquireOutcomeStatus.NotRunnable;
+} {
+  if (reason === 'attempt_budget_exhausted') {
+    return {
+      status: ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted,
+    };
+  }
+  if (reason === 'not_runnable') {
+    return { status: ReviewInvocationLeaseAcquireOutcomeStatus.NotRunnable };
+  }
+  throw new Error(
+    `review_action_v2_lease_rejected:${reason ?? 'reason_missing'}`
+  );
 }
 
 function parseProtocolLimits(value: string | undefined): ReviewProtocolLimits {

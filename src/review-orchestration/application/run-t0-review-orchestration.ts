@@ -9,6 +9,7 @@ import {
 import {
   ReviewEvidenceLookupKind,
   ReviewInvocationFailureClass,
+  ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationState,
   RestoredReviewWorkSlotState,
   type AcceptedReviewObservation,
@@ -493,7 +494,7 @@ export class RunT0ReviewOrchestration {
         String(attemptOrdinal),
         manifest.providerInvocationKey,
       ]);
-      let lease = null;
+      let lease: ReviewInvocationLease | null = null;
       for (let busyPollCount = 0; lease === null; busyPollCount += 1) {
         if (busyPollCount >= this.maxBusyPollsPerSlot) {
           throw new Error('review_orchestration_slot_busy_timeout');
@@ -516,19 +517,46 @@ export class RunT0ReviewOrchestration {
             };
           }
         }
-        lease = await this.dependencies.controlPlane.acquireInvocationLease({
-          authorization: input.authorization,
-          idempotencyKey: this.idempotencyKey('lease-acquire', [
-            input.execution.executionId,
-            input.workSlot.workSlotId,
+        const acquire =
+          await this.dependencies.controlPlane.acquireInvocationLease({
+            authorization: input.authorization,
+            idempotencyKey: this.idempotencyKey('lease-acquire', [
+              input.execution.executionId,
+              input.workSlot.workSlotId,
+              acquireRequestId,
+            ]),
+            execution: { ...input.execution, streamVersion },
+            workSlot: input.workSlot,
+            manifest,
             acquireRequestId,
-          ]),
-          execution: { ...input.execution, streamVersion },
-          workSlot: input.workSlot,
-          manifest,
-          acquireRequestId,
-          ownerIdHash: input.ownerIdHash,
-        });
+            ownerIdHash: input.ownerIdHash,
+          });
+        if (
+          acquire.status === ReviewInvocationLeaseAcquireOutcomeStatus.Acquired
+        ) {
+          lease = acquire.lease;
+          continue;
+        }
+        if (
+          acquire.status ===
+          ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted
+        ) {
+          input.onEvent({
+            type: ReviewOrchestrationEventType.SlotExhausted,
+            workSlotId: input.workSlot.workSlotId,
+          });
+          return { streamVersion };
+        }
+        if (
+          acquire.status === ReviewInvocationLeaseAcquireOutcomeStatus.NotRunnable
+        ) {
+          await this.assertRevisionCurrent(input.revision);
+          input.onEvent({
+            type: ReviewOrchestrationEventType.SlotExhausted,
+            workSlotId: input.workSlot.workSlotId,
+          });
+          return { streamVersion };
+        }
       }
       input.onEvent({
         type: ReviewOrchestrationEventType.SlotLeaseAcquired,

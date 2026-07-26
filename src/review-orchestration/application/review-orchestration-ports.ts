@@ -313,6 +313,25 @@ export type ReviewPublicationOutcome = {
   readonly canonicalReceiptSetHash?: string;
 };
 
+export enum ReviewInvocationLeaseAcquireOutcomeStatus {
+  Acquired = 'acquired',
+  Busy = 'busy',
+  AttemptBudgetExhausted = 'attempt_budget_exhausted',
+  NotRunnable = 'not_runnable',
+}
+
+export type ReviewInvocationLeaseAcquireOutcome =
+  | {
+      readonly status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired;
+      readonly lease: ReviewInvocationLease;
+    }
+  | {
+      readonly status:
+        | ReviewInvocationLeaseAcquireOutcomeStatus.Busy
+        | ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted
+        | ReviewInvocationLeaseAcquireOutcomeStatus.NotRunnable;
+    };
+
 export interface ReviewActionV2ControlPlanePort {
   authorize(input: {
     readonly oidcToken: string;
@@ -379,7 +398,7 @@ export interface ReviewActionV2ControlPlanePort {
     readonly manifest: ProviderInvocationManifest;
     readonly acquireRequestId: string;
     readonly ownerIdHash: string;
-  }): Promise<ReviewInvocationLease | null>;
+  }): Promise<ReviewInvocationLeaseAcquireOutcome>;
   renewInvocationLease(input: {
     readonly idempotencyKey: string;
     readonly lease: ReviewInvocationLease;

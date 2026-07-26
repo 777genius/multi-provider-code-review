@@ -22,6 +22,7 @@ import {
 import {
   ReviewExecutionProviderKind,
   ReviewEvidenceLookupKind,
+  ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationState,
   ReviewTaskKind,
   RestoredReviewExecutionState,
@@ -430,6 +431,49 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     await expect(
       createAdapter(execute).startExecution(startInput)
     ).rejects.toThrow('review_action_v2_restored_work_slot_state_invalid');
+  });
+
+  it('maps an acquired invocation lease to a typed acquire outcome', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewInvocationLeaseResultStatus.Acquired,
+      leaseId: baseLease.leaseId,
+      attemptId: baseLease.attemptId,
+      fencingToken: baseLease.fencingToken,
+      expiresAt: baseLease.expiresAt,
+      resultReportUntil: baseLease.resultReportUntil,
+      leaseCapability: baseLease.leaseCapability,
+    });
+
+    await expect(
+      createAdapter(execute).acquireInvocationLease(leaseAcquireInput())
+    ).resolves.toEqual({
+      status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
+      lease: baseLease,
+    });
+  });
+
+  it('maps an exhausted invocation budget rejection without throwing', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewInvocationLeaseResultStatus.Rejected,
+      rejectionReason: 'attempt_budget_exhausted',
+    });
+
+    await expect(
+      createAdapter(execute).acquireInvocationLease(leaseAcquireInput())
+    ).resolves.toEqual({
+      status: ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted,
+    });
+  });
+
+  it('fails closed on an ambiguous invocation lease rejection', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewInvocationLeaseResultStatus.Rejected,
+      rejectionReason: 'idempotency_conflict',
+    });
+
+    await expect(
+      createAdapter(execute).acquireInvocationLease(leaseAcquireInput())
+    ).rejects.toThrow('review_action_v2_lease_rejected:idempotency_conflict');
   });
 
   it('preserves the lease identity and accepts the rotated capability', async () => {
@@ -996,6 +1040,18 @@ const baseLease = {
   resultReportUntil: '2026-07-22T12:20:00.000Z',
   renewalCeilingReached: false,
 };
+
+function leaseAcquireInput() {
+  return {
+    authorization,
+    idempotencyKey: 'idem:lease:acquire',
+    execution,
+    workSlot,
+    manifest: providerManifest,
+    acquireRequestId: 'acquire-1',
+    ownerIdHash: hash('owner'),
+  };
+}
 
 const startInput = {
   authorization,

@@ -53012,8 +53012,8 @@ var import_path2 = __toESM(require("path"));
 var manifest_default = {
   contractSourceVersion: 1,
   protocolVersion: "2",
-  schemaDigest: "3ba8f62072aa9c7d5e295235cb4441466f9ccebf4ec35d5e5578a2e79cd2fc50",
-  goldenFixtureDigest: "2651b3404e7656aa5a189f6dd1011726b1aa94808b904427983789c6867f4de3",
+  schemaDigest: "47f75e597fcdfb3e4bb81cb1dc0ca542fcaf2afaa2583cd298c5baa08c292672",
+  goldenFixtureDigest: "350be1cfd3931cb85df896ed6f04b565ce436ff11d4ad0eca9ff074d6fc6c8ee",
   canonicalizerDigest: "bddff10721f69d688eadf21c54d689ae657d53c498e8eb4478ff3d566def74a1",
   canonicalizerGoldenFixtureDigest: "9f638db73ec3696da7f3aa842ed10b7cf7c466986dfbd45b1a602e3b08d75c57",
   negotiationBridge: {
@@ -54483,7 +54483,7 @@ var manifest_default = {
 
 // src/control-plane/generated/review-action-v2/review-action-v2.ts
 var reviewActionV2PublishedProtocolVersion = "2";
-var reviewActionV2PublishedSchemaDigest = "3ba8f62072aa9c7d5e295235cb4441466f9ccebf4ec35d5e5578a2e79cd2fc50";
+var reviewActionV2PublishedSchemaDigest = "47f75e597fcdfb3e4bb81cb1dc0ca542fcaf2afaa2583cd298c5baa08c292672";
 var reviewActionV2CanonicalizerDigest = "bddff10721f69d688eadf21c54d689ae657d53c498e8eb4478ff3d566def74a1";
 var ReviewActionV2OperationId = /* @__PURE__ */ ((ReviewActionV2OperationId2) => {
   ReviewActionV2OperationId2["ReviewRunAuthorize"] = "review_run_authorize";
@@ -66046,6 +66046,19 @@ var review_invocation_lease_acquire_schema_default = {
                       type: "null"
                     }
                   ]
+                },
+                rejectionReason: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
                 }
               }
             }
@@ -73523,7 +73536,7 @@ var RunT0ReviewOrchestration = class {
             };
           }
         }
-        lease = await this.dependencies.controlPlane.acquireInvocationLease({
+        const acquire = await this.dependencies.controlPlane.acquireInvocationLease({
           authorization: input.authorization,
           idempotencyKey: this.idempotencyKey("lease-acquire", [
             input.execution.executionId,
@@ -73536,6 +73549,25 @@ var RunT0ReviewOrchestration = class {
           acquireRequestId,
           ownerIdHash: input.ownerIdHash
         });
+        if (acquire.status === "acquired" /* Acquired */) {
+          lease = acquire.lease;
+          continue;
+        }
+        if (acquire.status === "attempt_budget_exhausted" /* AttemptBudgetExhausted */) {
+          input.onEvent({
+            type: "slot_exhausted" /* SlotExhausted */,
+            workSlotId: input.workSlot.workSlotId
+          });
+          return { streamVersion };
+        }
+        if (acquire.status === "not_runnable" /* NotRunnable */) {
+          await this.assertRevisionCurrent(input.revision);
+          input.onEvent({
+            type: "slot_exhausted" /* SlotExhausted */,
+            workSlotId: input.workSlot.workSlotId
+          });
+          return { streamVersion };
+        }
       }
       input.onEvent({
         type: "slot_lease_acquired" /* SlotLeaseAcquired */,
@@ -78866,11 +78898,19 @@ var ReviewActionV2ControlPlaneAdapter = class {
         ownerIdHash: input.ownerIdHash
       }
     );
-    if (result.status === "busy" /* Busy */) return null;
+    if (result.status === "busy" /* Busy */) {
+      return { status: "busy" /* Busy */ };
+    }
+    if (result.status === "rejected" /* Rejected */) {
+      return leaseAcquireRejectedOutcome(result.rejectionReason);
+    }
     if (result.status !== "acquired" /* Acquired */ && result.status !== "restored" /* Restored */) {
       throw new Error(`review_action_v2_lease_${result.status}`);
     }
-    return parseLease(result);
+    return {
+      status: "acquired" /* Acquired */,
+      lease: parseLease(result)
+    };
   }
   async renewInvocationLease(input) {
     const result = await this.client.execute(
@@ -79437,6 +79477,19 @@ function parseLease(result) {
     ),
     renewalCeilingReached: false
   };
+}
+function leaseAcquireRejectedOutcome(reason) {
+  if (reason === "attempt_budget_exhausted") {
+    return {
+      status: "attempt_budget_exhausted" /* AttemptBudgetExhausted */
+    };
+  }
+  if (reason === "not_runnable") {
+    return { status: "not_runnable" /* NotRunnable */ };
+  }
+  throw new Error(
+    `review_action_v2_lease_rejected:${reason ?? "reason_missing"}`
+  );
 }
 function parseProtocolLimits(value) {
   const parsed = parseCanonicalObject2(value);

@@ -4,6 +4,7 @@ import {
   ReviewContextInspectionFailureReason,
   ReviewExecutionProviderKind,
   ReviewInvocationFailureClass,
+  ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewOrchestrationResultStatus,
   ReviewPublicationState,
   RestoredReviewExecutionState,
@@ -130,7 +131,9 @@ describe('RunT0ReviewOrchestration', () => {
           reuseSafetyDecisionHash: hash('incumbent-reuse-safety'),
         },
       });
-    fixture.controlPlane.acquireInvocationLease.mockResolvedValueOnce(null);
+    fixture.controlPlane.acquireInvocationLease.mockResolvedValueOnce({
+      status: ReviewInvocationLeaseAcquireOutcomeStatus.Busy,
+    });
 
     const result = await fixture.useCase.execute(fixture.command);
 
@@ -680,8 +683,13 @@ describe('RunT0ReviewOrchestration', () => {
   it('does not consume a semantic attempt ordinal while a lease is busy', async () => {
     const fixture = createFixture({ maxAttempts: 1 });
     fixture.controlPlane.acquireInvocationLease
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(lease);
+      .mockResolvedValueOnce({
+        status: ReviewInvocationLeaseAcquireOutcomeStatus.Busy,
+      })
+      .mockResolvedValueOnce({
+        status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
+        lease,
+      });
 
     const result = await fixture.useCase.execute(fixture.command);
 
@@ -699,7 +707,9 @@ describe('RunT0ReviewOrchestration', () => {
 
   it('fails retryably instead of publishing partial coverage while a lease remains busy', async () => {
     const fixture = createFixture({ maxAttempts: 1 });
-    fixture.controlPlane.acquireInvocationLease.mockResolvedValue(null);
+    fixture.controlPlane.acquireInvocationLease.mockResolvedValue({
+      status: ReviewInvocationLeaseAcquireOutcomeStatus.Busy,
+    });
     const useCase = new RunT0ReviewOrchestration(fixture.dependencies, 30, 2);
 
     const result = await useCase.execute({
@@ -717,6 +727,27 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
     expect(fixture.dependencies.projectionBuilder.build).not.toHaveBeenCalled();
     expect(fixture.controlPlane.finalizeExecution).not.toHaveBeenCalled();
+  });
+
+  it('treats a server-side attempt budget exhaustion as an exhausted slot', async () => {
+    const fixture = createFixture({ maxAttempts: 1 });
+    fixture.controlPlane.acquireInvocationLease.mockResolvedValue({
+      status: ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted,
+    });
+
+    const result = await fixture.useCase.execute({
+      ...fixture.command,
+      allowPartial: true,
+    });
+
+    expect(result.status).toBe(
+      ReviewOrchestrationResultStatus.PartialCompleted
+    );
+    expect(result.state.phase).toBe(ReviewOrchestrationPhase.PartialCompleted);
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+    expect(fixture.dependencies.projectionBuilder.build).toHaveBeenCalledWith(
+      expect.objectContaining({ exhaustedWorkSlotIds: ['slot-1'] })
+    );
   });
 
   it('accepts monotonic execution advancement between restore and start', async () => {
@@ -962,7 +993,10 @@ function createFixture(
     lookupEvidence: jest
       .fn()
       .mockResolvedValue({ kind: ReviewEvidenceLookupKind.Miss }),
-    acquireInvocationLease: jest.fn().mockResolvedValue(lease),
+    acquireInvocationLease: jest.fn().mockResolvedValue({
+      status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
+      lease,
+    }),
     renewInvocationLease: jest.fn().mockResolvedValue(lease),
     releaseInvocationLease: jest.fn().mockResolvedValue(undefined),
     commitEvidence: jest.fn().mockResolvedValue({
