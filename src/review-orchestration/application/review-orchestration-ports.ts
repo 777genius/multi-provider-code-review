@@ -320,6 +320,11 @@ export enum ReviewInvocationLeaseAcquireOutcomeStatus {
   NotRunnable = 'not_runnable',
 }
 
+export enum ReviewPublicationRequestOutcomeStatus {
+  Requested = 'requested',
+  Conflict = 'conflict',
+}
+
 export type ReviewInvocationLeaseAcquireOutcome =
   | {
       readonly status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired;
@@ -456,10 +461,16 @@ export interface ReviewActionV2ControlPlanePort {
     readonly idempotencyKey: string;
     readonly publicationPermit: string;
     readonly projection: CurrentReviewProjection;
-  }): Promise<{
-    readonly publicationAttemptId: string;
-    readonly pollAfterMs: number;
-  }>;
+  }): Promise<
+    | {
+        readonly status: ReviewPublicationRequestOutcomeStatus.Requested;
+        readonly publicationAttemptId: string;
+        readonly pollAfterMs: number;
+      }
+    | {
+        readonly status: ReviewPublicationRequestOutcomeStatus.Conflict;
+      }
+  >;
   readPublicationStatus(input: {
     readonly authorization: ReviewRunAuthorization;
     readonly publicationAttemptId: string;

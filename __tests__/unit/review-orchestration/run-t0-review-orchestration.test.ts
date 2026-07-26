@@ -6,6 +6,7 @@ import {
   ReviewInvocationFailureClass,
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewOrchestrationResultStatus,
+  ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
   RestoredReviewExecutionState,
   RestoredReviewWorkSlotState,
@@ -69,6 +70,23 @@ describe('RunT0ReviewOrchestration', () => {
       'publication.permit',
       projection.projectionHash,
     ]);
+  });
+
+  it('treats publication request conflicts as not applied instead of failing the run', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.requestPublication.mockResolvedValue({
+      status: ReviewPublicationRequestOutcomeStatus.Conflict,
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.PublicationNotApplied,
+      executionId: 'execution-1',
+      failureCode: 'publication_request_conflict',
+    });
+    expect(result.state.phase).toBe(ReviewOrchestrationPhase.Completed);
+    expect(fixture.controlPlane.readPublicationStatus).not.toHaveBeenCalled();
   });
 
   it('refreshes the server execution version immediately before finalize', async () => {
@@ -1010,6 +1028,7 @@ function createFixture(
       .fn()
       .mockResolvedValue({ publicationPermit: 'publication.permit' }),
     requestPublication: jest.fn().mockResolvedValue({
+      status: ReviewPublicationRequestOutcomeStatus.Requested,
       publicationAttemptId: 'publication-1',
       pollAfterMs: 0,
     }),

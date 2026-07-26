@@ -27,6 +27,7 @@ import {
   ReviewEvidenceLookupKind,
   ReviewExecutionProviderKind,
   ReviewInvocationLeaseAcquireOutcomeStatus,
+  ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
   RestoredReviewExecutionState,
   RestoredReviewWorkSlotState,
@@ -781,6 +782,11 @@ export class ReviewActionV2ControlPlaneAdapter
         throw controlPlaneFailure(error);
       }
     })();
+    if (result.status === ReviewPublicationRequestResultStatus.Conflict) {
+      return {
+        status: ReviewPublicationRequestOutcomeStatus.Conflict,
+      };
+    }
     if (
       result.status !== ReviewPublicationRequestResultStatus.Accepted &&
       result.status !== ReviewPublicationRequestResultStatus.Restored
@@ -788,6 +794,7 @@ export class ReviewActionV2ControlPlaneAdapter
       throw new Error(`review_action_v2_publication_${result.status}`);
     }
     return {
+      status: ReviewPublicationRequestOutcomeStatus.Requested,
       publicationAttemptId: requireString(
         result.publicationAttemptId,
         'publication_attempt_id'

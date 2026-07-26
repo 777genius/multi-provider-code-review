@@ -16,6 +16,7 @@ import {
   ReviewExecutionRestoreResultStatus,
   ReviewExecutionStartResultStatus,
   ReviewInvocationLeaseResultStatus,
+  ReviewPublicationRequestResultStatus,
   ReviewPublicationStatusResultStatus,
   ReviewRunAuthorizationResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
@@ -23,6 +24,7 @@ import {
   ReviewExecutionProviderKind,
   ReviewEvidenceLookupKind,
   ReviewInvocationLeaseAcquireOutcomeStatus,
+  ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
   ReviewTaskKind,
   RestoredReviewExecutionState,
@@ -815,6 +817,39 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     ).rejects.toThrow(
       'review_action_v2:review_publication_request:forbidden:publication_permit_authority_mismatch'
     );
+  });
+
+  it('maps publication request conflicts to a typed non-applied outcome', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewPublicationRequestResultStatus.Conflict,
+      publicationAttemptId: null,
+      publicationState: null,
+      pollAfterMs: null,
+    });
+
+    await expect(
+      createAdapter(execute).requestPublication({
+        authorization,
+        idempotencyKey: 'idem:publication:conflict',
+        publicationPermit: 'publication-permit',
+        projection: {
+          artifactId: 'artifact-1',
+          artifactHash: hash('artifact'),
+          projectionEnvelopeVersion: 1,
+          projectionEnvelopeCanonicalJson: '{"findings":[]}',
+          projectionHash: hash('projection'),
+          lifecycleStateHash: hash('lifecycle'),
+          commandLedgerWatermark: '0',
+          operationsCanonicalJson: '[]',
+          findingCount: 0,
+          publicationOperationCount: 0,
+          publicationChunkCount: 0,
+          coverageComplete: true,
+        },
+      })
+    ).resolves.toEqual({
+      status: ReviewPublicationRequestOutcomeStatus.Conflict,
+    });
   });
 
   it('does not expose unrecognized publication request issue values', async () => {

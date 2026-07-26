@@ -73399,6 +73399,22 @@ var RunT0ReviewOrchestration = class {
         publicationPermit: finalized.publicationPermit,
         projection
       });
+      if (publication.status === "conflict" /* Conflict */) {
+        const publicationRequestedState = evolveReviewOrchestration(state, {
+          type: "publication_requested" /* PublicationRequested */,
+          partial
+        });
+        const conflictState = evolveReviewOrchestration(publicationRequestedState, {
+          type: "publication_completed" /* PublicationCompleted */,
+          partial
+        });
+        return {
+          status: "publication_not_applied" /* PublicationNotApplied */,
+          state: conflictState,
+          executionId: execution.executionId,
+          failureCode: "publication_request_conflict"
+        };
+      }
       state = evolveReviewOrchestration(state, {
         type: "publication_requested" /* PublicationRequested */,
         partial
@@ -79125,10 +79141,16 @@ var ReviewActionV2ControlPlaneAdapter = class {
         throw controlPlaneFailure(error2);
       }
     })();
+    if (result.status === "conflict" /* Conflict */) {
+      return {
+        status: "conflict" /* Conflict */
+      };
+    }
     if (result.status !== "accepted" /* Accepted */ && result.status !== "restored" /* Restored */) {
       throw new Error(`review_action_v2_publication_${result.status}`);
     }
     return {
+      status: "requested" /* Requested */,
       publicationAttemptId: requireString2(
         result.publicationAttemptId,
         "publication_attempt_id"

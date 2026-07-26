@@ -10,6 +10,7 @@ import {
   ReviewEvidenceLookupKind,
   ReviewInvocationFailureClass,
   ReviewInvocationLeaseAcquireOutcomeStatus,
+  ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
   RestoredReviewWorkSlotState,
   type AcceptedReviewObservation,
@@ -345,6 +346,24 @@ export class RunT0ReviewOrchestration {
           publicationPermit: finalized.publicationPermit,
           projection,
         });
+      if (
+        publication.status === ReviewPublicationRequestOutcomeStatus.Conflict
+      ) {
+        const publicationRequestedState = evolveReviewOrchestration(state, {
+          type: ReviewOrchestrationEventType.PublicationRequested,
+          partial,
+        });
+        const conflictState = evolveReviewOrchestration(publicationRequestedState, {
+          type: ReviewOrchestrationEventType.PublicationCompleted,
+          partial,
+        });
+        return {
+          status: ReviewOrchestrationResultStatus.PublicationNotApplied,
+          state: conflictState,
+          executionId: execution.executionId,
+          failureCode: 'publication_request_conflict',
+        };
+      }
       state = evolveReviewOrchestration(state, {
         type: ReviewOrchestrationEventType.PublicationRequested,
         partial,
