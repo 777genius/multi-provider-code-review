@@ -79138,6 +79138,14 @@ var ReviewActionV2ControlPlaneAdapter = class {
           }
         );
       } catch (error2) {
+        if (isPublicationRequestAmbiguousOutcome(error2)) {
+          return {
+            status: "conflict" /* Conflict */,
+            publicationAttemptId: null,
+            publicationState: null,
+            pollAfterMs: null
+          };
+        }
         throw controlPlaneFailure(error2);
       }
     })();
@@ -79207,6 +79215,9 @@ function controlPlaneFailure(error2) {
   return new Error(diagnostic.length <= 120 ? diagnostic : base, {
     cause: error2
   });
+}
+function isPublicationRequestAmbiguousOutcome(error2) {
+  return error2 instanceof ReviewActionV2ClientError && error2.operationId === "review_publication_request" /* ReviewPublicationRequest */ && error2.protocolErrorCode === "ambiguous_outcome" /* AmbiguousOutcome */;
 }
 function parseLookupObservation(result, input) {
   const payloadCanonicalJson = requireCanonicalJson(

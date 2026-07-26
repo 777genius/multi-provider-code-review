@@ -779,6 +779,14 @@ export class ReviewActionV2ControlPlaneAdapter
           }
         );
       } catch (error) {
+        if (isPublicationRequestAmbiguousOutcome(error)) {
+          return {
+            status: ReviewPublicationRequestResultStatus.Conflict,
+            publicationAttemptId: null,
+            publicationState: null,
+            pollAfterMs: null,
+          };
+        }
         throw controlPlaneFailure(error);
       }
     })();
@@ -862,6 +870,14 @@ function controlPlaneFailure(error: unknown): Error {
   return new Error(diagnostic.length <= 120 ? diagnostic : base, {
     cause: error,
   });
+}
+
+function isPublicationRequestAmbiguousOutcome(error: unknown): boolean {
+  return (
+    error instanceof ReviewActionV2ClientError &&
+    error.operationId === ReviewActionV2OperationId.ReviewPublicationRequest &&
+    error.protocolErrorCode === ReviewActionV2ProtocolErrorCode.AmbiguousOutcome
+  );
 }
 
 function parseLookupObservation(

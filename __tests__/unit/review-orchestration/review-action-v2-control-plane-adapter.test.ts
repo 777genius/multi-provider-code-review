@@ -852,6 +852,43 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     });
   });
 
+  it('maps ambiguous publication request protocol errors to a typed non-applied outcome', async () => {
+    const execute = jest.fn().mockRejectedValue(
+      new ReviewActionV2ClientError(
+        ReviewActionV2ClientFailureCode.ProtocolError,
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        {
+          httpStatus: 409,
+          protocolErrorCode: ReviewActionV2ProtocolErrorCode.AmbiguousOutcome,
+        }
+      )
+    );
+
+    await expect(
+      createAdapter(execute).requestPublication({
+        authorization,
+        idempotencyKey: 'idem:publication:ambiguous',
+        publicationPermit: 'publication-permit',
+        projection: {
+          artifactId: 'artifact-1',
+          artifactHash: hash('artifact'),
+          projectionEnvelopeVersion: 1,
+          projectionEnvelopeCanonicalJson: '{"findings":[]}',
+          projectionHash: hash('projection'),
+          lifecycleStateHash: hash('lifecycle'),
+          commandLedgerWatermark: '0',
+          operationsCanonicalJson: '[]',
+          findingCount: 0,
+          publicationOperationCount: 0,
+          publicationChunkCount: 0,
+          coverageComplete: true,
+        },
+      })
+    ).resolves.toEqual({
+      status: ReviewPublicationRequestOutcomeStatus.Conflict,
+    });
+  });
+
   it('does not expose unrecognized publication request issue values', async () => {
     const execute = jest.fn().mockRejectedValue(
       new ReviewActionV2ClientError(
