@@ -11,6 +11,7 @@ import type { CodexProvider } from '../../../src/providers/codex';
 import type { PromptBuilder } from '../../../src/analysis/llm/prompt-builder';
 import type { ReviewConfig } from '../../../src/types';
 import type { ContextGatewayInvocationSessionFactoryPort } from '../../../src/review-orchestration/infrastructure/context-gateway-invocation-session';
+import { logger } from '../../../src/utils/logger';
 import {
   ReviewContextInspectionFailure,
   ReviewContextInspectionFailureReason,
@@ -289,6 +290,88 @@ describe('Codex T0 prepared invocation', () => {
       expect(session.dispose).toHaveBeenCalledTimes(1);
     }
   );
+
+  it('logs protocol-safe local seal parse failures before falling back to non-reusable evidence', async () => {
+    const planningPrepared = preparedInvocation('planning prompt');
+    const runtimePrepared = preparedInvocation('runtime prompt');
+    const provider = {
+      name: 'codex/gpt-test',
+      prepareInvocation: jest
+        .fn()
+        .mockResolvedValueOnce(planningPrepared)
+        .mockResolvedValueOnce(runtimePrepared),
+      executePreparedInvocation: jest.fn().mockResolvedValue({
+        content: '{}',
+        findings: [],
+        revalidations: [],
+        actualModel: 'gpt-test-actual',
+      }),
+    } as unknown as CodexProvider;
+    const session = {
+      providerConfig: gatewayConfig,
+      credentialLease: {
+        environment: {
+          REVIEWROUTER_CONTEXT_GATEWAY_SECRET: 'secret',
+        },
+      },
+      seal: jest
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'review_action_v2_context_dependency_attestation_id_missing'
+          )
+        ),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    };
+    const gatewayFactory = {
+      planningConfig: jest.fn().mockResolvedValue(gatewayConfig),
+      open: jest.fn().mockResolvedValue(session),
+    } as unknown as ContextGatewayInvocationSessionFactoryPort;
+    const warnSpy = jest
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+    const adapter = new CodexReviewInvocationAdapter(
+      provider,
+      {
+        buildPreparedV2: jest.fn().mockResolvedValue({
+          version: 'prepared_review_prompt.v2',
+          prompt: 'prepared prompt',
+          pathCoverage: [],
+        }),
+      } as unknown as PromptBuilder,
+      [assignment],
+      10_000,
+      true,
+      gatewayFactory
+    );
+
+    try {
+      const invocation = await adapter.prepare({
+        workSlot: assignment.workSlot,
+        attemptOrdinal: 1,
+      });
+      const observation = await adapter.execute({
+        invocation,
+        manifest: manifestFixture,
+        lease: leaseFixture,
+        sourceExecutionId: 'execution-1',
+        sourceReviewRevisionHash: hash('revision'),
+        signal: new AbortController().signal,
+      });
+
+      expect(observation.qualityFlags).toEqual([
+        'context_attestation_unavailable',
+        'cross_revision_reuse_disabled',
+      ]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'review_action_v2_context_dependency_attestation_id_missing'
+        )
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
 
   it('returns a typed retryable failure with current-revision-only evidence when the witness is missing', async () => {
     const planningPrepared = preparedInvocation('planning prompt');

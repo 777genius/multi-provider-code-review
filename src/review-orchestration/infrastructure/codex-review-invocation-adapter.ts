@@ -576,10 +576,27 @@ function canonicalJson(value: unknown): string {
 
 function safeFailureDiagnostic(error: unknown): string {
   if (!(error instanceof Error)) return '';
-  if (!/^review_action_v2:[a-z0-9_:-]{1,160}$/u.test(error.message)) {
-    return '';
+  if (isSafeReviewActionV2Diagnostic(error.message)) {
+    return ` (${error.message})`;
   }
-  return ` (${error.message})`;
+  return '';
+}
+
+function isSafeReviewActionV2Diagnostic(message: string): boolean {
+  if (/^review_action_v2:[a-z0-9_:-]{1,160}$/u.test(message)) {
+    return true;
+  }
+  if (/^review_action_v2_[a-z0-9_]{1,160}$/u.test(message)) {
+    return true;
+  }
+  if (
+    /^review_action_v2_[a-z0-9_]{1,80}(?: operation=[a-z0-9_]{1,80})?(?: http_status=[1-5][0-9]{2})?(?: error_code=[a-z0-9_]{1,80})?(?: issues=[a-z0-9_,]{1,200})?$/u.test(
+      message
+    )
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function sha256(value: string): string {
