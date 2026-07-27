@@ -13,6 +13,10 @@ on:
       api_url:
         required: true
         type: string
+      control_plane_url:
+        required: false
+        type: string
+        default: ''
       runtime_config_mode:
         required: true
         type: string
@@ -75,7 +79,8 @@ jobs:
       RR_REVIEW_ACTION_LANE: ${{ inputs.review_action_lane }}
       RR_RUNTIME_REF: ${{ inputs.runtime_ref }}
       RR_STATIC_RUNTIME_ENV_JSON: ${{ inputs.static_runtime_env_json }}
-      REVIEWROUTER_API_URL: ${{ inputs.api_url }}
+      REVIEWROUTER_API_URL: ${{ inputs.control_plane_url || inputs.api_url }}
+      REVIEWROUTER_CONTROL_PLANE_URL: ${{ inputs.control_plane_url || inputs.api_url }}
       REVIEWROUTER_OIDC_AUDIENCE: reviewrouter
       REVIEWROUTER_RUNTIME_CONFIG_MODE: ${{ inputs.runtime_config_mode }}
       REVIEWROUTER_STATIC_CONFIG_FALLBACK: 'true'
@@ -328,6 +333,7 @@ jobs:
           REVIEWROUTER_ACTION_V2_MODE: t0
           REVIEW_ROUTER_MODE: codex-oauth-rotating
           INPUT_API_URL: ${{ inputs.api_url }}
+          INPUT_CONTROL_PLANE_URL: ${{ inputs.control_plane_url }}
           INPUT_PROVIDER_INSTANCE_ID: ${{ inputs.provider_instance_id }}
           INPUT_WORKFLOW_SCHEMA_VERSION: ${{ inputs.workflow_schema_version }}
           INPUT_MAX_CHANGED_LINES: ${{ inputs.max_changed_lines }}

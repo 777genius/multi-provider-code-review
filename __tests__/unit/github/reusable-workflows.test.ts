@@ -72,6 +72,12 @@ describe('production reusable workflows', () => {
     );
     expect(review?.with?.review_action_lane).toBe('t0');
     expect(review?.with).toHaveProperty('runtime_ref');
+    expect(review?.with?.api_url).toBe(
+      '${{ inputs.control_plane_url || inputs.api_url }}'
+    );
+    expect(review?.with?.control_plane_url).toBe(
+      '${{ inputs.control_plane_url }}'
+    );
     expect(review?.with).toHaveProperty('review_head_sha');
     expect(review?.with).toHaveProperty('provider_instance_id');
     expect(workflowSource).not.toContain('pull-requests: write');
@@ -91,6 +97,7 @@ describe('production reusable workflows', () => {
     const legacy = workflow.jobs?.['review-legacy'];
 
     expect(inputs?.review_action_v2_mode?.default).toBe('disabled');
+    expect(inputs?.control_plane_url?.default).toBe('');
     expect(inputs?.workflow_schema_version?.default).toBe(1);
     expect(inputs?.review_drafts?.default).toBe(false);
     expect(inputs?.max_changed_lines?.default).toBe('0');
@@ -103,6 +110,10 @@ describe('production reusable workflows', () => {
       './.github/workflows/reviewrouter-execution-reusable.yml'
     );
     expect(t0?.with?.review_action_lane).toBe('t0');
+    expect(t0?.with?.api_url).toBe(
+      '${{ inputs.control_plane_url || inputs.api_url }}'
+    );
+    expect(t0?.with?.control_plane_url).toBe('${{ inputs.control_plane_url }}');
     expect(t0?.with).toHaveProperty('provider_instance_id');
     expect(t0?.with).toHaveProperty('workflow_schema_version');
     expect(t0?.with).toHaveProperty('max_changed_lines');
@@ -120,6 +131,12 @@ describe('production reusable workflows', () => {
       'id-token': 'write',
     });
     expect(legacy?.with?.review_action_lane).toBe('legacy');
+    expect(legacy?.with?.api_url).toBe(
+      '${{ inputs.control_plane_url || inputs.api_url }}'
+    );
+    expect(legacy?.with?.control_plane_url).toBe(
+      '${{ inputs.control_plane_url }}'
+    );
     expect(legacy?.if).toContain("inputs.review_action_v2_mode == 'disabled'");
     expect(legacy?.secrets).toHaveProperty(
       'REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN'
@@ -132,6 +149,7 @@ describe('production reusable workflows', () => {
       '.github/workflows/reviewrouter-execution-reusable.yml';
     const workflowSource = readRepoFile(workflowPath);
     const workflow = parseWorkflow(workflowPath);
+    const inputs = workflow.on?.workflow_call?.inputs;
     const steps = workflow.jobs?.review?.steps ?? [];
     const runtimePreparation = steps.find(
       (step) => step.name === 'Prepare ReviewRouter runtime settings'
@@ -149,6 +167,13 @@ describe('production reusable workflows', () => {
 
     expect(workflowSource).toContain('workflow_call:');
     expect(workflowSource).toContain('runtime_ref:');
+    expect(inputs?.control_plane_url?.default).toBe('');
+    expect(workflow.jobs?.review?.env?.REVIEWROUTER_API_URL).toBe(
+      '${{ inputs.control_plane_url || inputs.api_url }}'
+    );
+    expect(workflow.jobs?.review?.env?.REVIEWROUTER_CONTROL_PLANE_URL).toBe(
+      '${{ inputs.control_plane_url || inputs.api_url }}'
+    );
     expect(workflowSource).toContain(
       'repository: ${{ steps.runtime.outputs.runtime_repository }}'
     );
@@ -223,14 +248,13 @@ describe('production reusable workflows', () => {
     expect(workflowSource).not.toContain('REVIEW_ROUTER_THREAD_RESOLVE_TOKEN');
 
     expect(t0Run?.if).toContain("inputs.review_action_lane == 't0'");
-    expect(codexInstall?.if).toContain(
-      "inputs.review_action_lane == 'legacy'"
-    );
+    expect(codexInstall?.if).toContain("inputs.review_action_lane == 'legacy'");
     expect(codexAuthRestore?.if).toContain(
       "inputs.review_action_lane == 'legacy'"
     );
     expect(t0Run?.env?.REVIEWROUTER_ACTION_V2_MODE).toBe('t0');
     expect(t0Run?.env?.REVIEW_ROUTER_MODE).toBe('codex-oauth-rotating');
+    expect(t0Run?.env).toHaveProperty('INPUT_CONTROL_PLANE_URL');
     expect(t0Run?.env).toHaveProperty('INPUT_PROVIDER_INSTANCE_ID');
     expect(t0Run?.env).toHaveProperty('INPUT_WORKFLOW_SCHEMA_VERSION');
     expect(t0Run?.env).toHaveProperty('INPUT_MAX_CHANGED_LINES');
@@ -257,6 +281,13 @@ describe('production reusable workflows', () => {
     );
 
     expect(workflow).toContain('workflow_call:');
+    expect(workflow).toContain('control_plane_url:');
+    expect(workflow).toContain(
+      'REVIEWROUTER_API_URL: ${{ inputs.control_plane_url || inputs.api_url }}'
+    );
+    expect(workflow).toContain(
+      'REVIEWROUTER_CONTROL_PLANE_URL: ${{ inputs.control_plane_url || inputs.api_url }}'
+    );
     expect(workflow).toContain('review_app_client_id:');
     expect(workflow).toContain('REVIEW_APP_PRIVATE_KEY:');
     expect(workflow).toContain('uses: actions/create-github-app-token@v3');
@@ -292,5 +323,21 @@ describe('production reusable workflows', () => {
     expect(readRepoFile('README.md')).not.toContain(
       'REVIEW_ROUTER_THREAD_RESOLVE_TOKEN'
     );
+  });
+
+  it('keeps the conflict reusable workflow on the selected control plane', () => {
+    const workflow = parseWorkflow(
+      '.github/workflows/reviewrouter-conflict-reusable.yml'
+    );
+
+    expect(workflow.on?.workflow_call?.inputs?.control_plane_url?.default).toBe(
+      ''
+    );
+    expect(workflow.jobs?.['conflict-review']?.env?.REVIEWROUTER_API_URL).toBe(
+      '${{ inputs.control_plane_url || inputs.api_url }}'
+    );
+    expect(
+      workflow.jobs?.['conflict-review']?.env?.REVIEWROUTER_CONTROL_PLANE_URL
+    ).toBe('${{ inputs.control_plane_url || inputs.api_url }}');
   });
 });

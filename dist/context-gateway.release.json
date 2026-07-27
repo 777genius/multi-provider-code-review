@@ -1,6 +1,6 @@
 {
   "artifactKind": "reviewrouter-context-gateway",
-  "contextGatewayEntrypointDigest": "ae4e51df1d48ce154008f821d68aff88ee9bbbce7740652b38c42ef9f5066525",
+  "contextGatewayEntrypointDigest": "7a45e7203b936800486015aec2fd8884375f50a5e7b18a0b20c4b43f65fad02a",
   "contextGatewayEntrypointPath": "dist/context-gateway.js",
   "contextGatewayPolicyVersion": "context-gateway-v3",
   "metadataVersion": 1

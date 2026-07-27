@@ -231,7 +231,7 @@ export async function runCodexOAuthRotatingAction(
 }
 
 function readCodexOAuthActionInputs() {
-  const apiUrl = readInput('api-url') || readEnv('REVIEWROUTER_API_URL');
+  const apiUrl = resolveCodexOAuthActionApiUrl();
   const providerInstanceId = readInput('provider-instance-id');
   const workflowSchemaVersion = Number(readInput('workflow-schema-version'));
   const audience = readInput('audience') || 'reviewrouter';
@@ -257,6 +257,17 @@ function readCodexOAuthActionInputs() {
     eventName: event.eventName,
     workspacePath: process.env.GITHUB_WORKSPACE || process.cwd(),
   };
+}
+
+export function resolveCodexOAuthActionApiUrl(
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  return (
+    readInputFromEnv('control-plane-url', env) ||
+    readInputFromEnv('api-url', env) ||
+    readEnvFrom('REVIEWROUTER_CONTROL_PLANE_URL', env) ||
+    readEnvFrom('REVIEWROUTER_API_URL', env)
+  );
 }
 
 export function shouldSkipCodexOAuthSetupPreviewWithoutAuth(input: {
@@ -504,14 +515,22 @@ export function readPullRequestEvent(): {
 
 function readInput(name: string): string {
   const direct = core.getInput(name);
-  if (direct) return direct;
+  if (direct) return direct.trim();
+  return readInputFromEnv(name, process.env);
+}
+
+function readEnv(name: string): string {
+  return readEnvFrom(name, process.env);
+}
+
+function readInputFromEnv(name: string, env: NodeJS.ProcessEnv): string {
   return (
-    process.env[`INPUT_${name.toUpperCase()}`] ||
-    process.env[`INPUT_${name.toUpperCase().replace(/-/g, '_')}`] ||
+    env[`INPUT_${name.replace(/ /g, '_').toUpperCase()}`]?.trim() ||
+    env[`INPUT_${name.toUpperCase().replace(/-/g, '_')}`]?.trim() ||
     ''
   );
 }
 
-function readEnv(name: string): string {
-  return process.env[name]?.trim() || '';
+function readEnvFrom(name: string, env: NodeJS.ProcessEnv): string {
+  return env[name]?.trim() || '';
 }

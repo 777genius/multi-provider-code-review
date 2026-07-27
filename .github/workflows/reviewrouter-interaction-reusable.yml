@@ -13,6 +13,11 @@ on:
         required: false
         type: string
         default: https://api.reviewrouter.site
+      control_plane_url:
+        description: 'ReviewRouter control plane URL; overrides api_url when set'
+        required: false
+        type: string
+        default: ''
       runtime_config_mode:
         description: 'Runtime config mode: oidc or static'
         required: false
@@ -87,7 +92,8 @@ jobs:
       id-token: write
     env:
       RR_RUNTIME_REF: ${{ inputs.runtime_ref }}
-      REVIEWROUTER_API_URL: ${{ inputs.api_url }}
+      REVIEWROUTER_API_URL: ${{ inputs.control_plane_url || inputs.api_url }}
+      REVIEWROUTER_CONTROL_PLANE_URL: ${{ inputs.control_plane_url || inputs.api_url }}
       REVIEWROUTER_OIDC_AUDIENCE: reviewrouter
       REVIEWROUTER_RUNTIME_CONFIG_MODE: ${{ inputs.runtime_config_mode }}
       REVIEWROUTER_STATIC_CONFIG_FALLBACK: 'true'

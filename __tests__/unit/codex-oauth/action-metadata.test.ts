@@ -20,6 +20,9 @@ describe('Codex OAuth rotating action metadata', () => {
     expect(action.inputs?.['api-url']).toMatchObject({
       required: false,
     });
+    expect(action.inputs?.['control-plane-url']).toMatchObject({
+      required: false,
+    });
     expect(action.inputs?.['provider-instance-id']).toMatchObject({
       required: false,
     });
@@ -44,5 +47,7 @@ describe('Codex OAuth rotating action metadata', () => {
     expect(actionDist).toContain(
       '/(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY|AUTH_JSON)/.test(normalizedKey)'
     );
+    expect(actionDist).toContain('readInput(env, "control-plane-url")');
+    expect(actionDist).toContain('REVIEWROUTER_CONTROL_PLANE_URL');
   });
 });

@@ -114,7 +114,10 @@ describe('FilesystemContextGateway', () => {
 
   it('captures changed paths without traversing disconnected shallow history', async () => {
     const mergeBaseSha = await gitText(root, ['rev-parse', 'HEAD']);
-    await writeFile(path.join(root, 'shallow.ts'), 'export const shallow = 1;\n');
+    await writeFile(
+      path.join(root, 'shallow.ts'),
+      'export const shallow = 1;\n'
+    );
     await git(root, ['add', 'shallow.ts']);
     await git(root, ['commit', '-qm', 'add shallow path']);
     const headSha = await gitText(root, ['rev-parse', 'HEAD']);

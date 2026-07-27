@@ -377,16 +377,18 @@ export class ReviewActionV2ControlPlaneAdapter
       expectedStreamVersion: input.execution.streamVersion,
       targetRevisionHash: input.targetRevisionHash,
     } as const;
-    const result = await this.client.execute(operationId, request).catch((error) => {
-      if (isBenignSupersedeTargetRevisionMismatch(error)) {
-        return {
-          status: ReviewExecutionMutationResultStatus.Restored,
-          executionId: input.execution.executionId,
-          streamVersion: input.execution.streamVersion,
-        };
-      }
-      throw error;
-    });
+    const result = await this.client
+      .execute(operationId, request)
+      .catch((error) => {
+        if (isBenignSupersedeTargetRevisionMismatch(error)) {
+          return {
+            status: ReviewExecutionMutationResultStatus.Restored,
+            executionId: input.execution.executionId,
+            streamVersion: input.execution.streamVersion,
+          };
+        }
+        throw error;
+      });
     requireMutationApplied(result.status, 'execution_supersede');
   }
 
