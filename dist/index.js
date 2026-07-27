@@ -73293,6 +73293,7 @@ var RunT0ReviewOrchestration = class {
       });
       const acceptedEvidence = [];
       const exhaustedWorkSlotIds = [];
+      const exhaustedWorkSlotReasons = /* @__PURE__ */ new Map();
       const restoredSlots = new Map(
         execution.restoredExecution.workSlots.map((slot) => [
           slot.workSlotId,
@@ -73307,6 +73308,10 @@ var RunT0ReviewOrchestration = class {
         }
         if (restoredSlot.state === "exhausted" /* Exhausted */ || restoredSlot.state === "cancelled" /* Cancelled */) {
           exhaustedWorkSlotIds.push(workSlot.workSlotId);
+          exhaustedWorkSlotReasons.set(
+            workSlot.workSlotId,
+            "restored_terminal" /* RestoredTerminal */
+          );
           state = evolveReviewOrchestration(state, {
             type: "slot_exhausted" /* SlotExhausted */,
             workSlotId: workSlot.workSlotId
@@ -73335,7 +73340,15 @@ var RunT0ReviewOrchestration = class {
             observation: outcome.observation,
             coverageManifest: outcome.coverageManifest
           });
-        } else exhaustedWorkSlotIds.push(workSlot.workSlotId);
+        } else {
+          exhaustedWorkSlotIds.push(workSlot.workSlotId);
+          if (outcome.exhaustionReason) {
+            exhaustedWorkSlotReasons.set(
+              workSlot.workSlotId,
+              outcome.exhaustionReason
+            );
+          }
+        }
       }
       const requiredWorkSlotIds = new Set(
         command.workSlots.filter((workSlot) => workSlot.required).map((workSlot) => workSlot.workSlotId)
@@ -73381,6 +73394,11 @@ var RunT0ReviewOrchestration = class {
         reviewRevisionHash: command.reviewRevisionHash
       });
       const partial = requiredExhaustedWorkSlotIds.length > 0 || !projection.coverageComplete;
+      const partialFailureCode = derivePartialFailureCode({
+        requiredExhaustedWorkSlotIds,
+        exhaustedWorkSlotReasons,
+        projectionCoverageComplete: projection.coverageComplete
+      });
       if (partial && !command.allowPartial) {
         state = evolveReviewOrchestration(state, {
           type: "failed" /* Failed */
@@ -73427,10 +73445,13 @@ var RunT0ReviewOrchestration = class {
           type: "publication_requested" /* PublicationRequested */,
           partial
         });
-        const conflictState = evolveReviewOrchestration(publicationRequestedState, {
-          type: "publication_completed" /* PublicationCompleted */,
-          partial
-        });
+        const conflictState = evolveReviewOrchestration(
+          publicationRequestedState,
+          {
+            type: "publication_completed" /* PublicationCompleted */,
+            partial
+          }
+        );
         return {
           status: "publication_not_applied" /* PublicationNotApplied */,
           state: conflictState,
@@ -73458,6 +73479,7 @@ var RunT0ReviewOrchestration = class {
           executionId: execution.executionId,
           publicationAttemptId: publication.publicationAttemptId,
           partial,
+          failureCode: partialFailureCode,
           outcome: status.outcome
         });
       }
@@ -73559,7 +73581,10 @@ var RunT0ReviewOrchestration = class {
             type: "slot_exhausted" /* SlotExhausted */,
             workSlotId: input.workSlot.workSlotId
           });
-          return { streamVersion };
+          return {
+            streamVersion,
+            exhaustionReason: "provider_lane_busy" /* ProviderLaneBusy */
+          };
         }
         if (busyPollCount > 0) {
           await this.dependencies.delay.sleep(
@@ -73601,7 +73626,10 @@ var RunT0ReviewOrchestration = class {
             type: "slot_exhausted" /* SlotExhausted */,
             workSlotId: input.workSlot.workSlotId
           });
-          return { streamVersion };
+          return {
+            streamVersion,
+            exhaustionReason: "attempt_budget_exhausted" /* AttemptBudgetExhausted */
+          };
         }
         if (acquire.status === "not_runnable" /* NotRunnable */) {
           await this.assertRevisionCurrent(input.revision);
@@ -73609,7 +73637,10 @@ var RunT0ReviewOrchestration = class {
             type: "slot_exhausted" /* SlotExhausted */,
             workSlotId: input.workSlot.workSlotId
           });
-          return { streamVersion };
+          return {
+            streamVersion,
+            exhaustionReason: "not_runnable" /* NotRunnable */
+          };
         }
       }
       input.onEvent({
@@ -73731,7 +73762,10 @@ var RunT0ReviewOrchestration = class {
       type: "slot_exhausted" /* SlotExhausted */,
       workSlotId: input.workSlot.workSlotId
     });
-    return { streamVersion };
+    return {
+      streamVersion,
+      exhaustionReason: "provider_attempts_exhausted" /* ProviderAttemptsExhausted */
+    };
   }
   async trySatisfyFromLookup(input) {
     const lookup = await this.dependencies.controlPlane.lookupEvidence({
@@ -73992,8 +74026,20 @@ function finishPublication(input) {
     state,
     executionId: input.executionId,
     publicationAttemptId: input.publicationAttemptId,
+    ...input.partial && input.failureCode ? { failureCode: input.failureCode } : {},
     ...input.outcome.canonicalReceiptSetHash ? { canonicalReceiptSetHash: input.outcome.canonicalReceiptSetHash } : {}
   };
+}
+function derivePartialFailureCode(input) {
+  const firstRequiredExhausted = input.requiredExhaustedWorkSlotIds[0];
+  if (firstRequiredExhausted) {
+    const reason = input.exhaustedWorkSlotReasons.get(firstRequiredExhausted);
+    if (reason === "provider_lane_busy" /* ProviderLaneBusy */) {
+      return "required_provider_lane_busy";
+    }
+    return "required_work_exhausted";
+  }
+  return input.projectionCoverageComplete ? void 0 : "required_review_coverage_incomplete";
 }
 function validateCommand(command) {
   for (const commitSha of [
@@ -79972,6 +80018,10 @@ function mapOrchestrationResultToCodexOutcome(result) {
     case "completed" /* Completed */:
       return { outcome: "completed" /* Completed */ };
     case "partial_completed" /* PartialCompleted */:
+      return result.failureCode ? {
+        outcome: "partial_completed" /* PartialCompleted */,
+        blockingFailure: result.failureCode
+      } : { outcome: "partial_completed" /* PartialCompleted */ };
     case "publication_not_applied" /* PublicationNotApplied */:
     case "publication_stale" /* PublicationStale */:
       return { outcome: "partial_completed" /* PartialCompleted */ };

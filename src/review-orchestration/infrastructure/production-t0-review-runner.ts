@@ -267,6 +267,12 @@ export function mapOrchestrationResultToCodexOutcome(result: {
     case ReviewOrchestrationResultStatus.Completed:
       return { outcome: CodexOAuthV2ReviewOutcome.Completed };
     case ReviewOrchestrationResultStatus.PartialCompleted:
+      return result.failureCode
+        ? {
+            outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+            blockingFailure: result.failureCode,
+          }
+        : { outcome: CodexOAuthV2ReviewOutcome.PartialCompleted };
     case ReviewOrchestrationResultStatus.PublicationNotApplied:
     case ReviewOrchestrationResultStatus.PublicationStale:
       return { outcome: CodexOAuthV2ReviewOutcome.PartialCompleted };

@@ -77,6 +77,14 @@ export type ReviewOrchestrationResult = {
   readonly failureCode?: string;
 };
 
+enum ReviewWorkSlotExhaustionReason {
+  AttemptBudgetExhausted = 'attempt_budget_exhausted',
+  NotRunnable = 'not_runnable',
+  ProviderAttemptsExhausted = 'provider_attempts_exhausted',
+  ProviderLaneBusy = 'provider_lane_busy',
+  RestoredTerminal = 'restored_terminal',
+}
+
 export type RunT0ReviewOrchestrationDependencies = {
   readonly controlPlane: ReviewActionV2ControlPlanePort;
   readonly revisionGuard: ReviewRevisionGuardPort;
@@ -205,6 +213,10 @@ export class RunT0ReviewOrchestration {
 
       const acceptedEvidence: AcceptedReviewWorkSlotEvidence[] = [];
       const exhaustedWorkSlotIds: string[] = [];
+      const exhaustedWorkSlotReasons = new Map<
+        string,
+        ReviewWorkSlotExhaustionReason
+      >();
       const restoredSlots = new Map(
         execution.restoredExecution.workSlots.map((slot) => [
           slot.workSlotId,
@@ -222,6 +234,10 @@ export class RunT0ReviewOrchestration {
           restoredSlot.state === RestoredReviewWorkSlotState.Cancelled
         ) {
           exhaustedWorkSlotIds.push(workSlot.workSlotId);
+          exhaustedWorkSlotReasons.set(
+            workSlot.workSlotId,
+            ReviewWorkSlotExhaustionReason.RestoredTerminal
+          );
           state = evolveReviewOrchestration(state, {
             type: ReviewOrchestrationEventType.SlotExhausted,
             workSlotId: workSlot.workSlotId,
@@ -250,7 +266,15 @@ export class RunT0ReviewOrchestration {
             observation: outcome.observation,
             coverageManifest: outcome.coverageManifest,
           });
-        } else exhaustedWorkSlotIds.push(workSlot.workSlotId);
+        } else {
+          exhaustedWorkSlotIds.push(workSlot.workSlotId);
+          if (outcome.exhaustionReason) {
+            exhaustedWorkSlotReasons.set(
+              workSlot.workSlotId,
+              outcome.exhaustionReason
+            );
+          }
+        }
       }
 
       const requiredWorkSlotIds = new Set(
@@ -303,6 +327,11 @@ export class RunT0ReviewOrchestration {
       });
       const partial =
         requiredExhaustedWorkSlotIds.length > 0 || !projection.coverageComplete;
+      const partialFailureCode = derivePartialFailureCode({
+        requiredExhaustedWorkSlotIds,
+        exhaustedWorkSlotReasons,
+        projectionCoverageComplete: projection.coverageComplete,
+      });
       if (partial && !command.allowPartial) {
         state = evolveReviewOrchestration(state, {
           type: ReviewOrchestrationEventType.Failed,
@@ -353,10 +382,13 @@ export class RunT0ReviewOrchestration {
           type: ReviewOrchestrationEventType.PublicationRequested,
           partial,
         });
-        const conflictState = evolveReviewOrchestration(publicationRequestedState, {
-          type: ReviewOrchestrationEventType.PublicationCompleted,
-          partial,
-        });
+        const conflictState = evolveReviewOrchestration(
+          publicationRequestedState,
+          {
+            type: ReviewOrchestrationEventType.PublicationCompleted,
+            partial,
+          }
+        );
         return {
           status: ReviewOrchestrationResultStatus.PublicationNotApplied,
           state: conflictState,
@@ -386,6 +418,7 @@ export class RunT0ReviewOrchestration {
           executionId: execution.executionId,
           publicationAttemptId: publication.publicationAttemptId,
           partial,
+          failureCode: partialFailureCode,
           outcome: status.outcome,
         });
       }
@@ -459,6 +492,7 @@ export class RunT0ReviewOrchestration {
   }): Promise<{
     readonly observation?: AcceptedReviewObservation;
     readonly coverageManifest?: ReviewPromptCoverageManifest;
+    readonly exhaustionReason?: ReviewWorkSlotExhaustionReason;
     readonly streamVersion: string;
   }> {
     let streamVersion = input.execution.streamVersion;
@@ -520,7 +554,10 @@ export class RunT0ReviewOrchestration {
             type: ReviewOrchestrationEventType.SlotExhausted,
             workSlotId: input.workSlot.workSlotId,
           });
-          return { streamVersion };
+          return {
+            streamVersion,
+            exhaustionReason: ReviewWorkSlotExhaustionReason.ProviderLaneBusy,
+          };
         }
         if (busyPollCount > 0) {
           await this.dependencies.delay.sleep(
@@ -568,17 +605,25 @@ export class RunT0ReviewOrchestration {
             type: ReviewOrchestrationEventType.SlotExhausted,
             workSlotId: input.workSlot.workSlotId,
           });
-          return { streamVersion };
+          return {
+            streamVersion,
+            exhaustionReason:
+              ReviewWorkSlotExhaustionReason.AttemptBudgetExhausted,
+          };
         }
         if (
-          acquire.status === ReviewInvocationLeaseAcquireOutcomeStatus.NotRunnable
+          acquire.status ===
+          ReviewInvocationLeaseAcquireOutcomeStatus.NotRunnable
         ) {
           await this.assertRevisionCurrent(input.revision);
           input.onEvent({
             type: ReviewOrchestrationEventType.SlotExhausted,
             workSlotId: input.workSlot.workSlotId,
           });
-          return { streamVersion };
+          return {
+            streamVersion,
+            exhaustionReason: ReviewWorkSlotExhaustionReason.NotRunnable,
+          };
         }
       }
       input.onEvent({
@@ -716,7 +761,11 @@ export class RunT0ReviewOrchestration {
       type: ReviewOrchestrationEventType.SlotExhausted,
       workSlotId: input.workSlot.workSlotId,
     });
-    return { streamVersion };
+    return {
+      streamVersion,
+      exhaustionReason:
+        ReviewWorkSlotExhaustionReason.ProviderAttemptsExhausted,
+    };
   }
 
   private async trySatisfyFromLookup(input: {
@@ -1013,6 +1062,7 @@ function finishPublication(input: {
   readonly executionId: string;
   readonly publicationAttemptId: string;
   readonly partial: boolean;
+  readonly failureCode?: string;
   readonly outcome: {
     readonly state: ReviewPublicationState;
     readonly canonicalReceiptSetHash?: string;
@@ -1063,10 +1113,34 @@ function finishPublication(input: {
     state,
     executionId: input.executionId,
     publicationAttemptId: input.publicationAttemptId,
+    ...(input.partial && input.failureCode
+      ? { failureCode: input.failureCode }
+      : {}),
     ...(input.outcome.canonicalReceiptSetHash
       ? { canonicalReceiptSetHash: input.outcome.canonicalReceiptSetHash }
       : {}),
   };
+}
+
+function derivePartialFailureCode(input: {
+  readonly requiredExhaustedWorkSlotIds: readonly string[];
+  readonly exhaustedWorkSlotReasons: ReadonlyMap<
+    string,
+    ReviewWorkSlotExhaustionReason
+  >;
+  readonly projectionCoverageComplete: boolean;
+}): string | undefined {
+  const firstRequiredExhausted = input.requiredExhaustedWorkSlotIds[0];
+  if (firstRequiredExhausted) {
+    const reason = input.exhaustedWorkSlotReasons.get(firstRequiredExhausted);
+    if (reason === ReviewWorkSlotExhaustionReason.ProviderLaneBusy) {
+      return 'required_provider_lane_busy';
+    }
+    return 'required_work_exhausted';
+  }
+  return input.projectionCoverageComplete
+    ? undefined
+    : 'required_review_coverage_incomplete';
 }
 
 function validateCommand(command: RunT0ReviewOrchestrationCommand): void {

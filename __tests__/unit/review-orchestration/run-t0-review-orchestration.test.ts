@@ -675,7 +675,7 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.controlPlane.supersedeExecution).toHaveBeenCalledTimes(1);
   });
 
-  it('publishes an explicit partial result after bounded attempt exhaustion', async () => {
+  it('publishes a blocking partial result after bounded attempt exhaustion', async () => {
     const fixture = createFixture();
     jest
       .mocked(fixture.dependencies.invocations.execute)
@@ -689,6 +689,7 @@ describe('RunT0ReviewOrchestration', () => {
     expect(result.status).toBe(
       ReviewOrchestrationResultStatus.PartialCompleted
     );
+    expect(result.failureCode).toBe('required_work_exhausted');
     expect(result.state.phase).toBe(ReviewOrchestrationPhase.PartialCompleted);
     expect(fixture.controlPlane.finalizeExecution).toHaveBeenCalledWith(
       expect.objectContaining({ allowPartial: true })
@@ -723,7 +724,7 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
   });
 
-  it('treats a persistently busy lease as exhausted controlled coverage', async () => {
+  it('marks a persistently busy required lease as blocking partial coverage', async () => {
     const fixture = createFixture({ maxAttempts: 1 });
     fixture.controlPlane.acquireInvocationLease.mockResolvedValue({
       status: ReviewInvocationLeaseAcquireOutcomeStatus.Busy,
@@ -737,6 +738,7 @@ describe('RunT0ReviewOrchestration', () => {
 
     expect(result).toMatchObject({
       status: ReviewOrchestrationResultStatus.PartialCompleted,
+      failureCode: 'required_provider_lane_busy',
     });
     expect(fixture.controlPlane.acquireInvocationLease).toHaveBeenCalledTimes(
       2
@@ -764,6 +766,7 @@ describe('RunT0ReviewOrchestration', () => {
     expect(result.status).toBe(
       ReviewOrchestrationResultStatus.PartialCompleted
     );
+    expect(result.failureCode).toBe('required_work_exhausted');
     expect(result.state.phase).toBe(ReviewOrchestrationPhase.PartialCompleted);
     expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
     expect(fixture.dependencies.projectionBuilder.build).toHaveBeenCalledWith(

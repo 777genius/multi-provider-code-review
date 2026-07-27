@@ -64,6 +64,18 @@ describe('ProductionT0ReviewRunner policy', () => {
     }
   });
 
+  it('keeps incomplete required partial coverage blocking', () => {
+    expect(
+      mapOrchestrationResultToCodexOutcome({
+        status: ReviewOrchestrationResultStatus.PartialCompleted,
+        failureCode: 'required_provider_lane_busy',
+      })
+    ).toEqual({
+      outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+      blockingFailure: 'required_provider_lane_busy',
+    });
+  });
+
   it('keeps real orchestration failures blocking', () => {
     expect(
       mapOrchestrationResultToCodexOutcome({
