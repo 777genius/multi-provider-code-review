@@ -22677,6 +22677,7 @@ var CodexProvider = class _CodexProvider extends Provider {
       "- review_git_fact",
       "Before returning final JSON, you MUST call at least one ReviewRouter MCP tool to inspect repository context beyond the deterministic prompt.",
       "Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.",
+      'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.',
       "Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.",
       "Use repository-relative paths only. Only report concrete bugs on changed lines.",
       "",
@@ -74884,6 +74885,11 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           actualModel: result.actualModel ?? input.invocation.requestedModel,
           terminalOutcomeHash: initial.payloadHash
         });
+        if (attestation) {
+          logger.info(
+            "Context attestation sealed; fresh evidence is cross-revision reusable"
+          );
+        }
         return normalizeReviewObservation({
           workSlotId: input.invocation.workSlotId,
           attemptOrdinal: input.invocation.attemptOrdinal,

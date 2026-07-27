@@ -303,6 +303,9 @@ describe('CodexProvider', () => {
 
     expect(prompt).not.toContain('MUST call review_git_fact');
     expect(prompt).toContain('Then inspect changed hunks');
+    expect(prompt).toContain('truncated');
+    expect(prompt).toContain('complete');
+    expect(prompt).toContain('do not produce final JSON');
   });
 
   it('keeps gateway session paths and revision hashes out of semantic identity', async () => {

@@ -336,6 +336,11 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           actualModel: result.actualModel ?? input.invocation.requestedModel,
           terminalOutcomeHash: initial.payloadHash,
         });
+        if (attestation) {
+          logger.info(
+            'Context attestation sealed; fresh evidence is cross-revision reusable'
+          );
+        }
         return normalizeReviewObservation({
           workSlotId: input.invocation.workSlotId,
           attemptOrdinal: input.invocation.attemptOrdinal,
