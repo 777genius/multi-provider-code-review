@@ -596,6 +596,13 @@ function isSafeReviewActionV2Diagnostic(message: string): boolean {
   ) {
     return true;
   }
+  if (
+    /^(?:context_dependency|context_gateway|context_git|text_search|file_read|directory|git_fact|gateway|checkout_tree|authenticated_event_chain|previous_event|event)_[a-z0-9_]{1,160}$/u.test(
+      message
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 

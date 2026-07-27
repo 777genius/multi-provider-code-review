@@ -373,6 +373,86 @@ describe('Codex T0 prepared invocation', () => {
     }
   });
 
+  it('logs protocol-safe context gateway seal failures before falling back to non-reusable evidence', async () => {
+    const planningPrepared = preparedInvocation('planning prompt');
+    const runtimePrepared = preparedInvocation('runtime prompt');
+    const provider = {
+      name: 'codex/gpt-test',
+      prepareInvocation: jest
+        .fn()
+        .mockResolvedValueOnce(planningPrepared)
+        .mockResolvedValueOnce(runtimePrepared),
+      executePreparedInvocation: jest.fn().mockResolvedValue({
+        content: '{}',
+        findings: [],
+        revalidations: [],
+        actualModel: 'gpt-test-actual',
+      }),
+    } as unknown as CodexProvider;
+    const session = {
+      providerConfig: gatewayConfig,
+      credentialLease: {
+        environment: {
+          REVIEWROUTER_CONTEXT_GATEWAY_SECRET: 'secret',
+        },
+      },
+      seal: jest
+        .fn()
+        .mockRejectedValue(
+          new Error('context_gateway_transcript_terminal_hash_invalid')
+        ),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    };
+    const gatewayFactory = {
+      planningConfig: jest.fn().mockResolvedValue(gatewayConfig),
+      open: jest.fn().mockResolvedValue(session),
+    } as unknown as ContextGatewayInvocationSessionFactoryPort;
+    const warnSpy = jest
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+    const adapter = new CodexReviewInvocationAdapter(
+      provider,
+      {
+        buildPreparedV2: jest.fn().mockResolvedValue({
+          version: 'prepared_review_prompt.v2',
+          prompt: 'prepared prompt',
+          pathCoverage: [],
+        }),
+      } as unknown as PromptBuilder,
+      [assignment],
+      10_000,
+      true,
+      gatewayFactory
+    );
+
+    try {
+      const invocation = await adapter.prepare({
+        workSlot: assignment.workSlot,
+        attemptOrdinal: 1,
+      });
+      const observation = await adapter.execute({
+        invocation,
+        manifest: manifestFixture,
+        lease: leaseFixture,
+        sourceExecutionId: 'execution-1',
+        sourceReviewRevisionHash: hash('revision'),
+        signal: new AbortController().signal,
+      });
+
+      expect(observation.qualityFlags).toEqual([
+        'context_attestation_unavailable',
+        'cross_revision_reuse_disabled',
+      ]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'context_gateway_transcript_terminal_hash_invalid'
+        )
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('returns a typed retryable failure with current-revision-only evidence when the witness is missing', async () => {
     const planningPrepared = preparedInvocation('planning prompt');
     const runtimePrepared = preparedInvocation('runtime prompt');
