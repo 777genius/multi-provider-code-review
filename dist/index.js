@@ -76115,18 +76115,10 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
           ];
           break;
         case "diff_stat":
-          args = [
-            "diff",
-            "--numstat",
-            `${this.mergeBaseSha}..${this.headSha}`
-          ];
+          args = ["diff", "--numstat", `${this.mergeBaseSha}..${this.headSha}`];
           break;
         case "merge_base":
-          args = [
-            "rev-parse",
-            "--verify",
-            `${this.mergeBaseSha}^{commit}`
-          ];
+          args = ["rev-parse", "--verify", `${this.mergeBaseSha}^{commit}`];
           break;
         default:
           throw new Error("git_fact_invalid");
@@ -80421,7 +80413,7 @@ async function runCodexOAuthRotatingAction(options = {}) {
   }
 }
 function readCodexOAuthActionInputs() {
-  const apiUrl = readInput("api-url") || readEnv("REVIEWROUTER_API_URL");
+  const apiUrl = resolveCodexOAuthActionApiUrl();
   const providerInstanceId = readInput("provider-instance-id");
   const workflowSchemaVersion = Number(readInput("workflow-schema-version"));
   const audience = readInput("audience") || "reviewrouter";
@@ -80447,6 +80439,9 @@ function readCodexOAuthActionInputs() {
     eventName: event.eventName,
     workspacePath: process.env.GITHUB_WORKSPACE || process.cwd()
   };
+}
+function resolveCodexOAuthActionApiUrl(env = process.env) {
+  return readInputFromEnv("control-plane-url", env) || readInputFromEnv("api-url", env) || readEnvFrom("REVIEWROUTER_CONTROL_PLANE_URL", env) || readEnvFrom("REVIEWROUTER_API_URL", env);
 }
 function shouldSkipCodexOAuthSetupPreviewWithoutAuth(input) {
   return input.eventName === "pull_request" && input.headRef === SETUP_PULL_REQUEST_BRANCH && !hasCodexRotatingAuthInput();
@@ -80620,11 +80615,17 @@ function readPullRequestEvent() {
 }
 function readInput(name) {
   const direct = getInput(name);
-  if (direct) return direct;
-  return process.env[`INPUT_${name.toUpperCase()}`] || process.env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`] || "";
+  if (direct) return direct.trim();
+  return readInputFromEnv(name, process.env);
 }
 function readEnv(name) {
-  return process.env[name]?.trim() || "";
+  return readEnvFrom(name, process.env);
+}
+function readInputFromEnv(name, env) {
+  return env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`]?.trim() || env[`INPUT_${name.toUpperCase().replace(/-/g, "_")}`]?.trim() || "";
+}
+function readEnvFrom(name, env) {
+  return env[name]?.trim() || "";
 }
 
 // src/main.ts

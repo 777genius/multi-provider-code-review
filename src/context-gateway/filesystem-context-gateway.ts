@@ -291,18 +291,10 @@ export class FilesystemContextGateway {
           ];
           break;
         case 'diff_stat':
-          args = [
-            'diff',
-            '--numstat',
-            `${this.mergeBaseSha}..${this.headSha}`,
-          ];
+          args = ['diff', '--numstat', `${this.mergeBaseSha}..${this.headSha}`];
           break;
         case 'merge_base':
-          args = [
-            'rev-parse',
-            '--verify',
-            `${this.mergeBaseSha}^{commit}`,
-          ];
+          args = ['rev-parse', '--verify', `${this.mergeBaseSha}^{commit}`];
           break;
         default:
           throw new Error('git_fact_invalid');

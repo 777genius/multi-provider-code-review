@@ -33,10 +33,7 @@ describe('context gateway release metadata', () => {
       }
     );
     expect(description).toMatchObject({ status: 0, stderr: '' });
-    const described = JSON.parse(description.stdout) as Record<
-      string,
-      unknown
-    >;
+    const described = JSON.parse(description.stdout) as Record<string, unknown>;
     const metadata = JSON.parse(readFileSync(metadataPath, 'utf8')) as Record<
       string,
       unknown
@@ -96,9 +93,7 @@ describe('context gateway release metadata', () => {
         timeout: 10_000,
       });
       expect(check.status).toBe(1);
-      expect(check.stderr).toContain(
-        'context_gateway_release_metadata_stale'
-      );
+      expect(check.stderr).toContain('context_gateway_release_metadata_stale');
     } finally {
       rmSync(directory, { force: true, recursive: true });
     }

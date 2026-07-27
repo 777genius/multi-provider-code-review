@@ -9,6 +9,10 @@ on:
       api_url:
         required: true
         type: string
+      control_plane_url:
+        required: false
+        type: string
+        default: ''
       runtime_config_mode:
         required: true
         type: string
@@ -63,7 +67,8 @@ jobs:
       contents: read
       id-token: write
     env:
-      REVIEWROUTER_API_URL: ${{ inputs.api_url }}
+      REVIEWROUTER_API_URL: ${{ inputs.control_plane_url || inputs.api_url }}
+      REVIEWROUTER_CONTROL_PLANE_URL: ${{ inputs.control_plane_url || inputs.api_url }}
       REVIEWROUTER_ACTION_VERSION: ${{ inputs.runtime_ref }}
       REVIEWROUTER_OIDC_AUDIENCE: reviewrouter
       REVIEW_ROUTER_TARGET_WORKSPACE: ${{ github.workspace }}/reviewrouter-target
