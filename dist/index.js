@@ -80570,9 +80570,12 @@ function buildSkippedTerminalOutcomeReport(inputs, runtime) {
         ["Configured limit", runtime.maxChangedLines.toLocaleString()],
         ["Model calls", "0"]
       ],
-      note: "No Codex tokens were consumed for review. Split the PR or raise REVIEW_ROUTER_MAX_CHANGED_LINES if this repository should review larger changes."
+      note: "No Codex tokens were consumed for review. Split the PR or raise REVIEW_ROUTER_MAX_CHANGED_LINES if this repository should review larger changes.",
+      statusState: "failure",
+      statusDescription: "Review skipped: PR exceeds configured safety limit."
     });
   }
+  const statusState = runtime.reason === "github_put_failed" || runtime.reason === "permission_required" ? "error" : "failure";
   return terminalOutcomeReport({
     inputs,
     kind: "skipped",
@@ -80585,7 +80588,9 @@ function buildSkippedTerminalOutcomeReport(inputs, runtime) {
         runtime.reason === "stale_queued_secret" ? "0" : "not started"
       ]
     ],
-    note: runtime.reason === "stale_queued_secret" ? "This run restored an older queued Codex auth generation. Re-run the newest workflow after reconnecting Codex if needed." : "ReviewRouter stopped before publishing review output."
+    note: runtime.reason === "stale_queued_secret" ? "This run restored an older queued Codex auth generation. Re-run the newest workflow after reconnecting Codex if needed." : "ReviewRouter stopped before publishing review output.",
+    statusState,
+    statusDescription: `Review skipped: ${skippedReasonLabel(runtime.reason)}.`
   });
 }
 function buildV2TerminalOutcomeReport(inputs, review) {
@@ -80600,7 +80605,9 @@ function buildV2TerminalOutcomeReport(inputs, review) {
         ["Reviewed commit", shortSha(inputs.headSha)],
         ["Published findings", "0"]
       ],
-      note: "The newer workflow run should review the current head. This stale result was intentionally not used as approval evidence."
+      note: "The newer workflow run should review the current head. This stale result was intentionally not used as approval evidence.",
+      statusState: "failure",
+      statusDescription: "Review superseded by a newer PR revision."
     });
   }
   const laneBusy = review.blockingFailure === "required_provider_lane_busy";
@@ -80616,11 +80623,14 @@ function buildV2TerminalOutcomeReport(inputs, review) {
         laneBusy ? "provider lanes busy" : "required coverage incomplete"
       ]
     ],
-    note: laneBusy ? "Partial evidence is preserved for retry. This result is not an all-clear." : "Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval."
+    note: laneBusy ? "Partial evidence is preserved for retry. This result is not an all-clear." : "Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.",
+    statusState: laneBusy ? "pending" : "failure",
+    statusDescription: laneBusy ? "Review delayed: provider lanes are busy." : "Review incomplete: required coverage did not finish."
   });
 }
 function terminalOutcomeReport(input) {
   const marker = `<!-- reviewrouter:codex-oauth:terminal:${input.inputs.headSha}:${input.kind} -->`;
+  const targetUrl = githubRunUrl(input.inputs);
   const table = [
     "| Field | Value |",
     "|---|---|",
@@ -80641,7 +80651,13 @@ function terminalOutcomeReport(input) {
 
 ${visible}`,
     stepSummary: visible,
-    logLabel: input.kind
+    logLabel: input.kind,
+    commitStatus: {
+      state: input.statusState,
+      description: truncateCommitStatusDescription(input.statusDescription),
+      context: "ReviewRouter",
+      ...targetUrl ? { targetUrl } : {}
+    }
   };
 }
 function appendTerminalOutcomeStepSummary(report) {
@@ -80684,6 +80700,12 @@ function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
         token: commentToken.token,
         marker: report.marker,
         body: report.body
+      });
+      await createTerminalOutcomeCommitStatusSafely({
+        repository: input.inputs.repository,
+        headSha: input.inputs.headSha,
+        token: commentToken.token,
+        status: report.commitStatus
       });
     }
   };
@@ -80731,6 +80753,28 @@ async function upsertTerminalOutcomePullRequestComment(input) {
     body: input.body
   });
 }
+async function createTerminalOutcomeCommitStatusSafely(input) {
+  try {
+    const client = new GitHubClient(input.token);
+    const [repositoryOwner, repositoryName] = input.repository.split("/");
+    const owner = repositoryOwner || client.owner;
+    const repo = repositoryName || client.repo;
+    await client.octokit.rest.repos.createCommitStatus({
+      owner,
+      repo,
+      sha: input.headSha,
+      state: input.status.state,
+      context: input.status.context,
+      description: input.status.description,
+      ...input.status.targetUrl ? { target_url: input.status.targetUrl } : {}
+    });
+    info(`ReviewRouter published ${input.status.context} commit status.`);
+  } catch (error2) {
+    warning(
+      `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error2)}`
+    );
+  }
+}
 function skippedReasonSummary(reason) {
   switch (reason) {
     case "stale_queued_secret":
@@ -80752,6 +80796,15 @@ function skippedReasonLabel(reason) {
 }
 function shortSha(sha) {
   return sha.slice(0, 12);
+}
+function githubRunUrl(inputs) {
+  const runId = process.env.GITHUB_RUN_ID;
+  if (!runId) return void 0;
+  const serverUrl = process.env.GITHUB_SERVER_URL || "https://github.com";
+  return `${serverUrl.replace(/\/+$/, "")}/${inputs.repository}/actions/runs/${runId}`;
+}
+function truncateCommitStatusDescription(value) {
+  return value.length <= 140 ? value : `${value.slice(0, 137)}...`;
 }
 function safeTerminalOutcomeError(error2) {
   const message = error2 instanceof Error ? error2.message : "unknown_error";

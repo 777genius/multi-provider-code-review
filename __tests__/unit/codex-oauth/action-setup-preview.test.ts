@@ -174,6 +174,11 @@ describe('Codex OAuth rotating setup PR preview', () => {
           'ReviewRouter did not start a model review'
         ),
         stepSummary: expect.not.stringContaining('reviewrouter:codex-oauth'),
+        commitStatus: {
+          state: 'failure',
+          description: 'Review skipped: PR exceeds configured safety limit.',
+          context: 'ReviewRouter',
+        },
       })
     );
   });
@@ -300,6 +305,11 @@ describe('Codex OAuth rotating setup PR preview', () => {
         marker:
           '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:lane-busy -->',
         body: expect.stringContaining('provider lanes were busy'),
+        commitStatus: {
+          state: 'pending',
+          description: 'Review delayed: provider lanes are busy.',
+          context: 'ReviewRouter',
+        },
       })
     );
   });
