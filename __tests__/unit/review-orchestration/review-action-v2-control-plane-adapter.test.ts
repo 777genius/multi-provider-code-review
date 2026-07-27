@@ -895,7 +895,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     });
   });
 
-  it('maps ambiguous publication request protocol errors to a typed non-applied outcome', async () => {
+  it('fails ambiguous publication request protocol errors instead of masking them as non-applied', async () => {
     const execute = jest.fn().mockRejectedValue(
       new ReviewActionV2ClientError(
         ReviewActionV2ClientFailureCode.ProtocolError,
@@ -927,9 +927,9 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           coverageComplete: true,
         },
       })
-    ).resolves.toEqual({
-      status: ReviewPublicationRequestOutcomeStatus.Conflict,
-    });
+    ).rejects.toThrow(
+      'review_action_v2:review_publication_request:ambiguous_outcome'
+    );
   });
 
   it('does not expose unrecognized publication request issue values', async () => {
