@@ -190,6 +190,13 @@ export interface ReviewComponents {
 
 export class ReviewOrchestrator {
   private graphCache?: GraphCache;
+  private tokenTelemetryTotals = {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    providersWithUsage: 0,
+    totalProviderResults: 0,
+  };
 
   constructor(private readonly components: ReviewComponents) {
     // Initialize graph cache if enabled
@@ -222,6 +229,13 @@ export class ReviewOrchestrator {
    */
   async executeReview(pr: PRContext): Promise<Review> {
     const { config } = this.components;
+    this.tokenTelemetryTotals = {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      providersWithUsage: 0,
+      totalProviderResults: 0,
+    };
     const start = Date.now();
     let progressTracker: ProgressTracker | undefined;
     let review: Review | null = null;
@@ -961,6 +975,10 @@ export class ReviewOrchestrator {
               restoredResults,
               config.budgetMaxUsd
             );
+            this.logProviderTokenTelemetry(
+              `checkpoint:${plannedBatch.id}`,
+              restoredResults
+            );
             batchResults.push(...restoredResults);
             this.recordLifecycleBatchProviderFailures(
               lifecycleTargetsByBatch[plannedBatch.index] ?? [],
@@ -1052,6 +1070,10 @@ export class ReviewOrchestrator {
                 await this.recordProviderUsage(
                   scopedResults,
                   config.budgetMaxUsd
+                );
+                this.logProviderTokenTelemetry(
+                  `batch:${plannedBatch.id}`,
+                  scopedResults
                 );
 
                 return scopedResults;
@@ -1344,6 +1366,7 @@ export class ReviewOrchestrator {
           staticAnalysis.context
         );
       const costSummary = this.components.costTracker.summary();
+      this.logTotalTokenTelemetry();
       const runDetails: RunDetails = {
         providers: providerResults.map((r) => ({
           name: r.name,
@@ -3139,6 +3162,70 @@ export class ReviewOrchestrator {
         budgetMaxUsd
       );
     }
+  }
+
+  private logProviderTokenTelemetry(
+    scope: string,
+    results: readonly ProviderResult[]
+  ): void {
+    const providers = results
+      .map((result) => ({
+        name: result.name,
+        status: result.status,
+        usage: result.result?.usage,
+      }))
+      .filter((result) => result.usage);
+    this.tokenTelemetryTotals.totalProviderResults += results.length;
+    if (providers.length === 0) {
+      logger.info('ReviewRouter token telemetry', {
+        scope,
+        providersWithUsage: 0,
+        totalProviders: results.length,
+      });
+      return;
+    }
+
+    const totals = providers.reduce(
+      (sum, provider) => ({
+        promptTokens: sum.promptTokens + (provider.usage?.promptTokens ?? 0),
+        completionTokens:
+          sum.completionTokens + (provider.usage?.completionTokens ?? 0),
+        totalTokens: sum.totalTokens + (provider.usage?.totalTokens ?? 0),
+      }),
+      { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    );
+    this.tokenTelemetryTotals.promptTokens += totals.promptTokens;
+    this.tokenTelemetryTotals.completionTokens += totals.completionTokens;
+    this.tokenTelemetryTotals.totalTokens += totals.totalTokens;
+    this.tokenTelemetryTotals.providersWithUsage += providers.length;
+    logger.info('ReviewRouter token telemetry', {
+      scope,
+      ...totals,
+      providers: providers.map((provider) => ({
+        name: provider.name,
+        status: provider.status,
+        promptTokens: provider.usage?.promptTokens,
+        completionTokens: provider.usage?.completionTokens,
+        totalTokens: provider.usage?.totalTokens,
+      })),
+    });
+  }
+
+  private logTotalTokenTelemetry(): void {
+    if (this.tokenTelemetryTotals.providersWithUsage === 0) {
+      logger.info('ReviewRouter token telemetry total', {
+        providersWithUsage: 0,
+        totalProviderResults: this.tokenTelemetryTotals.totalProviderResults,
+      });
+      return;
+    }
+    logger.info('ReviewRouter token telemetry total', {
+      promptTokens: this.tokenTelemetryTotals.promptTokens,
+      completionTokens: this.tokenTelemetryTotals.completionTokens,
+      totalTokens: this.tokenTelemetryTotals.totalTokens,
+      providersWithUsage: this.tokenTelemetryTotals.providersWithUsage,
+      totalProviderResults: this.tokenTelemetryTotals.totalProviderResults,
+    });
   }
 
   private sanitizeFilename(filename: string): string {

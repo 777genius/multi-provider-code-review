@@ -23,12 +23,14 @@ describe('Codex OAuth rotating setup PR preview', () => {
   let tempDir: string;
   let eventPath: string;
   let outputPath: string;
+  let stepSummaryPath: string;
 
   beforeEach(() => {
     process.exitCode = undefined;
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-codex-preview-'));
     eventPath = path.join(tempDir, 'event.json');
     outputPath = path.join(tempDir, 'output');
+    stepSummaryPath = path.join(tempDir, 'step-summary.md');
     mockedRuntime.mockReset();
     mockedRuntime.mockResolvedValue({
       status: 'skipped',
@@ -143,10 +145,14 @@ describe('Codex OAuth rotating setup PR preview', () => {
         outputPath,
         headRef: 'feature/change',
       }),
+      GITHUB_STEP_SUMMARY: stepSummaryPath,
       'INPUT_OPENROUTER-API-KEY': 'provider-secret-not-read-before-admission',
     };
+    const terminalOutcomeReporter = {
+      post: jest.fn(async () => undefined),
+    };
 
-    await runCodexOAuthRotatingAction();
+    await runCodexOAuthRotatingAction({ terminalOutcomeReporter });
 
     expect(mockedRuntime).toHaveBeenCalledTimes(1);
     expect(mockedRuntime.mock.calls[0]![0]).toMatchObject({
@@ -155,6 +161,146 @@ describe('Codex OAuth rotating setup PR preview', () => {
     expect(process.exitCode).toBeUndefined();
     expect(fs.readFileSync(outputPath, 'utf8')).toContain(
       'max_changed_lines_exceeded'
+    );
+    expect(fs.readFileSync(stepSummaryPath, 'utf8')).toContain(
+      'Review skipped'
+    );
+    expect(fs.readFileSync(stepSummaryPath, 'utf8')).toContain('346,978');
+    expect(terminalOutcomeReporter.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        marker:
+          '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:skipped -->',
+        body: expect.stringContaining(
+          'ReviewRouter did not start a model review'
+        ),
+        stepSummary: expect.not.stringContaining('reviewrouter:codex-oauth'),
+      })
+    );
+  });
+
+  it('uses an OIDC request snapshot for terminal outcome reports after runtime cleanup', async () => {
+    mockedRuntime.mockImplementation(async (_input, ports) => {
+      expect(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe(
+        'runner-oidc-request-token'
+      );
+      if (!ports.lifecycle?.clearOidcEnv) {
+        throw new Error('expected lifecycle OIDC cleanup port');
+      }
+      ports.lifecycle.clearOidcEnv();
+      expect(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+      expect(process.env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+      return {
+        status: 'skipped',
+        reason: 'max_changed_lines_exceeded',
+        changedLines: 346_978,
+        maxChangedLines: 250_000,
+        decisionHash: 'a'.repeat(64),
+      };
+    });
+    const fetchImpl = jest.fn(async (url, init) => {
+      const urlText = String(url);
+      if (urlText.startsWith('https://oidc.actions.example/token')) {
+        expect((init?.headers as Record<string, string>).authorization).toBe(
+          'Bearer runner-oidc-request-token'
+        );
+        return jsonResponse({ value: 'runner-oidc-token' });
+      }
+      if (
+        urlText ===
+        'https://api.reviewrouter.site/api/action/v1/session/exchange'
+      ) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          oidcToken: 'runner-oidc-token',
+          audience: 'reviewrouter',
+        });
+        return jsonResponse({
+          protocolVersion: 1,
+          sessionToken: 'action-session-token',
+        });
+      }
+      if (
+        urlText === 'https://api.reviewrouter.site/api/action/v1/comment-token'
+      ) {
+        expect((init?.headers as Record<string, string>).authorization).toBe(
+          'Bearer action-session-token'
+        );
+        return jsonResponse({ protocolVersion: 1 });
+      }
+      return new Response('{}', { status: 404 });
+    }) as unknown as typeof fetch;
+    process.env = {
+      ...actionEnv({
+        eventPath,
+        outputPath,
+        headRef: 'feature/change',
+      }),
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runner-oidc-request-token',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.actions.example/token',
+      GITHUB_STEP_SUMMARY: stepSummaryPath,
+    };
+
+    await runCodexOAuthRotatingAction({ fetchImpl });
+
+    expect(process.exitCode).toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining('https://oidc.actions.example/token'),
+      expect.any(Object)
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.reviewrouter.site/api/action/v1/session/exchange',
+      expect.any(Object)
+    );
+    expect(fs.readFileSync(stepSummaryPath, 'utf8')).toContain(
+      'Review skipped'
+    );
+  });
+
+  it('reports lane-busy partial v2 reviews as a clear terminal outcome', async () => {
+    mockedRuntime.mockResolvedValue({
+      status: 'completed',
+      publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
+      v2Review: {
+        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        blockingFailure: 'required_provider_lane_busy',
+      },
+    });
+    process.env = {
+      ...actionEnv({
+        eventPath,
+        outputPath,
+        headRef: 'feature/change',
+      }),
+      GITHUB_STEP_SUMMARY: stepSummaryPath,
+    };
+    const terminalOutcomeReporter = {
+      post: jest.fn(async () => undefined),
+    };
+
+    await runCodexOAuthRotatingAction({
+      reviewActionV2Activation: {
+        mode: ReviewActionV2RuntimeMode.T0,
+        handoff: {
+          saasSourceCommit: 'a'.repeat(40),
+          expectedPublicActionBaseCommit: 'b'.repeat(40),
+          schemaDigest: 'c'.repeat(64),
+          canonicalizerDigest: 'd'.repeat(64),
+          goldenFixtureDigest: 'e'.repeat(64),
+          generatedFileCount: 8,
+        },
+      },
+      terminalOutcomeReporter,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(fs.readFileSync(stepSummaryPath, 'utf8')).toContain(
+      'Review delayed'
+    );
+    expect(terminalOutcomeReporter.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        marker:
+          '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:lane-busy -->',
+        body: expect.stringContaining('provider lanes were busy'),
+      })
     );
   });
 
@@ -290,4 +436,11 @@ function actionEnv(input: {
 function ensureDirectory(directory: string): string {
   fs.mkdirSync(directory, { recursive: true });
   return directory;
+}
+
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
 }
