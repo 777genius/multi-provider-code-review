@@ -78,6 +78,19 @@ export type CodexRotatingCommentTokenResponse = {
   };
 };
 
+export type ActionSessionExchangeResponse = {
+  protocolVersion?: 1;
+  sessionToken: string;
+  expiresAt?: string;
+};
+
+export type ActionCommentTokenResponse = {
+  protocolVersion: 1;
+  token: string;
+  expiresAt: string;
+  repository: string;
+};
+
 export class CodexOAuthControlPlaneClient {
   private readonly apiUrl: URL;
   private readonly fetchImpl: FetchLike;
@@ -162,6 +175,31 @@ export class CodexOAuthControlPlaneClient {
     );
   }
 
+  actionSession(input: {
+    oidcToken: string;
+    audience: string;
+  }): Promise<ActionSessionExchangeResponse> {
+    return this.postJson(
+      '/api/action/v1/session/exchange',
+      {
+        oidcToken: input.oidcToken,
+        audience: input.audience,
+      },
+      isActionSessionExchangeResponse
+    );
+  }
+
+  actionCommentToken(input: {
+    sessionToken: string;
+  }): Promise<ActionCommentTokenResponse> {
+    return this.postJsonWithAuthorization(
+      '/api/action/v1/comment-token',
+      input.sessionToken,
+      {},
+      isActionCommentTokenResponse
+    );
+  }
+
   private async postJson<T>(
     path: string,
     body: Record<string, unknown>,
@@ -171,6 +209,34 @@ export class CodexOAuthControlPlaneClient {
       method: 'POST',
       headers: {
         accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      redirect: 'error',
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        `codex_oauth_control_plane_error:${response.status}:${safeErrorCode(payload)}`
+      );
+    }
+    if (!guard(payload)) {
+      throw new Error('codex_oauth_control_plane_invalid_response');
+    }
+    return payload;
+  }
+
+  private async postJsonWithAuthorization<T>(
+    path: string,
+    bearerToken: string,
+    body: Record<string, unknown>,
+    guard: (value: unknown) => value is T
+  ): Promise<T> {
+    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path), {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${bearerToken}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -310,6 +376,30 @@ function isCodexRotatingCommentTokenResponse(
     permissions?.contents === 'read' &&
     permissions.pullRequests === 'write' &&
     permissions.issues === 'write'
+  );
+}
+
+function isActionSessionExchangeResponse(
+  value: unknown
+): value is ActionSessionExchangeResponse {
+  const input = asRecord(value);
+  return (
+    input !== undefined &&
+    (input.protocolVersion === undefined || input.protocolVersion === 1) &&
+    isNonEmptyString(input.sessionToken) &&
+    (input.expiresAt === undefined || isNonEmptyString(input.expiresAt))
+  );
+}
+
+function isActionCommentTokenResponse(
+  value: unknown
+): value is ActionCommentTokenResponse {
+  const input = asRecord(value);
+  return (
+    input?.protocolVersion === 1 &&
+    isNonEmptyString(input.token) &&
+    isNonEmptyString(input.expiresAt) &&
+    isNonEmptyString(input.repository)
   );
 }
 

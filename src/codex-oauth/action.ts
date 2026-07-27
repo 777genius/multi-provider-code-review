@@ -26,6 +26,7 @@ import { GitHubActionsOidcTokenProvider } from './github-actions-oidc';
 import {
   CodexOAuthReviewRuntimeMode,
   runCodexOAuthRotatingRuntime,
+  CodexOAuthV2ReviewOutcome,
   type CodexOAuthReviewResult,
   type CodexOAuthV2ReviewRunnerPort,
 } from './runtime';
@@ -46,6 +47,17 @@ const SETUP_PULL_REQUEST_BRANCH = 'reviewrouter/setup';
 const SETUP_PREVIEW_MISSING_AUTH_SKIP_REASON =
   'setup_pr_waiting_for_codex_auth';
 
+export interface CodexOAuthTerminalOutcomeReporterPort {
+  post(input: CodexOAuthTerminalOutcomeReport): Promise<void>;
+}
+
+export type CodexOAuthTerminalOutcomeReport = {
+  readonly marker: string;
+  readonly body: string;
+  readonly stepSummary: string;
+  readonly logLabel: string;
+};
+
 export function shouldEnterCodexOAuthRotatingAction(input: {
   requestedMode: string | undefined;
   env?: NodeJS.ProcessEnv;
@@ -61,6 +73,7 @@ export async function runCodexOAuthRotatingAction(
     fetchImpl?: FetchLike;
     reviewActionV2Activation?: ReviewActionV2Activation;
     v2ReviewRunner?: CodexOAuthV2ReviewRunnerPort;
+    terminalOutcomeReporter?: CodexOAuthTerminalOutcomeReporterPort;
   } = {}
 ): Promise<void> {
   const inputs = readCodexOAuthActionInputs();
@@ -89,6 +102,7 @@ export async function runCodexOAuthRotatingAction(
     apiUrl: inputs.apiUrl,
     fetchImpl: options.fetchImpl,
   });
+  const terminalOutcomeOidcEnv = snapshotCodexOAuthTerminalOutcomeOidcEnv();
   const sharedRuntimePorts = {
     oidc: new GitHubActionsOidcTokenProvider({
       fetchImpl: options.fetchImpl,
@@ -143,6 +157,16 @@ export async function runCodexOAuthRotatingAction(
       clearProcessAuthEnv: () => clearCodexRotatingProcessAuthEnv(),
     },
   };
+  const terminalOutcomeReporter =
+    options.terminalOutcomeReporter ??
+    createDefaultCodexOAuthTerminalOutcomeReporter({
+      inputs,
+      controlPlane,
+      oidc: new GitHubActionsOidcTokenProvider({
+        env: terminalOutcomeOidcEnv,
+        fetchImpl: options.fetchImpl,
+      }),
+    });
   const t0WorkspacePath =
     reviewActionV2Activation.mode === ReviewActionV2RuntimeMode.T0
       ? await createIsolatedCheckoutWorkspace({
@@ -200,6 +224,9 @@ export async function runCodexOAuthRotatingAction(
     core.setOutput('reviewrouter_state', runtime.status);
     if (runtime.status === 'skipped') {
       core.setOutput('reviewrouter_skipped_reason', runtime.reason);
+      const report = buildSkippedTerminalOutcomeReport(inputs, runtime);
+      appendTerminalOutcomeStepSummary(report);
+      await publishTerminalOutcomeReportSafely(terminalOutcomeReporter, report);
       if (runtime.reason === 'max_changed_lines_exceeded') {
         core.info(
           `ReviewRouter skipped PR #${inputs.pullRequestNumber}: ${runtime.changedLines} changed lines exceed the configured maximum of ${runtime.maxChangedLines}.`
@@ -215,6 +242,14 @@ export async function runCodexOAuthRotatingAction(
     }
     if ('v2Review' in runtime) {
       core.setOutput('reviewrouter_v2_outcome', runtime.v2Review.outcome);
+      const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
+      if (report) {
+        appendTerminalOutcomeStepSummary(report);
+        await publishTerminalOutcomeReportSafely(
+          terminalOutcomeReporter,
+          report
+        );
+      }
       if (runtime.v2Review.blockingFailure) {
         core.setFailed(runtime.v2Review.blockingFailure);
       }
@@ -228,6 +263,266 @@ export async function runCodexOAuthRotatingAction(
       fs.rmSync(t0WorkspacePath, { recursive: true, force: true });
     }
   }
+}
+
+function buildSkippedTerminalOutcomeReport(
+  inputs: ReturnType<typeof readCodexOAuthActionInputs>,
+  runtime: Extract<CodexOAuthReviewResultLike, { status: 'skipped' }>
+): CodexOAuthTerminalOutcomeReport {
+  if (runtime.reason === 'max_changed_lines_exceeded') {
+    return terminalOutcomeReport({
+      inputs,
+      kind: 'skipped',
+      title: 'Review skipped ⚠️',
+      summary:
+        'ReviewRouter did not start a model review for this revision because the PR is larger than the configured safety limit.',
+      rows: [
+        ['Changed lines', runtime.changedLines.toLocaleString()],
+        ['Configured limit', runtime.maxChangedLines.toLocaleString()],
+        ['Model calls', '0'],
+      ],
+      note: 'No Codex tokens were consumed for review. Split the PR or raise REVIEW_ROUTER_MAX_CHANGED_LINES if this repository should review larger changes.',
+    });
+  }
+
+  return terminalOutcomeReport({
+    inputs,
+    kind: 'skipped',
+    title: 'Review skipped ⚠️',
+    summary: skippedReasonSummary(runtime.reason),
+    rows: [
+      ['Reason', skippedReasonLabel(runtime.reason)],
+      [
+        'Model calls',
+        runtime.reason === 'stale_queued_secret' ? '0' : 'not started',
+      ],
+    ],
+    note:
+      runtime.reason === 'stale_queued_secret'
+        ? 'This run restored an older queued Codex auth generation. Re-run the newest workflow after reconnecting Codex if needed.'
+        : 'ReviewRouter stopped before publishing review output.',
+  });
+}
+
+type CodexOAuthReviewResultLike = Awaited<
+  ReturnType<typeof runCodexOAuthRotatingRuntime>
+>;
+
+function buildV2TerminalOutcomeReport(
+  inputs: ReturnType<typeof readCodexOAuthActionInputs>,
+  review: {
+    readonly outcome: CodexOAuthV2ReviewOutcome;
+    readonly blockingFailure?: string;
+  }
+): CodexOAuthTerminalOutcomeReport | null {
+  if (review.outcome === CodexOAuthV2ReviewOutcome.Completed) return null;
+  if (review.outcome === CodexOAuthV2ReviewOutcome.Superseded) {
+    return terminalOutcomeReport({
+      inputs,
+      kind: 'stale',
+      title: 'Review superseded ⚠️',
+      summary:
+        'ReviewRouter stopped publishing this result because a newer PR revision exists.',
+      rows: [
+        ['Reviewed commit', shortSha(inputs.headSha)],
+        ['Published findings', '0'],
+      ],
+      note: 'The newer workflow run should review the current head. This stale result was intentionally not used as approval evidence.',
+    });
+  }
+
+  const laneBusy = review.blockingFailure === 'required_provider_lane_busy';
+  return terminalOutcomeReport({
+    inputs,
+    kind: laneBusy ? 'lane-busy' : 'partial',
+    title: laneBusy ? 'Review delayed ⚠️' : 'Review incomplete ⚠️',
+    summary: laneBusy
+      ? 'ReviewRouter could not complete required coverage because all required provider lanes were busy.'
+      : 'ReviewRouter completed only partial coverage for this revision.',
+    rows: [
+      ['Outcome', 'partial'],
+      [
+        'Reason',
+        laneBusy ? 'provider lanes busy' : 'required coverage incomplete',
+      ],
+    ],
+    note: laneBusy
+      ? 'Partial evidence is preserved for retry. This result is not an all-clear.'
+      : 'Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.',
+  });
+}
+
+function terminalOutcomeReport(input: {
+  readonly inputs: ReturnType<typeof readCodexOAuthActionInputs>;
+  readonly kind: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly rows: readonly (readonly [string, string])[];
+  readonly note: string;
+}): CodexOAuthTerminalOutcomeReport {
+  const marker = `<!-- reviewrouter:codex-oauth:terminal:${input.inputs.headSha}:${input.kind} -->`;
+  const table = [
+    '| Field | Value |',
+    '|---|---|',
+    ...input.rows.map(([field, value]) => `| ${field} | ${value} |`),
+  ].join('\n');
+  const visible = [
+    `## ${input.title}`,
+    '',
+    input.summary,
+    '',
+    table,
+    '',
+    `<sub>${input.note}</sub>`,
+  ].join('\n');
+  return {
+    marker,
+    body: `${marker}\n\n${visible}`,
+    stepSummary: visible,
+    logLabel: input.kind,
+  };
+}
+
+function appendTerminalOutcomeStepSummary(
+  report: CodexOAuthTerminalOutcomeReport
+): void {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return;
+  try {
+    fs.appendFileSync(summaryPath, `\n${report.stepSummary}\n`, 'utf8');
+  } catch (error) {
+    core.warning(
+      `ReviewRouter could not append ${report.logLabel} step summary: ${safeTerminalOutcomeError(error)}`
+    );
+  }
+}
+
+async function publishTerminalOutcomeReportSafely(
+  reporter: CodexOAuthTerminalOutcomeReporterPort,
+  report: CodexOAuthTerminalOutcomeReport
+): Promise<void> {
+  try {
+    await reporter.post(report);
+    core.info(`ReviewRouter published ${report.logLabel} PR status comment.`);
+  } catch (error) {
+    core.warning(
+      `ReviewRouter could not publish ${report.logLabel} PR status comment: ${safeTerminalOutcomeError(error)}`
+    );
+  }
+}
+
+function createDefaultCodexOAuthTerminalOutcomeReporter(input: {
+  readonly inputs: ReturnType<typeof readCodexOAuthActionInputs>;
+  readonly controlPlane: CodexOAuthControlPlaneClient;
+  readonly oidc: { requestToken(audience: string): Promise<string> };
+}): CodexOAuthTerminalOutcomeReporterPort {
+  return {
+    async post(report) {
+      const oidcToken = await input.oidc.requestToken(input.inputs.audience);
+      const session = await input.controlPlane.actionSession({
+        oidcToken,
+        audience: input.inputs.audience,
+      });
+      const commentToken = await input.controlPlane.actionCommentToken({
+        sessionToken: session.sessionToken,
+      });
+      await upsertTerminalOutcomePullRequestComment({
+        repository: input.inputs.repository,
+        pullRequestNumber: input.inputs.pullRequestNumber,
+        token: commentToken.token,
+        marker: report.marker,
+        body: report.body,
+      });
+    },
+  };
+}
+
+function snapshotCodexOAuthTerminalOutcomeOidcEnv(
+  env: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const snapshot: NodeJS.ProcessEnv = {};
+  if (env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+    snapshot.ACTIONS_ID_TOKEN_REQUEST_TOKEN =
+      env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  }
+  if (env.ACTIONS_ID_TOKEN_REQUEST_URL) {
+    snapshot.ACTIONS_ID_TOKEN_REQUEST_URL = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  }
+  return snapshot;
+}
+
+async function upsertTerminalOutcomePullRequestComment(input: {
+  readonly repository: string;
+  readonly pullRequestNumber: number;
+  readonly token: string;
+  readonly marker: string;
+  readonly body: string;
+}): Promise<void> {
+  const client = new GitHubClient(input.token);
+  const [repositoryOwner, repositoryName] = input.repository.split('/');
+  const owner = repositoryOwner || client.owner;
+  const repo = repositoryName || client.repo;
+  const comments = await client.octokit.paginate(
+    client.octokit.rest.issues.listComments,
+    {
+      owner,
+      repo,
+      issue_number: input.pullRequestNumber,
+      per_page: 100,
+    }
+  );
+  const existing = comments.find((comment) =>
+    (comment.body ?? '').includes(input.marker)
+  );
+  if (existing) {
+    await client.octokit.rest.issues.updateComment({
+      owner,
+      repo,
+      comment_id: existing.id,
+      body: input.body,
+    });
+    return;
+  }
+  await client.octokit.rest.issues.createComment({
+    owner,
+    repo,
+    issue_number: input.pullRequestNumber,
+    body: input.body,
+  });
+}
+
+function skippedReasonSummary(reason: string): string {
+  switch (reason) {
+    case 'stale_queued_secret':
+      return 'ReviewRouter did not run because this workflow restored an older queued Codex auth generation.';
+    case 'permission_required':
+      return 'ReviewRouter did not run because the GitHub App needs repository permissions for this action.';
+    case 'lease_not_active':
+      return 'ReviewRouter did not run because the review lease was no longer active.';
+    case 'github_put_failed':
+      return 'ReviewRouter refreshed Codex auth but GitHub rejected the encrypted secret writeback.';
+    case 'writeback_idempotency_conflict':
+      return 'ReviewRouter stopped because another run already wrote a different Codex auth generation for this lease.';
+    default:
+      return 'ReviewRouter skipped this review before publishing output.';
+  }
+}
+
+function skippedReasonLabel(reason: string): string {
+  return reason.replace(/_/g, ' ');
+}
+
+function shortSha(sha: string): string {
+  return sha.slice(0, 12);
+}
+
+function safeTerminalOutcomeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'unknown_error';
+  return message
+    .replace(/ghs_[A-Za-z0-9_]+/g, '[redacted-github-token]')
+    .replace(/gh[pousr]_[A-Za-z0-9_]+/g, '[redacted-github-token]')
+    .replace(/github_pat_[A-Za-z0-9_]+/g, '[redacted-github-token]')
+    .slice(0, 160);
 }
 
 function readCodexOAuthActionInputs() {
@@ -331,6 +626,7 @@ async function runReviewComputation(input: {
       );
       core.setOutput('cost_usd', review.metrics.totalCost.toFixed(4));
       core.setOutput('total_cost', review.metrics.totalCost.toFixed(4));
+      core.setOutput('total_tokens', review.metrics.totalTokens);
       if (review.aiAnalysis) {
         core.setOutput('ai_likelihood', review.aiAnalysis.averageLikelihood);
       }

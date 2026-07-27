@@ -43657,6 +43657,13 @@ var ReviewOrchestrator = class {
     }
   }
   graphCache;
+  tokenTelemetryTotals = {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    providersWithUsage: 0,
+    totalProviderResults: 0
+  };
   async execute(prNumber) {
     const pr2 = await this.components.prLoader.load(prNumber);
     const skipReason = this.shouldSkip(pr2);
@@ -43676,6 +43683,13 @@ var ReviewOrchestrator = class {
    */
   async executeReview(pr2) {
     const { config } = this.components;
+    this.tokenTelemetryTotals = {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      providersWithUsage: 0,
+      totalProviderResults: 0
+    };
     const start = Date.now();
     let progressTracker;
     let review = null;
@@ -44266,6 +44280,10 @@ var ReviewOrchestrator = class {
               restoredResults,
               config.budgetMaxUsd
             );
+            this.logProviderTokenTelemetry(
+              `checkpoint:${plannedBatch.id}`,
+              restoredResults
+            );
             batchResults.push(...restoredResults);
             this.recordLifecycleBatchProviderFailures(
               lifecycleTargetsByBatch[plannedBatch.index] ?? [],
@@ -44342,6 +44360,10 @@ var ReviewOrchestrator = class {
                 await this.recordProviderUsage(
                   scopedResults,
                   config.budgetMaxUsd
+                );
+                this.logProviderTokenTelemetry(
+                  `batch:${plannedBatch.id}`,
+                  scopedResults
                 );
                 return scopedResults;
               } catch (error2) {
@@ -44578,6 +44600,7 @@ var ReviewOrchestrator = class {
         staticAnalysis.context
       );
       const costSummary = this.components.costTracker.summary();
+      this.logTotalTokenTelemetry();
       const runDetails = {
         providers: providerResults.map((r2) => ({
           name: r2.name,
@@ -45908,6 +45931,61 @@ ${markdown}`;
         budgetMaxUsd
       );
     }
+  }
+  logProviderTokenTelemetry(scope, results) {
+    const providers = results.map((result) => ({
+      name: result.name,
+      status: result.status,
+      usage: result.result?.usage
+    })).filter((result) => result.usage);
+    this.tokenTelemetryTotals.totalProviderResults += results.length;
+    if (providers.length === 0) {
+      logger.info("ReviewRouter token telemetry", {
+        scope,
+        providersWithUsage: 0,
+        totalProviders: results.length
+      });
+      return;
+    }
+    const totals = providers.reduce(
+      (sum, provider) => ({
+        promptTokens: sum.promptTokens + (provider.usage?.promptTokens ?? 0),
+        completionTokens: sum.completionTokens + (provider.usage?.completionTokens ?? 0),
+        totalTokens: sum.totalTokens + (provider.usage?.totalTokens ?? 0)
+      }),
+      { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    );
+    this.tokenTelemetryTotals.promptTokens += totals.promptTokens;
+    this.tokenTelemetryTotals.completionTokens += totals.completionTokens;
+    this.tokenTelemetryTotals.totalTokens += totals.totalTokens;
+    this.tokenTelemetryTotals.providersWithUsage += providers.length;
+    logger.info("ReviewRouter token telemetry", {
+      scope,
+      ...totals,
+      providers: providers.map((provider) => ({
+        name: provider.name,
+        status: provider.status,
+        promptTokens: provider.usage?.promptTokens,
+        completionTokens: provider.usage?.completionTokens,
+        totalTokens: provider.usage?.totalTokens
+      }))
+    });
+  }
+  logTotalTokenTelemetry() {
+    if (this.tokenTelemetryTotals.providersWithUsage === 0) {
+      logger.info("ReviewRouter token telemetry total", {
+        providersWithUsage: 0,
+        totalProviderResults: this.tokenTelemetryTotals.totalProviderResults
+      });
+      return;
+    }
+    logger.info("ReviewRouter token telemetry total", {
+      promptTokens: this.tokenTelemetryTotals.promptTokens,
+      completionTokens: this.tokenTelemetryTotals.completionTokens,
+      totalTokens: this.tokenTelemetryTotals.totalTokens,
+      providersWithUsage: this.tokenTelemetryTotals.providersWithUsage,
+      totalProviderResults: this.tokenTelemetryTotals.totalProviderResults
+    });
   }
   sanitizeFilename(filename) {
     if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
@@ -48649,11 +48727,51 @@ var CodexOAuthControlPlaneClient = class {
       isCodexRotatingCommentTokenResponse
     );
   }
+  actionSession(input) {
+    return this.postJson(
+      "/api/action/v1/session/exchange",
+      {
+        oidcToken: input.oidcToken,
+        audience: input.audience
+      },
+      isActionSessionExchangeResponse
+    );
+  }
+  actionCommentToken(input) {
+    return this.postJsonWithAuthorization(
+      "/api/action/v1/comment-token",
+      input.sessionToken,
+      {},
+      isActionCommentTokenResponse
+    );
+  }
   async postJson(path25, body, guard) {
     const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path25), {
       method: "POST",
       headers: {
         accept: "application/json",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(body),
+      redirect: "error"
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        `codex_oauth_control_plane_error:${response.status}:${safeErrorCode(payload)}`
+      );
+    }
+    if (!guard(payload)) {
+      throw new Error("codex_oauth_control_plane_invalid_response");
+    }
+    return payload;
+  }
+  async postJsonWithAuthorization(path25, bearerToken, body, guard) {
+    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path25), {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${bearerToken}`,
         "content-type": "application/json"
       },
       body: JSON.stringify(body),
@@ -48715,6 +48833,14 @@ function isCodexRotatingCommentTokenResponse(value) {
   const input = asRecord2(value);
   const permissions = asRecord2(input?.permissions);
   return input?.protocolVersion === 1 && isNonEmptyString(input.token) && isNonEmptyString(input.expiresAt) && isNonEmptyString(input.repository) && permissions?.contents === "read" && permissions.pullRequests === "write" && permissions.issues === "write";
+}
+function isActionSessionExchangeResponse(value) {
+  const input = asRecord2(value);
+  return input !== void 0 && (input.protocolVersion === void 0 || input.protocolVersion === 1) && isNonEmptyString(input.sessionToken) && (input.expiresAt === void 0 || isNonEmptyString(input.expiresAt));
+}
+function isActionCommentTokenResponse(value) {
+  const input = asRecord2(value);
+  return input?.protocolVersion === 1 && isNonEmptyString(input.token) && isNonEmptyString(input.expiresAt) && isNonEmptyString(input.repository);
 }
 function parseTrustedApiUrl(apiUrl) {
   let parsed;
@@ -80301,6 +80427,7 @@ async function runCodexOAuthRotatingAction(options = {}) {
     apiUrl: inputs.apiUrl,
     fetchImpl: options.fetchImpl
   });
+  const terminalOutcomeOidcEnv = snapshotCodexOAuthTerminalOutcomeOidcEnv();
   const sharedRuntimePorts = {
     oidc: new GitHubActionsOidcTokenProvider({
       fetchImpl: options.fetchImpl
@@ -80342,6 +80469,14 @@ async function runCodexOAuthRotatingAction(options = {}) {
       clearProcessAuthEnv: () => clearCodexRotatingProcessAuthEnv()
     }
   };
+  const terminalOutcomeReporter = options.terminalOutcomeReporter ?? createDefaultCodexOAuthTerminalOutcomeReporter({
+    inputs,
+    controlPlane,
+    oidc: new GitHubActionsOidcTokenProvider({
+      env: terminalOutcomeOidcEnv,
+      fetchImpl: options.fetchImpl
+    })
+  });
   const t0WorkspacePath = reviewActionV2Activation.mode === "t0" /* T0 */ ? await createIsolatedCheckoutWorkspace({
     runnerTempPath: process.env.RUNNER_TEMP,
     githubWorkspacePath: inputs.workspacePath
@@ -80386,6 +80521,9 @@ async function runCodexOAuthRotatingAction(options = {}) {
     setOutput("reviewrouter_state", runtime.status);
     if (runtime.status === "skipped") {
       setOutput("reviewrouter_skipped_reason", runtime.reason);
+      const report = buildSkippedTerminalOutcomeReport(inputs, runtime);
+      appendTerminalOutcomeStepSummary(report);
+      await publishTerminalOutcomeReportSafely(terminalOutcomeReporter, report);
       if (runtime.reason === "max_changed_lines_exceeded") {
         info(
           `ReviewRouter skipped PR #${inputs.pullRequestNumber}: ${runtime.changedLines} changed lines exceed the configured maximum of ${runtime.maxChangedLines}.`
@@ -80398,6 +80536,14 @@ async function runCodexOAuthRotatingAction(options = {}) {
     }
     if ("v2Review" in runtime) {
       setOutput("reviewrouter_v2_outcome", runtime.v2Review.outcome);
+      const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
+      if (report) {
+        appendTerminalOutcomeStepSummary(report);
+        await publishTerminalOutcomeReportSafely(
+          terminalOutcomeReporter,
+          report
+        );
+      }
       if (runtime.v2Review.blockingFailure) {
         setFailed(runtime.v2Review.blockingFailure);
       }
@@ -80411,6 +80557,205 @@ async function runCodexOAuthRotatingAction(options = {}) {
       fs20.rmSync(t0WorkspacePath, { recursive: true, force: true });
     }
   }
+}
+function buildSkippedTerminalOutcomeReport(inputs, runtime) {
+  if (runtime.reason === "max_changed_lines_exceeded") {
+    return terminalOutcomeReport({
+      inputs,
+      kind: "skipped",
+      title: "Review skipped \u26A0\uFE0F",
+      summary: "ReviewRouter did not start a model review for this revision because the PR is larger than the configured safety limit.",
+      rows: [
+        ["Changed lines", runtime.changedLines.toLocaleString()],
+        ["Configured limit", runtime.maxChangedLines.toLocaleString()],
+        ["Model calls", "0"]
+      ],
+      note: "No Codex tokens were consumed for review. Split the PR or raise REVIEW_ROUTER_MAX_CHANGED_LINES if this repository should review larger changes."
+    });
+  }
+  return terminalOutcomeReport({
+    inputs,
+    kind: "skipped",
+    title: "Review skipped \u26A0\uFE0F",
+    summary: skippedReasonSummary(runtime.reason),
+    rows: [
+      ["Reason", skippedReasonLabel(runtime.reason)],
+      [
+        "Model calls",
+        runtime.reason === "stale_queued_secret" ? "0" : "not started"
+      ]
+    ],
+    note: runtime.reason === "stale_queued_secret" ? "This run restored an older queued Codex auth generation. Re-run the newest workflow after reconnecting Codex if needed." : "ReviewRouter stopped before publishing review output."
+  });
+}
+function buildV2TerminalOutcomeReport(inputs, review) {
+  if (review.outcome === "completed" /* Completed */) return null;
+  if (review.outcome === "superseded" /* Superseded */) {
+    return terminalOutcomeReport({
+      inputs,
+      kind: "stale",
+      title: "Review superseded \u26A0\uFE0F",
+      summary: "ReviewRouter stopped publishing this result because a newer PR revision exists.",
+      rows: [
+        ["Reviewed commit", shortSha(inputs.headSha)],
+        ["Published findings", "0"]
+      ],
+      note: "The newer workflow run should review the current head. This stale result was intentionally not used as approval evidence."
+    });
+  }
+  const laneBusy = review.blockingFailure === "required_provider_lane_busy";
+  return terminalOutcomeReport({
+    inputs,
+    kind: laneBusy ? "lane-busy" : "partial",
+    title: laneBusy ? "Review delayed \u26A0\uFE0F" : "Review incomplete \u26A0\uFE0F",
+    summary: laneBusy ? "ReviewRouter could not complete required coverage because all required provider lanes were busy." : "ReviewRouter completed only partial coverage for this revision.",
+    rows: [
+      ["Outcome", "partial"],
+      [
+        "Reason",
+        laneBusy ? "provider lanes busy" : "required coverage incomplete"
+      ]
+    ],
+    note: laneBusy ? "Partial evidence is preserved for retry. This result is not an all-clear." : "Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval."
+  });
+}
+function terminalOutcomeReport(input) {
+  const marker = `<!-- reviewrouter:codex-oauth:terminal:${input.inputs.headSha}:${input.kind} -->`;
+  const table = [
+    "| Field | Value |",
+    "|---|---|",
+    ...input.rows.map(([field, value]) => `| ${field} | ${value} |`)
+  ].join("\n");
+  const visible = [
+    `## ${input.title}`,
+    "",
+    input.summary,
+    "",
+    table,
+    "",
+    `<sub>${input.note}</sub>`
+  ].join("\n");
+  return {
+    marker,
+    body: `${marker}
+
+${visible}`,
+    stepSummary: visible,
+    logLabel: input.kind
+  };
+}
+function appendTerminalOutcomeStepSummary(report) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return;
+  try {
+    fs20.appendFileSync(summaryPath, `
+${report.stepSummary}
+`, "utf8");
+  } catch (error2) {
+    warning(
+      `ReviewRouter could not append ${report.logLabel} step summary: ${safeTerminalOutcomeError(error2)}`
+    );
+  }
+}
+async function publishTerminalOutcomeReportSafely(reporter, report) {
+  try {
+    await reporter.post(report);
+    info(`ReviewRouter published ${report.logLabel} PR status comment.`);
+  } catch (error2) {
+    warning(
+      `ReviewRouter could not publish ${report.logLabel} PR status comment: ${safeTerminalOutcomeError(error2)}`
+    );
+  }
+}
+function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
+  return {
+    async post(report) {
+      const oidcToken = await input.oidc.requestToken(input.inputs.audience);
+      const session = await input.controlPlane.actionSession({
+        oidcToken,
+        audience: input.inputs.audience
+      });
+      const commentToken = await input.controlPlane.actionCommentToken({
+        sessionToken: session.sessionToken
+      });
+      await upsertTerminalOutcomePullRequestComment({
+        repository: input.inputs.repository,
+        pullRequestNumber: input.inputs.pullRequestNumber,
+        token: commentToken.token,
+        marker: report.marker,
+        body: report.body
+      });
+    }
+  };
+}
+function snapshotCodexOAuthTerminalOutcomeOidcEnv(env = process.env) {
+  const snapshot = {};
+  if (env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+    snapshot.ACTIONS_ID_TOKEN_REQUEST_TOKEN = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  }
+  if (env.ACTIONS_ID_TOKEN_REQUEST_URL) {
+    snapshot.ACTIONS_ID_TOKEN_REQUEST_URL = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  }
+  return snapshot;
+}
+async function upsertTerminalOutcomePullRequestComment(input) {
+  const client = new GitHubClient(input.token);
+  const [repositoryOwner, repositoryName] = input.repository.split("/");
+  const owner = repositoryOwner || client.owner;
+  const repo = repositoryName || client.repo;
+  const comments = await client.octokit.paginate(
+    client.octokit.rest.issues.listComments,
+    {
+      owner,
+      repo,
+      issue_number: input.pullRequestNumber,
+      per_page: 100
+    }
+  );
+  const existing = comments.find(
+    (comment) => (comment.body ?? "").includes(input.marker)
+  );
+  if (existing) {
+    await client.octokit.rest.issues.updateComment({
+      owner,
+      repo,
+      comment_id: existing.id,
+      body: input.body
+    });
+    return;
+  }
+  await client.octokit.rest.issues.createComment({
+    owner,
+    repo,
+    issue_number: input.pullRequestNumber,
+    body: input.body
+  });
+}
+function skippedReasonSummary(reason) {
+  switch (reason) {
+    case "stale_queued_secret":
+      return "ReviewRouter did not run because this workflow restored an older queued Codex auth generation.";
+    case "permission_required":
+      return "ReviewRouter did not run because the GitHub App needs repository permissions for this action.";
+    case "lease_not_active":
+      return "ReviewRouter did not run because the review lease was no longer active.";
+    case "github_put_failed":
+      return "ReviewRouter refreshed Codex auth but GitHub rejected the encrypted secret writeback.";
+    case "writeback_idempotency_conflict":
+      return "ReviewRouter stopped because another run already wrote a different Codex auth generation for this lease.";
+    default:
+      return "ReviewRouter skipped this review before publishing output.";
+  }
+}
+function skippedReasonLabel(reason) {
+  return reason.replace(/_/g, " ");
+}
+function shortSha(sha) {
+  return sha.slice(0, 12);
+}
+function safeTerminalOutcomeError(error2) {
+  const message = error2 instanceof Error ? error2.message : "unknown_error";
+  return message.replace(/ghs_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/gh[pousr]_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/github_pat_[A-Za-z0-9_]+/g, "[redacted-github-token]").slice(0, 160);
 }
 function readCodexOAuthActionInputs() {
   const apiUrl = resolveCodexOAuthActionApiUrl();
@@ -80482,6 +80827,7 @@ async function runReviewComputation(input) {
       );
       setOutput("cost_usd", review.metrics.totalCost.toFixed(4));
       setOutput("total_cost", review.metrics.totalCost.toFixed(4));
+      setOutput("total_tokens", review.metrics.totalTokens);
       if (review.aiAnalysis) {
         setOutput("ai_likelihood", review.aiAnalysis.averageLikelihood);
       }
