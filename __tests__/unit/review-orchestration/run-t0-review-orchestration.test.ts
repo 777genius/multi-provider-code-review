@@ -444,6 +444,11 @@ describe('RunT0ReviewOrchestration', () => {
       executionProfile: 'context_gateway_v1',
       maxAttempts: 2,
     });
+    fixture.controlPlane.commitEvidence.mockResolvedValue({
+      observationId: 'observation-current-only',
+      historicalOnly: true,
+      eligibilityPolicyVersion: 't0-v1',
+    });
     const fallback = {
       ...observationPayload,
       qualityFlags: [
@@ -484,6 +489,17 @@ describe('RunT0ReviewOrchestration', () => {
     );
     expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
       2
+    );
+    expect(fixture.controlPlane.attachObservation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: expect.objectContaining({
+          observationId: 'observation-current-only',
+          qualityFlags: [
+            'context_inspection_incomplete',
+            'cross_revision_reuse_disabled',
+          ],
+        }),
+      })
     );
   });
 

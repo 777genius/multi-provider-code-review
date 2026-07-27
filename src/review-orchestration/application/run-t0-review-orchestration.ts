@@ -714,12 +714,9 @@ export class RunT0ReviewOrchestration {
           observation: observationPayload,
         });
         await this.assertRevisionCurrent(input.revision);
-        if (committed.historicalOnly) {
-          await this.assertRevisionCurrent(input.revision);
-          throw new Error(
-            'review_orchestration_historical_evidence_for_current_revision'
-          );
-        }
+        // historicalOnly only disables future cross-revision reuse. The current
+        // revision can still safely publish the fresh observation after the
+        // revision guard above.
         const observation: AcceptedReviewObservation = {
           ...observationPayload,
           observationId: committed.observationId,

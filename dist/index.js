@@ -73716,12 +73716,6 @@ var RunT0ReviewOrchestration = class {
           observation: observationPayload
         });
         await this.assertRevisionCurrent(input.revision);
-        if (committed.historicalOnly) {
-          await this.assertRevisionCurrent(input.revision);
-          throw new Error(
-            "review_orchestration_historical_evidence_for_current_revision"
-          );
-        }
         const observation = {
           ...observationPayload,
           observationId: committed.observationId,
