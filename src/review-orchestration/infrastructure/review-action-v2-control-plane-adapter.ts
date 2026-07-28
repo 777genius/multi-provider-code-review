@@ -868,6 +868,9 @@ const SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = new Set([
   'mutation_epoch_mismatch',
   'revision_not_current',
   'lifecycle_not_current',
+  'lifecycle_status_not_current',
+  'lifecycle_hash_mismatch',
+  'lifecycle_watermark_mismatch',
   'safety_denied',
   'safety_decision_mismatch',
 ]);

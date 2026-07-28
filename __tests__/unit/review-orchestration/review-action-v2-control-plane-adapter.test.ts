@@ -1006,6 +1006,44 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     );
   });
 
+  it('exposes granular publication lifecycle mismatch reasons for operator diagnostics', async () => {
+    const execute = jest.fn().mockRejectedValue(
+      new ReviewActionV2ClientError(
+        ReviewActionV2ClientFailureCode.ProtocolError,
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        {
+          httpStatus: 412,
+          protocolErrorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
+          issues: ['lifecycle_hash_mismatch'],
+        }
+      )
+    );
+
+    await expect(
+      createAdapter(execute).requestPublication({
+        authorization,
+        idempotencyKey: 'idem:publication:lifecycle-hash-stale',
+        publicationPermit: 'publication-permit',
+        projection: {
+          artifactId: 'artifact-1',
+          artifactHash: hash('artifact'),
+          projectionEnvelopeVersion: 1,
+          projectionEnvelopeCanonicalJson: '{"findings":[]}',
+          projectionHash: hash('projection'),
+          lifecycleStateHash: hash('lifecycle'),
+          commandLedgerWatermark: '0',
+          operationsCanonicalJson: '[]',
+          findingCount: 0,
+          publicationOperationCount: 0,
+          publicationChunkCount: 0,
+          coverageComplete: true,
+        },
+      })
+    ).rejects.toThrow(
+      'review_action_v2:review_publication_request:stale_precondition:lifecycle_hash_mismatch'
+    );
+  });
+
   it('adopts same-execution evidence with exact source and response identities', async () => {
     const observation = acceptedObservation();
     const source = {
