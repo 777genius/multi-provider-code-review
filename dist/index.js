@@ -73590,6 +73590,25 @@ var RunT0ReviewOrchestration = class {
           failureCode: "publication_request_conflict"
         };
       }
+      if (publication.status === "stale" /* Stale */) {
+        const publicationRequestedState = evolveReviewOrchestration(state, {
+          type: "publication_requested" /* PublicationRequested */,
+          partial
+        });
+        const staleState = evolveReviewOrchestration(
+          publicationRequestedState,
+          {
+            type: "publication_completed" /* PublicationCompleted */,
+            partial
+          }
+        );
+        return {
+          status: "publication_stale" /* PublicationStale */,
+          state: staleState,
+          executionId: execution.executionId,
+          failureCode: `publication_request_${publication.reason}`
+        };
+      }
       state = evolveReviewOrchestration(state, {
         type: "publication_requested" /* PublicationRequested */,
         partial
@@ -79352,22 +79371,25 @@ var ReviewActionV2ControlPlaneAdapter = class {
     };
   }
   async requestPublication(input) {
-    const result = await (async () => {
-      try {
-        return await this.client.execute(
-          "review_publication_request" /* ReviewPublicationRequest */,
-          {
-            authorizationToken: input.authorization.authorizationToken,
-            idempotencyKey: input.idempotencyKey,
-            publicationPermit: input.publicationPermit,
-            projectionHash: input.projection.projectionHash,
-            operationsCanonicalJson: input.projection.operationsCanonicalJson
-          }
-        );
-      } catch (error2) {
-        throw controlPlaneFailure(error2);
+    let result;
+    try {
+      result = await this.client.execute(
+        "review_publication_request" /* ReviewPublicationRequest */,
+        {
+          authorizationToken: input.authorization.authorizationToken,
+          idempotencyKey: input.idempotencyKey,
+          publicationPermit: input.publicationPermit,
+          projectionHash: input.projection.projectionHash,
+          operationsCanonicalJson: input.projection.operationsCanonicalJson
+        }
+      );
+    } catch (error2) {
+      const stale = publicationRequestStaleOutcome(error2);
+      if (stale) {
+        return stale;
       }
-    })();
+      throw controlPlaneFailure(error2);
+    }
     if (result.status === "conflict" /* Conflict */) {
       return {
         status: "conflict" /* Conflict */
@@ -79442,6 +79464,28 @@ var SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = /* @__PURE__ */ new Set([
   "safety_denied",
   "safety_decision_mismatch"
 ]);
+var SAFE_PUBLICATION_REQUEST_STALE_ISSUES = /* @__PURE__ */ new Set([
+  "lifecycle_not_current",
+  "lifecycle_status_not_current",
+  "lifecycle_hash_mismatch",
+  "lifecycle_watermark_mismatch",
+  "permit_not_current",
+  "revision_not_current"
+]);
+function publicationRequestStaleOutcome(error2) {
+  if (!(error2 instanceof ReviewActionV2ClientError)) return null;
+  if (error2.operationId !== "review_publication_request" /* ReviewPublicationRequest */ || error2.protocolErrorCode !== "stale_precondition" /* StalePrecondition */) {
+    return null;
+  }
+  const reason = error2.issues?.find(
+    (issue) => SAFE_PUBLICATION_REQUEST_STALE_ISSUES.has(issue)
+  );
+  if (!reason) return null;
+  return {
+    status: "stale" /* Stale */,
+    reason
+  };
+}
 function controlPlaneFailure(error2) {
   if (!(error2 instanceof ReviewActionV2ClientError)) {
     return error2 instanceof Error ? error2 : new Error("review_action_v2:unknown_failure");
@@ -80179,7 +80223,7 @@ function mapOrchestrationResultToCodexOutcome(result) {
       } : { outcome: "partial_completed" /* PartialCompleted */ };
     case "publication_not_applied" /* PublicationNotApplied */:
     case "publication_stale" /* PublicationStale */:
-      return { outcome: "partial_completed" /* PartialCompleted */ };
+      return { outcome: "completed" /* Completed */ };
     case "superseded" /* Superseded */:
       return { outcome: "superseded" /* Superseded */ };
     default:

@@ -396,6 +396,25 @@ export class RunT0ReviewOrchestration {
           failureCode: 'publication_request_conflict',
         };
       }
+      if (publication.status === ReviewPublicationRequestOutcomeStatus.Stale) {
+        const publicationRequestedState = evolveReviewOrchestration(state, {
+          type: ReviewOrchestrationEventType.PublicationRequested,
+          partial,
+        });
+        const staleState = evolveReviewOrchestration(
+          publicationRequestedState,
+          {
+            type: ReviewOrchestrationEventType.PublicationCompleted,
+            partial,
+          }
+        );
+        return {
+          status: ReviewOrchestrationResultStatus.PublicationStale,
+          state: staleState,
+          executionId: execution.executionId,
+          failureCode: `publication_request_${publication.reason}`,
+        };
+      }
       state = evolveReviewOrchestration(state, {
         type: ReviewOrchestrationEventType.PublicationRequested,
         partial,

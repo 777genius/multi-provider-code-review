@@ -323,6 +323,7 @@ export enum ReviewInvocationLeaseAcquireOutcomeStatus {
 export enum ReviewPublicationRequestOutcomeStatus {
   Requested = 'requested',
   Conflict = 'conflict',
+  Stale = 'stale',
 }
 
 export type ReviewInvocationLeaseAcquireOutcome =
@@ -469,6 +470,10 @@ export interface ReviewActionV2ControlPlanePort {
       }
     | {
         readonly status: ReviewPublicationRequestOutcomeStatus.Conflict;
+      }
+    | {
+        readonly status: ReviewPublicationRequestOutcomeStatus.Stale;
+        readonly reason: string;
       }
   >;
   readPublicationStatus(input: {
