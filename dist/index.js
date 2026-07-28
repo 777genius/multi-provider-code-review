@@ -80558,6 +80558,10 @@ async function runCodexOAuthRotatingAction(options = {}) {
         await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
           reason: "review_completed"
         });
+        await publishTerminalOutcomeCommitStatusSafely(
+          terminalOutcomeReporter,
+          buildCompletedV2TerminalOutcomeCommitStatus(inputs)
+        );
       }
       const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
       if (report) {
@@ -80683,6 +80687,15 @@ ${visible}`,
     }
   };
 }
+function buildCompletedV2TerminalOutcomeCommitStatus(inputs) {
+  const targetUrl = githubRunUrl(inputs);
+  return {
+    state: "success",
+    description: "Review completed.",
+    context: "ReviewRouter",
+    ...targetUrl ? { targetUrl } : {}
+  };
+}
 function appendTerminalOutcomeStepSummary(report) {
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryPath) return;
@@ -80706,6 +80719,17 @@ async function publishTerminalOutcomeReportSafely(reporter, report) {
     );
   }
 }
+async function publishTerminalOutcomeCommitStatusSafely(reporter, status) {
+  if (!reporter.status) return;
+  try {
+    await reporter.status(status);
+    info(`ReviewRouter published ${status.context} commit status.`);
+  } catch (error2) {
+    warning(
+      `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error2)}`
+    );
+  }
+}
 async function clearTerminalOutcomeReportsSafely(reporter, request) {
   if (!reporter.clear) return;
   try {
@@ -80718,43 +80742,49 @@ async function clearTerminalOutcomeReportsSafely(reporter, request) {
   }
 }
 function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
+  const requestActionCommentToken = async () => {
+    const oidcToken = await input.oidc.requestToken(input.inputs.audience);
+    const session = await input.controlPlane.actionSession({
+      oidcToken,
+      audience: input.inputs.audience
+    });
+    const commentToken = await input.controlPlane.actionCommentToken({
+      sessionToken: session.sessionToken
+    });
+    return commentToken.token;
+  };
   return {
     async post(report) {
-      const oidcToken = await input.oidc.requestToken(input.inputs.audience);
-      const session = await input.controlPlane.actionSession({
-        oidcToken,
-        audience: input.inputs.audience
-      });
-      const commentToken = await input.controlPlane.actionCommentToken({
-        sessionToken: session.sessionToken
-      });
+      const token = await requestActionCommentToken();
       await upsertTerminalOutcomePullRequestComment({
         repository: input.inputs.repository,
         pullRequestNumber: input.inputs.pullRequestNumber,
-        token: commentToken.token,
+        token,
         marker: report.marker,
         body: report.body
       });
       await createTerminalOutcomeCommitStatusSafely({
         repository: input.inputs.repository,
         headSha: input.inputs.headSha,
-        token: commentToken.token,
+        token,
         status: report.commitStatus
       });
     },
     async clear() {
-      const oidcToken = await input.oidc.requestToken(input.inputs.audience);
-      const session = await input.controlPlane.actionSession({
-        oidcToken,
-        audience: input.inputs.audience
-      });
-      const commentToken = await input.controlPlane.actionCommentToken({
-        sessionToken: session.sessionToken
-      });
+      const token = await requestActionCommentToken();
       await deleteTerminalOutcomePullRequestComments({
         repository: input.inputs.repository,
         pullRequestNumber: input.inputs.pullRequestNumber,
-        token: commentToken.token
+        token
+      });
+    },
+    async status(status) {
+      const token = await requestActionCommentToken();
+      await createTerminalOutcomeCommitStatusSafely({
+        repository: input.inputs.repository,
+        headSha: input.inputs.headSha,
+        token,
+        status
       });
     }
   };

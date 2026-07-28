@@ -50,10 +50,18 @@ const SETUP_PREVIEW_MISSING_AUTH_SKIP_REASON =
 export interface CodexOAuthTerminalOutcomeReporterPort {
   post(input: CodexOAuthTerminalOutcomeReport): Promise<void>;
   clear?(input: CodexOAuthTerminalOutcomeClearRequest): Promise<void>;
+  status?(input: CodexOAuthTerminalOutcomeCommitStatus): Promise<void>;
 }
 
 export type CodexOAuthTerminalOutcomeClearRequest = {
   readonly reason: 'review_completed';
+};
+
+export type CodexOAuthTerminalOutcomeCommitStatus = {
+  readonly state: 'error' | 'failure' | 'pending' | 'success';
+  readonly description: string;
+  readonly context: 'ReviewRouter';
+  readonly targetUrl?: string;
 };
 
 export type CodexOAuthTerminalOutcomeReport = {
@@ -61,12 +69,7 @@ export type CodexOAuthTerminalOutcomeReport = {
   readonly body: string;
   readonly stepSummary: string;
   readonly logLabel: string;
-  readonly commitStatus: {
-    readonly state: 'error' | 'failure' | 'pending' | 'success';
-    readonly description: string;
-    readonly context: 'ReviewRouter';
-    readonly targetUrl?: string;
-  };
+  readonly commitStatus: CodexOAuthTerminalOutcomeCommitStatus;
 };
 
 export function shouldEnterCodexOAuthRotatingAction(input: {
@@ -257,6 +260,10 @@ export async function runCodexOAuthRotatingAction(
         await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
           reason: 'review_completed',
         });
+        await publishTerminalOutcomeCommitStatusSafely(
+          terminalOutcomeReporter,
+          buildCompletedV2TerminalOutcomeCommitStatus(inputs)
+        );
       }
       const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
       if (report) {
@@ -423,6 +430,18 @@ function terminalOutcomeReport(input: {
   };
 }
 
+function buildCompletedV2TerminalOutcomeCommitStatus(
+  inputs: ReturnType<typeof readCodexOAuthActionInputs>
+): CodexOAuthTerminalOutcomeCommitStatus {
+  const targetUrl = githubRunUrl(inputs);
+  return {
+    state: 'success',
+    description: 'Review completed.',
+    context: 'ReviewRouter',
+    ...(targetUrl ? { targetUrl } : {}),
+  };
+}
+
 function appendTerminalOutcomeStepSummary(
   report: CodexOAuthTerminalOutcomeReport
 ): void {
@@ -451,6 +470,21 @@ async function publishTerminalOutcomeReportSafely(
   }
 }
 
+async function publishTerminalOutcomeCommitStatusSafely(
+  reporter: CodexOAuthTerminalOutcomeReporterPort,
+  status: CodexOAuthTerminalOutcomeCommitStatus
+): Promise<void> {
+  if (!reporter.status) return;
+  try {
+    await reporter.status(status);
+    core.info(`ReviewRouter published ${status.context} commit status.`);
+  } catch (error) {
+    core.warning(
+      `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error)}`
+    );
+  }
+}
+
 async function clearTerminalOutcomeReportsSafely(
   reporter: CodexOAuthTerminalOutcomeReporterPort,
   request: CodexOAuthTerminalOutcomeClearRequest
@@ -471,43 +505,50 @@ function createDefaultCodexOAuthTerminalOutcomeReporter(input: {
   readonly controlPlane: CodexOAuthControlPlaneClient;
   readonly oidc: { requestToken(audience: string): Promise<string> };
 }): CodexOAuthTerminalOutcomeReporterPort {
+  const requestActionCommentToken = async (): Promise<string> => {
+    const oidcToken = await input.oidc.requestToken(input.inputs.audience);
+    const session = await input.controlPlane.actionSession({
+      oidcToken,
+      audience: input.inputs.audience,
+    });
+    const commentToken = await input.controlPlane.actionCommentToken({
+      sessionToken: session.sessionToken,
+    });
+    return commentToken.token;
+  };
+
   return {
     async post(report) {
-      const oidcToken = await input.oidc.requestToken(input.inputs.audience);
-      const session = await input.controlPlane.actionSession({
-        oidcToken,
-        audience: input.inputs.audience,
-      });
-      const commentToken = await input.controlPlane.actionCommentToken({
-        sessionToken: session.sessionToken,
-      });
+      const token = await requestActionCommentToken();
       await upsertTerminalOutcomePullRequestComment({
         repository: input.inputs.repository,
         pullRequestNumber: input.inputs.pullRequestNumber,
-        token: commentToken.token,
+        token,
         marker: report.marker,
         body: report.body,
       });
       await createTerminalOutcomeCommitStatusSafely({
         repository: input.inputs.repository,
         headSha: input.inputs.headSha,
-        token: commentToken.token,
+        token,
         status: report.commitStatus,
       });
     },
     async clear() {
-      const oidcToken = await input.oidc.requestToken(input.inputs.audience);
-      const session = await input.controlPlane.actionSession({
-        oidcToken,
-        audience: input.inputs.audience,
-      });
-      const commentToken = await input.controlPlane.actionCommentToken({
-        sessionToken: session.sessionToken,
-      });
+      const token = await requestActionCommentToken();
       await deleteTerminalOutcomePullRequestComments({
         repository: input.inputs.repository,
         pullRequestNumber: input.inputs.pullRequestNumber,
-        token: commentToken.token,
+        token,
+      });
+    },
+    async status(status) {
+      const token = await requestActionCommentToken();
+      await createTerminalOutcomeCommitStatusSafely({
+        repository: input.inputs.repository,
+        headSha: input.inputs.headSha,
+        token,
+        status,
       });
     },
   };
@@ -601,7 +642,7 @@ async function createTerminalOutcomeCommitStatusSafely(input: {
   readonly repository: string;
   readonly headSha: string;
   readonly token: string;
-  readonly status: CodexOAuthTerminalOutcomeReport['commitStatus'];
+  readonly status: CodexOAuthTerminalOutcomeCommitStatus;
 }): Promise<void> {
   try {
     const client = new GitHubClient(input.token);

@@ -320,11 +320,15 @@ describe('Codex OAuth rotating setup PR preview', () => {
       publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
       v2Review: { outcome: CodexOAuthV2ReviewOutcome.Completed },
     });
-    process.env = actionEnv({
-      eventPath,
-      outputPath,
-      headRef: 'feature/change',
-    });
+    process.env = {
+      ...actionEnv({
+        eventPath,
+        outputPath,
+        headRef: 'feature/change',
+      }),
+      GITHUB_RUN_ID: '123456789',
+      GITHUB_SERVER_URL: 'https://github.example.com',
+    };
     const v2ReviewRunner = {
       run: jest.fn(async () => ({
         outcome: CodexOAuthV2ReviewOutcome.Completed,
@@ -333,6 +337,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
     const terminalOutcomeReporter = {
       post: jest.fn(async () => undefined),
       clear: jest.fn(async () => undefined),
+      status: jest.fn(async () => undefined),
     };
 
     await runCodexOAuthRotatingAction({
@@ -368,6 +373,13 @@ describe('Codex OAuth rotating setup PR preview', () => {
     expect(terminalOutcomeReporter.post).not.toHaveBeenCalled();
     expect(terminalOutcomeReporter.clear).toHaveBeenCalledWith({
       reason: 'review_completed',
+    });
+    expect(terminalOutcomeReporter.status).toHaveBeenCalledWith({
+      state: 'success',
+      description: 'Review completed.',
+      context: 'ReviewRouter',
+      targetUrl:
+        'https://github.example.com/Padelapp-Club/monitoring-service/actions/runs/123456789',
     });
     expect(process.exitCode).toBeUndefined();
     expect(fs.readFileSync(outputPath, 'utf8')).toContain(
