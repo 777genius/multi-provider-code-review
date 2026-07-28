@@ -20,9 +20,12 @@ describe('production review projection coverage', () => {
       exhaustedWorkSlotIds: [],
       reviewRevisionHash: authorizationFacts.reviewRevisionHash,
     });
-    const summary = JSON.parse(projection.projectionEnvelopeCanonicalJson)
-      .publishing.summary.body;
+    const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
+    const summary = envelope.publishing.summary.body;
 
+    expect(envelope.projectionPolicyVersion).toBe(
+      'review-projection-policy.v4-t0'
+    );
     expect(summary).toContain('Providers: 1/1 succeeded');
     expect(summary).not.toContain('1 failed');
   });

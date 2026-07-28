@@ -36,6 +36,9 @@ import {
   type ReviewProjectionCommandFactoryPort,
 } from './current-review-projection-builder-adapter';
 
+const productionReviewProjectionPolicyVersion =
+  'review-projection-policy.v4-t0';
+
 export type ProductionWorkAssignmentFacts = {
   readonly workSlotId: string;
   readonly taskKind: ReviewTaskKind;
@@ -181,7 +184,7 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
     );
 
     return Object.freeze({
-      projectionPolicyVersion: 'review-projection-policy.v2-t0',
+      projectionPolicyVersion: productionReviewProjectionPolicyVersion,
       scope: {
         scmRepositoryIdentityId:
           this.input.authorizationFacts.scmRepositoryIdentityId,

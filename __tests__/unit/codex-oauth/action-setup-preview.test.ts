@@ -330,6 +330,10 @@ describe('Codex OAuth rotating setup PR preview', () => {
         outcome: CodexOAuthV2ReviewOutcome.Completed,
       })),
     };
+    const terminalOutcomeReporter = {
+      post: jest.fn(async () => undefined),
+      clear: jest.fn(async () => undefined),
+    };
 
     await runCodexOAuthRotatingAction({
       reviewActionV2Activation: {
@@ -344,6 +348,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
         },
       },
       v2ReviewRunner,
+      terminalOutcomeReporter,
     });
 
     expect(mockedRuntime).toHaveBeenCalledTimes(1);
@@ -360,6 +365,10 @@ describe('Codex OAuth rotating setup PR preview', () => {
     expect(runtimePorts).not.toHaveProperty('comments');
     expect(runtimePorts).not.toHaveProperty('review');
     expect(runtimePorts).toHaveProperty('v2Review', v2ReviewRunner);
+    expect(terminalOutcomeReporter.post).not.toHaveBeenCalled();
+    expect(terminalOutcomeReporter.clear).toHaveBeenCalledWith({
+      reason: 'review_completed',
+    });
     expect(process.exitCode).toBeUndefined();
     expect(fs.readFileSync(outputPath, 'utf8')).toContain(
       'reviewrouter_v2_outcome'
