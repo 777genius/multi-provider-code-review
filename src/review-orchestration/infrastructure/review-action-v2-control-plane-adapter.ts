@@ -858,8 +858,18 @@ const SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = new Set([
   'context_transcript_hmac_chain_invalid',
   'payload_hash_mismatch',
   'projection_authority_mismatch',
+  'publication_expired',
+  'permit_not_current',
+  'permit_mismatch',
   'publication_permit_authority_mismatch',
   'publication_release_or_limits_invalid',
+  'run_control_denied',
+  'mutation_authority_not_active',
+  'mutation_epoch_mismatch',
+  'revision_not_current',
+  'lifecycle_not_current',
+  'safety_denied',
+  'safety_decision_mismatch',
 ]);
 
 function controlPlaneFailure(error: unknown): Error {
