@@ -968,7 +968,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     ).rejects.toThrow('review_action_v2:review_publication_request:forbidden');
   });
 
-  it('exposes safe publication stale gate reasons for operator diagnostics', async () => {
+  it('maps safe publication stale gate reasons to a typed stale outcome', async () => {
     const execute = jest.fn().mockRejectedValue(
       new ReviewActionV2ClientError(
         ReviewActionV2ClientFailureCode.ProtocolError,
@@ -1001,12 +1001,13 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           coverageComplete: true,
         },
       })
-    ).rejects.toThrow(
-      'review_action_v2:review_publication_request:stale_precondition:lifecycle_not_current'
-    );
+    ).resolves.toEqual({
+      status: ReviewPublicationRequestOutcomeStatus.Stale,
+      reason: 'lifecycle_not_current',
+    });
   });
 
-  it('exposes granular publication lifecycle mismatch reasons for operator diagnostics', async () => {
+  it('maps granular publication lifecycle mismatch reasons to typed stale outcomes', async () => {
     const execute = jest.fn().mockRejectedValue(
       new ReviewActionV2ClientError(
         ReviewActionV2ClientFailureCode.ProtocolError,
@@ -1039,9 +1040,10 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           coverageComplete: true,
         },
       })
-    ).rejects.toThrow(
-      'review_action_v2:review_publication_request:stale_precondition:lifecycle_hash_mismatch'
-    );
+    ).resolves.toEqual({
+      status: ReviewPublicationRequestOutcomeStatus.Stale,
+      reason: 'lifecycle_hash_mismatch',
+    });
   });
 
   it('adopts same-execution evidence with exact source and response identities', async () => {

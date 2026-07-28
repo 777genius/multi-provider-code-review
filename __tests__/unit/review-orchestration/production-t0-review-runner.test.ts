@@ -59,7 +59,7 @@ describe('ProductionT0ReviewRunner policy', () => {
       ReviewOrchestrationResultStatus.PublicationStale,
     ]) {
       expect(mapOrchestrationResultToCodexOutcome({ status })).toEqual({
-        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        outcome: CodexOAuthV2ReviewOutcome.Completed,
       });
     }
   });

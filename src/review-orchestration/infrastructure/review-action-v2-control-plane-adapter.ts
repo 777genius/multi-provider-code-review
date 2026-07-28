@@ -22,6 +22,7 @@ import {
   ReviewActionV2ProtocolErrorCode,
   type ReviewEvidenceLookupResult,
   type ReviewExecutionStartResult,
+  type ReviewPublicationRequestResult,
 } from '../../control-plane/generated/review-action-v2/review-action-v2';
 import {
   ReviewEvidenceLookupKind,
@@ -773,22 +774,25 @@ export class ReviewActionV2ControlPlaneAdapter
   async requestPublication(
     input: Parameters<ReviewActionV2ControlPlanePort['requestPublication']>[0]
   ): ReturnType<ReviewActionV2ControlPlanePort['requestPublication']> {
-    const result = await (async () => {
-      try {
-        return await this.client.execute(
-          ReviewActionV2OperationId.ReviewPublicationRequest,
-          {
-            authorizationToken: input.authorization.authorizationToken,
-            idempotencyKey: input.idempotencyKey,
-            publicationPermit: input.publicationPermit,
-            projectionHash: input.projection.projectionHash,
-            operationsCanonicalJson: input.projection.operationsCanonicalJson,
-          }
-        );
-      } catch (error) {
-        throw controlPlaneFailure(error);
+    let result: ReviewPublicationRequestResult;
+    try {
+      result = await this.client.execute(
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        {
+          authorizationToken: input.authorization.authorizationToken,
+          idempotencyKey: input.idempotencyKey,
+          publicationPermit: input.publicationPermit,
+          projectionHash: input.projection.projectionHash,
+          operationsCanonicalJson: input.projection.operationsCanonicalJson,
+        }
+      );
+    } catch (error) {
+      const stale = publicationRequestStaleOutcome(error);
+      if (stale) {
+        return stale;
       }
-    })();
+      throw controlPlaneFailure(error);
+    }
     if (result.status === ReviewPublicationRequestResultStatus.Conflict) {
       return {
         status: ReviewPublicationRequestOutcomeStatus.Conflict,
@@ -874,6 +878,38 @@ const SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = new Set([
   'safety_denied',
   'safety_decision_mismatch',
 ]);
+
+const SAFE_PUBLICATION_REQUEST_STALE_ISSUES = new Set([
+  'lifecycle_not_current',
+  'lifecycle_status_not_current',
+  'lifecycle_hash_mismatch',
+  'lifecycle_watermark_mismatch',
+  'permit_not_current',
+  'revision_not_current',
+]);
+
+function publicationRequestStaleOutcome(
+  error: unknown
+): {
+  readonly status: ReviewPublicationRequestOutcomeStatus.Stale;
+  readonly reason: string;
+} | null {
+  if (!(error instanceof ReviewActionV2ClientError)) return null;
+  if (
+    error.operationId !== ReviewActionV2OperationId.ReviewPublicationRequest ||
+    error.protocolErrorCode !== ReviewActionV2ProtocolErrorCode.StalePrecondition
+  ) {
+    return null;
+  }
+  const reason = error.issues?.find((issue) =>
+    SAFE_PUBLICATION_REQUEST_STALE_ISSUES.has(issue)
+  );
+  if (!reason) return null;
+  return {
+    status: ReviewPublicationRequestOutcomeStatus.Stale,
+    reason,
+  };
+}
 
 function controlPlaneFailure(error: unknown): Error {
   if (!(error instanceof ReviewActionV2ClientError)) {

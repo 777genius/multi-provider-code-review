@@ -275,7 +275,7 @@ export function mapOrchestrationResultToCodexOutcome(result: {
         : { outcome: CodexOAuthV2ReviewOutcome.PartialCompleted };
     case ReviewOrchestrationResultStatus.PublicationNotApplied:
     case ReviewOrchestrationResultStatus.PublicationStale:
-      return { outcome: CodexOAuthV2ReviewOutcome.PartialCompleted };
+      return { outcome: CodexOAuthV2ReviewOutcome.Completed };
     case ReviewOrchestrationResultStatus.Superseded:
       return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
     default:
