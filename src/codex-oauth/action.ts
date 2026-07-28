@@ -49,7 +49,12 @@ const SETUP_PREVIEW_MISSING_AUTH_SKIP_REASON =
 
 export interface CodexOAuthTerminalOutcomeReporterPort {
   post(input: CodexOAuthTerminalOutcomeReport): Promise<void>;
+  clear?(input: CodexOAuthTerminalOutcomeClearRequest): Promise<void>;
 }
+
+export type CodexOAuthTerminalOutcomeClearRequest = {
+  readonly reason: 'review_completed';
+};
 
 export type CodexOAuthTerminalOutcomeReport = {
   readonly marker: string;
@@ -248,6 +253,11 @@ export async function runCodexOAuthRotatingAction(
     }
     if ('v2Review' in runtime) {
       core.setOutput('reviewrouter_v2_outcome', runtime.v2Review.outcome);
+      if (runtime.v2Review.outcome === CodexOAuthV2ReviewOutcome.Completed) {
+        await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
+          reason: 'review_completed',
+        });
+      }
       const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
       if (report) {
         appendTerminalOutcomeStepSummary(report);
@@ -441,6 +451,21 @@ async function publishTerminalOutcomeReportSafely(
   }
 }
 
+async function clearTerminalOutcomeReportsSafely(
+  reporter: CodexOAuthTerminalOutcomeReporterPort,
+  request: CodexOAuthTerminalOutcomeClearRequest
+): Promise<void> {
+  if (!reporter.clear) return;
+  try {
+    await reporter.clear(request);
+    core.info('ReviewRouter cleared stale terminal PR status comments.');
+  } catch (error) {
+    core.warning(
+      `ReviewRouter could not clear stale terminal PR status comments: ${safeTerminalOutcomeError(error)}`
+    );
+  }
+}
+
 function createDefaultCodexOAuthTerminalOutcomeReporter(input: {
   readonly inputs: ReturnType<typeof readCodexOAuthActionInputs>;
   readonly controlPlane: CodexOAuthControlPlaneClient;
@@ -468,6 +493,21 @@ function createDefaultCodexOAuthTerminalOutcomeReporter(input: {
         headSha: input.inputs.headSha,
         token: commentToken.token,
         status: report.commitStatus,
+      });
+    },
+    async clear() {
+      const oidcToken = await input.oidc.requestToken(input.inputs.audience);
+      const session = await input.controlPlane.actionSession({
+        oidcToken,
+        audience: input.inputs.audience,
+      });
+      const commentToken = await input.controlPlane.actionCommentToken({
+        sessionToken: session.sessionToken,
+      });
+      await deleteTerminalOutcomePullRequestComments({
+        repository: input.inputs.repository,
+        pullRequestNumber: input.inputs.pullRequestNumber,
+        token: commentToken.token,
       });
     },
   };
@@ -525,6 +565,36 @@ async function upsertTerminalOutcomePullRequestComment(input: {
     issue_number: input.pullRequestNumber,
     body: input.body,
   });
+}
+
+async function deleteTerminalOutcomePullRequestComments(input: {
+  readonly repository: string;
+  readonly pullRequestNumber: number;
+  readonly token: string;
+}): Promise<void> {
+  const client = new GitHubClient(input.token);
+  const [repositoryOwner, repositoryName] = input.repository.split('/');
+  const owner = repositoryOwner || client.owner;
+  const repo = repositoryName || client.repo;
+  const comments = await client.octokit.paginate(
+    client.octokit.rest.issues.listComments,
+    {
+      owner,
+      repo,
+      issue_number: input.pullRequestNumber,
+      per_page: 100,
+    }
+  );
+  const terminalComments = comments.filter((comment) =>
+    (comment.body ?? '').includes('<!-- reviewrouter:codex-oauth:terminal:')
+  );
+  for (const comment of terminalComments) {
+    await client.octokit.rest.issues.deleteComment({
+      owner,
+      repo,
+      comment_id: comment.id,
+    });
+  }
 }
 
 async function createTerminalOutcomeCommitStatusSafely(input: {

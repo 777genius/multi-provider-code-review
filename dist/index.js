@@ -78399,6 +78399,7 @@ function sha25613(value) {
 }
 
 // src/review-orchestration/infrastructure/production-review-projection.ts
+var productionReviewProjectionPolicyVersion = "review-projection-policy.v4-t0";
 function createProductionReviewProjectionBuilder(input) {
   const limits = projectionLimits(input.config, input.protocolLimits);
   const policy = new LegacyReviewProjectionPolicyAdapter(input.config);
@@ -78499,7 +78500,7 @@ var ProductionReviewProjectionCommandFactory = class {
       evidence
     );
     return Object.freeze({
-      projectionPolicyVersion: "review-projection-policy.v2-t0",
+      projectionPolicyVersion: productionReviewProjectionPolicyVersion,
       scope: {
         scmRepositoryIdentityId: this.input.authorizationFacts.scmRepositoryIdentityId,
         pullRequestNumber: this.input.authorizationFacts.pullRequestNumber,
@@ -80536,6 +80537,11 @@ async function runCodexOAuthRotatingAction(options = {}) {
     }
     if ("v2Review" in runtime) {
       setOutput("reviewrouter_v2_outcome", runtime.v2Review.outcome);
+      if (runtime.v2Review.outcome === "completed" /* Completed */) {
+        await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
+          reason: "review_completed"
+        });
+      }
       const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
       if (report) {
         appendTerminalOutcomeStepSummary(report);
@@ -80683,6 +80689,17 @@ async function publishTerminalOutcomeReportSafely(reporter, report) {
     );
   }
 }
+async function clearTerminalOutcomeReportsSafely(reporter, request) {
+  if (!reporter.clear) return;
+  try {
+    await reporter.clear(request);
+    info("ReviewRouter cleared stale terminal PR status comments.");
+  } catch (error2) {
+    warning(
+      `ReviewRouter could not clear stale terminal PR status comments: ${safeTerminalOutcomeError(error2)}`
+    );
+  }
+}
 function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
   return {
     async post(report) {
@@ -80706,6 +80723,21 @@ function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
         headSha: input.inputs.headSha,
         token: commentToken.token,
         status: report.commitStatus
+      });
+    },
+    async clear() {
+      const oidcToken = await input.oidc.requestToken(input.inputs.audience);
+      const session = await input.controlPlane.actionSession({
+        oidcToken,
+        audience: input.inputs.audience
+      });
+      const commentToken = await input.controlPlane.actionCommentToken({
+        sessionToken: session.sessionToken
+      });
+      await deleteTerminalOutcomePullRequestComments({
+        repository: input.inputs.repository,
+        pullRequestNumber: input.inputs.pullRequestNumber,
+        token: commentToken.token
       });
     }
   };
@@ -80752,6 +80784,31 @@ async function upsertTerminalOutcomePullRequestComment(input) {
     issue_number: input.pullRequestNumber,
     body: input.body
   });
+}
+async function deleteTerminalOutcomePullRequestComments(input) {
+  const client = new GitHubClient(input.token);
+  const [repositoryOwner, repositoryName] = input.repository.split("/");
+  const owner = repositoryOwner || client.owner;
+  const repo = repositoryName || client.repo;
+  const comments = await client.octokit.paginate(
+    client.octokit.rest.issues.listComments,
+    {
+      owner,
+      repo,
+      issue_number: input.pullRequestNumber,
+      per_page: 100
+    }
+  );
+  const terminalComments = comments.filter(
+    (comment) => (comment.body ?? "").includes("<!-- reviewrouter:codex-oauth:terminal:")
+  );
+  for (const comment of terminalComments) {
+    await client.octokit.rest.issues.deleteComment({
+      owner,
+      repo,
+      comment_id: comment.id
+    });
+  }
 }
 async function createTerminalOutcomeCommitStatusSafely(input) {
   try {
