@@ -77,6 +77,12 @@ interface InteractionPullRequestContext {
 
 const DISMISSAL_MARKER_START = '<!-- review-router-dismissal:start -->';
 const DISMISSAL_MARKER_END = '<!-- review-router-dismissal:end -->';
+const MANUAL_REVIEW_REQUEST_UNAVAILABLE_NOTICE =
+  'ReviewRouter could not start a manual review from this comment because this workflow is not connected to the current ReviewRouter request API. Update the ReviewRouter interaction workflow/runtime pin and retry `/rr review`.';
+
+function followUpReviewRequestUnavailableNotice(commandKind: string): string {
+  return `Recorded \`/rr ${commandKind}\`, but ReviewRouter could not start a follow-up review because this workflow is not connected to the current ReviewRouter request API. Update the ReviewRouter interaction workflow/runtime pin and retry.`;
+}
 
 type RepoRole = 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
 
@@ -215,7 +221,7 @@ export class ReviewInteractionHandler {
     if (availability === ManualReviewRequestAvailability.Unavailable) {
       await this.postNotice(
         prContext.prNumber,
-        'ReviewRouter could not confirm the revision-aware review request. No older workflow attempt was rerun.'
+        MANUAL_REVIEW_REQUEST_UNAVAILABLE_NOTICE
       );
       return;
     }
@@ -236,7 +242,7 @@ export class ReviewInteractionHandler {
       } catch (error) {
         await this.postNotice(
           prContext.prNumber,
-          `The revision-aware review request could not be confirmed: ${sanitizeNoticeError(error)}. ReviewRouter did not rerun an older workflow attempt.`
+          `ReviewRouter could not start a manual review from this comment. Reason: ${sanitizeNoticeError(error)}. Update the ReviewRouter interaction workflow/runtime pin and retry \`/rr review\`.`
         );
         return;
       }
@@ -477,7 +483,7 @@ export class ReviewInteractionHandler {
     if (requestAvailability === ManualReviewRequestAvailability.Unavailable) {
       await this.postNotice(
         prNumber,
-        `Recorded \`/rr ${command.kind}\`, but the revision-aware review request could not be confirmed. ReviewRouter did not rerun an older workflow attempt.`
+        followUpReviewRequestUnavailableNotice(command.kind)
       );
       return;
     }
@@ -505,7 +511,7 @@ export class ReviewInteractionHandler {
       } catch (error) {
         await this.postNotice(
           prNumber,
-          `Recorded \`/rr ${command.kind}\`, but the revision-aware review request could not be confirmed: ${sanitizeNoticeError(error)}. ReviewRouter did not rerun an older workflow attempt.`
+          `Recorded \`/rr ${command.kind}\`, but ReviewRouter could not start the follow-up review. Reason: ${sanitizeNoticeError(error)}. Update the ReviewRouter interaction workflow/runtime pin and retry.`
         );
         return;
       }

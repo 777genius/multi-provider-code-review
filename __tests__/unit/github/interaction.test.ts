@@ -337,6 +337,60 @@ describe('ReviewInteractionHandler', () => {
     expect(octokit.rest.actions.listWorkflowRunsForRepo).not.toHaveBeenCalled();
   });
 
+  it('posts a clear notice when top-level /rr review cannot reach the request API', async () => {
+    const { client, octokit } = makeClient();
+    const reviewRequests = new CapturingReviewRequestClient(
+      ManualReviewRequestAvailability.Unavailable
+    );
+    process.env.GITHUB_EVENT_PATH = writeEvent({
+      comment: {
+        id: 24,
+        body: '/rr review',
+        user: { login: 'maintainer' },
+      },
+      issue: { number: 123, pull_request: {} },
+    });
+    octokit.rest.pulls.get.mockResolvedValue({
+      data: {
+        number: 123,
+        head: { sha: 'd'.repeat(40), repo: { fork: false } },
+        user: { login: 'author' },
+      },
+    });
+    octokit.rest.repos.getCollaboratorPermissionLevel.mockResolvedValue({
+      data: { permission: 'write', role_name: 'maintain' },
+    });
+
+    await new ReviewInteractionHandler(
+      client,
+      new ReviewLedger(client, 'test-secret'),
+      undefined,
+      client,
+      undefined,
+      reviewRequests
+    ).execute();
+
+    expect(octokit.rest.actions.listWorkflowRunsForRepo).not.toHaveBeenCalled();
+    expect(octokit.rest.actions.reRunWorkflowFailedJobs).not.toHaveBeenCalled();
+    expect(octokit.rest.issues.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining(
+          'ReviewRouter could not start a manual review from this comment'
+        ),
+      })
+    );
+    expect(octokit.rest.issues.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.not.stringContaining('revision-aware'),
+      })
+    );
+    expect(octokit.rest.issues.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.not.stringContaining('older workflow attempt'),
+      })
+    );
+  });
+
   it('does not rerun a legacy attempt when control-plane availability is ambiguous', async () => {
     const { client, octokit } = makeClient();
     const reviewRequests = new CapturingReviewRequestClient(
@@ -373,8 +427,18 @@ describe('ReviewInteractionHandler', () => {
     expect(octokit.rest.issues.createComment).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining(
-          'did not rerun an older workflow attempt'
+          'ReviewRouter could not start a follow-up review'
         ),
+      })
+    );
+    expect(octokit.rest.issues.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.not.stringContaining('revision-aware'),
+      })
+    );
+    expect(octokit.rest.issues.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.not.stringContaining('older workflow attempt'),
       })
     );
   });
