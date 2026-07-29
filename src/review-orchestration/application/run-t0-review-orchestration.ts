@@ -105,7 +105,7 @@ export class RunT0ReviewOrchestration {
   constructor(
     private readonly dependencies: RunT0ReviewOrchestrationDependencies,
     private readonly maxPublicationPolls = 30,
-    private readonly maxBusyPollsPerSlot = 24,
+    private readonly maxBusyPollsPerProviderLane = 24,
     private readonly revisionPollIntervalMs = 5_000
   ) {
     if (
@@ -116,9 +116,9 @@ export class RunT0ReviewOrchestration {
       throw new Error('review_orchestration_publication_poll_limit_invalid');
     }
     if (
-      !Number.isSafeInteger(maxBusyPollsPerSlot) ||
-      maxBusyPollsPerSlot < 1 ||
-      maxBusyPollsPerSlot > 120
+      !Number.isSafeInteger(maxBusyPollsPerProviderLane) ||
+      maxBusyPollsPerProviderLane < 1 ||
+      maxBusyPollsPerProviderLane > 120
     ) {
       throw new Error('review_orchestration_busy_poll_limit_invalid');
     }
@@ -217,6 +217,7 @@ export class RunT0ReviewOrchestration {
         string,
         ReviewWorkSlotExhaustionReason
       >();
+      const busyPollsByProviderLane = new Map<string, number>();
       const restoredSlots = new Map(
         execution.restoredExecution.workSlots.map((slot) => [
           slot.workSlotId,
@@ -224,7 +225,6 @@ export class RunT0ReviewOrchestration {
         ])
       );
       for (const workSlot of command.workSlots) {
-        await this.assertRevisionCurrent(command);
         const restoredSlot = restoredSlots.get(workSlot.workSlotId);
         if (!restoredSlot) {
           throw new Error('review_orchestration_restored_work_slot_missing');
@@ -244,6 +244,23 @@ export class RunT0ReviewOrchestration {
           });
           continue;
         }
+        if (
+          restoredSlot.state !== RestoredReviewWorkSlotState.Satisfied &&
+          (busyPollsByProviderLane.get(workSlot.providerVoteIdentityHash) ??
+            0) >= this.maxBusyPollsPerProviderLane
+        ) {
+          exhaustedWorkSlotIds.push(workSlot.workSlotId);
+          exhaustedWorkSlotReasons.set(
+            workSlot.workSlotId,
+            ReviewWorkSlotExhaustionReason.ProviderLaneBusy
+          );
+          state = evolveReviewOrchestration(state, {
+            type: ReviewOrchestrationEventType.SlotExhausted,
+            workSlotId: workSlot.workSlotId,
+          });
+          continue;
+        }
+        await this.assertRevisionCurrent(command);
         const outcome = await this.satisfyWorkSlot({
           authorization,
           execution,
@@ -252,6 +269,7 @@ export class RunT0ReviewOrchestration {
           ownerIdHash: command.ownerIdHash,
           revision: command,
           restoredSlot,
+          busyPollsByProviderLane,
           onEvent: (event) => {
             state = evolveReviewOrchestration(state, event);
           },
@@ -500,6 +518,7 @@ export class RunT0ReviewOrchestration {
     readonly ownerIdHash: string;
     readonly revision: ReviewRevisionFacts;
     readonly restoredSlot: RestoredReviewWorkSlot;
+    readonly busyPollsByProviderLane: Map<string, number>;
     readonly onEvent: (event: {
       readonly type:
         | ReviewOrchestrationEventType.SlotLookupStarted
@@ -567,8 +586,13 @@ export class RunT0ReviewOrchestration {
         manifest.providerInvocationKey,
       ]);
       let lease: ReviewInvocationLease | null = null;
-      for (let busyPollCount = 0; lease === null; busyPollCount += 1) {
-        if (busyPollCount >= this.maxBusyPollsPerSlot) {
+      let localBusyPollCount = 0;
+      while (lease === null) {
+        const providerLaneBusyPollCount =
+          input.busyPollsByProviderLane.get(
+            input.workSlot.providerVoteIdentityHash
+          ) ?? 0;
+        if (providerLaneBusyPollCount >= this.maxBusyPollsPerProviderLane) {
           input.onEvent({
             type: ReviewOrchestrationEventType.SlotExhausted,
             workSlotId: input.workSlot.workSlotId,
@@ -578,9 +602,9 @@ export class RunT0ReviewOrchestration {
             exhaustionReason: ReviewWorkSlotExhaustionReason.ProviderLaneBusy,
           };
         }
-        if (busyPollCount > 0) {
+        if (localBusyPollCount > 0) {
           await this.dependencies.delay.sleep(
-            Math.min(5_000, 500 * 2 ** Math.min(busyPollCount - 1, 4))
+            Math.min(5_000, 500 * 2 ** Math.min(localBusyPollCount - 1, 4))
           );
           await this.assertRevisionCurrent(input.revision);
           const joined = await this.trySatisfyFromLookup({
@@ -614,6 +638,14 @@ export class RunT0ReviewOrchestration {
           acquire.status === ReviewInvocationLeaseAcquireOutcomeStatus.Acquired
         ) {
           lease = acquire.lease;
+          continue;
+        }
+        if (acquire.status === ReviewInvocationLeaseAcquireOutcomeStatus.Busy) {
+          input.busyPollsByProviderLane.set(
+            input.workSlot.providerVoteIdentityHash,
+            providerLaneBusyPollCount + 1
+          );
+          localBusyPollCount += 1;
           continue;
         }
         if (

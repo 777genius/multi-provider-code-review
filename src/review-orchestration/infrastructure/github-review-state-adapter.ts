@@ -34,16 +34,25 @@ export class GitHubReviewRevisionGuard implements ReviewRevisionGuardPort {
   ) {}
 
   async loadCurrentRevision() {
-    const before = await this.loadPointer();
-    const mergeBaseSha = await this.loadMergeBase(before);
-    const after = await this.loadPointer();
-    if (before.baseSha === after.baseSha && before.headSha === after.headSha) {
-      return this.toRevision(before, mergeBaseSha);
-    }
+    try {
+      const before = await this.loadPointer();
+      const mergeBaseSha = await this.loadMergeBase(before);
+      const after = await this.loadPointer();
+      if (
+        before.baseSha === after.baseSha &&
+        before.headSha === after.headSha
+      ) {
+        return this.toRevision(before, mergeBaseSha);
+      }
 
-    // Return the newest observed pointer so the application can cooperatively
-    // supersede. A later guard repeats the stable double-read before mutation.
-    return this.toRevision(after, await this.loadMergeBase(after));
+      // Return the newest observed pointer so the application can cooperatively
+      // supersede. A later guard repeats the stable double-read before mutation.
+      return this.toRevision(after, await this.loadMergeBase(after));
+    } catch (error) {
+      throw new Error('review_action_v2_revision_guard_unavailable', {
+        cause: error,
+      });
+    }
   }
 
   private async loadPointer(): Promise<{

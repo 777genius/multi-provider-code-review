@@ -73586,15 +73586,15 @@ function assertUnique(values, errorCode2) {
 
 // src/review-orchestration/application/run-t0-review-orchestration.ts
 var RunT0ReviewOrchestration = class {
-  constructor(dependencies, maxPublicationPolls = 30, maxBusyPollsPerSlot = 24, revisionPollIntervalMs = 5e3) {
+  constructor(dependencies, maxPublicationPolls = 30, maxBusyPollsPerProviderLane = 24, revisionPollIntervalMs = 5e3) {
     this.dependencies = dependencies;
     this.maxPublicationPolls = maxPublicationPolls;
-    this.maxBusyPollsPerSlot = maxBusyPollsPerSlot;
+    this.maxBusyPollsPerProviderLane = maxBusyPollsPerProviderLane;
     this.revisionPollIntervalMs = revisionPollIntervalMs;
     if (!Number.isSafeInteger(maxPublicationPolls) || maxPublicationPolls < 1 || maxPublicationPolls > 120) {
       throw new Error("review_orchestration_publication_poll_limit_invalid");
     }
-    if (!Number.isSafeInteger(maxBusyPollsPerSlot) || maxBusyPollsPerSlot < 1 || maxBusyPollsPerSlot > 120) {
+    if (!Number.isSafeInteger(maxBusyPollsPerProviderLane) || maxBusyPollsPerProviderLane < 1 || maxBusyPollsPerProviderLane > 120) {
       throw new Error("review_orchestration_busy_poll_limit_invalid");
     }
     if (!Number.isSafeInteger(revisionPollIntervalMs) || revisionPollIntervalMs < 10 || revisionPollIntervalMs > 6e4) {
@@ -73666,6 +73666,7 @@ var RunT0ReviewOrchestration = class {
       const acceptedEvidence = [];
       const exhaustedWorkSlotIds = [];
       const exhaustedWorkSlotReasons = /* @__PURE__ */ new Map();
+      const busyPollsByProviderLane = /* @__PURE__ */ new Map();
       const restoredSlots = new Map(
         execution.restoredExecution.workSlots.map((slot) => [
           slot.workSlotId,
@@ -73673,7 +73674,6 @@ var RunT0ReviewOrchestration = class {
         ])
       );
       for (const workSlot of command.workSlots) {
-        await this.assertRevisionCurrent(command);
         const restoredSlot = restoredSlots.get(workSlot.workSlotId);
         if (!restoredSlot) {
           throw new Error("review_orchestration_restored_work_slot_missing");
@@ -73690,6 +73690,19 @@ var RunT0ReviewOrchestration = class {
           });
           continue;
         }
+        if (restoredSlot.state !== "satisfied" /* Satisfied */ && (busyPollsByProviderLane.get(workSlot.providerVoteIdentityHash) ?? 0) >= this.maxBusyPollsPerProviderLane) {
+          exhaustedWorkSlotIds.push(workSlot.workSlotId);
+          exhaustedWorkSlotReasons.set(
+            workSlot.workSlotId,
+            "provider_lane_busy" /* ProviderLaneBusy */
+          );
+          state = evolveReviewOrchestration(state, {
+            type: "slot_exhausted" /* SlotExhausted */,
+            workSlotId: workSlot.workSlotId
+          });
+          continue;
+        }
+        await this.assertRevisionCurrent(command);
         const outcome = await this.satisfyWorkSlot({
           authorization,
           execution,
@@ -73698,6 +73711,7 @@ var RunT0ReviewOrchestration = class {
           ownerIdHash: command.ownerIdHash,
           revision: command,
           restoredSlot,
+          busyPollsByProviderLane,
           onEvent: (event) => {
             state = evolveReviewOrchestration(state, event);
           }
@@ -73966,8 +73980,12 @@ var RunT0ReviewOrchestration = class {
         manifest.providerInvocationKey
       ]);
       let lease = null;
-      for (let busyPollCount = 0; lease === null; busyPollCount += 1) {
-        if (busyPollCount >= this.maxBusyPollsPerSlot) {
+      let localBusyPollCount = 0;
+      while (lease === null) {
+        const providerLaneBusyPollCount = input.busyPollsByProviderLane.get(
+          input.workSlot.providerVoteIdentityHash
+        ) ?? 0;
+        if (providerLaneBusyPollCount >= this.maxBusyPollsPerProviderLane) {
           input.onEvent({
             type: "slot_exhausted" /* SlotExhausted */,
             workSlotId: input.workSlot.workSlotId
@@ -73977,9 +73995,9 @@ var RunT0ReviewOrchestration = class {
             exhaustionReason: "provider_lane_busy" /* ProviderLaneBusy */
           };
         }
-        if (busyPollCount > 0) {
+        if (localBusyPollCount > 0) {
           await this.dependencies.delay.sleep(
-            Math.min(5e3, 500 * 2 ** Math.min(busyPollCount - 1, 4))
+            Math.min(5e3, 500 * 2 ** Math.min(localBusyPollCount - 1, 4))
           );
           await this.assertRevisionCurrent(input.revision);
           const joined = await this.trySatisfyFromLookup({
@@ -74010,6 +74028,14 @@ var RunT0ReviewOrchestration = class {
         });
         if (acquire.status === "acquired" /* Acquired */) {
           lease = acquire.lease;
+          continue;
+        }
+        if (acquire.status === "busy" /* Busy */) {
+          input.busyPollsByProviderLane.set(
+            input.workSlot.providerVoteIdentityHash,
+            providerLaneBusyPollCount + 1
+          );
+          localBusyPollCount += 1;
           continue;
         }
         if (acquire.status === "attempt_budget_exhausted" /* AttemptBudgetExhausted */) {
@@ -77407,13 +77433,19 @@ var GitHubReviewRevisionGuard = class {
     this.scope = scope;
   }
   async loadCurrentRevision() {
-    const before = await this.loadPointer();
-    const mergeBaseSha = await this.loadMergeBase(before);
-    const after = await this.loadPointer();
-    if (before.baseSha === after.baseSha && before.headSha === after.headSha) {
-      return this.toRevision(before, mergeBaseSha);
+    try {
+      const before = await this.loadPointer();
+      const mergeBaseSha = await this.loadMergeBase(before);
+      const after = await this.loadPointer();
+      if (before.baseSha === after.baseSha && before.headSha === after.headSha) {
+        return this.toRevision(before, mergeBaseSha);
+      }
+      return this.toRevision(after, await this.loadMergeBase(after));
+    } catch (error2) {
+      throw new Error("review_action_v2_revision_guard_unavailable", {
+        cause: error2
+      });
     }
-    return this.toRevision(after, await this.loadMergeBase(after));
   }
   async loadPointer() {
     const response = await this.client.octokit.rest.pulls.get({
@@ -80942,21 +80974,23 @@ function buildV2TerminalOutcomeReport(inputs, review) {
     });
   }
   const laneBusy = review.blockingFailure === "required_provider_lane_busy";
+  const revisionUnavailable = review.blockingFailure === "review_action_v2_revision_guard_unavailable";
+  const delayed = laneBusy || revisionUnavailable;
   return terminalOutcomeReport({
     inputs,
-    kind: laneBusy ? "lane-busy" : "partial",
-    title: laneBusy ? "Review delayed \u26A0\uFE0F" : "Review incomplete \u26A0\uFE0F",
-    summary: laneBusy ? "ReviewRouter could not complete required coverage because all required provider lanes were busy." : "ReviewRouter completed only partial coverage for this revision.",
+    kind: laneBusy ? "lane-busy" : revisionUnavailable ? "revision-unavailable" : "partial",
+    title: delayed ? "Review delayed \u26A0\uFE0F" : "Review incomplete \u26A0\uFE0F",
+    summary: laneBusy ? "ReviewRouter could not complete required coverage because all required provider lanes were busy." : revisionUnavailable ? "ReviewRouter temporarily could not verify the current pull request revision." : "ReviewRouter completed only partial coverage for this revision.",
     rows: [
       ["Outcome", "partial"],
       [
         "Reason",
-        laneBusy ? "provider lanes busy" : "required coverage incomplete"
+        laneBusy ? "provider lanes busy" : revisionUnavailable ? "repository state temporarily unavailable" : "required coverage incomplete"
       ]
     ],
-    note: laneBusy ? "Partial evidence is preserved for retry. This result is not an all-clear." : "Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.",
-    statusState: laneBusy ? "pending" : "failure",
-    statusDescription: laneBusy ? "Review delayed: provider lanes are busy." : "Review incomplete: required coverage did not finish."
+    note: delayed ? "Partial evidence is preserved for retry. This result is not an all-clear." : "Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.",
+    statusState: delayed ? "pending" : "failure",
+    statusDescription: laneBusy ? "Review delayed: provider lanes are busy." : revisionUnavailable ? "Review delayed: repository state is temporarily unavailable." : "Review incomplete: required coverage did not finish."
   });
 }
 function terminalOutcomeReport(input) {
