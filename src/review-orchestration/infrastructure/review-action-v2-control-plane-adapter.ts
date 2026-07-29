@@ -42,6 +42,7 @@ import {
   type RestoredReviewExecution,
   type ReviewWorkSlotPlan,
 } from '../application';
+import { logger } from '../../utils/logger';
 
 export class ReviewActionV2ControlPlaneAdapter
   implements ReviewActionV2ControlPlanePort, ReviewContextAttestationPort
@@ -408,6 +409,13 @@ export class ReviewActionV2ControlPlaneAdapter
         providerInvocationKey: input.manifest.providerInvocationKey,
         providerVoteIdentityHash: input.manifest.providerVoteIdentityHash,
       }
+    );
+    logger.info(
+      `Review evidence lookup: status=${result.status}, manifest=${digestPrefix(
+        input.manifest.manifestKey
+      )}, invocation=${digestPrefix(
+        input.manifest.providerInvocationKey
+      )}, reasons=${formatLookupDenialReasons(result.denialReasons)}`
     );
     if (result.status === ReviewEvidenceLookupResultStatus.Miss) {
       return { kind: ReviewEvidenceLookupKind.Miss };
@@ -850,6 +858,16 @@ export class ReviewActionV2ControlPlaneAdapter
   }
 }
 
+function digestPrefix(value: string): string {
+  return /^[a-f0-9]{64}$/u.test(value) ? value.slice(0, 12) : 'invalid';
+}
+
+function formatLookupDenialReasons(
+  reasons: readonly string[] | null | undefined
+): string {
+  return reasons && reasons.length > 0 ? reasons.join(',') : 'none';
+}
+
 const SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = new Set([
   'artifact_hash_mismatch',
   'context_actual_model_mismatch',
@@ -888,16 +906,15 @@ const SAFE_PUBLICATION_REQUEST_STALE_ISSUES = new Set([
   'revision_not_current',
 ]);
 
-function publicationRequestStaleOutcome(
-  error: unknown
-): {
+function publicationRequestStaleOutcome(error: unknown): {
   readonly status: ReviewPublicationRequestOutcomeStatus.Stale;
   readonly reason: string;
 } | null {
   if (!(error instanceof ReviewActionV2ClientError)) return null;
   if (
     error.operationId !== ReviewActionV2OperationId.ReviewPublicationRequest ||
-    error.protocolErrorCode !== ReviewActionV2ProtocolErrorCode.StalePrecondition
+    error.protocolErrorCode !==
+      ReviewActionV2ProtocolErrorCode.StalePrecondition
   ) {
     return null;
   }

@@ -75288,6 +75288,9 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
         session.credentialLease,
         input.signal
       );
+      logger.info(
+        `Codex execution model: requested=${input.invocation.requestedModel}, actual=${result.actualModel ?? input.invocation.requestedModel}`
+      );
       const initial = normalizeReviewObservation({
         workSlotId: input.invocation.workSlotId,
         attemptOrdinal: input.invocation.attemptOrdinal,
@@ -75419,6 +75422,18 @@ var GeneratedProviderInvocationManifestAssembler = class {
         lane.providerVoteIdentityHash
       )
     );
+    logger.info(
+      [
+        "Review invocation manifest:",
+        `manifest=${digestPrefix(manifestKey)}`,
+        `invocation=${digestPrefix(providerInvocationKey)}`,
+        `request=${digestPrefix(facts.providerRequestEnvelopeHash)}`,
+        `patch=${digestPrefix(facts.filePatchManifestHash)}`,
+        `context=${digestPrefix(facts.contextManifestHash)}`,
+        `baseTree=${digestPrefix(facts.baseTreeHash)}`,
+        `environment=${digestPrefix(facts.environmentContractHash)}`
+      ].join(" ")
+    );
     return Object.freeze({
       manifestCanonicalJson: serializeProviderInvocationManifestV1CanonicalWireJson(manifestInput),
       manifestKey,
@@ -75427,6 +75442,9 @@ var GeneratedProviderInvocationManifestAssembler = class {
     });
   }
 };
+function digestPrefix(value) {
+  return value && /^[a-f0-9]{64}$/u.test(value) ? value.slice(0, 12) : "none";
+}
 var DeterministicReviewOrchestrationIdentity = class {
   deterministicId(namespace, parts) {
     if (!/^[a-z0-9-]{1,80}$/.test(namespace)) {
@@ -79398,6 +79416,13 @@ var ReviewActionV2ControlPlaneAdapter = class {
         providerVoteIdentityHash: input.manifest.providerVoteIdentityHash
       }
     );
+    logger.info(
+      `Review evidence lookup: status=${result.status}, manifest=${digestPrefix2(
+        input.manifest.manifestKey
+      )}, invocation=${digestPrefix2(
+        input.manifest.providerInvocationKey
+      )}, reasons=${formatLookupDenialReasons(result.denialReasons)}`
+    );
     if (result.status === "miss" /* Miss */) {
       return { kind: "miss" /* Miss */ };
     }
@@ -79754,6 +79779,12 @@ var ReviewActionV2ControlPlaneAdapter = class {
     };
   }
 };
+function digestPrefix2(value) {
+  return /^[a-f0-9]{64}$/u.test(value) ? value.slice(0, 12) : "invalid";
+}
+function formatLookupDenialReasons(reasons) {
+  return reasons && reasons.length > 0 ? reasons.join(",") : "none";
+}
 var SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = /* @__PURE__ */ new Set([
   "artifact_hash_mismatch",
   "context_actual_model_mismatch",

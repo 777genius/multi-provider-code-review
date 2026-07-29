@@ -147,6 +147,9 @@ describe('Codex T0 prepared invocation', () => {
       planningConfig: jest.fn().mockResolvedValue(gatewayConfig),
       open: jest.fn().mockResolvedValue(session),
     } as unknown as ContextGatewayInvocationSessionFactoryPort;
+    const infoSpy = jest
+      .spyOn(logger, 'info')
+      .mockImplementation(() => undefined);
     const adapter = new CodexReviewInvocationAdapter(
       provider,
       promptBuilder,
@@ -156,40 +159,47 @@ describe('Codex T0 prepared invocation', () => {
       gatewayFactory
     );
 
-    const invocation = await adapter.prepare({
-      workSlot: assignment.workSlot,
-      attemptOrdinal: 1,
-    });
-    const observation = await adapter.execute({
-      invocation,
-      manifest: manifestFixture,
-      lease: leaseFixture,
-      sourceExecutionId: 'execution-1',
-      sourceReviewRevisionHash: hash('revision'),
-      signal: new AbortController().signal,
-    });
-
-    expect(gatewayFactory.open).toHaveBeenCalledWith(
-      expect.objectContaining({
+    try {
+      const invocation = await adapter.prepare({
+        workSlot: assignment.workSlot,
+        attemptOrdinal: 1,
+      });
+      const observation = await adapter.execute({
+        invocation,
+        manifest: manifestFixture,
+        lease: leaseFixture,
         sourceExecutionId: 'execution-1',
-        sourceWorkSlotId: 'slot-1',
-      })
-    );
-    expect(provider.executePreparedInvocation).toHaveBeenCalledWith(
-      runtimePrepared,
-      session.credentialLease,
-      expect.any(AbortSignal)
-    );
-    expect(session.seal).toHaveBeenCalledWith({
-      actualModel: 'gpt-test-actual',
-      terminalOutcomeHash: observation.payloadHash,
-    });
-    expect(observation).toMatchObject({
-      contextDependencyAttestationId: 'attestation-1',
-      contextDependencyAttestationHash: hash('attestation'),
-      qualityFlags: [],
-    });
-    expect(session.dispose).toHaveBeenCalledTimes(1);
+        sourceReviewRevisionHash: hash('revision'),
+        signal: new AbortController().signal,
+      });
+
+      expect(gatewayFactory.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceExecutionId: 'execution-1',
+          sourceWorkSlotId: 'slot-1',
+        })
+      );
+      expect(provider.executePreparedInvocation).toHaveBeenCalledWith(
+        runtimePrepared,
+        session.credentialLease,
+        expect.any(AbortSignal)
+      );
+      expect(session.seal).toHaveBeenCalledWith({
+        actualModel: 'gpt-test-actual',
+        terminalOutcomeHash: observation.payloadHash,
+      });
+      expect(observation).toMatchObject({
+        contextDependencyAttestationId: 'attestation-1',
+        contextDependencyAttestationHash: hash('attestation'),
+        qualityFlags: [],
+      });
+      expect(infoSpy).toHaveBeenCalledWith(
+        'Codex execution model: requested=gpt-test, actual=gpt-test-actual'
+      );
+      expect(session.dispose).toHaveBeenCalledTimes(1);
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 
   it.each([
@@ -542,6 +552,9 @@ describe('Codex T0 prepared invocation', () => {
   });
 
   it('derives manifest and provider invocation keys only from generated canonicalizers', async () => {
+    const infoSpy = jest
+      .spyOn(logger, 'info')
+      .mockImplementation(() => undefined);
     const adapter = new GeneratedProviderInvocationManifestAssembler(
       authorization,
       {} as ReviewConfig,
@@ -576,20 +589,32 @@ describe('Codex T0 prepared invocation', () => {
       },
     };
 
-    const manifest = await adapter.assemble(invocation);
-    const manifestInput = JSON.parse(manifest.manifestCanonicalJson);
-    const expectedManifestKey = hashBytes(
-      canonicalizeProviderInvocationManifestV1(manifestInput)
-    );
-    const expectedInvocationKey = hashBytes(
-      providerInvocationIdentityPreimageV1(
-        expectedManifestKey,
-        authorization.facts.providerVoteLanes[0].providerVoteIdentityHash
-      )
-    );
+    try {
+      const manifest = await adapter.assemble(invocation);
+      const manifestInput = JSON.parse(manifest.manifestCanonicalJson);
+      const expectedManifestKey = hashBytes(
+        canonicalizeProviderInvocationManifestV1(manifestInput)
+      );
+      const expectedInvocationKey = hashBytes(
+        providerInvocationIdentityPreimageV1(
+          expectedManifestKey,
+          authorization.facts.providerVoteLanes[0].providerVoteIdentityHash
+        )
+      );
 
-    expect(manifest.manifestKey).toBe(expectedManifestKey);
-    expect(manifest.providerInvocationKey).toBe(expectedInvocationKey);
+      expect(manifest.manifestKey).toBe(expectedManifestKey);
+      expect(manifest.providerInvocationKey).toBe(expectedInvocationKey);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `Review invocation manifest: manifest=${expectedManifestKey.slice(
+            0,
+            12
+          )} invocation=${expectedInvocationKey.slice(0, 12)}`
+        )
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 
   it('clears the pending renewal timer when execution finishes', async () => {
