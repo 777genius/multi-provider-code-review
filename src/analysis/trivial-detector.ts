@@ -1,4 +1,4 @@
-import { FileChange } from '../types';
+import { FileChange, type ReviewConfig } from '../types';
 import { logger } from '../utils/logger';
 import { isValidRegexPattern } from '../utils/regex-validator';
 
@@ -177,7 +177,7 @@ export class TrivialDetector {
   /**
    * Check if a single file is trivial
    */
-  private isFileTrivial(file: FileChange): boolean {
+  isFileTrivial(file: FileChange): boolean {
     const normalized = this.normalizePath(file.filename);
 
     return (
@@ -611,4 +611,19 @@ export function createDefaultTrivialConfig(): TrivialDetectorConfig {
     skipBuildArtifacts: true,
     customTrivialPatterns: [],
   };
+}
+
+export function createConfiguredTrivialDetector(
+  config: ReviewConfig
+): TrivialDetector {
+  return new TrivialDetector({
+    enabled: config.skipTrivialChanges ?? true,
+    skipDependencyUpdates: config.skipDependencyUpdates ?? true,
+    skipDocumentationOnly: config.skipDocumentationOnly ?? true,
+    skipFormattingOnly: config.skipFormattingOnly ?? false,
+    skipTestFixtures: config.skipTestFixtures ?? true,
+    skipConfigFiles: config.skipConfigFiles ?? true,
+    skipBuildArtifacts: config.skipBuildArtifacts ?? true,
+    customTrivialPatterns: config.trivialPatterns ?? [],
+  });
 }

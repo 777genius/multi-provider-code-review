@@ -27,6 +27,45 @@ describe('prepared review prompt v2 coverage', () => {
     ).toBe(false);
   });
 
+  it('treats configured low-signal documentation as explicitly policy-excluded', async () => {
+    const prepared = await builder({
+      smartDiffCompaction: true,
+      maxFullDiffFileBytes: 100,
+      diffMaxBytes: 50_000,
+      skipTrivialChanges: true,
+      skipDocumentationOnly: true,
+    }).buildPreparedV2(pr([file('docs/plan.md', 200)], 200));
+
+    expect(prepared.pathCoverage).toEqual([
+      expect.objectContaining({
+        path: 'docs/plan.md',
+        kind: ReviewPromptPathCoverageKind.PolicyExcluded,
+      }),
+    ]);
+    expect(
+      isReviewPromptCoverageComplete(manifest(prepared.pathCoverage))
+    ).toBe(true);
+  });
+
+  it('keeps compacted documentation blocking when trivial skipping is disabled', async () => {
+    const prepared = await builder({
+      smartDiffCompaction: true,
+      maxFullDiffFileBytes: 100,
+      diffMaxBytes: 50_000,
+      skipTrivialChanges: false,
+    }).buildPreparedV2(pr([file('docs/plan.md', 200)], 200));
+
+    expect(prepared.pathCoverage).toEqual([
+      expect.objectContaining({
+        path: 'docs/plan.md',
+        kind: ReviewPromptPathCoverageKind.SummaryOnly,
+      }),
+    ]);
+    expect(
+      isReviewPromptCoverageComplete(manifest(prepared.pathCoverage))
+    ).toBe(false);
+  });
+
   it('marks every omitted tail path trimmed after multi-file byte trimming', async () => {
     const files = [
       file('src/a.ts', 40),
@@ -48,7 +87,7 @@ describe('prepared review prompt v2 coverage', () => {
     ).toBe(false);
   });
 
-  it('enforces Complete implies closed full-patch proof for every assigned path', async () => {
+  it('requires full-patch proof or an explicit policy exclusion for every assigned path', async () => {
     const kinds = Object.values(ReviewPromptPathCoverageKind).filter(
       (kind) => kind !== ReviewPromptPathCoverageKind.TrustedRead
     );
@@ -64,7 +103,8 @@ describe('prepared review prompt v2 coverage', () => {
         },
       ]);
       expect(isReviewPromptCoverageComplete(coverage)).toBe(
-        kind === ReviewPromptPathCoverageKind.FullPatch
+        kind === ReviewPromptPathCoverageKind.FullPatch ||
+          kind === ReviewPromptPathCoverageKind.PolicyExcluded
       );
     }
   });

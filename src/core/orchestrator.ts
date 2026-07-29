@@ -53,7 +53,7 @@ import { CodeGraphBuilder, CodeGraph } from '../analysis/context/graph-builder';
 import { PromptGenerator } from '../autofix/prompt-generator';
 import { ReliabilityTracker } from '../providers/reliability-tracker';
 import { MetricsCollector } from '../analytics/metrics-collector';
-import { TrivialDetector } from '../analysis/trivial-detector';
+import { createConfiguredTrivialDetector } from '../analysis/trivial-detector';
 import {
   PathMatcher,
   createDefaultPathMatcherConfig,
@@ -257,16 +257,7 @@ export class ReviewOrchestrator {
       let reviewContext = pr;
       let skippedTrivialFiles: FileChange[] = [];
       if (config.skipTrivialChanges) {
-        const trivialDetector = new TrivialDetector({
-          enabled: true,
-          skipDependencyUpdates: config.skipDependencyUpdates ?? true,
-          skipDocumentationOnly: config.skipDocumentationOnly ?? true,
-          skipFormattingOnly: config.skipFormattingOnly ?? false,
-          skipTestFixtures: config.skipTestFixtures ?? true,
-          skipConfigFiles: config.skipConfigFiles ?? true,
-          skipBuildArtifacts: config.skipBuildArtifacts ?? true,
-          customTrivialPatterns: config.trivialPatterns ?? [],
-        });
+        const trivialDetector = createConfiguredTrivialDetector(config);
 
         const trivialResult = trivialDetector.detect(pr.files);
 

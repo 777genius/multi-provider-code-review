@@ -127,6 +127,38 @@ describe('production review projection coverage', () => {
     ).toMatchObject({ state: 'complete', limitations: [] });
   });
 
+  it('keeps coverage complete for paths explicitly excluded by review policy', async () => {
+    const builder = projectionBuilder([assignment('required-slot', true)]);
+    const manifest = createReviewPromptCoverageManifest({
+      workSlotId: 'required-slot',
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+      assignedPaths: ['src/a.ts'],
+      pathCoverage: [
+        {
+          path: 'src/a.ts',
+          kind: ReviewPromptPathCoverageKind.PolicyExcluded,
+          contentHash: null,
+        },
+      ],
+    });
+
+    const projection = await builder.build({
+      acceptedEvidence: [acceptedEvidence('required-slot', manifest)],
+      exhaustedWorkSlotIds: [],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+    const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
+
+    expect(projection.coverageComplete).toBe(true);
+    expect(envelope.coverage).toMatchObject({
+      state: 'complete',
+      totalFiles: 1,
+      reviewedFiles: 0,
+      unreviewedFiles: 0,
+      limitations: [],
+    });
+  });
+
   it('does not downgrade required coverage for incomplete optional evidence', async () => {
     const builder = projectionBuilder([
       assignment('required-slot', true),

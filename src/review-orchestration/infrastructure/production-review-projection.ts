@@ -121,6 +121,7 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
       (workSlotId) => requiredWorkSlotIds.has(workSlotId)
     );
     const reviewedFiles = new Set<string>();
+    const policyExcludedFiles = new Set<string>();
     const coverageLimitations: string[] = [];
     for (const assignment of requiredAssignments) {
       const accepted = evidence.get(assignment.workSlotId);
@@ -143,6 +144,8 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
       for (const path of manifest.paths) {
         if (path.kind === ReviewPromptPathCoverageKind.FullPatch) {
           reviewedFiles.add(path.path);
+        } else if (path.kind === ReviewPromptPathCoverageKind.PolicyExcluded) {
+          policyExcludedFiles.add(path.path);
         } else {
           coverageLimitations.push(`path_coverage:${path.path}:${path.kind}`);
         }
@@ -217,12 +220,12 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
           : ProjectionCoverageState.Partial,
         mode: 'full' as const,
         totalFiles: this.input.pr.files.length,
-        reviewedFiles: complete
-          ? this.input.pr.files.length
-          : reviewedFiles.size,
+        reviewedFiles: reviewedFiles.size,
         unreviewedFiles: Math.max(
           0,
-          this.input.pr.files.length - reviewedFiles.size
+          this.input.pr.files.length -
+            reviewedFiles.size -
+            policyExcludedFiles.size
         ),
         limitations: Object.freeze(limitations),
       },

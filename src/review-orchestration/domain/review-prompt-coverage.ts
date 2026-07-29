@@ -75,7 +75,9 @@ export function isReviewPromptCoverageComplete(
   return (
     manifest.paths.length > 0 &&
     manifest.paths.every(
-      (path) => path.kind === PreparedPromptPathCoverageKind.FullPatch
+      (path) =>
+        path.kind === PreparedPromptPathCoverageKind.FullPatch ||
+        path.kind === PreparedPromptPathCoverageKind.PolicyExcluded
     )
   );
 }
