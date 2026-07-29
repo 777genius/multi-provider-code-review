@@ -365,27 +365,42 @@ function buildV2TerminalOutcomeReport(
   }
 
   const laneBusy = review.blockingFailure === 'required_provider_lane_busy';
+  const revisionUnavailable =
+    review.blockingFailure === 'review_action_v2_revision_guard_unavailable';
+  const delayed = laneBusy || revisionUnavailable;
   return terminalOutcomeReport({
     inputs,
-    kind: laneBusy ? 'lane-busy' : 'partial',
-    title: laneBusy ? 'Review delayed ⚠️' : 'Review incomplete ⚠️',
+    kind: laneBusy
+      ? 'lane-busy'
+      : revisionUnavailable
+        ? 'revision-unavailable'
+        : 'partial',
+    title: delayed ? 'Review delayed ⚠️' : 'Review incomplete ⚠️',
     summary: laneBusy
       ? 'ReviewRouter could not complete required coverage because all required provider lanes were busy.'
-      : 'ReviewRouter completed only partial coverage for this revision.',
+      : revisionUnavailable
+        ? 'ReviewRouter temporarily could not verify the current pull request revision.'
+        : 'ReviewRouter completed only partial coverage for this revision.',
     rows: [
       ['Outcome', 'partial'],
       [
         'Reason',
-        laneBusy ? 'provider lanes busy' : 'required coverage incomplete',
+        laneBusy
+          ? 'provider lanes busy'
+          : revisionUnavailable
+            ? 'repository state temporarily unavailable'
+            : 'required coverage incomplete',
       ],
     ],
-    note: laneBusy
+    note: delayed
       ? 'Partial evidence is preserved for retry. This result is not an all-clear.'
       : 'Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.',
-    statusState: laneBusy ? 'pending' : 'failure',
+    statusState: delayed ? 'pending' : 'failure',
     statusDescription: laneBusy
       ? 'Review delayed: provider lanes are busy.'
-      : 'Review incomplete: required coverage did not finish.',
+      : revisionUnavailable
+        ? 'Review delayed: repository state is temporarily unavailable.'
+        : 'Review incomplete: required coverage did not finish.',
   });
 }
 

@@ -50,11 +50,13 @@ export class GitHubReviewRevisionGuard implements ReviewRevisionGuardPort {
     readonly baseSha: string;
     readonly headSha: string;
   }> {
-    const response = await this.client.octokit.rest.pulls.get({
-      owner: this.client.owner,
-      repo: this.client.repo,
-      pull_number: this.scope.pullRequestNumber,
-    });
+    const response = await this.readGitHubRevisionFact(() =>
+      this.client.octokit.rest.pulls.get({
+        owner: this.client.owner,
+        repo: this.client.repo,
+        pull_number: this.scope.pullRequestNumber,
+      })
+    );
     return {
       baseSha: requireCommitSha(response.data.base?.sha, 'base_sha'),
       headSha: requireCommitSha(response.data.head?.sha, 'head_sha'),
@@ -65,13 +67,25 @@ export class GitHubReviewRevisionGuard implements ReviewRevisionGuardPort {
     readonly baseSha: string;
     readonly headSha: string;
   }): Promise<string> {
-    const response =
-      await this.client.octokit.rest.repos.compareCommitsWithBasehead({
+    const response = await this.readGitHubRevisionFact(() =>
+      this.client.octokit.rest.repos.compareCommitsWithBasehead({
         owner: this.client.owner,
         repo: this.client.repo,
         basehead: `${pointer.baseSha}...${pointer.headSha}`,
-      });
+      })
+    );
     return requireCommitSha(response.data.merge_base_commit?.sha, 'merge_base');
+  }
+
+  private async readGitHubRevisionFact<T>(read: () => Promise<T>): Promise<T> {
+    try {
+      return await read();
+    } catch (error) {
+      if (!isTransientGitHubReadError(error)) throw error;
+      throw new Error('review_action_v2_revision_guard_unavailable', {
+        cause: error,
+      });
+    }
   }
 
   private toRevision(
@@ -247,6 +261,48 @@ function requireCommitSha(value: unknown, field: string): string {
     throw new Error(`review_action_v2_${field}_invalid`);
   }
   return value.toLowerCase();
+}
+
+const TRANSIENT_GITHUB_NETWORK_ERROR_CODES = [
+  'EAI_AGAIN',
+  'ECONNABORTED',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENETDOWN',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_SOCKET',
+] as const;
+
+function isTransientGitHubReadError(error: unknown): boolean {
+  const candidate = error as {
+    readonly status?: unknown;
+    readonly code?: unknown;
+    readonly message?: unknown;
+  };
+  const status =
+    typeof candidate?.status === 'number' ? candidate.status : undefined;
+  if (
+    status === 408 ||
+    status === 429 ||
+    (status !== undefined && status >= 500 && status <= 599)
+  ) {
+    return true;
+  }
+  if (
+    status === 403 &&
+    typeof candidate.message === 'string' &&
+    /rate limit|secondary rate limit|abuse detection/i.test(candidate.message)
+  ) {
+    return true;
+  }
+  return (
+    typeof candidate?.code === 'string' &&
+    TRANSIENT_GITHUB_NETWORK_ERROR_CODES.some((code) => code === candidate.code)
+  );
 }
 
 function canonicalJson(value: unknown): string {
