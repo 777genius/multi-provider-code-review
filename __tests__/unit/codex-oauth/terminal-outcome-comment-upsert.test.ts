@@ -98,7 +98,7 @@ describe('Codex OAuth terminal outcome comment upsert', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('updates the first oversized skip comment instead of creating a new one', async () => {
+  it('keeps the first oversized skip comment unchanged instead of posting again', async () => {
     const fetchImpl = jest.fn(async (url, init) => {
       const urlText = String(url);
       if (urlText.startsWith('https://oidc.actions.example/token')) {
@@ -147,16 +147,7 @@ describe('Codex OAuth terminal outcome comment upsert', () => {
     expect(mockGitHubClientConstructor).toHaveBeenCalledWith('comment-token');
     expect(
       mockGitHubClientInstance.octokit.rest.issues.updateComment
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        owner: 'Padelapp-Club',
-        repo: 'monitoring-service',
-        comment_id: 101,
-        body: expect.stringContaining(
-          '<!-- reviewrouter:codex-oauth:terminal:max-changed-lines-exceeded -->'
-        ),
-      })
-    );
+    ).not.toHaveBeenCalled();
     expect(
       mockGitHubClientInstance.octokit.rest.issues.createComment
     ).not.toHaveBeenCalled();
@@ -181,6 +172,72 @@ describe('Codex OAuth terminal outcome comment upsert', () => {
         description: 'Review skipped: PR exceeds configured safety limit.',
       })
     );
+  });
+
+  it('creates the oversized skip comment on the first occurrence', async () => {
+    mockGitHubClientInstance.octokit.paginate.mockResolvedValueOnce([]);
+    const fetchImpl = jest.fn(async (url, init) => {
+      const urlText = String(url);
+      if (urlText.startsWith('https://oidc.actions.example/token')) {
+        expect((init?.headers as Record<string, string>).authorization).toBe(
+          'Bearer runner-oidc-request-token'
+        );
+        return jsonResponse({ value: 'runner-oidc-token' });
+      }
+      if (
+        urlText ===
+        'https://api.reviewrouter.site/api/action/v1/session/exchange'
+      ) {
+        return jsonResponse({
+          protocolVersion: 1,
+          sessionToken: 'action-session-token',
+        });
+      }
+      if (
+        urlText === 'https://api.reviewrouter.site/api/action/v1/comment-token'
+      ) {
+        return jsonResponse({
+          protocolVersion: 1,
+          token: 'comment-token',
+          expiresAt: '2026-07-29T10:00:00.000Z',
+          repository: 'Padelapp-Club/monitoring-service',
+        });
+      }
+      return new Response('{}', { status: 404 });
+    }) as unknown as typeof fetch;
+    process.env = {
+      ...actionEnv({
+        eventPath,
+        outputPath,
+        headRef: 'feature/huge-pr',
+      }),
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runner-oidc-request-token',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.actions.example/token',
+      GITHUB_STEP_SUMMARY: stepSummaryPath,
+      GITHUB_RUN_ID: '123456',
+      GITHUB_SERVER_URL: 'https://github.example.com',
+    };
+
+    await runCodexOAuthRotatingAction({ fetchImpl });
+
+    expect(
+      mockGitHubClientInstance.octokit.rest.issues.createComment
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'Padelapp-Club',
+        repo: 'monitoring-service',
+        issue_number: 1,
+        body: expect.stringContaining(
+          '<!-- reviewrouter:codex-oauth:terminal:max-changed-lines-exceeded -->'
+        ),
+      })
+    );
+    expect(
+      mockGitHubClientInstance.octokit.rest.issues.updateComment
+    ).not.toHaveBeenCalled();
+    expect(
+      mockGitHubClientInstance.octokit.rest.issues.deleteComment
+    ).not.toHaveBeenCalled();
   });
 });
 

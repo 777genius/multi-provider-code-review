@@ -606,12 +606,6 @@ async function upsertTerminalOutcomePullRequestComment(input: {
   );
   const [existing, ...duplicates] = matchingComments;
   if (existing) {
-    await client.octokit.rest.issues.updateComment({
-      owner,
-      repo,
-      comment_id: existing.id,
-      body: input.body,
-    });
     for (const duplicate of duplicates) {
       try {
         await client.octokit.rest.issues.deleteComment({
@@ -625,6 +619,18 @@ async function upsertTerminalOutcomePullRequestComment(input: {
         );
       }
     }
+    if (input.dedupeKey) {
+      core.info(
+        `ReviewRouter terminal outcome comment already exists for ${input.dedupeKey}; keeping the first comment unchanged.`
+      );
+      return;
+    }
+    await client.octokit.rest.issues.updateComment({
+      owner,
+      repo,
+      comment_id: existing.id,
+      body: input.body,
+    });
     return;
   }
   await client.octokit.rest.issues.createComment({
