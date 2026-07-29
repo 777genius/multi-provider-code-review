@@ -7,7 +7,6 @@ import {
 } from '../../control-plane/generated/review-action-v2/provider-invocation-manifest-v1';
 import { CodexProvider } from '../../providers/codex';
 import {
-  describeEnvironmentContract,
   PROVIDER_EXECUTION_CONTRACT_VERSION,
   type PreparedProviderInvocation,
 } from '../../providers/prepared-invocation';
@@ -117,9 +116,6 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
       Object.freeze({ prompt, assignment })
     );
     const request = prepared.request as Readonly<Record<string, unknown>>;
-    const environment = isStringRecord(request.environment)
-      ? request.environment
-      : {};
     const taskKindSet = Object.freeze(
       Array.from(
         new Set([
@@ -235,13 +231,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           : null,
         environmentContractHash: sha256(
           canonicalJson(
-            describeEnvironmentContract(
-              Object.fromEntries(
-                Object.entries(environment).filter(
-                  ([key]) => !key.startsWith('REVIEWROUTER_CONTEXT_')
-                )
-              )
-            )
+            this.provider.describePreparedEnvironmentContract(prepared)
           )
         ),
       }),
@@ -572,17 +562,6 @@ export class SystemReviewOrchestrationDelay implements ReviewOrchestrationDelayP
   async sleep(delayMs: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-}
-
-function isStringRecord(value: unknown): value is Readonly<NodeJS.ProcessEnv> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.values(value).every(
-      (item) => item === undefined || typeof item === 'string'
-    )
-  );
 }
 
 function canonicalJson(value: unknown): string {

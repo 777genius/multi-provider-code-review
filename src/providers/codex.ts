@@ -19,6 +19,7 @@ import {
 } from './review-output';
 import {
   createPreparedProviderInvocation,
+  describeEnvironmentContract,
   mergeCredentialEnvironment,
   type PreparedProviderInvocation,
   type ProviderCredentialLease,
@@ -426,6 +427,19 @@ export class CodexProvider extends Provider {
       this.logNormalizedFailure(normalized);
       throw normalized;
     }
+  }
+
+  describePreparedEnvironmentContract(
+    invocation: PreparedProviderInvocation
+  ): Readonly<Record<string, string>> {
+    const prepared = requirePreparedProviderInvocation<CodexPreparedRequest>(
+      invocation,
+      ProviderKind.CodexCli,
+      this.name
+    );
+    return describeEnvironmentContract(
+      this.observablePreparedEnvironment(prepared.request)
+    );
   }
 
   private logNormalizedFailure(error: Error): void {
@@ -1008,38 +1022,42 @@ export class CodexProvider extends Provider {
     request: CodexPreparedRequest
   ): CodexPreparedRequest | Readonly<Record<string, unknown>> {
     const gateway = request.contextGateway;
-    if (!gateway) return request;
-
-    const runtimeKeys = new Set(Object.keys(gateway.runtimeEnvironment));
-    const environment = Object.fromEntries(
-      Object.entries(request.environment).filter(
-        ([key]) => !runtimeKeys.has(key)
-      )
-    );
+    const environment = this.observablePreparedEnvironment(request);
     const replacements = new Map<string, string>([
       [request.binary, '<codex-binary>'],
       [request.cwd, '<checkout-root>'],
-      [gateway.command, '<context-gateway-command>'],
-      [gateway.cwd, '<checkout-root>'],
-      ...gateway.args.map(
-        (argument, index) =>
-          [argument, `<context-gateway-arg-${index}>`] as const
-      ),
+      ...(gateway
+        ? [
+            [gateway.command, '<context-gateway-command>'] as const,
+            [gateway.cwd, '<checkout-root>'] as const,
+            ...gateway.args.map(
+              (argument, index) =>
+                [argument, `<context-gateway-arg-${index}>`] as const
+            ),
+          ]
+        : []),
     ]);
     const argsTemplate = request.argsTemplate.map((argument) => {
       let normalized = argument;
       for (const [actual, replacement] of replacements) {
-        normalized = normalized.split(actual).join(replacement);
+        if (actual.length > 0) {
+          normalized = normalized.split(actual).join(replacement);
+        }
       }
       return normalized;
     });
 
-    return {
+    const observableRequest = {
       ...request,
       binary: '<codex-binary>',
       cwd: '<checkout-root>',
       argsTemplate,
       environment,
+    };
+    if (!gateway) return observableRequest;
+
+    return {
+      ...observableRequest,
       contextGateway: {
         gatewayBinaryHash: gateway.gatewayBinaryHash,
         gatewayPolicyVersion: gateway.gatewayPolicyVersion,
@@ -1048,6 +1066,42 @@ export class CodexProvider extends Provider {
         confinement: 'mcp_only',
       },
     };
+  }
+
+  private observablePreparedEnvironment(
+    request: CodexPreparedRequest
+  ): Readonly<NodeJS.ProcessEnv> {
+    const runtimeKeys = new Set(
+      Object.keys(request.contextGateway?.runtimeEnvironment ?? {})
+    );
+    const replacements: readonly (readonly [string, string])[] = [
+      ...(path.isAbsolute(request.binary)
+        ? ([[path.dirname(request.binary), '<codex-binary-dir>']] as const)
+        : []),
+      [request.cwd, '<checkout-root>'],
+      ...(request.contextGateway
+        ? ([[request.contextGateway.cwd, '<checkout-root>']] as const)
+        : []),
+    ];
+    return Object.freeze(
+      Object.fromEntries(
+        Object.entries(request.environment)
+          .filter(
+            (entry): entry is [string, string] =>
+              !runtimeKeys.has(entry[0]) && entry[1] !== undefined
+          )
+          .map(([key, value]) => {
+            if (key === 'CODEX_HOME') return [key, '<codex-home>'];
+            let normalized = value;
+            for (const [actual, replacement] of replacements) {
+              if (actual.length > 0) {
+                normalized = normalized.split(actual).join(replacement);
+              }
+            }
+            return [key, normalized];
+          })
+      )
+    );
   }
 
   private validateContextGatewayConfig(

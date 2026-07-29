@@ -42,6 +42,9 @@ describe('Codex T0 prepared invocation', () => {
     });
     const provider = {
       name: 'codex/gpt-test',
+      describePreparedEnvironmentContract: jest
+        .fn()
+        .mockReturnValue({ PATH: '/usr/bin' }),
       prepareInvocation: jest.fn().mockResolvedValue(prepared),
       executePreparedInvocation: jest.fn(async (actual) => {
         expect(actual).toBe(prepared);
@@ -112,6 +115,9 @@ describe('Codex T0 prepared invocation', () => {
     });
     const provider = {
       name: 'codex/gpt-test',
+      describePreparedEnvironmentContract: jest
+        .fn()
+        .mockReturnValue({ PATH: '/usr/bin' }),
       prepareInvocation: jest
         .fn()
         .mockResolvedValueOnce(planningPrepared)
@@ -236,6 +242,9 @@ describe('Codex T0 prepared invocation', () => {
       const runtimePrepared = preparedInvocation('runtime prompt');
       const provider = {
         name: 'codex/gpt-test',
+        describePreparedEnvironmentContract: jest
+          .fn()
+          .mockReturnValue({ PATH: '/usr/bin' }),
         prepareInvocation: jest
           .fn()
           .mockResolvedValueOnce(planningPrepared)
@@ -306,6 +315,9 @@ describe('Codex T0 prepared invocation', () => {
     const runtimePrepared = preparedInvocation('runtime prompt');
     const provider = {
       name: 'codex/gpt-test',
+      describePreparedEnvironmentContract: jest
+        .fn()
+        .mockReturnValue({ PATH: '/usr/bin' }),
       prepareInvocation: jest
         .fn()
         .mockResolvedValueOnce(planningPrepared)
@@ -388,6 +400,9 @@ describe('Codex T0 prepared invocation', () => {
     const runtimePrepared = preparedInvocation('runtime prompt');
     const provider = {
       name: 'codex/gpt-test',
+      describePreparedEnvironmentContract: jest
+        .fn()
+        .mockReturnValue({ PATH: '/usr/bin' }),
       prepareInvocation: jest
         .fn()
         .mockResolvedValueOnce(planningPrepared)
@@ -468,6 +483,9 @@ describe('Codex T0 prepared invocation', () => {
     const runtimePrepared = preparedInvocation('runtime prompt');
     const provider = {
       name: 'codex/gpt-test',
+      describePreparedEnvironmentContract: jest
+        .fn()
+        .mockReturnValue({ PATH: '/usr/bin' }),
       prepareInvocation: jest
         .fn()
         .mockResolvedValueOnce(planningPrepared)
