@@ -186,15 +186,36 @@ export class SynthesisEngine {
     const failures = totalProviders - successes;
 
     const impactText = impactAnalysis
-      ? ` • Impact: ${impactAnalysis.impactLevel}`
+      ? `\n| Impact | ${impactAnalysis.impactLevel} |`
       : '';
     const aiText = aiAnalysis
-      ? ` • AI-likelihood: ${(aiAnalysis.averageLikelihood * 100).toFixed(1)}%`
+      ? `\n| AI-likelihood | ${(aiAnalysis.averageLikelihood * 100).toFixed(1)}% |`
       : '';
+    const status =
+      metrics.totalFindings === 0 && failures === 0
+        ? 'Review complete ✅'
+        : failures > 0
+          ? 'Review complete with warnings ⚠️'
+          : 'Review complete with findings ⚠️';
+    const findingsText = `${formatInteger(metrics.totalFindings)} total (critical ${formatInteger(metrics.critical)}, major ${formatInteger(metrics.major)}, minor ${formatInteger(metrics.minor)})`;
+    const providerText = `${successes}/${totalProviders} succeeded${failures > 0 ? `, ${failures} failed` : ''}`;
+    const note =
+      metrics.totalFindings === 0
+        ? 'No critical, major, or minor findings were reported for this revision.'
+        : 'Inline comments were posted for actionable findings when GitHub accepted their diff positions.';
 
     return [
-      `Review for PR #${pr.number}: ${pr.title}`,
-      `Files: ${pr.files.length} (+${pr.additions}/-${pr.deletions}) • Providers: ${successes}/${totalProviders} succeeded${failures > 0 ? `, ${failures} failed` : ''} • Findings: ${metrics.totalFindings} (C${metrics.critical}/M${metrics.major}/m${metrics.minor})${impactText}${aiText}`,
+      `## ${status}`,
+      '',
+      `PR #${pr.number}: ${pr.title}`,
+      '',
+      '| Item | Result |',
+      '|---|---:|',
+      `| Findings | ${findingsText} |`,
+      `| Reviewed diff | ${formatInteger(pr.files.length)} files, +${formatInteger(pr.additions)} / -${formatInteger(pr.deletions)} |`,
+      `| Providers | ${providerText} |${impactText}${aiText}`,
+      '',
+      `<sub>${note}</sub>`,
     ].join('\n');
   }
 
@@ -384,6 +405,12 @@ export class SynthesisEngine {
       ? `${finding.file}:${finding.startLine}-${finding.endLine}`
       : `${finding.file}:${finding.line}`;
   }
+}
+
+function formatInteger(value: number): string {
+  return Math.trunc(value)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function suggestionToDiff(suggestion: string): string {
