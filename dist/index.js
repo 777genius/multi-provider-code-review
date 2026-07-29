@@ -22188,6 +22188,16 @@ var CodexProvider = class _CodexProvider extends Provider {
       throw normalized;
     }
   }
+  describePreparedEnvironmentContract(invocation) {
+    const prepared = requirePreparedProviderInvocation(
+      invocation,
+      "codex_cli" /* CodexCli */,
+      this.name
+    );
+    return describeEnvironmentContract(
+      this.observablePreparedEnvironment(prepared.request)
+    );
+  }
   logNormalizedFailure(error2) {
     logger.error(`Codex provider failed: ${this.name}`, {
       error: error2.message
@@ -22622,35 +22632,37 @@ var CodexProvider = class _CodexProvider extends Provider {
   }
   observablePreparedRequest(request) {
     const gateway = request.contextGateway;
-    if (!gateway) return request;
-    const runtimeKeys = new Set(Object.keys(gateway.runtimeEnvironment));
-    const environment = Object.fromEntries(
-      Object.entries(request.environment).filter(
-        ([key]) => !runtimeKeys.has(key)
-      )
-    );
+    const environment = this.observablePreparedEnvironment(request);
     const replacements = new Map([
       [request.binary, "<codex-binary>"],
       [request.cwd, "<checkout-root>"],
-      [gateway.command, "<context-gateway-command>"],
-      [gateway.cwd, "<checkout-root>"],
-      ...gateway.args.map(
-        (argument, index) => [argument, `<context-gateway-arg-${index}>`]
-      )
+      ...gateway ? [
+        [gateway.command, "<context-gateway-command>"],
+        [gateway.cwd, "<checkout-root>"],
+        ...gateway.args.map(
+          (argument, index) => [argument, `<context-gateway-arg-${index}>`]
+        )
+      ] : []
     ]);
     const argsTemplate = request.argsTemplate.map((argument) => {
       let normalized = argument;
       for (const [actual, replacement] of replacements) {
-        normalized = normalized.split(actual).join(replacement);
+        if (actual.length > 0) {
+          normalized = normalized.split(actual).join(replacement);
+        }
       }
       return normalized;
     });
-    return {
+    const observableRequest = {
       ...request,
       binary: "<codex-binary>",
       cwd: "<checkout-root>",
       argsTemplate,
-      environment,
+      environment
+    };
+    if (!gateway) return observableRequest;
+    return {
+      ...observableRequest,
       contextGateway: {
         gatewayBinaryHash: gateway.gatewayBinaryHash,
         gatewayPolicyVersion: gateway.gatewayPolicyVersion,
@@ -22659,6 +22671,32 @@ var CodexProvider = class _CodexProvider extends Provider {
         confinement: "mcp_only"
       }
     };
+  }
+  observablePreparedEnvironment(request) {
+    const runtimeKeys = new Set(
+      Object.keys(request.contextGateway?.runtimeEnvironment ?? {})
+    );
+    const replacements = [
+      ...path5.isAbsolute(request.binary) ? [[path5.dirname(request.binary), "<codex-binary-dir>"]] : [],
+      [request.cwd, "<checkout-root>"],
+      ...request.contextGateway ? [[request.contextGateway.cwd, "<checkout-root>"]] : []
+    ];
+    return Object.freeze(
+      Object.fromEntries(
+        Object.entries(request.environment).filter(
+          (entry) => !runtimeKeys.has(entry[0]) && entry[1] !== void 0
+        ).map(([key, value]) => {
+          if (key === "CODEX_HOME") return [key, "<codex-home>"];
+          let normalized = value;
+          for (const [actual, replacement] of replacements) {
+            if (actual.length > 0) {
+              normalized = normalized.split(actual).join(replacement);
+            }
+          }
+          return [key, normalized];
+        })
+      )
+    );
   }
   validateContextGatewayConfig(gateway) {
     if (!path5.isAbsolute(gateway.command) || gateway.args.length !== 1 || !path5.isAbsolute(gateway.args[0]) || !path5.isAbsolute(gateway.cwd) || !/^[a-f0-9]{64}$/u.test(gateway.gatewayBinaryHash) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(gateway.gatewayPolicyVersion)) {
@@ -75132,7 +75170,6 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
       Object.freeze({ prompt, assignment })
     );
     const request = prepared.request;
-    const environment = isStringRecord(request.environment) ? request.environment : {};
     const taskKindSet = Object.freeze(
       Array.from(
         /* @__PURE__ */ new Set([
@@ -75223,13 +75260,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
         ) : null,
         environmentContractHash: sha2569(
           canonicalJson8(
-            describeEnvironmentContract(
-              Object.fromEntries(
-                Object.entries(environment).filter(
-                  ([key]) => !key.startsWith("REVIEWROUTER_CONTEXT_")
-                )
-              )
-            )
+            this.provider.describePreparedEnvironmentContract(prepared)
           )
         )
       })
@@ -75518,11 +75549,6 @@ var SystemReviewOrchestrationDelay = class {
     await new Promise((resolve4) => setTimeout(resolve4, delayMs));
   }
 };
-function isStringRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every(
-    (item) => item === void 0 || typeof item === "string"
-  );
-}
 function canonicalJson8(value) {
   if (value === void 0) return "null";
   if (Array.isArray(value)) return `[${value.map(canonicalJson8).join(",")}]`;

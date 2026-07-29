@@ -18,6 +18,14 @@ jest.mock('child_process', () => ({
 const spawnMock = spawn as unknown as jest.Mock;
 const spawnSyncMock = spawnSync as unknown as jest.Mock;
 
+function overridePrivate(target: object, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    value,
+    writable: true,
+  });
+}
+
 function createMockProcess(onStart?: (proc: any) => void, closeCode = 0): any {
   const proc = new EventEmitter() as any;
   proc.stdout = new EventEmitter();
@@ -308,17 +316,28 @@ describe('CodexProvider', () => {
     expect(prompt).toContain('do not produce final JSON');
   });
 
-  it('keeps gateway session paths and revision hashes out of semantic identity', async () => {
-    process.env.REVIEWROUTER_CODEX_BINARY = process.execPath;
+  it('keeps ephemeral runner paths and gateway session data out of semantic identity', async () => {
     spawnMock.mockImplementation(() => createMockProcess());
     const provider = new CodexProvider('gpt-5.4-mini');
+    overridePrivate(
+      provider,
+      'resolveBinary',
+      jest
+        .fn()
+        .mockResolvedValueOnce('/tmp/codex-install-first/bin/codex')
+        .mockResolvedValueOnce('/tmp/codex-install-second/bin/codex')
+    );
 
+    process.env.CODEX_HOME = '/tmp/codex-home-first';
+    process.env.PATH = '/tmp/codex-install-first/bin:/usr/bin';
     const first = await provider.prepareInvocation(
       'same semantic prompt',
       1_000,
       undefined,
       contextGatewayConfig('first')
     );
+    process.env.CODEX_HOME = '/tmp/codex-home-second';
+    process.env.PATH = '/tmp/codex-install-second/bin:/usr/bin';
     const second = await provider.prepareInvocation(
       'same semantic prompt',
       1_000,
@@ -329,9 +348,79 @@ describe('CodexProvider', () => {
     expect(first.observableInputPreimage).toBe(second.observableInputPreimage);
     expect(first.observableInputPreimage).not.toContain('session-first');
     expect(first.observableInputPreimage).not.toContain('transcript-first');
+    expect(first.observableInputPreimage).not.toContain('codex-home-first');
+    expect(first.observableInputPreimage).not.toContain('codex-install-first');
     expect(first.observableInputPreimage).not.toContain('b'.repeat(40));
+    expect(provider.describePreparedEnvironmentContract(first)).toEqual(
+      provider.describePreparedEnvironmentContract(second)
+    );
     expect(first.request.environment.REVIEWROUTER_CONTEXT_SESSION_ID).toBe(
       'session-first'
+    );
+  });
+
+  it('keeps ephemeral runner paths out of non-gateway semantic identity', async () => {
+    const provider = new CodexProvider('gpt-5.4-mini');
+    overridePrivate(
+      provider,
+      'resolveBinary',
+      jest
+        .fn()
+        .mockResolvedValueOnce('/tmp/codex-install-first/bin/codex')
+        .mockResolvedValueOnce('/tmp/codex-install-second/bin/codex')
+    );
+
+    process.env.CODEX_HOME = '/tmp/codex-home-first';
+    process.env.PATH = '/tmp/codex-install-first/bin:/usr/bin';
+    const first = await provider.prepareInvocation(
+      'same semantic prompt',
+      1_000
+    );
+    process.env.CODEX_HOME = '/tmp/codex-home-second';
+    process.env.PATH = '/tmp/codex-install-second/bin:/usr/bin';
+    const second = await provider.prepareInvocation(
+      'same semantic prompt',
+      1_000
+    );
+
+    expect(first.observableInputPreimage).toBe(second.observableInputPreimage);
+    expect(first.observableInputPreimage).not.toContain('codex-home-first');
+    expect(first.observableInputPreimage).not.toContain('codex-install-first');
+    expect(provider.describePreparedEnvironmentContract(first)).toEqual(
+      provider.describePreparedEnvironmentContract(second)
+    );
+  });
+
+  it('keeps behavior-affecting environment changes in semantic identity', async () => {
+    const provider = new CodexProvider('gpt-5.4-mini');
+    overridePrivate(
+      provider,
+      'resolveBinary',
+      jest.fn().mockResolvedValue('/tmp/codex-install/bin/codex')
+    );
+    process.env.CODEX_HOME = '/tmp/codex-home';
+    process.env.PATH = '/tmp/codex-install/bin:/usr/bin';
+    process.env.LANG = 'C.UTF-8';
+    const first = await provider.prepareInvocation(
+      'same semantic prompt',
+      1_000,
+      undefined,
+      contextGatewayConfig('first')
+    );
+
+    process.env.LANG = 'en_US.UTF-8';
+    const second = await provider.prepareInvocation(
+      'same semantic prompt',
+      1_000,
+      undefined,
+      contextGatewayConfig('second')
+    );
+
+    expect(first.observableInputPreimage).not.toBe(
+      second.observableInputPreimage
+    );
+    expect(provider.describePreparedEnvironmentContract(first)).not.toEqual(
+      provider.describePreparedEnvironmentContract(second)
     );
   });
 
