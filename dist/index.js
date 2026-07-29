@@ -21804,6 +21804,7 @@ var fs5 = __toESM(require("fs/promises"));
 var os2 = __toESM(require("os"));
 var path4 = __toESM(require("path"));
 var CODEX_OAUTH_PINNED_CODEX_PACKAGE = "@openai/codex@0.145.0";
+var CODEX_OAUTH_CLI_INSTALL_TIMEOUT_MS = 3e5;
 async function prepareCodexCliBeforeAuthRead(input = {}) {
   const explicit = process.env.REVIEWROUTER_CODEX_BINARY?.trim();
   if (explicit) {
@@ -21821,7 +21822,7 @@ async function prepareCodexCliBeforeAuthRead(input = {}) {
   );
   await runNpmInstall({
     installRoot,
-    timeoutMs: input.timeoutMs ?? 12e4
+    timeoutMs: input.timeoutMs ?? CODEX_OAUTH_CLI_INSTALL_TIMEOUT_MS
   });
   const binaryPath = path4.join(installRoot, "node_modules", ".bin", "codex");
   await assertCodexBinaryWorks(binaryPath, input.timeoutMs ?? 1e4);

@@ -272,7 +272,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Install Codex CLI
-        if: ${{ inputs.review_action_lane == 'legacy' && steps.runtime.outputs.can_run == 'true' && steps.provider-tooling.outputs.codex_cli_needed == 'true' }}
+        if: ${{ steps.runtime.outputs.can_run == 'true' && steps.provider-tooling.outputs.codex_cli_needed == 'true' }}
         shell: bash
         run: npm install -g @openai/codex@0.145.0
 

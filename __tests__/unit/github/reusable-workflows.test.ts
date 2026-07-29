@@ -248,7 +248,15 @@ describe('production reusable workflows', () => {
     expect(workflowSource).not.toContain('REVIEW_ROUTER_THREAD_RESOLVE_TOKEN');
 
     expect(t0Run?.if).toContain("inputs.review_action_lane == 't0'");
-    expect(codexInstall?.if).toContain("inputs.review_action_lane == 'legacy'");
+    expect(codexInstall?.if).toContain(
+      "steps.runtime.outputs.can_run == 'true'"
+    );
+    expect(codexInstall?.if).toContain(
+      "steps.provider-tooling.outputs.codex_cli_needed == 'true'"
+    );
+    expect(codexInstall?.if).not.toContain(
+      "inputs.review_action_lane == 'legacy'"
+    );
     expect(codexAuthRestore?.if).toContain(
       "inputs.review_action_lane == 'legacy'"
     );

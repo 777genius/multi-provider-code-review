@@ -5,6 +5,8 @@ import * as path from 'path';
 
 export const CODEX_OAUTH_PINNED_CODEX_PACKAGE = '@openai/codex@0.145.0';
 
+const CODEX_OAUTH_CLI_INSTALL_TIMEOUT_MS = 300_000;
+
 export type PreparedCodexCli = {
   binaryPath: string;
   clear?(): Promise<void>;
@@ -39,7 +41,7 @@ export async function prepareCodexCliBeforeAuthRead(
   );
   await runNpmInstall({
     installRoot,
-    timeoutMs: input.timeoutMs ?? 120_000,
+    timeoutMs: input.timeoutMs ?? CODEX_OAUTH_CLI_INSTALL_TIMEOUT_MS,
   });
   const binaryPath = path.join(installRoot, 'node_modules', '.bin', 'codex');
   await assertCodexBinaryWorks(binaryPath, input.timeoutMs ?? 10_000);
