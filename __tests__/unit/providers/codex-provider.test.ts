@@ -424,21 +424,21 @@ describe('CodexProvider', () => {
     );
   });
 
-  it('accepts only one unambiguous session-configured actual model', () => {
+  it('distinguishes missing, observed, and ambiguous model telemetry', () => {
     const provider = new CodexProvider('gpt-5.4-mini');
-    const extract = (stdout: string) =>
-      (provider as any).extractActualModel(stdout);
+    const inspect = (stdout: string) =>
+      (provider as any).inspectActualModel(stdout);
 
     expect(
-      extract(
+      inspect(
         `${JSON.stringify({
           type: 'session_configured',
           model: 'gpt-5.6-codex',
         })}\n`
       )
-    ).toBe('gpt-5.6-codex');
+    ).toEqual({ kind: 'observed', model: 'gpt-5.6-codex' });
     expect(
-      extract(
+      inspect(
         [
           JSON.stringify({
             type: 'session_configured',
@@ -450,10 +450,10 @@ describe('CodexProvider', () => {
           }),
         ].join('\n')
       )
-    ).toBeUndefined();
+    ).toEqual({ kind: 'ambiguous' });
     expect(
-      extract(JSON.stringify({ type: 'thread.started', model: 'forged' }))
-    ).toBeUndefined();
+      inspect(JSON.stringify({ type: 'thread.started', model: 'forged' }))
+    ).toEqual({ kind: 'missing' });
   });
 
   it('sanitizes spawned Codex environment', () => {
@@ -1332,6 +1332,93 @@ describe('CodexProvider', () => {
 
     expect(result.content).toBe('{"findings":[],"revalidations":[]}');
     expect(result.findings).toEqual([]);
+  });
+
+  it('uses the pinned native Codex model when JSONL omits session configuration', async () => {
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('--version')) {
+        return createMockProcess();
+      }
+
+      return createMockProcess(() => {
+        const outputIndex = args.indexOf('--output-last-message');
+        fs.writeFileSync(
+          args[outputIndex + 1],
+          '{"findings":[],"revalidations":[]}'
+        );
+      });
+    });
+
+    const provider = new CodexProvider('gpt-5.6-sol', {
+      agenticContext: false,
+    });
+
+    const result = await provider.review('review prompt', 1000);
+
+    expect(result.actualModel).toBe('gpt-5.6-sol');
+  });
+
+  it('does not infer a native model from ambiguous session telemetry', async () => {
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('--version')) {
+        return createMockProcess();
+      }
+
+      return createMockProcess((proc) => {
+        const outputIndex = args.indexOf('--output-last-message');
+        fs.writeFileSync(
+          args[outputIndex + 1],
+          '{"findings":[],"revalidations":[]}'
+        );
+        proc.stdout.emit(
+          'data',
+          [
+            JSON.stringify({
+              type: 'session_configured',
+              model: 'gpt-5.6-sol',
+            }),
+            JSON.stringify({
+              type: 'session_configured',
+              model: 'gpt-5.5',
+            }),
+          ].join('\n')
+        );
+      });
+    });
+
+    const provider = new CodexProvider('gpt-5.6-sol', {
+      agenticContext: false,
+    });
+
+    const result = await provider.review('review prompt', 1000);
+
+    expect(result.actualModel).toBeUndefined();
+  });
+
+  it('does not infer an actual model for routed OpenRouter executions', async () => {
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('--version')) {
+        return createMockProcess();
+      }
+
+      return createMockProcess(() => {
+        const outputIndex = args.indexOf('--output-last-message');
+        fs.writeFileSync(
+          args[outputIndex + 1],
+          '{"findings":[],"revalidations":[]}'
+        );
+      });
+    });
+
+    const provider = new CodexProvider('openai/gpt-5.6-sol', {
+      agenticContext: false,
+      modelProvider: 'openrouter',
+      providerNamePrefix: 'codex-openrouter',
+    });
+
+    const result = await provider.review('review prompt', 1000);
+
+    expect(result.actualModel).toBeUndefined();
   });
 
   it('re-clamps the deadline immediately before the initial Codex invocation', async () => {

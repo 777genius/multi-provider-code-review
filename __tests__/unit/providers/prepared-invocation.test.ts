@@ -173,6 +173,7 @@ describe('prepared provider invocation contract', () => {
       stdout: '',
       stderr: '',
       lastMessage: JSON.stringify({ findings: [], revalidations: [] }),
+      actualModelObservation: { kind: 'missing' },
     });
     overridePrivate(codex, 'runCliWithStdin', codexRun);
     await codex.executePreparedInvocation(codexPrepared, {

@@ -217,8 +217,8 @@ describe('Codex T0 prepared invocation', () => {
         'context_attestation_unavailable',
         'cross_revision_reuse_disabled',
       ],
-      expectedSealCalls: 1,
-      expectedSealedModel: 'gpt-test',
+      expectedSealCalls: 0,
+      expectedSealedModel: undefined,
     },
     {
       name: 'the gateway has no reusable dependencies',
@@ -302,10 +302,12 @@ describe('Codex T0 prepared invocation', () => {
       expect(observation.contextDependencyAttestationId).toBeUndefined();
       expect(observation.contextDependencyAttestationHash).toBeUndefined();
       expect(session.seal).toHaveBeenCalledTimes(expectedSealCalls);
-      expect(session.seal).toHaveBeenCalledWith({
-        actualModel: expectedSealedModel,
-        terminalOutcomeHash: observation.payloadHash,
-      });
+      if (expectedSealedModel) {
+        expect(session.seal).toHaveBeenCalledWith({
+          actualModel: expectedSealedModel,
+          terminalOutcomeHash: observation.payloadHash,
+        });
+      }
       expect(session.dispose).toHaveBeenCalledTimes(1);
     }
   );

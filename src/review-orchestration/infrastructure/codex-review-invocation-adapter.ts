@@ -311,7 +311,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
       );
       logger.info(
         `Codex execution model: requested=${input.invocation.requestedModel}, actual=${
-          result.actualModel ?? input.invocation.requestedModel
+          result.actualModel ?? 'unreported'
         }`
       );
       const initial = normalizeReviewObservation({
@@ -322,13 +322,28 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
         result,
         qualityFlags: result.actualModel ? [] : ['provider_warning'],
       });
-      const providerQualityFlags = result.actualModel
-        ? []
-        : ['provider_warning'];
+      const actualModel = result.actualModel;
+      if (!actualModel) {
+        logger.warn(
+          'Codex actual model unavailable; preserving fresh review as non-reusable'
+        );
+        return normalizeReviewObservation({
+          workSlotId: input.invocation.workSlotId,
+          attemptOrdinal: input.invocation.attemptOrdinal,
+          providerName: input.invocation.provider,
+          requestedModel: input.invocation.requestedModel,
+          result,
+          qualityFlags: [
+            'provider_warning',
+            'context_attestation_unavailable',
+            'cross_revision_reuse_disabled',
+          ],
+        });
+      }
 
       try {
         const attestation = await session.seal({
-          actualModel: result.actualModel ?? input.invocation.requestedModel,
+          actualModel,
           terminalOutcomeHash: initial.payloadHash,
         });
         if (attestation) {
@@ -343,9 +358,8 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           requestedModel: input.invocation.requestedModel,
           result,
           qualityFlags: attestation
-            ? providerQualityFlags
+            ? []
             : [
-                ...providerQualityFlags,
                 'context_attestation_unavailable',
                 'cross_revision_reuse_disabled',
               ],
@@ -360,7 +374,6 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
             requestedModel: input.invocation.requestedModel,
             result,
             qualityFlags: [
-              ...providerQualityFlags,
               'context_inspection_incomplete',
               'cross_revision_reuse_disabled',
             ],
@@ -383,7 +396,6 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           requestedModel: input.invocation.requestedModel,
           result,
           qualityFlags: [
-            ...providerQualityFlags,
             'context_attestation_unavailable',
             'cross_revision_reuse_disabled',
           ],
