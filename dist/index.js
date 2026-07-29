@@ -77433,38 +77433,46 @@ var GitHubReviewRevisionGuard = class {
     this.scope = scope;
   }
   async loadCurrentRevision() {
-    try {
-      const before = await this.loadPointer();
-      const mergeBaseSha = await this.loadMergeBase(before);
-      const after = await this.loadPointer();
-      if (before.baseSha === after.baseSha && before.headSha === after.headSha) {
-        return this.toRevision(before, mergeBaseSha);
-      }
-      return this.toRevision(after, await this.loadMergeBase(after));
-    } catch (error2) {
-      throw new Error("review_action_v2_revision_guard_unavailable", {
-        cause: error2
-      });
+    const before = await this.loadPointer();
+    const mergeBaseSha = await this.loadMergeBase(before);
+    const after = await this.loadPointer();
+    if (before.baseSha === after.baseSha && before.headSha === after.headSha) {
+      return this.toRevision(before, mergeBaseSha);
     }
+    return this.toRevision(after, await this.loadMergeBase(after));
   }
   async loadPointer() {
-    const response = await this.client.octokit.rest.pulls.get({
-      owner: this.client.owner,
-      repo: this.client.repo,
-      pull_number: this.scope.pullRequestNumber
-    });
+    const response = await this.readGitHubRevisionFact(
+      () => this.client.octokit.rest.pulls.get({
+        owner: this.client.owner,
+        repo: this.client.repo,
+        pull_number: this.scope.pullRequestNumber
+      })
+    );
     return {
       baseSha: requireCommitSha(response.data.base?.sha, "base_sha"),
       headSha: requireCommitSha(response.data.head?.sha, "head_sha")
     };
   }
   async loadMergeBase(pointer) {
-    const response = await this.client.octokit.rest.repos.compareCommitsWithBasehead({
-      owner: this.client.owner,
-      repo: this.client.repo,
-      basehead: `${pointer.baseSha}...${pointer.headSha}`
-    });
+    const response = await this.readGitHubRevisionFact(
+      () => this.client.octokit.rest.repos.compareCommitsWithBasehead({
+        owner: this.client.owner,
+        repo: this.client.repo,
+        basehead: `${pointer.baseSha}...${pointer.headSha}`
+      })
+    );
     return requireCommitSha(response.data.merge_base_commit?.sha, "merge_base");
+  }
+  async readGitHubRevisionFact(read) {
+    try {
+      return await read();
+    } catch (error2) {
+      if (!isTransientGitHubReadError(error2)) throw error2;
+      throw new Error("review_action_v2_revision_guard_unavailable", {
+        cause: error2
+      });
+    }
   }
   toRevision(pointer, mergeBaseSha) {
     const facts = {
@@ -77598,6 +77606,30 @@ function requireCommitSha(value, field) {
     throw new Error(`review_action_v2_${field}_invalid`);
   }
   return value.toLowerCase();
+}
+var TRANSIENT_GITHUB_NETWORK_ERROR_CODES = [
+  "EAI_AGAIN",
+  "ECONNABORTED",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET"
+];
+function isTransientGitHubReadError(error2) {
+  const candidate = error2;
+  const status = typeof candidate?.status === "number" ? candidate.status : void 0;
+  if (status === 408 || status === 429 || status !== void 0 && status >= 500 && status <= 599) {
+    return true;
+  }
+  if (status === 403 && typeof candidate.message === "string" && /rate limit|secondary rate limit|abuse detection/i.test(candidate.message)) {
+    return true;
+  }
+  return typeof candidate?.code === "string" && TRANSIENT_GITHUB_NETWORK_ERROR_CODES.some((code) => code === candidate.code);
 }
 function canonicalJson10(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson10).join(",")}]`;
