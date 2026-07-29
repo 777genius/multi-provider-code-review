@@ -26,7 +26,7 @@ describe('production review projection coverage', () => {
     expect(envelope.projectionPolicyVersion).toBe(
       'review-projection-policy.v4-t0'
     );
-    expect(summary).toContain('Providers: 1/1 succeeded');
+    expect(summary).toContain('| Providers | 1/1 succeeded |');
     expect(summary).not.toContain('1 failed');
   });
 
@@ -42,7 +42,7 @@ describe('production review projection coverage', () => {
 
     expect(envelope.coverage.state).toBe('partial');
     expect(envelope.publishing.summary.body).toContain(
-      'Providers: 0/1 succeeded, 1 failed'
+      '| Providers | 0/1 succeeded, 1 failed |'
     );
   });
 
@@ -65,8 +65,8 @@ describe('production review projection coverage', () => {
     const summary = JSON.parse(projection.projectionEnvelopeCanonicalJson)
       .publishing.summary.body;
 
-    expect(summary).toContain('Providers: 0/1 succeeded, 1 failed');
-    expect(summary).not.toContain('Providers: 1/2');
+    expect(summary).toContain('| Providers | 0/1 succeeded, 1 failed |');
+    expect(summary).not.toContain('| Providers | 1/2');
   });
 
   it('reports 0/0 only when no required provider slots were planned', async () => {
@@ -80,7 +80,7 @@ describe('production review projection coverage', () => {
     const summary = JSON.parse(projection.projectionEnvelopeCanonicalJson)
       .publishing.summary.body;
 
-    expect(summary).toContain('Providers: 0/0 succeeded');
+    expect(summary).toContain('| Providers | 0/0 succeeded |');
   });
 
   it('makes required-slot coverage partial when context inspection is incomplete', async () => {
@@ -155,7 +155,7 @@ describe('production review projection coverage', () => {
       limitations: [],
     });
     expect(envelope.publishing.summary.body).toContain(
-      'Providers: 1/1 succeeded'
+      '| Providers | 1/1 succeeded |'
     );
   });
 

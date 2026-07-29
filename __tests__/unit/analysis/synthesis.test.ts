@@ -110,6 +110,46 @@ describe('SynthesisEngine', () => {
     });
   });
 
+  it('renders a clear compact summary for all-clear reviews', () => {
+    const review = new SynthesisEngine(
+      DEFAULT_CONFIG
+    ).synthesizeWithProviderExecutionSummary(
+      [],
+      {
+        ...pr,
+        files: [
+          {
+            filename: 'src/app.ts',
+            status: 'modified',
+            additions: 1446,
+            deletions: 302,
+            changes: 1748,
+          },
+        ],
+        additions: 1446,
+        deletions: 302,
+      },
+      {
+        planned: 1,
+        succeeded: 1,
+      }
+    );
+
+    expect(review.summary).toContain('## Review complete ✅');
+    expect(review.summary).toContain(
+      '| Findings | 0 total (critical 0, major 0, minor 0) |'
+    );
+    expect(review.summary).toContain(
+      '| Reviewed diff | 1 files, +1,446 / -302 |'
+    );
+    expect(review.summary).toContain('| Providers | 1/1 succeeded |');
+    expect(review.summary).toContain(
+      '<sub>No critical, major, or minor findings were reported for this revision.</sub>'
+    );
+    expect(review.summary).not.toContain('Review for PR #1');
+    expect(review.summary).not.toContain('Providers: 1/1 succeeded');
+  });
+
   it('sorts inline comments by severity before applying the inline limit', () => {
     const findings: Finding[] = [
       {

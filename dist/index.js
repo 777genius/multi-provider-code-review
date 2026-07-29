@@ -26942,11 +26942,26 @@ var SynthesisEngine = class {
     const totalProviders = metrics.providersUsed;
     const successes = metrics.providersSuccess;
     const failures = totalProviders - successes;
-    const impactText = impactAnalysis ? ` \u2022 Impact: ${impactAnalysis.impactLevel}` : "";
-    const aiText = aiAnalysis ? ` \u2022 AI-likelihood: ${(aiAnalysis.averageLikelihood * 100).toFixed(1)}%` : "";
+    const impactText = impactAnalysis ? `
+| Impact | ${impactAnalysis.impactLevel} |` : "";
+    const aiText = aiAnalysis ? `
+| AI-likelihood | ${(aiAnalysis.averageLikelihood * 100).toFixed(1)}% |` : "";
+    const status = metrics.totalFindings === 0 && failures === 0 ? "Review complete \u2705" : failures > 0 ? "Review complete with warnings \u26A0\uFE0F" : "Review complete with findings \u26A0\uFE0F";
+    const findingsText = `${formatInteger(metrics.totalFindings)} total (critical ${formatInteger(metrics.critical)}, major ${formatInteger(metrics.major)}, minor ${formatInteger(metrics.minor)})`;
+    const providerText = `${successes}/${totalProviders} succeeded${failures > 0 ? `, ${failures} failed` : ""}`;
+    const note = metrics.totalFindings === 0 ? "No critical, major, or minor findings were reported for this revision." : "Inline comments were posted for actionable findings when GitHub accepted their diff positions.";
     return [
-      `Review for PR #${pr2.number}: ${pr2.title}`,
-      `Files: ${pr2.files.length} (+${pr2.additions}/-${pr2.deletions}) \u2022 Providers: ${successes}/${totalProviders} succeeded${failures > 0 ? `, ${failures} failed` : ""} \u2022 Findings: ${metrics.totalFindings} (C${metrics.critical}/M${metrics.major}/m${metrics.minor})${impactText}${aiText}`
+      `## ${status}`,
+      "",
+      `PR #${pr2.number}: ${pr2.title}`,
+      "",
+      "| Item | Result |",
+      "|---|---:|",
+      `| Findings | ${findingsText} |`,
+      `| Reviewed diff | ${formatInteger(pr2.files.length)} files, +${formatInteger(pr2.additions)} / -${formatInteger(pr2.deletions)} |`,
+      `| Providers | ${providerText} |${impactText}${aiText}`,
+      "",
+      `<sub>${note}</sub>`
     ].join("\n");
   }
   buildInlineComments(findings) {
@@ -27095,6 +27110,9 @@ ${fence}`;
     return finding.startLine !== void 0 && finding.endLine !== void 0 && finding.startLine < finding.endLine ? `${finding.file}:${finding.startLine}-${finding.endLine}` : `${finding.file}:${finding.line}`;
   }
 };
+function formatInteger(value) {
+  return Math.trunc(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
 function suggestionToDiff(suggestion) {
   return suggestion.trimEnd().split("\n").map((line) => `+${line}`).join("\n");
 }
@@ -80634,6 +80652,8 @@ function buildSkippedTerminalOutcomeReport(inputs, runtime) {
     return terminalOutcomeReport({
       inputs,
       kind: "skipped",
+      marker: "<!-- reviewrouter:codex-oauth:terminal:max-changed-lines-exceeded -->",
+      dedupeKey: "max_changed_lines_exceeded",
       title: "Review skipped \u26A0\uFE0F",
       summary: "ReviewRouter did not start a model review for this revision because the PR is larger than the configured safety limit.",
       rows: [
@@ -80700,7 +80720,7 @@ function buildV2TerminalOutcomeReport(inputs, review) {
   });
 }
 function terminalOutcomeReport(input) {
-  const marker = `<!-- reviewrouter:codex-oauth:terminal:${input.inputs.headSha}:${input.kind} -->`;
+  const marker = input.marker ?? `<!-- reviewrouter:codex-oauth:terminal:${input.inputs.headSha}:${input.kind} -->`;
   const targetUrl = githubRunUrl(input.inputs);
   const table = [
     "| Field | Value |",
@@ -80718,6 +80738,7 @@ function terminalOutcomeReport(input) {
   ].join("\n");
   return {
     marker,
+    ...input.dedupeKey ? { dedupeKey: input.dedupeKey } : {},
     body: `${marker}
 
 ${visible}`,
@@ -80805,6 +80826,7 @@ function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
         pullRequestNumber: input.inputs.pullRequestNumber,
         token,
         marker: report.marker,
+        ...report.dedupeKey ? { dedupeKey: report.dedupeKey } : {},
         body: report.body
       });
       await createTerminalOutcomeCommitStatusSafely({
@@ -80857,9 +80879,10 @@ async function upsertTerminalOutcomePullRequestComment(input) {
       per_page: 100
     }
   );
-  const existing = comments.find(
-    (comment) => (comment.body ?? "").includes(input.marker)
+  const matchingComments = comments.filter(
+    (comment) => isTerminalOutcomeCommentMatch(comment.body ?? "", input)
   );
+  const [existing, ...duplicates] = matchingComments;
   if (existing) {
     await client.octokit.rest.issues.updateComment({
       owner,
@@ -80867,6 +80890,19 @@ async function upsertTerminalOutcomePullRequestComment(input) {
       comment_id: existing.id,
       body: input.body
     });
+    for (const duplicate of duplicates) {
+      try {
+        await client.octokit.rest.issues.deleteComment({
+          owner,
+          repo,
+          comment_id: duplicate.id
+        });
+      } catch (error2) {
+        warning(
+          `ReviewRouter could not delete duplicate terminal outcome comment: ${safeTerminalOutcomeError(error2)}`
+        );
+      }
+    }
     return;
   }
   await client.octokit.rest.issues.createComment({
@@ -80875,6 +80911,20 @@ async function upsertTerminalOutcomePullRequestComment(input) {
     issue_number: input.pullRequestNumber,
     body: input.body
   });
+}
+function isTerminalOutcomeCommentMatch(body, input) {
+  if (body.includes(input.marker)) return true;
+  if (input.dedupeKey === "max_changed_lines_exceeded") {
+    return isLegacyMaxChangedLinesSkippedComment(body);
+  }
+  return false;
+}
+function isLegacyMaxChangedLinesSkippedComment(body) {
+  return /<!--\s*reviewrouter:codex-oauth:terminal:[a-f0-9]{40}:skipped\s*-->/i.test(
+    body
+  ) && body.includes("## Review skipped") && body.includes(
+    "ReviewRouter did not start a model review for this revision because the PR is larger than the configured safety limit."
+  ) && body.includes("| Configured limit |");
 }
 async function deleteTerminalOutcomePullRequestComments(input) {
   const client = new GitHubClient(input.token);

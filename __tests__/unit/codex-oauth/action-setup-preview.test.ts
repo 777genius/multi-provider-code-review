@@ -169,7 +169,8 @@ describe('Codex OAuth rotating setup PR preview', () => {
     expect(terminalOutcomeReporter.post).toHaveBeenCalledWith(
       expect.objectContaining({
         marker:
-          '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:skipped -->',
+          '<!-- reviewrouter:codex-oauth:terminal:max-changed-lines-exceeded -->',
+        dedupeKey: 'max_changed_lines_exceeded',
         body: expect.stringContaining(
           'ReviewRouter did not start a model review'
         ),
