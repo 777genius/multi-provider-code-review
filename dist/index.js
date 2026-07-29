@@ -11938,6 +11938,17 @@ var require_dist = __commonJS({
 });
 
 // src/actions/core.ts
+var core_exports = {};
+__export(core_exports, {
+  debug: () => debug,
+  error: () => error,
+  getInput: () => getInput,
+  info: () => info,
+  setFailed: () => setFailed,
+  setOutput: () => setOutput,
+  setSecret: () => setSecret,
+  warning: () => warning
+});
 var fs = __toESM(require("fs"));
 function getInput(name, options = {}) {
   const envName = `INPUT_${name.replace(/ /g, "_").toUpperCase()}`;
@@ -53015,6 +53026,202 @@ function assertScmReadToken(token, expectedRepository) {
   }
 }
 
+// src/codex-oauth/terminal-outcome-publication.ts
+var TerminalOutcomePublicationUseCase = class {
+  constructor(input) {
+    this.input = input;
+  }
+  async post(report) {
+    await this.upsertPullRequestComment(report);
+    await this.createCommitStatusSafely(report.commitStatus);
+  }
+  async clear(_request) {
+    const comments = await this.input.github.listPullRequestComments({
+      repository: this.input.context.repository,
+      pullRequestNumber: this.input.context.pullRequestNumber
+    });
+    const terminalComments = comments.filter(
+      (comment) => (comment.body ?? "").includes("<!-- reviewrouter:codex-oauth:terminal:")
+    );
+    for (const comment of terminalComments) {
+      await this.input.github.deletePullRequestComment({
+        repository: this.input.context.repository,
+        commentId: comment.id
+      });
+    }
+  }
+  async status(status) {
+    await this.createCommitStatusSafely(status);
+  }
+  async upsertPullRequestComment(report) {
+    const comments = await this.input.github.listPullRequestComments({
+      repository: this.input.context.repository,
+      pullRequestNumber: this.input.context.pullRequestNumber
+    });
+    const matchingComments = comments.filter(
+      (comment) => isTerminalOutcomeCommentMatch(comment.body ?? "", report)
+    );
+    const [existing, ...duplicates] = matchingComments;
+    if (existing) {
+      for (const duplicate of duplicates) {
+        try {
+          await this.input.github.deletePullRequestComment({
+            repository: this.input.context.repository,
+            commentId: duplicate.id
+          });
+        } catch (error2) {
+          this.warning(
+            `ReviewRouter could not delete duplicate terminal outcome comment: ${safeTerminalOutcomeError(error2)}`
+          );
+        }
+      }
+      if (report.dedupeKey) {
+        this.info(
+          `ReviewRouter terminal outcome comment already exists for ${report.dedupeKey}; keeping the first comment unchanged.`
+        );
+        return;
+      }
+      await this.input.github.updatePullRequestComment({
+        repository: this.input.context.repository,
+        commentId: existing.id,
+        body: report.body
+      });
+      return;
+    }
+    await this.input.github.createPullRequestComment({
+      repository: this.input.context.repository,
+      pullRequestNumber: this.input.context.pullRequestNumber,
+      body: report.body
+    });
+  }
+  async createCommitStatusSafely(status) {
+    try {
+      await this.input.github.createCommitStatus({
+        repository: this.input.context.repository,
+        headSha: this.input.context.headSha,
+        status
+      });
+      this.info(`ReviewRouter published ${status.context} commit status.`);
+    } catch (error2) {
+      this.warning(
+        `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error2)}`
+      );
+    }
+  }
+  info(message) {
+    (this.input.logger ?? core_exports).info(message);
+  }
+  warning(message) {
+    (this.input.logger ?? core_exports).warning(message);
+  }
+};
+var GitHubTerminalOutcomePublicationAdapter = class {
+  client;
+  constructor(token) {
+    this.client = new GitHubClient(token);
+  }
+  async listPullRequestComments(input) {
+    const repository = this.resolveRepository(input.repository);
+    return await this.client.octokit.paginate(
+      this.client.octokit.rest.issues.listComments,
+      {
+        ...repository,
+        issue_number: input.pullRequestNumber,
+        per_page: 100
+      }
+    );
+  }
+  async createPullRequestComment(input) {
+    const repository = this.resolveRepository(input.repository);
+    await this.client.octokit.rest.issues.createComment({
+      ...repository,
+      issue_number: input.pullRequestNumber,
+      body: input.body
+    });
+  }
+  async updatePullRequestComment(input) {
+    const repository = this.resolveRepository(input.repository);
+    await this.client.octokit.rest.issues.updateComment({
+      ...repository,
+      comment_id: input.commentId,
+      body: input.body
+    });
+  }
+  async deletePullRequestComment(input) {
+    const repository = this.resolveRepository(input.repository);
+    await this.client.octokit.rest.issues.deleteComment({
+      ...repository,
+      comment_id: input.commentId
+    });
+  }
+  async createCommitStatus(input) {
+    const repository = this.resolveRepository(input.repository);
+    await this.client.octokit.rest.repos.createCommitStatus({
+      ...repository,
+      sha: input.headSha,
+      state: input.status.state,
+      context: input.status.context,
+      description: input.status.description,
+      ...input.status.targetUrl ? { target_url: input.status.targetUrl } : {}
+    });
+  }
+  resolveRepository(repository) {
+    const [repositoryOwner, repositoryName] = repository.split("/");
+    return {
+      owner: repositoryOwner || this.client.owner,
+      repo: repositoryName || this.client.repo
+    };
+  }
+};
+function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
+  const requestActionCommentToken = async () => {
+    const oidcToken = await input.oidc.requestToken(input.audience);
+    const session = await input.controlPlane.actionSession({
+      oidcToken,
+      audience: input.audience
+    });
+    const commentToken = await input.controlPlane.actionCommentToken({
+      sessionToken: session.sessionToken
+    });
+    return commentToken.token;
+  };
+  const createUseCase = async () => new TerminalOutcomePublicationUseCase({
+    context: input.context,
+    github: new GitHubTerminalOutcomePublicationAdapter(
+      await requestActionCommentToken()
+    )
+  });
+  return {
+    async post(report) {
+      await (await createUseCase()).post(report);
+    },
+    async clear(request) {
+      await (await createUseCase()).clear(request);
+    },
+    async status(status) {
+      await (await createUseCase()).status(status);
+    }
+  };
+}
+function isTerminalOutcomeCommentMatch(body, input) {
+  if (body.includes(input.marker)) return true;
+  if (input.dedupeKey === "max_changed_lines_exceeded") {
+    return isLegacyMaxChangedLinesSkippedComment(body);
+  }
+  return false;
+}
+function isLegacyMaxChangedLinesSkippedComment(body) {
+  return /<!--\s*reviewrouter:codex-oauth:terminal:[a-f0-9]{40}:skipped\s*-->/i.test(
+    body
+  ) && body.includes("## Review skipped") && body.includes(
+    "ReviewRouter did not start a model review for this revision because the PR is larger than the configured safety limit."
+  ) && body.includes("| Configured limit |");
+}
+function safeTerminalOutcomeError(error2) {
+  const message = error2 instanceof Error ? error2.message : "unknown_error";
+  return message.replace(/ghs_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/gh[pousr]_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/github_pat_[A-Za-z0-9_]+/g, "[redacted-github-token]").slice(0, 160);
+}
+
 // src/codex-oauth/safe-checkout.ts
 var import_child_process11 = require("child_process");
 var fs19 = __toESM(require("fs/promises"));
@@ -80550,7 +80757,12 @@ async function runCodexOAuthRotatingAction(options = {}) {
     }
   };
   const terminalOutcomeReporter = options.terminalOutcomeReporter ?? createDefaultCodexOAuthTerminalOutcomeReporter({
-    inputs,
+    context: {
+      repository: inputs.repository,
+      pullRequestNumber: inputs.pullRequestNumber,
+      headSha: inputs.headSha
+    },
+    audience: inputs.audience,
     controlPlane,
     oidc: new GitHubActionsOidcTokenProvider({
       env: terminalOutcomeOidcEnv,
@@ -80806,55 +81018,6 @@ async function clearTerminalOutcomeReportsSafely(reporter, request) {
     );
   }
 }
-function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
-  const requestActionCommentToken = async () => {
-    const oidcToken = await input.oidc.requestToken(input.inputs.audience);
-    const session = await input.controlPlane.actionSession({
-      oidcToken,
-      audience: input.inputs.audience
-    });
-    const commentToken = await input.controlPlane.actionCommentToken({
-      sessionToken: session.sessionToken
-    });
-    return commentToken.token;
-  };
-  return {
-    async post(report) {
-      const token = await requestActionCommentToken();
-      await upsertTerminalOutcomePullRequestComment({
-        repository: input.inputs.repository,
-        pullRequestNumber: input.inputs.pullRequestNumber,
-        token,
-        marker: report.marker,
-        ...report.dedupeKey ? { dedupeKey: report.dedupeKey } : {},
-        body: report.body
-      });
-      await createTerminalOutcomeCommitStatusSafely({
-        repository: input.inputs.repository,
-        headSha: input.inputs.headSha,
-        token,
-        status: report.commitStatus
-      });
-    },
-    async clear() {
-      const token = await requestActionCommentToken();
-      await deleteTerminalOutcomePullRequestComments({
-        repository: input.inputs.repository,
-        pullRequestNumber: input.inputs.pullRequestNumber,
-        token
-      });
-    },
-    async status(status) {
-      const token = await requestActionCommentToken();
-      await createTerminalOutcomeCommitStatusSafely({
-        repository: input.inputs.repository,
-        headSha: input.inputs.headSha,
-        token,
-        status
-      });
-    }
-  };
-}
 function snapshotCodexOAuthTerminalOutcomeOidcEnv(env = process.env) {
   const snapshot = {};
   if (env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
@@ -80864,120 +81027,6 @@ function snapshotCodexOAuthTerminalOutcomeOidcEnv(env = process.env) {
     snapshot.ACTIONS_ID_TOKEN_REQUEST_URL = env.ACTIONS_ID_TOKEN_REQUEST_URL;
   }
   return snapshot;
-}
-async function upsertTerminalOutcomePullRequestComment(input) {
-  const client = new GitHubClient(input.token);
-  const [repositoryOwner, repositoryName] = input.repository.split("/");
-  const owner = repositoryOwner || client.owner;
-  const repo = repositoryName || client.repo;
-  const comments = await client.octokit.paginate(
-    client.octokit.rest.issues.listComments,
-    {
-      owner,
-      repo,
-      issue_number: input.pullRequestNumber,
-      per_page: 100
-    }
-  );
-  const matchingComments = comments.filter(
-    (comment) => isTerminalOutcomeCommentMatch(comment.body ?? "", input)
-  );
-  const [existing, ...duplicates] = matchingComments;
-  if (existing) {
-    for (const duplicate of duplicates) {
-      try {
-        await client.octokit.rest.issues.deleteComment({
-          owner,
-          repo,
-          comment_id: duplicate.id
-        });
-      } catch (error2) {
-        warning(
-          `ReviewRouter could not delete duplicate terminal outcome comment: ${safeTerminalOutcomeError(error2)}`
-        );
-      }
-    }
-    if (input.dedupeKey) {
-      info(
-        `ReviewRouter terminal outcome comment already exists for ${input.dedupeKey}; keeping the first comment unchanged.`
-      );
-      return;
-    }
-    await client.octokit.rest.issues.updateComment({
-      owner,
-      repo,
-      comment_id: existing.id,
-      body: input.body
-    });
-    return;
-  }
-  await client.octokit.rest.issues.createComment({
-    owner,
-    repo,
-    issue_number: input.pullRequestNumber,
-    body: input.body
-  });
-}
-function isTerminalOutcomeCommentMatch(body, input) {
-  if (body.includes(input.marker)) return true;
-  if (input.dedupeKey === "max_changed_lines_exceeded") {
-    return isLegacyMaxChangedLinesSkippedComment(body);
-  }
-  return false;
-}
-function isLegacyMaxChangedLinesSkippedComment(body) {
-  return /<!--\s*reviewrouter:codex-oauth:terminal:[a-f0-9]{40}:skipped\s*-->/i.test(
-    body
-  ) && body.includes("## Review skipped") && body.includes(
-    "ReviewRouter did not start a model review for this revision because the PR is larger than the configured safety limit."
-  ) && body.includes("| Configured limit |");
-}
-async function deleteTerminalOutcomePullRequestComments(input) {
-  const client = new GitHubClient(input.token);
-  const [repositoryOwner, repositoryName] = input.repository.split("/");
-  const owner = repositoryOwner || client.owner;
-  const repo = repositoryName || client.repo;
-  const comments = await client.octokit.paginate(
-    client.octokit.rest.issues.listComments,
-    {
-      owner,
-      repo,
-      issue_number: input.pullRequestNumber,
-      per_page: 100
-    }
-  );
-  const terminalComments = comments.filter(
-    (comment) => (comment.body ?? "").includes("<!-- reviewrouter:codex-oauth:terminal:")
-  );
-  for (const comment of terminalComments) {
-    await client.octokit.rest.issues.deleteComment({
-      owner,
-      repo,
-      comment_id: comment.id
-    });
-  }
-}
-async function createTerminalOutcomeCommitStatusSafely(input) {
-  try {
-    const client = new GitHubClient(input.token);
-    const [repositoryOwner, repositoryName] = input.repository.split("/");
-    const owner = repositoryOwner || client.owner;
-    const repo = repositoryName || client.repo;
-    await client.octokit.rest.repos.createCommitStatus({
-      owner,
-      repo,
-      sha: input.headSha,
-      state: input.status.state,
-      context: input.status.context,
-      description: input.status.description,
-      ...input.status.targetUrl ? { target_url: input.status.targetUrl } : {}
-    });
-    info(`ReviewRouter published ${input.status.context} commit status.`);
-  } catch (error2) {
-    warning(
-      `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error2)}`
-    );
-  }
 }
 function skippedReasonSummary(reason) {
   switch (reason) {
@@ -81009,10 +81058,6 @@ function githubRunUrl(inputs) {
 }
 function truncateCommitStatusDescription(value) {
   return value.length <= 140 ? value : `${value.slice(0, 137)}...`;
-}
-function safeTerminalOutcomeError(error2) {
-  const message = error2 instanceof Error ? error2.message : "unknown_error";
-  return message.replace(/ghs_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/gh[pousr]_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/github_pat_[A-Za-z0-9_]+/g, "[redacted-github-token]").slice(0, 160);
 }
 function readCodexOAuthActionInputs() {
   const apiUrl = resolveCodexOAuthActionApiUrl();

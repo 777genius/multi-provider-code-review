@@ -31,6 +31,22 @@ import {
   type CodexOAuthV2ReviewRunnerPort,
 } from './runtime';
 import {
+  createDefaultCodexOAuthTerminalOutcomeReporter,
+  safeTerminalOutcomeError,
+  type CodexOAuthTerminalOutcomeClearRequest,
+  type CodexOAuthTerminalOutcomeCommitStatus,
+  type CodexOAuthTerminalOutcomeDedupeKey,
+  type CodexOAuthTerminalOutcomeReporterPort,
+  type CodexOAuthTerminalOutcomeReport,
+} from './terminal-outcome-publication';
+export type {
+  CodexOAuthTerminalOutcomeClearRequest,
+  CodexOAuthTerminalOutcomeCommitStatus,
+  CodexOAuthTerminalOutcomeDedupeKey,
+  CodexOAuthTerminalOutcomeReporterPort,
+  CodexOAuthTerminalOutcomeReport,
+} from './terminal-outcome-publication';
+import {
   createIsolatedCheckoutWorkspace,
   safeCheckoutRepository,
 } from './safe-checkout';
@@ -46,34 +62,6 @@ export const CODEX_OAUTH_ROTATING_MODE = 'codex-oauth-rotating';
 const SETUP_PULL_REQUEST_BRANCH = 'reviewrouter/setup';
 const SETUP_PREVIEW_MISSING_AUTH_SKIP_REASON =
   'setup_pr_waiting_for_codex_auth';
-
-export interface CodexOAuthTerminalOutcomeReporterPort {
-  post(input: CodexOAuthTerminalOutcomeReport): Promise<void>;
-  clear?(input: CodexOAuthTerminalOutcomeClearRequest): Promise<void>;
-  status?(input: CodexOAuthTerminalOutcomeCommitStatus): Promise<void>;
-}
-
-export type CodexOAuthTerminalOutcomeClearRequest = {
-  readonly reason: 'review_completed';
-};
-
-export type CodexOAuthTerminalOutcomeCommitStatus = {
-  readonly state: 'error' | 'failure' | 'pending' | 'success';
-  readonly description: string;
-  readonly context: 'ReviewRouter';
-  readonly targetUrl?: string;
-};
-
-type CodexOAuthTerminalOutcomeDedupeKey = 'max_changed_lines_exceeded';
-
-export type CodexOAuthTerminalOutcomeReport = {
-  readonly marker: string;
-  readonly dedupeKey?: CodexOAuthTerminalOutcomeDedupeKey;
-  readonly body: string;
-  readonly stepSummary: string;
-  readonly logLabel: string;
-  readonly commitStatus: CodexOAuthTerminalOutcomeCommitStatus;
-};
 
 export function shouldEnterCodexOAuthRotatingAction(input: {
   requestedMode: string | undefined;
@@ -177,7 +165,12 @@ export async function runCodexOAuthRotatingAction(
   const terminalOutcomeReporter =
     options.terminalOutcomeReporter ??
     createDefaultCodexOAuthTerminalOutcomeReporter({
-      inputs,
+      context: {
+        repository: inputs.repository,
+        pullRequestNumber: inputs.pullRequestNumber,
+        headSha: inputs.headSha,
+      },
+      audience: inputs.audience,
       controlPlane,
       oidc: new GitHubActionsOidcTokenProvider({
         env: terminalOutcomeOidcEnv,
@@ -511,61 +504,6 @@ async function clearTerminalOutcomeReportsSafely(
   }
 }
 
-function createDefaultCodexOAuthTerminalOutcomeReporter(input: {
-  readonly inputs: ReturnType<typeof readCodexOAuthActionInputs>;
-  readonly controlPlane: CodexOAuthControlPlaneClient;
-  readonly oidc: { requestToken(audience: string): Promise<string> };
-}): CodexOAuthTerminalOutcomeReporterPort {
-  const requestActionCommentToken = async (): Promise<string> => {
-    const oidcToken = await input.oidc.requestToken(input.inputs.audience);
-    const session = await input.controlPlane.actionSession({
-      oidcToken,
-      audience: input.inputs.audience,
-    });
-    const commentToken = await input.controlPlane.actionCommentToken({
-      sessionToken: session.sessionToken,
-    });
-    return commentToken.token;
-  };
-
-  return {
-    async post(report) {
-      const token = await requestActionCommentToken();
-      await upsertTerminalOutcomePullRequestComment({
-        repository: input.inputs.repository,
-        pullRequestNumber: input.inputs.pullRequestNumber,
-        token,
-        marker: report.marker,
-        ...(report.dedupeKey ? { dedupeKey: report.dedupeKey } : {}),
-        body: report.body,
-      });
-      await createTerminalOutcomeCommitStatusSafely({
-        repository: input.inputs.repository,
-        headSha: input.inputs.headSha,
-        token,
-        status: report.commitStatus,
-      });
-    },
-    async clear() {
-      const token = await requestActionCommentToken();
-      await deleteTerminalOutcomePullRequestComments({
-        repository: input.inputs.repository,
-        pullRequestNumber: input.inputs.pullRequestNumber,
-        token,
-      });
-    },
-    async status(status) {
-      const token = await requestActionCommentToken();
-      await createTerminalOutcomeCommitStatusSafely({
-        repository: input.inputs.repository,
-        headSha: input.inputs.headSha,
-        token,
-        status,
-      });
-    },
-  };
-}
-
 function snapshotCodexOAuthTerminalOutcomeOidcEnv(
   env: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
@@ -578,152 +516,6 @@ function snapshotCodexOAuthTerminalOutcomeOidcEnv(
     snapshot.ACTIONS_ID_TOKEN_REQUEST_URL = env.ACTIONS_ID_TOKEN_REQUEST_URL;
   }
   return snapshot;
-}
-
-async function upsertTerminalOutcomePullRequestComment(input: {
-  readonly repository: string;
-  readonly pullRequestNumber: number;
-  readonly token: string;
-  readonly marker: string;
-  readonly dedupeKey?: CodexOAuthTerminalOutcomeDedupeKey;
-  readonly body: string;
-}): Promise<void> {
-  const client = new GitHubClient(input.token);
-  const [repositoryOwner, repositoryName] = input.repository.split('/');
-  const owner = repositoryOwner || client.owner;
-  const repo = repositoryName || client.repo;
-  const comments = await client.octokit.paginate(
-    client.octokit.rest.issues.listComments,
-    {
-      owner,
-      repo,
-      issue_number: input.pullRequestNumber,
-      per_page: 100,
-    }
-  );
-  const matchingComments = comments.filter((comment) =>
-    isTerminalOutcomeCommentMatch(comment.body ?? '', input)
-  );
-  const [existing, ...duplicates] = matchingComments;
-  if (existing) {
-    for (const duplicate of duplicates) {
-      try {
-        await client.octokit.rest.issues.deleteComment({
-          owner,
-          repo,
-          comment_id: duplicate.id,
-        });
-      } catch (error) {
-        core.warning(
-          `ReviewRouter could not delete duplicate terminal outcome comment: ${safeTerminalOutcomeError(error)}`
-        );
-      }
-    }
-    if (input.dedupeKey) {
-      core.info(
-        `ReviewRouter terminal outcome comment already exists for ${input.dedupeKey}; keeping the first comment unchanged.`
-      );
-      return;
-    }
-    await client.octokit.rest.issues.updateComment({
-      owner,
-      repo,
-      comment_id: existing.id,
-      body: input.body,
-    });
-    return;
-  }
-  await client.octokit.rest.issues.createComment({
-    owner,
-    repo,
-    issue_number: input.pullRequestNumber,
-    body: input.body,
-  });
-}
-
-function isTerminalOutcomeCommentMatch(
-  body: string,
-  input: {
-    readonly marker: string;
-    readonly dedupeKey?: CodexOAuthTerminalOutcomeDedupeKey;
-  }
-): boolean {
-  if (body.includes(input.marker)) return true;
-  if (input.dedupeKey === 'max_changed_lines_exceeded') {
-    return isLegacyMaxChangedLinesSkippedComment(body);
-  }
-  return false;
-}
-
-function isLegacyMaxChangedLinesSkippedComment(body: string): boolean {
-  return (
-    /<!--\s*reviewrouter:codex-oauth:terminal:[a-f0-9]{40}:skipped\s*-->/i.test(
-      body
-    ) &&
-    body.includes('## Review skipped') &&
-    body.includes(
-      'ReviewRouter did not start a model review for this revision because the PR is larger than the configured safety limit.'
-    ) &&
-    body.includes('| Configured limit |')
-  );
-}
-
-async function deleteTerminalOutcomePullRequestComments(input: {
-  readonly repository: string;
-  readonly pullRequestNumber: number;
-  readonly token: string;
-}): Promise<void> {
-  const client = new GitHubClient(input.token);
-  const [repositoryOwner, repositoryName] = input.repository.split('/');
-  const owner = repositoryOwner || client.owner;
-  const repo = repositoryName || client.repo;
-  const comments = await client.octokit.paginate(
-    client.octokit.rest.issues.listComments,
-    {
-      owner,
-      repo,
-      issue_number: input.pullRequestNumber,
-      per_page: 100,
-    }
-  );
-  const terminalComments = comments.filter((comment) =>
-    (comment.body ?? '').includes('<!-- reviewrouter:codex-oauth:terminal:')
-  );
-  for (const comment of terminalComments) {
-    await client.octokit.rest.issues.deleteComment({
-      owner,
-      repo,
-      comment_id: comment.id,
-    });
-  }
-}
-
-async function createTerminalOutcomeCommitStatusSafely(input: {
-  readonly repository: string;
-  readonly headSha: string;
-  readonly token: string;
-  readonly status: CodexOAuthTerminalOutcomeCommitStatus;
-}): Promise<void> {
-  try {
-    const client = new GitHubClient(input.token);
-    const [repositoryOwner, repositoryName] = input.repository.split('/');
-    const owner = repositoryOwner || client.owner;
-    const repo = repositoryName || client.repo;
-    await client.octokit.rest.repos.createCommitStatus({
-      owner,
-      repo,
-      sha: input.headSha,
-      state: input.status.state,
-      context: input.status.context,
-      description: input.status.description,
-      ...(input.status.targetUrl ? { target_url: input.status.targetUrl } : {}),
-    });
-    core.info(`ReviewRouter published ${input.status.context} commit status.`);
-  } catch (error) {
-    core.warning(
-      `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error)}`
-    );
-  }
 }
 
 function skippedReasonSummary(reason: string): string {
@@ -762,15 +554,6 @@ function githubRunUrl(
 
 function truncateCommitStatusDescription(value: string): string {
   return value.length <= 140 ? value : `${value.slice(0, 137)}...`;
-}
-
-function safeTerminalOutcomeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : 'unknown_error';
-  return message
-    .replace(/ghs_[A-Za-z0-9_]+/g, '[redacted-github-token]')
-    .replace(/gh[pousr]_[A-Za-z0-9_]+/g, '[redacted-github-token]')
-    .replace(/github_pat_[A-Za-z0-9_]+/g, '[redacted-github-token]')
-    .slice(0, 160);
 }
 
 function readCodexOAuthActionInputs() {
