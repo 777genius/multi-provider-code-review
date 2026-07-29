@@ -24906,12 +24906,459 @@ var ValidationDetector = class {
   }
 };
 
+// src/analysis/trivial-detector.ts
+var TrivialDetector = class {
+  config;
+  // Patterns for different types of trivial changes
+  DEPENDENCY_FILES = [
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "Gemfile.lock",
+    "Cargo.lock",
+    "poetry.lock",
+    "go.sum",
+    "composer.lock",
+    "pdm.lock",
+    "Pipfile.lock"
+  ];
+  DOCUMENTATION_PATTERNS = [
+    /\.md$/i,
+    /^docs?\//i,
+    /README/i,
+    /CHANGELOG/i,
+    /LICENSE/i,
+    /CONTRIBUTING/i
+  ];
+  TEST_FIXTURE_PATTERNS = [
+    /__fixtures__\//,
+    /__snapshots__\//,
+    /__mocks__\//,
+    /\.snap$/,
+    /fixtures?\//i,
+    /test-data\//i,
+    /mock-data\//i
+  ];
+  CONFIG_FILE_PATTERNS = [
+    /\.eslintrc/,
+    /\.prettierrc/,
+    /\.editorconfig/,
+    /\.gitignore/,
+    /\.npmignore/,
+    /\.dockerignore/,
+    /\.gitattributes$/,
+    /tsconfig\.json$/,
+    /jsconfig\.json$/,
+    /\.vscode\//,
+    /\.idea\//
+  ];
+  // Build artifacts and generated files
+  BUILD_ARTIFACT_PATTERNS = [
+    /^dist\//,
+    /^build\//,
+    /^out\//,
+    /^\.next\//,
+    /^\.nuxt\//,
+    /^target\//,
+    // Rust/Java
+    /^bin\//,
+    /^obj\//,
+    /\.min\.js$/,
+    /\.min\.css$/,
+    /\.map$/
+    // Source maps
+  ];
+  constructor(config) {
+    this.config = config;
+  }
+  /**
+   * Analyze PR files to determine if the change is trivial
+   */
+  detect(files) {
+    if (!this.config.enabled) {
+      return {
+        isTrivial: false,
+        trivialFiles: [],
+        nonTrivialFiles: files.map((f2) => this.normalizePath(f2.filename))
+      };
+    }
+    const trivialFiles = [];
+    const nonTrivialFiles = [];
+    for (const file of files) {
+      const normalizedPath = this.normalizePath(file.filename);
+      if (this.isFileTrivial(file)) {
+        trivialFiles.push(normalizedPath);
+      } else {
+        nonTrivialFiles.push(normalizedPath);
+      }
+    }
+    const isTrivial = nonTrivialFiles.length === 0 && trivialFiles.length > 0;
+    if (isTrivial) {
+      const reason = this.getTrivialReason(files);
+      logger.info(`Skipping review: ${reason}`);
+      return { isTrivial: true, reason, trivialFiles, nonTrivialFiles: [] };
+    }
+    if (trivialFiles.length > 0) {
+      logger.info(
+        `${trivialFiles.length} trivial file(s) will be excluded from review`,
+        {
+          trivial: trivialFiles,
+          reviewing: nonTrivialFiles.length
+        }
+      );
+    }
+    return { isTrivial: false, trivialFiles, nonTrivialFiles };
+  }
+  /**
+   * Check if a single file is trivial
+   */
+  isFileTrivial(file) {
+    const normalized = this.normalizePath(file.filename);
+    return this.isFileTrivialByType(normalized) || this.isFileTrivialByContent(file);
+  }
+  /**
+   * Check if file is trivial based on file type/path
+   */
+  isFileTrivialByType(filename) {
+    const checks = [
+      {
+        enabled: this.config.skipDependencyUpdates,
+        check: () => this.isDependencyLockFile(filename)
+      },
+      {
+        enabled: this.config.skipDocumentationOnly,
+        check: () => this.isDocumentationFile(filename)
+      },
+      {
+        enabled: this.config.skipTestFixtures,
+        check: () => this.isTestFixture(filename)
+      },
+      {
+        enabled: this.config.skipConfigFiles,
+        check: () => this.isConfigFile(filename)
+      },
+      {
+        enabled: this.config.skipBuildArtifacts,
+        check: () => this.isBuildArtifact(filename)
+      },
+      { enabled: true, check: () => this.matchesCustomPattern(filename) }
+    ];
+    return checks.some(({ enabled, check }) => enabled && check());
+  }
+  /**
+   * Check if file is trivial based on content changes
+   */
+  isFileTrivialByContent(file) {
+    return this.config.skipFormattingOnly && file.patch !== void 0 && this.isFormattingOnly(file);
+  }
+  /**
+   * Check if file is a dependency lock file
+   */
+  isDependencyLockFile(filename) {
+    const basename3 = filename.split("/").pop() || "";
+    return this.DEPENDENCY_FILES.includes(basename3);
+  }
+  /**
+   * Check if file is documentation
+   */
+  isDocumentationFile(filename) {
+    return this.DOCUMENTATION_PATTERNS.some(
+      (pattern) => pattern.test(filename)
+    );
+  }
+  /**
+   * Check if file is a test fixture
+   */
+  isTestFixture(filename) {
+    return this.TEST_FIXTURE_PATTERNS.some((pattern) => pattern.test(filename));
+  }
+  /**
+   * Check if file is a config file
+   */
+  isConfigFile(filename) {
+    return this.CONFIG_FILE_PATTERNS.some((pattern) => pattern.test(filename));
+  }
+  /**
+   * Check if file is a build artifact
+   */
+  isBuildArtifact(filename) {
+    return this.BUILD_ARTIFACT_PATTERNS.some(
+      (pattern) => pattern.test(filename)
+    );
+  }
+  /**
+   * Check if file matches custom trivial patterns
+   */
+  matchesCustomPattern(filename) {
+    return this.config.customTrivialPatterns.some((pattern) => {
+      try {
+        if (!isValidRegexPattern(pattern)) {
+          logger.warn(
+            `Invalid trivial pattern "${pattern}": treating as literal string`
+          );
+          return filename.includes(pattern);
+        }
+        const regex = new RegExp(pattern);
+        return regex.test(filename);
+      } catch (error2) {
+        logger.warn(
+          `Failed to compile regex pattern "${pattern}": ${error2.message}`
+        );
+        return filename.includes(pattern);
+      }
+    });
+  }
+  /**
+   * Check if changes are formatting-only (whitespace, indentation, etc.)
+   *
+   * COMPLEXITY JUSTIFICATION:
+   * This method uses a multi-layered approach to minimize false positives:
+   * 1. Strict diff header filtering - only exclude actual diff metadata
+   * 2. Balanced comparison - same number of additions vs deletions
+   * 3. Whitespace normalization - preserve semantic content while ignoring formatting
+   * 4. Semantic analysis - detect real changes in identifiers, strings, imports
+   *
+   * Why semantic analysis is necessary:
+   * - Simple whitespace removal can miss variable renames (foo -> bar)
+   * - String changes are semantic even if whitespace-normalized match
+   * - Import changes affect behavior even if just reordered
+   *
+   * Alternative considered: token-level comparison using AST parser
+   * - More accurate but significantly slower and heavier
+   * - Current approach balances accuracy with performance
+   *
+   * False positive rate: ~2% based on integration tests
+   * False negative rate: ~5% (acceptable - prefer caution)
+   */
+  isFormattingOnly(file) {
+    if (!file.patch) return false;
+    const { additions, deletions } = this.extractChangesFromPatch(file.patch);
+    if (additions.length === 0 && deletions.length === 0) return true;
+    if (additions.length !== deletions.length) return false;
+    return this.allLinesAreFormattingChanges(additions, deletions);
+  }
+  /**
+   * Extract actual code changes from patch, filtering out diff metadata
+   */
+  extractChangesFromPatch(patch) {
+    const lines = patch.split("\n");
+    const changes = lines.filter(
+      (line) => line.startsWith("+") || line.startsWith("-")
+    );
+    const actualChanges = changes.filter((line) => !this.isDiffMetadata(line));
+    const additions = actualChanges.filter((line) => line.startsWith("+")).map((line) => line.substring(1));
+    const deletions = actualChanges.filter((line) => line.startsWith("-")).map((line) => line.substring(1));
+    return { additions, deletions };
+  }
+  /**
+   * Check if a line is diff metadata (not actual code change)
+   */
+  isDiffMetadata(line) {
+    if (/^(\+\+\+ |--- )/.test(line)) return true;
+    if (/^@@/.test(line)) return true;
+    return false;
+  }
+  /**
+   * Check if all line pairs differ only in formatting
+   */
+  allLinesAreFormattingChanges(additions, deletions) {
+    for (let i2 = 0; i2 < additions.length; i2++) {
+      if (!this.isFormattingChange(additions[i2], deletions[i2])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  /**
+   * Check if two lines differ only in formatting (whitespace)
+   */
+  isFormattingChange(added, deleted) {
+    const normalizedAdded = this.normalizeWhitespace(added);
+    const normalizedDeleted = this.normalizeWhitespace(deleted);
+    if (normalizedAdded !== normalizedDeleted) {
+      if (normalizedAdded.length > 0 || normalizedDeleted.length > 0) {
+        return false;
+      }
+    }
+    return this.areSemanticallySame(added, deleted);
+  }
+  /**
+   * Check if two lines are semantically the same (beyond whitespace)
+   * Detects common semantic changes like:
+   * - Variable/function name changes
+   * - String literal changes
+   * - Number literal changes
+   * - Import/export changes
+   */
+  areSemanticallySame(line1, line2) {
+    const trimmed1 = line1.trim();
+    const trimmed2 = line2.trim();
+    if (!trimmed1 && !trimmed2) return true;
+    if (trimmed1.startsWith("//") && trimmed2.startsWith("//")) return true;
+    if (trimmed1.startsWith("/*") && trimmed2.startsWith("/*")) return true;
+    if (trimmed1.startsWith("*") && trimmed2.startsWith("*")) return true;
+    const identifiers1 = this.extractIdentifiers(trimmed1);
+    const identifiers2 = this.extractIdentifiers(trimmed2);
+    if (identifiers1.length !== identifiers2.length) return false;
+    const ids1Set = new Set(identifiers1);
+    const ids2Set = new Set(identifiers2);
+    if (ids1Set.size !== ids2Set.size) return false;
+    for (const id of ids1Set) {
+      if (!ids2Set.has(id)) return false;
+    }
+    const strings1 = this.extractStrings(trimmed1);
+    const strings2 = this.extractStrings(trimmed2);
+    if (strings1.join("|") !== strings2.join("|")) return false;
+    if (this.isImportOrExport(trimmed1) || this.isImportOrExport(trimmed2)) {
+      return this.normalizeWhitespace(trimmed1) === this.normalizeWhitespace(trimmed2);
+    }
+    return true;
+  }
+  /**
+   * Extract identifiers (variable/function names) from a line of code
+   */
+  extractIdentifiers(line) {
+    const matches = line.match(/\b[a-zA-Z_$][a-zA-Z0-9_$]*\b/g);
+    return matches || [];
+  }
+  /**
+   * Extract string literals from a line of code
+   */
+  extractStrings(line) {
+    const strings = [];
+    const singleQuoted = line.match(/'([^']*)'/g);
+    const doubleQuoted = line.match(/"([^"]*)"/g);
+    const templateLiteral = line.match(/`([^`]*)`/g);
+    if (singleQuoted) strings.push(...singleQuoted);
+    if (doubleQuoted) strings.push(...doubleQuoted);
+    if (templateLiteral) strings.push(...templateLiteral);
+    return strings;
+  }
+  /**
+   * Check if a line is an import or export statement
+   */
+  isImportOrExport(line) {
+    const trimmed = line.trim();
+    return trimmed.startsWith("import ") || trimmed.startsWith("export ") || trimmed.startsWith("from ") || trimmed.includes("require(");
+  }
+  /**
+   * Normalize whitespace for comparison
+   * Trims and collapses internal whitespace runs to single space
+   * This preserves string literals and semantics while detecting formatting changes
+   */
+  normalizeWhitespace(text) {
+    return text.trim().replace(/\s+/g, " ");
+  }
+  /**
+   * Normalize path separators for consistent matching across platforms.
+   */
+  normalizePath(filename) {
+    return filename.replace(/\\/g, "/");
+  }
+  /**
+   * Generate a human-readable reason for why PR is trivial
+   */
+  getTrivialReason(files) {
+    const singleTypeReason = this.getSingleTypeReason(files);
+    if (singleTypeReason) {
+      return singleTypeReason;
+    }
+    return this.getMixedTypeReason(files);
+  }
+  /**
+   * Get reason if all files are of a single trivial type
+   */
+  getSingleTypeReason(files) {
+    const checks = [
+      {
+        check: (f2) => this.isDependencyLockFile(f2),
+        reason: "dependency lock file updates only"
+      },
+      {
+        check: (f2) => this.isDocumentationFile(f2),
+        reason: "documentation changes only"
+      },
+      {
+        check: (f2) => this.isTestFixture(f2),
+        reason: "test fixture updates only"
+      },
+      {
+        check: (f2) => this.isConfigFile(f2),
+        reason: "configuration file changes only"
+      },
+      {
+        check: (f2) => this.isBuildArtifact(f2),
+        reason: "build artifact updates only"
+      }
+    ];
+    for (const { check, reason } of checks) {
+      if (files.every((f2) => check(f2.filename))) {
+        return reason;
+      }
+    }
+    return null;
+  }
+  /**
+   * Get reason for mixed trivial types
+   */
+  getMixedTypeReason(files) {
+    const typeChecks = [
+      {
+        check: (f2) => this.isDependencyLockFile(f2),
+        name: "dependency locks"
+      },
+      {
+        check: (f2) => this.isDocumentationFile(f2),
+        name: "documentation"
+      },
+      { check: (f2) => this.isTestFixture(f2), name: "test fixtures" },
+      { check: (f2) => this.isConfigFile(f2), name: "config files" },
+      {
+        check: (f2) => this.isBuildArtifact(f2),
+        name: "build artifacts"
+      }
+    ];
+    const types3 = /* @__PURE__ */ new Set();
+    for (const file of files) {
+      for (const { check, name } of typeChecks) {
+        if (check(file.filename)) {
+          types3.add(name);
+        }
+      }
+    }
+    if (types3.size > 0) {
+      return `trivial changes only (${Array.from(types3).join(", ")})`;
+    }
+    return "trivial changes detected";
+  }
+  /**
+   * Filter out trivial files from a file list
+   */
+  filterNonTrivial(files) {
+    const result = this.detect(files);
+    return files.filter((f2) => result.nonTrivialFiles.includes(f2.filename));
+  }
+};
+function createConfiguredTrivialDetector(config) {
+  return new TrivialDetector({
+    enabled: config.skipTrivialChanges ?? true,
+    skipDependencyUpdates: config.skipDependencyUpdates ?? true,
+    skipDocumentationOnly: config.skipDocumentationOnly ?? true,
+    skipFormattingOnly: config.skipFormattingOnly ?? false,
+    skipTestFixtures: config.skipTestFixtures ?? true,
+    skipConfigFiles: config.skipConfigFiles ?? true,
+    skipBuildArtifacts: config.skipBuildArtifacts ?? true,
+    customTrivialPatterns: config.trivialPatterns ?? []
+  });
+}
+
 // src/analysis/llm/prepared-review-prompt.ts
 var PreparedPromptPathCoverageKind = /* @__PURE__ */ ((PreparedPromptPathCoverageKind2) => {
   PreparedPromptPathCoverageKind2["FullPatch"] = "full_patch";
   PreparedPromptPathCoverageKind2["TrustedRead"] = "trusted_read";
   PreparedPromptPathCoverageKind2["SummaryOnly"] = "summary_only";
   PreparedPromptPathCoverageKind2["MetadataOnly"] = "metadata_only";
+  PreparedPromptPathCoverageKind2["PolicyExcluded"] = "policy_excluded";
   PreparedPromptPathCoverageKind2["Trimmed"] = "trimmed";
   PreparedPromptPathCoverageKind2["Unavailable"] = "unavailable";
   return PreparedPromptPathCoverageKind2;
@@ -25005,11 +25452,16 @@ var PromptBuilder = class {
     const summaryOnlyFiles = new Map(
       compacted.summaryOnlyFiles.map((file) => [file.filename, file])
     );
+    const trivialDetector = createConfiguredTrivialDetector(this.config);
+    const policyExcludedPaths = new Set(
+      this.config.skipTrivialChanges === false ? [] : pr2.files.filter((file) => trivialDetector.isFileTrivial(file)).map((file) => file.filename)
+    );
     const pathCoverage = classifyPreparedPromptCoverage({
       files: pr2.files,
       sourceDiff: pr2.diff,
       compactedDiff: compacted.diff,
       finalDiff: diff,
+      policyExcludedPaths,
       summaryOnlyPaths: new Set(summaryOnlyFiles.keys())
     });
     const skipSuggestions = compacted.summaryOnlyFiles.length > 0 || this.shouldSkipSuggestions(pr2.diff);
@@ -25341,6 +25793,13 @@ function classifyPreparedPromptCoverage(input) {
   return Object.freeze(
     input.files.map((file) => {
       const finalChunk = final.get(file.filename);
+      if (input.policyExcludedPaths.has(file.filename)) {
+        return Object.freeze({
+          path: file.filename,
+          kind: "policy_excluded" /* PolicyExcluded */,
+          contentHash: finalChunk === void 0 ? null : sha256(finalChunk)
+        });
+      }
       if (finalChunk !== void 0) {
         return Object.freeze({
           path: file.filename,
@@ -39706,440 +40165,6 @@ var GraphCache = class _GraphCache {
   }
 };
 
-// src/analysis/trivial-detector.ts
-var TrivialDetector = class {
-  config;
-  // Patterns for different types of trivial changes
-  DEPENDENCY_FILES = [
-    "package-lock.json",
-    "yarn.lock",
-    "pnpm-lock.yaml",
-    "Gemfile.lock",
-    "Cargo.lock",
-    "poetry.lock",
-    "go.sum",
-    "composer.lock",
-    "pdm.lock",
-    "Pipfile.lock"
-  ];
-  DOCUMENTATION_PATTERNS = [
-    /\.md$/i,
-    /^docs?\//i,
-    /README/i,
-    /CHANGELOG/i,
-    /LICENSE/i,
-    /CONTRIBUTING/i
-  ];
-  TEST_FIXTURE_PATTERNS = [
-    /__fixtures__\//,
-    /__snapshots__\//,
-    /__mocks__\//,
-    /\.snap$/,
-    /fixtures?\//i,
-    /test-data\//i,
-    /mock-data\//i
-  ];
-  CONFIG_FILE_PATTERNS = [
-    /\.eslintrc/,
-    /\.prettierrc/,
-    /\.editorconfig/,
-    /\.gitignore/,
-    /\.npmignore/,
-    /\.dockerignore/,
-    /\.gitattributes$/,
-    /tsconfig\.json$/,
-    /jsconfig\.json$/,
-    /\.vscode\//,
-    /\.idea\//
-  ];
-  // Build artifacts and generated files
-  BUILD_ARTIFACT_PATTERNS = [
-    /^dist\//,
-    /^build\//,
-    /^out\//,
-    /^\.next\//,
-    /^\.nuxt\//,
-    /^target\//,
-    // Rust/Java
-    /^bin\//,
-    /^obj\//,
-    /\.min\.js$/,
-    /\.min\.css$/,
-    /\.map$/
-    // Source maps
-  ];
-  constructor(config) {
-    this.config = config;
-  }
-  /**
-   * Analyze PR files to determine if the change is trivial
-   */
-  detect(files) {
-    if (!this.config.enabled) {
-      return {
-        isTrivial: false,
-        trivialFiles: [],
-        nonTrivialFiles: files.map((f2) => this.normalizePath(f2.filename))
-      };
-    }
-    const trivialFiles = [];
-    const nonTrivialFiles = [];
-    for (const file of files) {
-      const normalizedPath = this.normalizePath(file.filename);
-      if (this.isFileTrivial(file)) {
-        trivialFiles.push(normalizedPath);
-      } else {
-        nonTrivialFiles.push(normalizedPath);
-      }
-    }
-    const isTrivial = nonTrivialFiles.length === 0 && trivialFiles.length > 0;
-    if (isTrivial) {
-      const reason = this.getTrivialReason(files);
-      logger.info(`Skipping review: ${reason}`);
-      return { isTrivial: true, reason, trivialFiles, nonTrivialFiles: [] };
-    }
-    if (trivialFiles.length > 0) {
-      logger.info(
-        `${trivialFiles.length} trivial file(s) will be excluded from review`,
-        {
-          trivial: trivialFiles,
-          reviewing: nonTrivialFiles.length
-        }
-      );
-    }
-    return { isTrivial: false, trivialFiles, nonTrivialFiles };
-  }
-  /**
-   * Check if a single file is trivial
-   */
-  isFileTrivial(file) {
-    const normalized = this.normalizePath(file.filename);
-    return this.isFileTrivialByType(normalized) || this.isFileTrivialByContent(file);
-  }
-  /**
-   * Check if file is trivial based on file type/path
-   */
-  isFileTrivialByType(filename) {
-    const checks = [
-      {
-        enabled: this.config.skipDependencyUpdates,
-        check: () => this.isDependencyLockFile(filename)
-      },
-      {
-        enabled: this.config.skipDocumentationOnly,
-        check: () => this.isDocumentationFile(filename)
-      },
-      {
-        enabled: this.config.skipTestFixtures,
-        check: () => this.isTestFixture(filename)
-      },
-      {
-        enabled: this.config.skipConfigFiles,
-        check: () => this.isConfigFile(filename)
-      },
-      {
-        enabled: this.config.skipBuildArtifacts,
-        check: () => this.isBuildArtifact(filename)
-      },
-      { enabled: true, check: () => this.matchesCustomPattern(filename) }
-    ];
-    return checks.some(({ enabled, check }) => enabled && check());
-  }
-  /**
-   * Check if file is trivial based on content changes
-   */
-  isFileTrivialByContent(file) {
-    return this.config.skipFormattingOnly && file.patch !== void 0 && this.isFormattingOnly(file);
-  }
-  /**
-   * Check if file is a dependency lock file
-   */
-  isDependencyLockFile(filename) {
-    const basename3 = filename.split("/").pop() || "";
-    return this.DEPENDENCY_FILES.includes(basename3);
-  }
-  /**
-   * Check if file is documentation
-   */
-  isDocumentationFile(filename) {
-    return this.DOCUMENTATION_PATTERNS.some(
-      (pattern) => pattern.test(filename)
-    );
-  }
-  /**
-   * Check if file is a test fixture
-   */
-  isTestFixture(filename) {
-    return this.TEST_FIXTURE_PATTERNS.some((pattern) => pattern.test(filename));
-  }
-  /**
-   * Check if file is a config file
-   */
-  isConfigFile(filename) {
-    return this.CONFIG_FILE_PATTERNS.some((pattern) => pattern.test(filename));
-  }
-  /**
-   * Check if file is a build artifact
-   */
-  isBuildArtifact(filename) {
-    return this.BUILD_ARTIFACT_PATTERNS.some(
-      (pattern) => pattern.test(filename)
-    );
-  }
-  /**
-   * Check if file matches custom trivial patterns
-   */
-  matchesCustomPattern(filename) {
-    return this.config.customTrivialPatterns.some((pattern) => {
-      try {
-        if (!isValidRegexPattern(pattern)) {
-          logger.warn(
-            `Invalid trivial pattern "${pattern}": treating as literal string`
-          );
-          return filename.includes(pattern);
-        }
-        const regex = new RegExp(pattern);
-        return regex.test(filename);
-      } catch (error2) {
-        logger.warn(
-          `Failed to compile regex pattern "${pattern}": ${error2.message}`
-        );
-        return filename.includes(pattern);
-      }
-    });
-  }
-  /**
-   * Check if changes are formatting-only (whitespace, indentation, etc.)
-   *
-   * COMPLEXITY JUSTIFICATION:
-   * This method uses a multi-layered approach to minimize false positives:
-   * 1. Strict diff header filtering - only exclude actual diff metadata
-   * 2. Balanced comparison - same number of additions vs deletions
-   * 3. Whitespace normalization - preserve semantic content while ignoring formatting
-   * 4. Semantic analysis - detect real changes in identifiers, strings, imports
-   *
-   * Why semantic analysis is necessary:
-   * - Simple whitespace removal can miss variable renames (foo -> bar)
-   * - String changes are semantic even if whitespace-normalized match
-   * - Import changes affect behavior even if just reordered
-   *
-   * Alternative considered: token-level comparison using AST parser
-   * - More accurate but significantly slower and heavier
-   * - Current approach balances accuracy with performance
-   *
-   * False positive rate: ~2% based on integration tests
-   * False negative rate: ~5% (acceptable - prefer caution)
-   */
-  isFormattingOnly(file) {
-    if (!file.patch) return false;
-    const { additions, deletions } = this.extractChangesFromPatch(file.patch);
-    if (additions.length === 0 && deletions.length === 0) return true;
-    if (additions.length !== deletions.length) return false;
-    return this.allLinesAreFormattingChanges(additions, deletions);
-  }
-  /**
-   * Extract actual code changes from patch, filtering out diff metadata
-   */
-  extractChangesFromPatch(patch) {
-    const lines = patch.split("\n");
-    const changes = lines.filter(
-      (line) => line.startsWith("+") || line.startsWith("-")
-    );
-    const actualChanges = changes.filter((line) => !this.isDiffMetadata(line));
-    const additions = actualChanges.filter((line) => line.startsWith("+")).map((line) => line.substring(1));
-    const deletions = actualChanges.filter((line) => line.startsWith("-")).map((line) => line.substring(1));
-    return { additions, deletions };
-  }
-  /**
-   * Check if a line is diff metadata (not actual code change)
-   */
-  isDiffMetadata(line) {
-    if (/^(\+\+\+ |--- )/.test(line)) return true;
-    if (/^@@/.test(line)) return true;
-    return false;
-  }
-  /**
-   * Check if all line pairs differ only in formatting
-   */
-  allLinesAreFormattingChanges(additions, deletions) {
-    for (let i2 = 0; i2 < additions.length; i2++) {
-      if (!this.isFormattingChange(additions[i2], deletions[i2])) {
-        return false;
-      }
-    }
-    return true;
-  }
-  /**
-   * Check if two lines differ only in formatting (whitespace)
-   */
-  isFormattingChange(added, deleted) {
-    const normalizedAdded = this.normalizeWhitespace(added);
-    const normalizedDeleted = this.normalizeWhitespace(deleted);
-    if (normalizedAdded !== normalizedDeleted) {
-      if (normalizedAdded.length > 0 || normalizedDeleted.length > 0) {
-        return false;
-      }
-    }
-    return this.areSemanticallySame(added, deleted);
-  }
-  /**
-   * Check if two lines are semantically the same (beyond whitespace)
-   * Detects common semantic changes like:
-   * - Variable/function name changes
-   * - String literal changes
-   * - Number literal changes
-   * - Import/export changes
-   */
-  areSemanticallySame(line1, line2) {
-    const trimmed1 = line1.trim();
-    const trimmed2 = line2.trim();
-    if (!trimmed1 && !trimmed2) return true;
-    if (trimmed1.startsWith("//") && trimmed2.startsWith("//")) return true;
-    if (trimmed1.startsWith("/*") && trimmed2.startsWith("/*")) return true;
-    if (trimmed1.startsWith("*") && trimmed2.startsWith("*")) return true;
-    const identifiers1 = this.extractIdentifiers(trimmed1);
-    const identifiers2 = this.extractIdentifiers(trimmed2);
-    if (identifiers1.length !== identifiers2.length) return false;
-    const ids1Set = new Set(identifiers1);
-    const ids2Set = new Set(identifiers2);
-    if (ids1Set.size !== ids2Set.size) return false;
-    for (const id of ids1Set) {
-      if (!ids2Set.has(id)) return false;
-    }
-    const strings1 = this.extractStrings(trimmed1);
-    const strings2 = this.extractStrings(trimmed2);
-    if (strings1.join("|") !== strings2.join("|")) return false;
-    if (this.isImportOrExport(trimmed1) || this.isImportOrExport(trimmed2)) {
-      return this.normalizeWhitespace(trimmed1) === this.normalizeWhitespace(trimmed2);
-    }
-    return true;
-  }
-  /**
-   * Extract identifiers (variable/function names) from a line of code
-   */
-  extractIdentifiers(line) {
-    const matches = line.match(/\b[a-zA-Z_$][a-zA-Z0-9_$]*\b/g);
-    return matches || [];
-  }
-  /**
-   * Extract string literals from a line of code
-   */
-  extractStrings(line) {
-    const strings = [];
-    const singleQuoted = line.match(/'([^']*)'/g);
-    const doubleQuoted = line.match(/"([^"]*)"/g);
-    const templateLiteral = line.match(/`([^`]*)`/g);
-    if (singleQuoted) strings.push(...singleQuoted);
-    if (doubleQuoted) strings.push(...doubleQuoted);
-    if (templateLiteral) strings.push(...templateLiteral);
-    return strings;
-  }
-  /**
-   * Check if a line is an import or export statement
-   */
-  isImportOrExport(line) {
-    const trimmed = line.trim();
-    return trimmed.startsWith("import ") || trimmed.startsWith("export ") || trimmed.startsWith("from ") || trimmed.includes("require(");
-  }
-  /**
-   * Normalize whitespace for comparison
-   * Trims and collapses internal whitespace runs to single space
-   * This preserves string literals and semantics while detecting formatting changes
-   */
-  normalizeWhitespace(text) {
-    return text.trim().replace(/\s+/g, " ");
-  }
-  /**
-   * Normalize path separators for consistent matching across platforms.
-   */
-  normalizePath(filename) {
-    return filename.replace(/\\/g, "/");
-  }
-  /**
-   * Generate a human-readable reason for why PR is trivial
-   */
-  getTrivialReason(files) {
-    const singleTypeReason = this.getSingleTypeReason(files);
-    if (singleTypeReason) {
-      return singleTypeReason;
-    }
-    return this.getMixedTypeReason(files);
-  }
-  /**
-   * Get reason if all files are of a single trivial type
-   */
-  getSingleTypeReason(files) {
-    const checks = [
-      {
-        check: (f2) => this.isDependencyLockFile(f2),
-        reason: "dependency lock file updates only"
-      },
-      {
-        check: (f2) => this.isDocumentationFile(f2),
-        reason: "documentation changes only"
-      },
-      {
-        check: (f2) => this.isTestFixture(f2),
-        reason: "test fixture updates only"
-      },
-      {
-        check: (f2) => this.isConfigFile(f2),
-        reason: "configuration file changes only"
-      },
-      {
-        check: (f2) => this.isBuildArtifact(f2),
-        reason: "build artifact updates only"
-      }
-    ];
-    for (const { check, reason } of checks) {
-      if (files.every((f2) => check(f2.filename))) {
-        return reason;
-      }
-    }
-    return null;
-  }
-  /**
-   * Get reason for mixed trivial types
-   */
-  getMixedTypeReason(files) {
-    const typeChecks = [
-      {
-        check: (f2) => this.isDependencyLockFile(f2),
-        name: "dependency locks"
-      },
-      {
-        check: (f2) => this.isDocumentationFile(f2),
-        name: "documentation"
-      },
-      { check: (f2) => this.isTestFixture(f2), name: "test fixtures" },
-      { check: (f2) => this.isConfigFile(f2), name: "config files" },
-      {
-        check: (f2) => this.isBuildArtifact(f2),
-        name: "build artifacts"
-      }
-    ];
-    const types3 = /* @__PURE__ */ new Set();
-    for (const file of files) {
-      for (const { check, name } of typeChecks) {
-        if (check(file.filename)) {
-          types3.add(name);
-        }
-      }
-    }
-    if (types3.size > 0) {
-      return `trivial changes only (${Array.from(types3).join(", ")})`;
-    }
-    return "trivial changes detected";
-  }
-  /**
-   * Filter out trivial files from a file list
-   */
-  filterNonTrivial(files) {
-    const result = this.detect(files);
-    return files.filter((f2) => result.nonTrivialFiles.includes(f2.filename));
-  }
-};
-
 // node_modules/minimatch/node_modules/balanced-match/dist/esm/index.js
 var balanced = (a2, b2, str2) => {
   const ma2 = a2 instanceof RegExp ? maybeMatch(a2, str2) : a2;
@@ -43737,16 +43762,7 @@ var ReviewOrchestrator = class {
       let reviewContext = pr2;
       let skippedTrivialFiles = [];
       if (config.skipTrivialChanges) {
-        const trivialDetector = new TrivialDetector({
-          enabled: true,
-          skipDependencyUpdates: config.skipDependencyUpdates ?? true,
-          skipDocumentationOnly: config.skipDocumentationOnly ?? true,
-          skipFormattingOnly: config.skipFormattingOnly ?? false,
-          skipTestFixtures: config.skipTestFixtures ?? true,
-          skipConfigFiles: config.skipConfigFiles ?? true,
-          skipBuildArtifacts: config.skipBuildArtifacts ?? true,
-          customTrivialPatterns: config.trivialPatterns ?? []
-        });
+        const trivialDetector = createConfiguredTrivialDetector(config);
         const trivialResult = trivialDetector.detect(pr2.files);
         if (trivialResult.isTrivial) {
           logger.info(`Skipping review: ${trivialResult.reason}`);
@@ -73329,7 +73345,7 @@ function createReviewPromptCoverageManifest(input) {
 }
 function isReviewPromptCoverageComplete(manifest) {
   return manifest.paths.length > 0 && manifest.paths.every(
-    (path25) => path25.kind === "full_patch" /* FullPatch */
+    (path25) => path25.kind === "full_patch" /* FullPatch */ || path25.kind === "policy_excluded" /* PolicyExcluded */
   );
 }
 function createProviderVisibleReviewCoverage(manifest) {
@@ -76021,6 +76037,7 @@ var ContextGatewayRecorder = class {
   }
   dependencies = [];
   replayEntries = [];
+  mutationTail = Promise.resolve();
   hadFailure = false;
   async initialize() {
     await Promise.all([
@@ -76068,14 +76085,27 @@ var ContextGatewayRecorder = class {
     this.restoreTranscript(transcript);
     this.restoreReplayMaterial(replay);
   }
-  async record(operation, result, replayQuery) {
+  async record(operation, result) {
+    return this.serializeMutation(() => this.append(operation, result));
+  }
+  async recordTextSearch(operation, result, query) {
+    return this.serializeMutation(() => this.append(operation, result, query));
+  }
+  async recordFailure() {
+    return this.serializeMutation(async () => {
+      this.hadFailure = true;
+      await this.flush();
+    });
+  }
+  async append(operationInput, result, replayQuery) {
     if (this.dependencies.length >= CONTEXT_GATEWAY_MAX_OPERATIONS) {
-      await this.recordFailure();
+      this.hadFailure = true;
+      await this.flush();
       throw new Error("context_gateway_operation_limit_exceeded");
     }
     const sequence = this.dependencies.length + 1;
     const previousEventHash = this.dependencies.at(-1)?.eventHash ?? this.config.eventChainSeedHash;
-    const operationKey = sha25610(canonicalJson9(operation));
+    let operation = operationInput;
     let replayHandle;
     if (replayQuery !== void 0) {
       replayHandle = keyedSha256(
@@ -76086,6 +76116,17 @@ var ContextGatewayRecorder = class {
           query: replayQuery
         })
       );
+      operation = Object.freeze({
+        ...operationInput,
+        queryDigest: keyedSha256(
+          this.config.secret,
+          canonicalizeReviewContextSearchQuery(replayQuery)
+        ),
+        replayHandleHash: sha25610(replayHandle)
+      });
+    }
+    const operationKey = sha25610(canonicalJson9(operation));
+    if (replayHandle !== void 0 && replayQuery !== void 0) {
       this.replayEntries.push(
         Object.freeze({
           replayHandle,
@@ -76120,27 +76161,13 @@ var ContextGatewayRecorder = class {
     await this.flush();
     return entry;
   }
-  async recordFailure() {
-    this.hadFailure = true;
-    await this.flush();
-  }
-  createReplayReference(query) {
-    const sequence = this.dependencies.length + 1;
-    const replayHandle = keyedSha256(
-      this.config.secret,
-      canonicalizeReviewContextReplayHandle({
-        sessionId: this.config.sessionId,
-        sequence,
-        query
-      })
+  serializeMutation(operation) {
+    const mutation = this.mutationTail.then(operation);
+    this.mutationTail = mutation.then(
+      () => void 0,
+      () => void 0
     );
-    return Object.freeze({
-      queryDigest: keyedSha256(
-        this.config.secret,
-        canonicalizeReviewContextSearchQuery(query)
-      ),
-      replayHandleHash: sha25610(replayHandle)
-    });
+    return mutation;
   }
   snapshotDependencies() {
     return Object.freeze([...this.dependencies]);
@@ -76447,10 +76474,8 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       const allMatches = output.split(/\r?\n/u).filter(Boolean).sort();
       const truncated = allMatches.length > maxResults;
       const matches = allMatches.slice(0, maxResults);
-      const replayReference = this.recorder.createReplayReference(input.query);
       const operation = Object.freeze({
         kind: "text_search",
-        ...replayReference,
         paths,
         includeGlobs: [],
         excludeGlobs: [],
@@ -76469,7 +76494,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         complete: !truncated,
         truncated
       });
-      await this.recorder.record(operation, result, input.query);
+      await this.recorder.recordTextSearch(operation, result, input.query);
       return Object.freeze({ matches, truncated });
     } catch (error2) {
       await this.recorder.recordFailure();
@@ -78698,6 +78723,7 @@ var ProductionReviewProjectionCommandFactory = class {
       (workSlotId) => requiredWorkSlotIds.has(workSlotId)
     );
     const reviewedFiles = /* @__PURE__ */ new Set();
+    const policyExcludedFiles = /* @__PURE__ */ new Set();
     const coverageLimitations = [];
     for (const assignment of requiredAssignments) {
       const accepted = evidence.get(assignment.workSlotId);
@@ -78718,6 +78744,8 @@ var ProductionReviewProjectionCommandFactory = class {
       for (const path25 of manifest.paths) {
         if (path25.kind === "full_patch" /* FullPatch */) {
           reviewedFiles.add(path25.path);
+        } else if (path25.kind === "policy_excluded" /* PolicyExcluded */) {
+          policyExcludedFiles.add(path25.path);
         } else {
           coverageLimitations.push(`path_coverage:${path25.path}:${path25.kind}`);
         }
@@ -78778,10 +78806,10 @@ var ProductionReviewProjectionCommandFactory = class {
         state: complete ? "complete" /* Complete */ : "partial" /* Partial */,
         mode: "full",
         totalFiles: this.input.pr.files.length,
-        reviewedFiles: complete ? this.input.pr.files.length : reviewedFiles.size,
+        reviewedFiles: reviewedFiles.size,
         unreviewedFiles: Math.max(
           0,
-          this.input.pr.files.length - reviewedFiles.size
+          this.input.pr.files.length - reviewedFiles.size - policyExcludedFiles.size
         ),
         limitations: Object.freeze(limitations)
       },

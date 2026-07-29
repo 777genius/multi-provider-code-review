@@ -248,10 +248,8 @@ export class FilesystemContextGateway {
       const allMatches = output.split(/\r?\n/u).filter(Boolean).sort();
       const truncated = allMatches.length > maxResults;
       const matches = allMatches.slice(0, maxResults);
-      const replayReference = this.recorder.createReplayReference(input.query);
       const operation = Object.freeze({
         kind: 'text_search' as const,
-        ...replayReference,
         paths,
         includeGlobs: [] as readonly string[],
         excludeGlobs: [] as readonly string[],
@@ -270,7 +268,7 @@ export class FilesystemContextGateway {
         complete: !truncated,
         truncated,
       });
-      await this.recorder.record(operation, result, input.query);
+      await this.recorder.recordTextSearch(operation, result, input.query);
       return Object.freeze({ matches, truncated });
     } catch (error) {
       await this.recorder.recordFailure();

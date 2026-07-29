@@ -3,6 +3,7 @@ export enum PreparedPromptPathCoverageKind {
   TrustedRead = 'trusted_read',
   SummaryOnly = 'summary_only',
   MetadataOnly = 'metadata_only',
+  PolicyExcluded = 'policy_excluded',
   Trimmed = 'trimmed',
   Unavailable = 'unavailable',
 }

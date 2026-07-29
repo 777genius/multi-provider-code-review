@@ -36,6 +36,7 @@ export class ContextGatewayRecorder {
   private readonly replayEntries: Array<
     ContextGatewayReplayMaterial['entries'][number]
   > = [];
+  private mutationTail: Promise<void> = Promise.resolve();
   private hadFailure = false;
 
   constructor(private readonly config: ContextGatewayRecorderConfig) {
@@ -94,17 +95,42 @@ export class ContextGatewayRecorder {
 
   async record(
     operation: ContextDependencyEntry['operation'],
+    result: ContextDependencyEntry['result']
+  ): Promise<ContextDependencyEntry> {
+    return this.serializeMutation(() => this.append(operation, result));
+  }
+
+  async recordTextSearch(
+    operation: Readonly<Record<string, unknown>> & {
+      readonly kind: 'text_search';
+    },
+    result: ContextDependencyEntry['result'],
+    query: string
+  ): Promise<ContextDependencyEntry> {
+    return this.serializeMutation(() => this.append(operation, result, query));
+  }
+
+  async recordFailure(): Promise<void> {
+    return this.serializeMutation(async () => {
+      this.hadFailure = true;
+      await this.flush();
+    });
+  }
+
+  private async append(
+    operationInput: ContextDependencyEntry['operation'],
     result: ContextDependencyEntry['result'],
     replayQuery?: string
   ): Promise<ContextDependencyEntry> {
     if (this.dependencies.length >= CONTEXT_GATEWAY_MAX_OPERATIONS) {
-      await this.recordFailure();
+      this.hadFailure = true;
+      await this.flush();
       throw new Error('context_gateway_operation_limit_exceeded');
     }
     const sequence = this.dependencies.length + 1;
     const previousEventHash =
       this.dependencies.at(-1)?.eventHash ?? this.config.eventChainSeedHash;
-    const operationKey = sha256(canonicalJson(operation));
+    let operation = operationInput;
     let replayHandle: string | undefined;
     if (replayQuery !== undefined) {
       replayHandle = keyedSha256(
@@ -115,6 +141,17 @@ export class ContextGatewayRecorder {
           query: replayQuery,
         })
       );
+      operation = Object.freeze({
+        ...operationInput,
+        queryDigest: keyedSha256(
+          this.config.secret,
+          canonicalizeReviewContextSearchQuery(replayQuery)
+        ),
+        replayHandleHash: sha256(replayHandle),
+      });
+    }
+    const operationKey = sha256(canonicalJson(operation));
+    if (replayHandle !== undefined && replayQuery !== undefined) {
       this.replayEntries.push(
         Object.freeze({
           replayHandle,
@@ -150,31 +187,13 @@ export class ContextGatewayRecorder {
     return entry;
   }
 
-  async recordFailure(): Promise<void> {
-    this.hadFailure = true;
-    await this.flush();
-  }
-
-  createReplayReference(query: string): Readonly<{
-    queryDigest: string;
-    replayHandleHash: string;
-  }> {
-    const sequence = this.dependencies.length + 1;
-    const replayHandle = keyedSha256(
-      this.config.secret,
-      canonicalizeReviewContextReplayHandle({
-        sessionId: this.config.sessionId,
-        sequence,
-        query,
-      })
+  private serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const mutation = this.mutationTail.then(operation);
+    this.mutationTail = mutation.then(
+      () => undefined,
+      () => undefined
     );
-    return Object.freeze({
-      queryDigest: keyedSha256(
-        this.config.secret,
-        canonicalizeReviewContextSearchQuery(query)
-      ),
-      replayHandleHash: sha256(replayHandle),
-    });
+    return mutation;
   }
 
   snapshotDependencies(): readonly ContextDependencyEntry[] {

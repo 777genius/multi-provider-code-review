@@ -241,6 +241,34 @@ describe('FilesystemContextGateway', () => {
     });
   });
 
+  it('serializes concurrent text searches into replayable sequence-bound entries', async () => {
+    const fixture = await gatewayFixture(root, 'concurrent-searches');
+
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        fixture.gateway.searchText({
+          query: 'alpha',
+          paths: ['.'],
+          maxResults: 10,
+        })
+      )
+    );
+
+    const transcript = await readJson<ContextGatewayTranscript>(
+      fixture.transcriptPath
+    );
+    const replayMaterial = await readJson<{
+      readonly entries: readonly unknown[];
+    }>(fixture.replayMaterialPath);
+    expect(transcript.dependencies.map((entry) => entry.sequence)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
+    expect(replayMaterial.entries).toHaveLength(8);
+
+    const resumedRecorder = new ContextGatewayRecorder(fixture.recorderConfig);
+    await expect(resumedRecorder.resume()).resolves.toBeUndefined();
+  });
+
   it('fails closed for traversal and truncated search results', async () => {
     const fixture = await gatewayFixture(root);
 

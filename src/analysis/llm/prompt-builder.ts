@@ -13,6 +13,7 @@ import {
 } from '../../utils/token-estimation';
 import { logger } from '../../utils/logger';
 import { ValidationDetector } from '../context/validation-detector';
+import { createConfiguredTrivialDetector } from '../trivial-detector';
 import { PromptEnricher } from '../../learning/prompt-enrichment';
 import { CodeGraph, Definition } from '../context/graph-builder';
 import {
@@ -141,11 +142,20 @@ export class PromptBuilder {
     const summaryOnlyFiles = new Map(
       compacted.summaryOnlyFiles.map((file) => [file.filename, file])
     );
+    const trivialDetector = createConfiguredTrivialDetector(this.config);
+    const policyExcludedPaths = new Set(
+      this.config.skipTrivialChanges === false
+        ? []
+        : pr.files
+            .filter((file) => trivialDetector.isFileTrivial(file))
+            .map((file) => file.filename)
+    );
     const pathCoverage = classifyPreparedPromptCoverage({
       files: pr.files,
       sourceDiff: pr.diff,
       compactedDiff: compacted.diff,
       finalDiff: diff,
+      policyExcludedPaths,
       summaryOnlyPaths: new Set(summaryOnlyFiles.keys()),
     });
     const skipSuggestions =
@@ -571,6 +581,7 @@ function classifyPreparedPromptCoverage(input: {
   readonly sourceDiff: string;
   readonly compactedDiff: string;
   readonly finalDiff: string;
+  readonly policyExcludedPaths: ReadonlySet<string>;
   readonly summaryOnlyPaths: ReadonlySet<string>;
 }): readonly PreparedPromptPathCoverage[] {
   const source = splitDiffByDestinationPath(input.sourceDiff);
@@ -580,6 +591,13 @@ function classifyPreparedPromptCoverage(input: {
     input.files
       .map((file): PreparedPromptPathCoverage => {
         const finalChunk = final.get(file.filename);
+        if (input.policyExcludedPaths.has(file.filename)) {
+          return Object.freeze({
+            path: file.filename,
+            kind: PreparedPromptPathCoverageKind.PolicyExcluded,
+            contentHash: finalChunk === undefined ? null : sha256(finalChunk),
+          });
+        }
         if (finalChunk !== undefined) {
           return Object.freeze({
             path: file.filename,

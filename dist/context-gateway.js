@@ -14062,6 +14062,7 @@ var ContextGatewayRecorder = class {
   }
   dependencies = [];
   replayEntries = [];
+  mutationTail = Promise.resolve();
   hadFailure = false;
   async initialize() {
     await Promise.all([
@@ -14109,14 +14110,27 @@ var ContextGatewayRecorder = class {
     this.restoreTranscript(transcript);
     this.restoreReplayMaterial(replay);
   }
-  async record(operation, result, replayQuery) {
+  async record(operation, result) {
+    return this.serializeMutation(() => this.append(operation, result));
+  }
+  async recordTextSearch(operation, result, query) {
+    return this.serializeMutation(() => this.append(operation, result, query));
+  }
+  async recordFailure() {
+    return this.serializeMutation(async () => {
+      this.hadFailure = true;
+      await this.flush();
+    });
+  }
+  async append(operationInput, result, replayQuery) {
     if (this.dependencies.length >= CONTEXT_GATEWAY_MAX_OPERATIONS) {
-      await this.recordFailure();
+      this.hadFailure = true;
+      await this.flush();
       throw new Error("context_gateway_operation_limit_exceeded");
     }
     const sequence = this.dependencies.length + 1;
     const previousEventHash = this.dependencies.at(-1)?.eventHash ?? this.config.eventChainSeedHash;
-    const operationKey = sha256(canonicalJson(operation));
+    let operation = operationInput;
     let replayHandle;
     if (replayQuery !== void 0) {
       replayHandle = keyedSha256(
@@ -14127,6 +14141,17 @@ var ContextGatewayRecorder = class {
           query: replayQuery
         })
       );
+      operation = Object.freeze({
+        ...operationInput,
+        queryDigest: keyedSha256(
+          this.config.secret,
+          canonicalizeReviewContextSearchQuery(replayQuery)
+        ),
+        replayHandleHash: sha256(replayHandle)
+      });
+    }
+    const operationKey = sha256(canonicalJson(operation));
+    if (replayHandle !== void 0 && replayQuery !== void 0) {
       this.replayEntries.push(
         Object.freeze({
           replayHandle,
@@ -14161,27 +14186,13 @@ var ContextGatewayRecorder = class {
     await this.flush();
     return entry;
   }
-  async recordFailure() {
-    this.hadFailure = true;
-    await this.flush();
-  }
-  createReplayReference(query) {
-    const sequence = this.dependencies.length + 1;
-    const replayHandle = keyedSha256(
-      this.config.secret,
-      canonicalizeReviewContextReplayHandle({
-        sessionId: this.config.sessionId,
-        sequence,
-        query
-      })
+  serializeMutation(operation) {
+    const mutation = this.mutationTail.then(operation);
+    this.mutationTail = mutation.then(
+      () => void 0,
+      () => void 0
     );
-    return Object.freeze({
-      queryDigest: keyedSha256(
-        this.config.secret,
-        canonicalizeReviewContextSearchQuery(query)
-      ),
-      replayHandleHash: sha256(replayHandle)
-    });
+    return mutation;
   }
   snapshotDependencies() {
     return Object.freeze([...this.dependencies]);
@@ -14578,10 +14589,8 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       const allMatches = output.split(/\r?\n/u).filter(Boolean).sort();
       const truncated = allMatches.length > maxResults;
       const matches = allMatches.slice(0, maxResults);
-      const replayReference = this.recorder.createReplayReference(input.query);
       const operation = Object.freeze({
         kind: "text_search",
-        ...replayReference,
         paths,
         includeGlobs: [],
         excludeGlobs: [],
@@ -14600,7 +14609,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         complete: !truncated,
         truncated
       });
-      await this.recorder.record(operation, result, input.query);
+      await this.recorder.recordTextSearch(operation, result, input.query);
       return Object.freeze({ matches, truncated });
     } catch (error2) {
       await this.recorder.recordFailure();
