@@ -22255,7 +22255,7 @@ var CodexProvider = class _CodexProvider extends Provider {
     );
     const parsed = this.parseNonEmptyReviewContent(content, runResult.stderr);
     const actualModel = this.resolveEffectiveActualModel(
-      runResult.actualModel,
+      runResult.actualModelObservation,
       prepared.requestedModel
     );
     return {
@@ -22538,7 +22538,7 @@ var CodexProvider = class _CodexProvider extends Provider {
         stdout,
         stderr,
         lastMessage,
-        actualModel: this.extractActualModel(stdout),
+        actualModelObservation: this.inspectActualModel(stdout),
         audit: !options.healthCheck && (options.jsonEvents || options.eventAudit) ? this.buildAgenticAudit(stdout) : void 0
       };
     } finally {
@@ -23350,7 +23350,7 @@ var CodexProvider = class _CodexProvider extends Provider {
       `Codex event audit: commands=${audit.commandCount}, commandNames=${commands}${files}`
     );
   }
-  extractActualModel(stdout) {
+  inspectActualModel(stdout) {
     const models = /* @__PURE__ */ new Set();
     for (const line of stdout.split(/\r?\n/u)) {
       if (!line.trim()) continue;
@@ -23359,10 +23359,24 @@ var CodexProvider = class _CodexProvider extends Provider {
       } catch {
       }
     }
-    return models.size === 1 ? [...models][0] : void 0;
+    if (models.size === 0) {
+      return Object.freeze({ kind: "missing" /* Missing */ });
+    }
+    if (models.size === 1) {
+      return Object.freeze({
+        kind: "observed" /* Observed */,
+        model: [...models][0]
+      });
+    }
+    return Object.freeze({ kind: "ambiguous" /* Ambiguous */ });
   }
-  resolveEffectiveActualModel(observedModel, requestedModel) {
-    if (observedModel) return observedModel;
+  resolveEffectiveActualModel(observation, requestedModel) {
+    if (observation.kind === "observed" /* Observed */) {
+      return observation.model;
+    }
+    if (observation.kind === "ambiguous" /* Ambiguous */) {
+      return void 0;
+    }
     return this.options.modelProvider === "openrouter" ? void 0 : requestedModel;
   }
   collectSessionConfiguredModels(value, models, depth) {
@@ -75328,7 +75342,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
         input.signal
       );
       logger.info(
-        `Codex execution model: requested=${input.invocation.requestedModel}, actual=${result.actualModel ?? input.invocation.requestedModel}`
+        `Codex execution model: requested=${input.invocation.requestedModel}, actual=${result.actualModel ?? "unreported"}`
       );
       const initial = normalizeReviewObservation({
         workSlotId: input.invocation.workSlotId,
@@ -75338,10 +75352,27 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
         result,
         qualityFlags: result.actualModel ? [] : ["provider_warning"]
       });
-      const providerQualityFlags = result.actualModel ? [] : ["provider_warning"];
+      const actualModel = result.actualModel;
+      if (!actualModel) {
+        logger.warn(
+          "Codex actual model unavailable; preserving fresh review as non-reusable"
+        );
+        return normalizeReviewObservation({
+          workSlotId: input.invocation.workSlotId,
+          attemptOrdinal: input.invocation.attemptOrdinal,
+          providerName: input.invocation.provider,
+          requestedModel: input.invocation.requestedModel,
+          result,
+          qualityFlags: [
+            "provider_warning",
+            "context_attestation_unavailable",
+            "cross_revision_reuse_disabled"
+          ]
+        });
+      }
       try {
         const attestation = await session.seal({
-          actualModel: result.actualModel ?? input.invocation.requestedModel,
+          actualModel,
           terminalOutcomeHash: initial.payloadHash
         });
         if (attestation) {
@@ -75355,8 +75386,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: attestation ? providerQualityFlags : [
-            ...providerQualityFlags,
+          qualityFlags: attestation ? [] : [
             "context_attestation_unavailable",
             "cross_revision_reuse_disabled"
           ],
@@ -75371,7 +75401,6 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             requestedModel: input.invocation.requestedModel,
             result,
             qualityFlags: [
-              ...providerQualityFlags,
               "context_inspection_incomplete",
               "cross_revision_reuse_disabled"
             ]
@@ -75394,7 +75423,6 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           requestedModel: input.invocation.requestedModel,
           result,
           qualityFlags: [
-            ...providerQualityFlags,
             "context_attestation_unavailable",
             "cross_revision_reuse_disabled"
           ]

@@ -62,9 +62,23 @@ type CodexRunResult = {
   stdout: string;
   stderr: string;
   lastMessage: string;
-  actualModel?: string;
+  actualModelObservation: CodexActualModelObservation;
   audit?: CodexAgenticAudit;
 };
+
+enum CodexActualModelObservationKind {
+  Missing = 'missing',
+  Observed = 'observed',
+  Ambiguous = 'ambiguous',
+}
+
+type CodexActualModelObservation =
+  | Readonly<{ kind: CodexActualModelObservationKind.Missing }>
+  | Readonly<{
+      kind: CodexActualModelObservationKind.Observed;
+      model: string;
+    }>
+  | Readonly<{ kind: CodexActualModelObservationKind.Ambiguous }>;
 
 type CodexAgenticAuditMode = 'off' | 'rerun' | 'strict';
 
@@ -509,7 +523,7 @@ export class CodexProvider extends Provider {
     );
     const parsed = this.parseNonEmptyReviewContent(content, runResult.stderr);
     const actualModel = this.resolveEffectiveActualModel(
-      runResult.actualModel,
+      runResult.actualModelObservation,
       prepared.requestedModel
     );
     return {
@@ -878,7 +892,7 @@ export class CodexProvider extends Provider {
         stdout,
         stderr,
         lastMessage,
-        actualModel: this.extractActualModel(stdout),
+        actualModelObservation: this.inspectActualModel(stdout),
         audit:
           !options.healthCheck && (options.jsonEvents || options.eventAudit)
             ? this.buildAgenticAudit(stdout)
@@ -1971,7 +1985,7 @@ export class CodexProvider extends Provider {
     );
   }
 
-  private extractActualModel(stdout: string): string | undefined {
+  private inspectActualModel(stdout: string): CodexActualModelObservation {
     const models = new Set<string>();
     for (const line of stdout.split(/\r?\n/u)) {
       if (!line.trim()) continue;
@@ -1981,14 +1995,28 @@ export class CodexProvider extends Provider {
         // Ignore non-JSON progress lines.
       }
     }
-    return models.size === 1 ? [...models][0] : undefined;
+    if (models.size === 0) {
+      return Object.freeze({ kind: CodexActualModelObservationKind.Missing });
+    }
+    if (models.size === 1) {
+      return Object.freeze({
+        kind: CodexActualModelObservationKind.Observed,
+        model: [...models][0],
+      });
+    }
+    return Object.freeze({ kind: CodexActualModelObservationKind.Ambiguous });
   }
 
   private resolveEffectiveActualModel(
-    observedModel: string | undefined,
+    observation: CodexActualModelObservation,
     requestedModel: string
   ): string | undefined {
-    if (observedModel) return observedModel;
+    if (observation.kind === CodexActualModelObservationKind.Observed) {
+      return observation.model;
+    }
+    if (observation.kind === CodexActualModelObservationKind.Ambiguous) {
+      return undefined;
+    }
 
     // Native Codex receives an explicit --model and has no downstream router
     // in this provider contract, so the pin is authoritative when JSONL omits it.
