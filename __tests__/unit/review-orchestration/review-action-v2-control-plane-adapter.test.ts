@@ -20,6 +20,7 @@ import {
   ReviewPublicationStatusResultStatus,
   ReviewRunAuthorizationResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
+import { logger } from '../../../src/utils/logger';
 import {
   ReviewExecutionProviderKind,
   ReviewEvidenceLookupKind,
@@ -355,6 +356,40 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         }),
       })
     );
+  });
+
+  it('logs only bounded evidence lookup identities and denial reasons', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewEvidenceLookupResultStatus.Miss,
+      denialReasons: ['manifest_mismatch'],
+    });
+    const infoSpy = jest
+      .spyOn(logger, 'info')
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        createAdapter(execute).lookupEvidence({
+          authorization,
+          execution,
+          workSlot,
+          planHash: execution.restoredExecution.planHash,
+          manifest: providerManifest,
+        })
+      ).resolves.toEqual({ kind: ReviewEvidenceLookupKind.Miss });
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        `Review evidence lookup: status=miss, manifest=${providerManifest.manifestKey.slice(
+          0,
+          12
+        )}, invocation=${providerManifest.providerInvocationKey.slice(
+          0,
+          12
+        )}, reasons=manifest_mismatch`
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 
   it('turns a fenced same-execution shadow into adoptable evidence', async () => {

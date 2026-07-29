@@ -319,6 +319,11 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
         session.credentialLease,
         input.signal
       );
+      logger.info(
+        `Codex execution model: requested=${input.invocation.requestedModel}, actual=${
+          result.actualModel ?? input.invocation.requestedModel
+        }`
+      );
       const initial = normalizeReviewObservation({
         workSlotId: input.invocation.workSlotId,
         attemptOrdinal: input.invocation.attemptOrdinal,
@@ -460,6 +465,18 @@ export class GeneratedProviderInvocationManifestAssembler implements ProviderInv
         lane.providerVoteIdentityHash
       )
     );
+    logger.info(
+      [
+        'Review invocation manifest:',
+        `manifest=${digestPrefix(manifestKey)}`,
+        `invocation=${digestPrefix(providerInvocationKey)}`,
+        `request=${digestPrefix(facts.providerRequestEnvelopeHash)}`,
+        `patch=${digestPrefix(facts.filePatchManifestHash)}`,
+        `context=${digestPrefix(facts.contextManifestHash)}`,
+        `baseTree=${digestPrefix(facts.baseTreeHash)}`,
+        `environment=${digestPrefix(facts.environmentContractHash)}`,
+      ].join(' ')
+    );
     return Object.freeze({
       manifestCanonicalJson:
         serializeProviderInvocationManifestV1CanonicalWireJson(manifestInput),
@@ -468,6 +485,10 @@ export class GeneratedProviderInvocationManifestAssembler implements ProviderInv
       providerVoteIdentityHash: lane.providerVoteIdentityHash,
     });
   }
+}
+
+function digestPrefix(value: string | null): string {
+  return value && /^[a-f0-9]{64}$/u.test(value) ? value.slice(0, 12) : 'none';
 }
 
 export class DeterministicReviewOrchestrationIdentity implements ReviewOrchestrationIdentityPort {
