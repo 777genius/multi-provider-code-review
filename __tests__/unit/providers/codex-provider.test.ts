@@ -1334,6 +1334,56 @@ describe('CodexProvider', () => {
     expect(result.findings).toEqual([]);
   });
 
+  it('uses the pinned native Codex model when JSONL omits session configuration', async () => {
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('--version')) {
+        return createMockProcess();
+      }
+
+      return createMockProcess(() => {
+        const outputIndex = args.indexOf('--output-last-message');
+        fs.writeFileSync(
+          args[outputIndex + 1],
+          '{"findings":[],"revalidations":[]}'
+        );
+      });
+    });
+
+    const provider = new CodexProvider('gpt-5.6-sol', {
+      agenticContext: false,
+    });
+
+    const result = await provider.review('review prompt', 1000);
+
+    expect(result.actualModel).toBe('gpt-5.6-sol');
+  });
+
+  it('does not infer an actual model for routed OpenRouter executions', async () => {
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('--version')) {
+        return createMockProcess();
+      }
+
+      return createMockProcess(() => {
+        const outputIndex = args.indexOf('--output-last-message');
+        fs.writeFileSync(
+          args[outputIndex + 1],
+          '{"findings":[],"revalidations":[]}'
+        );
+      });
+    });
+
+    const provider = new CodexProvider('openai/gpt-5.6-sol', {
+      agenticContext: false,
+      modelProvider: 'openrouter',
+      providerNamePrefix: 'codex-openrouter',
+    });
+
+    const result = await provider.review('review prompt', 1000);
+
+    expect(result.actualModel).toBeUndefined();
+  });
+
   it('re-clamps the deadline immediately before the initial Codex invocation', async () => {
     const provider = new CodexProvider('gpt-5.4-mini', {
       agenticContext: false,

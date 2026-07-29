@@ -508,6 +508,10 @@ export class CodexProvider extends Provider {
       request.cwd
     );
     const parsed = this.parseNonEmptyReviewContent(content, runResult.stderr);
+    const actualModel = this.resolveEffectiveActualModel(
+      runResult.actualModel,
+      prepared.requestedModel
+    );
     return {
       content,
       parsed,
@@ -518,9 +522,7 @@ export class CodexProvider extends Provider {
         usage: this.estimateUsage(request.prompt, content),
         findings: parsed.findings,
         revalidations: parsed.revalidations,
-        ...(runResult.actualModel
-          ? { actualModel: runResult.actualModel }
-          : {}),
+        ...(actualModel ? { actualModel } : {}),
       },
     };
   }
@@ -1980,6 +1982,19 @@ export class CodexProvider extends Provider {
       }
     }
     return models.size === 1 ? [...models][0] : undefined;
+  }
+
+  private resolveEffectiveActualModel(
+    observedModel: string | undefined,
+    requestedModel: string
+  ): string | undefined {
+    if (observedModel) return observedModel;
+
+    // Native Codex receives an explicit --model and has no downstream router
+    // in this provider contract, so the pin is authoritative when JSONL omits it.
+    return this.options.modelProvider === 'openrouter'
+      ? undefined
+      : requestedModel;
   }
 
   private collectSessionConfiguredModels(

@@ -22254,6 +22254,10 @@ var CodexProvider = class _CodexProvider extends Provider {
       request.cwd
     );
     const parsed = this.parseNonEmptyReviewContent(content, runResult.stderr);
+    const actualModel = this.resolveEffectiveActualModel(
+      runResult.actualModel,
+      prepared.requestedModel
+    );
     return {
       content,
       parsed,
@@ -22264,7 +22268,7 @@ var CodexProvider = class _CodexProvider extends Provider {
         usage: this.estimateUsage(request.prompt, content),
         findings: parsed.findings,
         revalidations: parsed.revalidations,
-        ...runResult.actualModel ? { actualModel: runResult.actualModel } : {}
+        ...actualModel ? { actualModel } : {}
       }
     };
   }
@@ -23356,6 +23360,10 @@ var CodexProvider = class _CodexProvider extends Provider {
       }
     }
     return models.size === 1 ? [...models][0] : void 0;
+  }
+  resolveEffectiveActualModel(observedModel, requestedModel) {
+    if (observedModel) return observedModel;
+    return this.options.modelProvider === "openrouter" ? void 0 : requestedModel;
   }
   collectSessionConfiguredModels(value, models, depth) {
     if (!value || typeof value !== "object" || depth > 5) return;
