@@ -3,12 +3,15 @@ import { createHash, createHmac } from 'crypto';
 export const CONTEXT_GATEWAY_MANIFEST_VERSION = 2 as const;
 export const CONTEXT_GATEWAY_POLICY_VERSION = 'context-gateway-v3' as const;
 export const CONTEXT_GATEWAY_MAX_OPERATIONS = 2_000;
+export const CONTEXT_GIT_DIFF_POLICY_VERSION = 'git-diff-stat-v2' as const;
 
 export type ContextDependencyKind =
   | 'file_read'
   | 'directory_list'
   | 'text_search'
   | 'git_fact';
+
+export type ContextGitFactKind = 'changed_paths' | 'diff_stat' | 'merge_base';
 
 export type ContextDependencyEntry = Readonly<{
   sequence: number;
@@ -53,6 +56,72 @@ export enum ChangedPathsWitnessStatus {
   Present = 'present',
   Missing = 'missing',
   Invalid = 'invalid',
+}
+
+export function contextGitFactOperandsHash(
+  input:
+    | Readonly<{
+        fact: 'changed_paths';
+        mergeBaseTreeOid: string;
+        headTreeOid: string;
+      }>
+    | Readonly<{
+        fact: 'diff_stat';
+        mergeBaseTreeOid: string;
+        headTreeOid: string;
+        diffPolicyHash: string;
+      }>
+    | Readonly<{
+        fact: 'merge_base';
+        mergeBaseSha: string;
+      }>
+): string {
+  switch (input.fact) {
+    case 'changed_paths':
+      return sha256(
+        canonicalJson({
+          mergeBaseTreeOid: requireGitOid(
+            input.mergeBaseTreeOid,
+            'merge_base_tree_oid'
+          ),
+          headTreeOid: requireGitOid(input.headTreeOid, 'head_tree_oid'),
+        })
+      );
+    case 'diff_stat':
+      return sha256(
+        canonicalJson({
+          diffPolicyHash: requireSha256(
+            input.diffPolicyHash,
+            'diff_policy_hash'
+          ),
+          mergeBaseTreeOid: requireGitOid(
+            input.mergeBaseTreeOid,
+            'merge_base_tree_oid'
+          ),
+          headTreeOid: requireGitOid(input.headTreeOid, 'head_tree_oid'),
+        })
+      );
+    case 'merge_base':
+      return sha256(
+        canonicalJson({
+          mergeBaseSha: requireGitOid(input.mergeBaseSha, 'merge_base_sha'),
+        })
+      );
+  }
+}
+
+export function contextGitDiffPolicyHash(
+  infoAttributesHash: string | null
+): string {
+  return sha256(
+    canonicalJson({
+      infoAttributesHash:
+        infoAttributesHash === null
+          ? null
+          : requireSha256(infoAttributesHash, 'info_attributes_hash'),
+      policyVersion: CONTEXT_GIT_DIFF_POLICY_VERSION,
+    })
+  );
 }
 
 export function changedPathsWitnessStatus(

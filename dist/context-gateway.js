@@ -2981,7 +2981,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve.call(this, root, ref);
+      let _sch = resolve2.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -3008,7 +3008,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve(root, ref) {
+    function resolve2(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3639,7 +3639,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve(baseURI, relativeURI, options) {
+    function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -3903,7 +3903,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve,
+      resolve: resolve2,
       resolveComponent,
       equal,
       serialize,
@@ -12738,7 +12738,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -12755,7 +12755,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -12833,7 +12833,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve(parseResult.data);
+            resolve2(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -13094,12 +13094,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve, interval);
+      const timeoutId = setTimeout(resolve2, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -13969,12 +13969,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve();
+        resolve2();
       } else {
-        this._stdout.once("drain", resolve);
+        this._stdout.once("drain", resolve2);
       }
     });
   }
@@ -13984,6 +13984,49 @@ var StdioServerTransport = class {
 var import_crypto = require("crypto");
 var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v3";
 var CONTEXT_GATEWAY_MAX_OPERATIONS = 2e3;
+var CONTEXT_GIT_DIFF_POLICY_VERSION = "git-diff-stat-v2";
+function contextGitFactOperandsHash(input) {
+  switch (input.fact) {
+    case "changed_paths":
+      return sha256(
+        canonicalJson({
+          mergeBaseTreeOid: requireGitOid(
+            input.mergeBaseTreeOid,
+            "merge_base_tree_oid"
+          ),
+          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
+        })
+      );
+    case "diff_stat":
+      return sha256(
+        canonicalJson({
+          diffPolicyHash: requireSha256(
+            input.diffPolicyHash,
+            "diff_policy_hash"
+          ),
+          mergeBaseTreeOid: requireGitOid(
+            input.mergeBaseTreeOid,
+            "merge_base_tree_oid"
+          ),
+          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
+        })
+      );
+    case "merge_base":
+      return sha256(
+        canonicalJson({
+          mergeBaseSha: requireGitOid(input.mergeBaseSha, "merge_base_sha")
+        })
+      );
+  }
+}
+function contextGitDiffPolicyHash(infoAttributesHash) {
+  return sha256(
+    canonicalJson({
+      infoAttributesHash: infoAttributesHash === null ? null : requireSha256(infoAttributesHash, "info_attributes_hash"),
+      policyVersion: CONTEXT_GIT_DIFF_POLICY_VERSION
+    })
+  );
+}
 function canonicalJson(value) {
   if (value === void 0) return '{"$undefined":true}';
   if (value === null || typeof value === "string" || typeof value === "boolean") {
@@ -14394,35 +14437,50 @@ function defineTool(tool) {
 // src/context-gateway/filesystem-context-gateway.ts
 var import_child_process = require("child_process");
 var import_promises2 = require("fs/promises");
+var import_os = require("os");
 var path2 = __toESM(require("path"));
 var import_util2 = require("util");
 var execFileAsync = (0, import_util2.promisify)(import_child_process.execFile);
 var MAX_FILE_BYTES = 2 * 1024 * 1024;
 var MAX_DIRECTORY_ENTRIES = 2e4;
 var MAX_SEARCH_RESULTS = 2e4;
+var MAX_GIT_INFO_ATTRIBUTES_BYTES = 1024 * 1024;
+var GIT_DIFF_BASE_ARGS = Object.freeze([
+  "-c",
+  "core.attributesFile=/dev/null",
+  "diff",
+  "--no-renames",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--no-indent-heuristic",
+  "--diff-algorithm=myers",
+  "--ignore-submodules=none"
+]);
 var FilesystemContextGateway = class _FilesystemContextGateway {
-  constructor(root, checkoutTreeOid, baseSha, mergeBaseSha, headSha, recorder) {
+  constructor(root, mergeBaseSha, headSha, recorder) {
     this.root = root;
-    this.checkoutTreeOid = checkoutTreeOid;
-    this.baseSha = baseSha;
     this.mergeBaseSha = mergeBaseSha;
     this.headSha = headSha;
     this.recorder = recorder;
   }
+  revisionTreeOidPromises = /* @__PURE__ */ new Map();
   static async create(input) {
     const root = await (0, import_promises2.realpath)(input.root);
     requireGitOid(input.checkoutTreeOid, "checkout_tree_oid");
     requireGitOid(input.baseSha, "base_sha");
     requireGitOid(input.mergeBaseSha, "merge_base_sha");
     requireGitOid(input.headSha, "head_sha");
-    return new _FilesystemContextGateway(
+    const gateway = new _FilesystemContextGateway(
       root,
-      input.checkoutTreeOid,
-      input.baseSha,
       input.mergeBaseSha,
       input.headSha,
       input.recorder
     );
+    const actualHeadTreeOid = await gateway.revisionTreeOid(input.headSha);
+    if (actualHeadTreeOid !== input.checkoutTreeOid) {
+      throw new Error("context_gateway_checkout_tree_mismatch");
+    }
+    return gateway;
   }
   async readFile(input) {
     try {
@@ -14618,37 +14676,80 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
   }
   async gitFact(input) {
     try {
-      let args;
+      let values;
+      let diffPolicyHash;
       switch (input.fact) {
-        case "changed_paths":
-          args = [
-            "diff",
+        case "changed_paths": {
+          const tokens = await this.gitNullSeparated([
+            ...GIT_DIFF_BASE_ARGS,
             "--name-status",
-            "--no-renames",
+            "-z",
             `${this.mergeBaseSha}..${this.headSha}`
-          ];
+          ]);
+          if (tokens.length % 2 !== 0) {
+            throw new Error("context_gateway_changed_paths_invalid");
+          }
+          values = [];
+          for (let index = 0; index < tokens.length; index += 2) {
+            values.push(`${tokens[index]}	${tokens[index + 1]}`);
+          }
+          values.sort();
           break;
-        case "diff_stat":
-          args = ["diff", "--numstat", `${this.mergeBaseSha}..${this.headSha}`];
+        }
+        case "diff_stat": {
+          await this.assertAttributeSourcesClean();
+          await this.materializePartialCloneDiffObjects();
+          const policyBefore = await this.captureGitDiffPolicy();
+          const isolatedGit = await this.createIsolatedGitDirectory(policyBefore);
+          try {
+            values = (await this.gitNullSeparated(
+              [
+                ...GIT_DIFF_BASE_ARGS,
+                "--numstat",
+                "-z",
+                "--text",
+                `${this.mergeBaseSha}..${this.headSha}`
+              ],
+              {
+                GIT_DIR: isolatedGit.gitDirectory,
+                GIT_INDEX_FILE: isolatedGit.indexPath,
+                GIT_WORK_TREE: isolatedGit.workTreePath
+              }
+            )).sort();
+          } finally {
+            await (0, import_promises2.rm)(isolatedGit.gitDirectory, {
+              recursive: true,
+              force: true
+            });
+          }
+          const policyAfter = await this.captureGitDiffPolicy();
+          await this.assertAttributeSourcesClean();
+          if (policyBefore.hash !== policyAfter.hash) {
+            throw new Error("context_gateway_git_diff_policy_changed");
+          }
+          diffPolicyHash = policyBefore.hash;
           break;
-        case "merge_base":
-          args = ["rev-parse", "--verify", `${this.mergeBaseSha}^{commit}`];
+        }
+        case "merge_base": {
+          const output = (await this.gitText([
+            "rev-parse",
+            "--verify",
+            `${this.mergeBaseSha}^{commit}`
+          ])).trim();
+          values = output ? [output] : [];
           break;
+        }
         default:
           throw new Error("git_fact_invalid");
       }
-      const output = (await this.gitText(args)).trim();
-      const values = output ? output.split(/\r?\n/u).sort() : [];
+      const operandsHash = await this.gitFactOperandsHash(
+        input.fact,
+        diffPolicyHash
+      );
       const operation = Object.freeze({
         kind: "git_fact",
         fact: input.fact,
-        operandsHash: sha256(
-          canonicalJson({
-            baseSha: this.baseSha,
-            mergeBaseSha: this.mergeBaseSha,
-            headSha: this.headSha
-          })
-        )
+        operandsHash
       });
       const result = Object.freeze({
         kind: "git_fact",
@@ -14702,10 +14803,161 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       "search_scope_oid"
     );
   }
-  async gitNullSeparated(args) {
-    return (await this.gitText(args)).split("\0").filter(Boolean).sort();
+  revisionTreeOid(revision) {
+    let promise = this.revisionTreeOidPromises.get(revision);
+    if (!promise) {
+      promise = this.gitText(["rev-parse", `${revision}^{tree}`]).then(
+        (output) => requireGitOid(output.trim().toLowerCase(), "revision_tree_oid")
+      );
+      this.revisionTreeOidPromises.set(revision, promise);
+    }
+    return promise;
   }
-  async gitText(args, acceptedExitCodes = /* @__PURE__ */ new Set([0])) {
+  async gitFactOperandsHash(fact, diffPolicyHash) {
+    if (fact === "merge_base") {
+      return contextGitFactOperandsHash({
+        fact,
+        mergeBaseSha: this.mergeBaseSha
+      });
+    }
+    const [mergeBaseTreeOid, headTreeOid] = await Promise.all([
+      this.revisionTreeOid(this.mergeBaseSha),
+      this.revisionTreeOid(this.headSha)
+    ]);
+    if (fact === "diff_stat") {
+      if (!diffPolicyHash) {
+        throw new Error("context_gateway_git_diff_policy_missing");
+      }
+      return contextGitFactOperandsHash({
+        fact,
+        mergeBaseTreeOid,
+        headTreeOid,
+        diffPolicyHash
+      });
+    }
+    return contextGitFactOperandsHash({
+      fact,
+      mergeBaseTreeOid,
+      headTreeOid
+    });
+  }
+  async captureGitDiffPolicy() {
+    const gitPath = (await this.gitText(["rev-parse", "--git-path", "info/attributes"])).trim();
+    if (gitPath.length === 0) {
+      throw new Error("context_gateway_git_info_attributes_path_invalid");
+    }
+    const attributesPath = path2.isAbsolute(gitPath) ? gitPath : path2.resolve(this.root, gitPath);
+    let infoAttributes;
+    try {
+      infoAttributes = await (0, import_promises2.readFile)(attributesPath);
+    } catch (error2) {
+      if (error2.code !== "ENOENT") throw error2;
+      infoAttributes = null;
+    }
+    if (infoAttributes !== null && infoAttributes.byteLength > MAX_GIT_INFO_ATTRIBUTES_BYTES) {
+      throw new Error("context_gateway_git_info_attributes_too_large");
+    }
+    return Object.freeze({
+      hash: contextGitDiffPolicyHash(
+        infoAttributes === null ? null : sha256(infoAttributes)
+      ),
+      infoAttributes
+    });
+  }
+  async materializePartialCloneDiffObjects() {
+    const [partialCloneRemote, promisorRemotes] = await Promise.all([
+      this.gitText(
+        ["config", "--local", "--get", "extensions.partialClone"],
+        /* @__PURE__ */ new Set([0, 1])
+      ),
+      this.gitText(
+        ["config", "--local", "--get-regexp", "^remote\\..*\\.promisor$"],
+        /* @__PURE__ */ new Set([0, 1])
+      )
+    ]);
+    if (partialCloneRemote.trim().length === 0 && promisorRemotes.trim().length === 0) {
+      return;
+    }
+    await this.gitNullSeparated([
+      ...GIT_DIFF_BASE_ARGS,
+      "--numstat",
+      "-z",
+      "--text",
+      `${this.mergeBaseSha}..${this.headSha}`
+    ]);
+  }
+  async createIsolatedGitDirectory(policy) {
+    const gitDirectory = await (0, import_promises2.mkdtemp)(
+      path2.join((0, import_os.tmpdir)(), "reviewrouter-context-git-")
+    );
+    try {
+      const [objectsPathOutput, objectFormatOutput] = await Promise.all([
+        this.gitText(["rev-parse", "--git-path", "objects"]),
+        this.gitText(["rev-parse", "--show-object-format=storage"]),
+        (0, import_promises2.mkdir)(path2.join(gitDirectory, "objects", "info"), { recursive: true }),
+        (0, import_promises2.mkdir)(path2.join(gitDirectory, "refs", "heads"), { recursive: true }),
+        (0, import_promises2.mkdir)(path2.join(gitDirectory, "info"), { recursive: true }),
+        (0, import_promises2.mkdir)(path2.join(gitDirectory, "worktree"), { recursive: true })
+      ]);
+      const rawObjectsPath = objectsPathOutput.trim();
+      if (rawObjectsPath.length === 0) {
+        throw new Error("context_gateway_git_objects_path_invalid");
+      }
+      const objectsPath = await (0, import_promises2.realpath)(
+        path2.isAbsolute(rawObjectsPath) ? rawObjectsPath : path2.resolve(this.root, rawObjectsPath)
+      );
+      if (objectsPath.includes("\0") || objectsPath.includes("\n")) {
+        throw new Error("context_gateway_git_objects_path_invalid");
+      }
+      const objectFormat = objectFormatOutput.trim();
+      if (objectFormat !== "sha1" && objectFormat !== "sha256") {
+        throw new Error("context_gateway_git_object_format_invalid");
+      }
+      const config2 = objectFormat === "sha256" ? "[core]\n	repositoryformatversion = 1\n	bare = false\n[extensions]\n	objectformat = sha256\n" : "[core]\n	repositoryformatversion = 0\n	bare = false\n";
+      await Promise.all([
+        (0, import_promises2.writeFile)(path2.join(gitDirectory, "HEAD"), "ref: refs/heads/unused\n"),
+        (0, import_promises2.writeFile)(path2.join(gitDirectory, "config"), config2),
+        (0, import_promises2.writeFile)(
+          path2.join(gitDirectory, "objects", "info", "alternates"),
+          `${objectsPath}
+`
+        ),
+        policy.infoAttributes === null ? Promise.resolve() : (0, import_promises2.writeFile)(
+          path2.join(gitDirectory, "info", "attributes"),
+          policy.infoAttributes
+        )
+      ]);
+      const indexPath = path2.join(gitDirectory, "index");
+      const workTreePath = path2.join(gitDirectory, "worktree");
+      await this.gitText(["read-tree", "--reset", this.headSha], /* @__PURE__ */ new Set([0]), {
+        GIT_DIR: gitDirectory,
+        GIT_INDEX_FILE: indexPath,
+        GIT_WORK_TREE: workTreePath
+      });
+      return Object.freeze({ gitDirectory, indexPath, workTreePath });
+    } catch (error2) {
+      await (0, import_promises2.rm)(gitDirectory, { recursive: true, force: true });
+      throw error2;
+    }
+  }
+  async assertAttributeSourcesClean() {
+    const dirtyAttributes = await this.gitText([
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--",
+      ".gitattributes",
+      ":(glob)**/.gitattributes"
+    ]);
+    if (dirtyAttributes.length > 0) {
+      throw new Error("context_gateway_git_attributes_dirty");
+    }
+  }
+  async gitNullSeparated(args, environment = {}) {
+    return (await this.gitText(args, /* @__PURE__ */ new Set([0]), environment)).split("\0").filter(Boolean);
+  }
+  async gitText(args, acceptedExitCodes = /* @__PURE__ */ new Set([0]), environment = {}) {
     try {
       const result = await execFileAsync("git", args, {
         cwd: this.root,
@@ -14715,9 +14967,13 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         env: {
           PATH: process.env.PATH,
           HOME: process.env.HOME,
+          GIT_ATTR_NOSYSTEM: "1",
+          GIT_ATTR_SOURCE: this.headSha,
           GIT_CONFIG_NOSYSTEM: "1",
           GIT_CONFIG_GLOBAL: "/dev/null",
-          GIT_TERMINAL_PROMPT: "0"
+          GIT_NO_REPLACE_OBJECTS: "1",
+          GIT_TERMINAL_PROMPT: "0",
+          ...environment
         }
       });
       return result.stdout;
@@ -14740,8 +14996,11 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       env: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
+        GIT_ATTR_NOSYSTEM: "1",
+        GIT_ATTR_SOURCE: this.headSha,
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_NO_REPLACE_OBJECTS: "1",
         GIT_TERMINAL_PROMPT: "0"
       }
     });
