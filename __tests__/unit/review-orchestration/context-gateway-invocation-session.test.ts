@@ -11,6 +11,7 @@ import {
 import {
   CONTEXT_GATEWAY_POLICY_VERSION,
   canonicalJson,
+  contextGitFactOperandsHash,
 } from '../../../src/context-gateway/context-gateway-contract';
 import {
   ReviewContextInspectionFailureReason,
@@ -64,6 +65,17 @@ describe('ContextGatewayInvocationSessionFactory', () => {
       expect(fixture.planningGatewayHash).toBe(fixture.gatewayHash);
       expect(fixture.session.providerConfig.gatewayBinaryHash).toBe(
         fixture.gatewayHash
+      );
+      expect(
+        fixture.session.providerConfig.runtimeEnvironment
+          .REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID
+      ).toBe(
+        (
+          await git(fixture.checkoutRoot, [
+            'rev-parse',
+            `${fixture.revision.mergeBaseSha}^{tree}`,
+          ])
+        ).trim()
       );
       expect(fixture.requiredWitnessRunner.capture).toHaveBeenCalledWith({
         gatewayBundlePath: fixture.session.providerConfig.args[0],
@@ -120,6 +132,68 @@ describe('ContextGatewayInvocationSessionFactory', () => {
         reason: ReviewContextInspectionFailureReason.MissingProviderInspection,
       });
       expect(fixture.attestations.sealGatewaySession).not.toHaveBeenCalled();
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it('rejects a checkout whose tree differs from the authorized head tree', async () => {
+    const fixture = await openSessionFixture();
+    try {
+      await writeFile(path.join(fixture.checkoutRoot, 'new.txt'), 'new\n');
+      await git(fixture.checkoutRoot, ['add', 'new.txt']);
+      await git(fixture.checkoutRoot, ['commit', '-m', 'change tree']);
+
+      await expect(
+        fixture.factory.planningConfig(fixture.revision)
+      ).rejects.toThrow('context_gateway_checkout_revision_mismatch');
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it('ignores replacement objects when authorizing revision trees', async () => {
+    const fixture = await openSessionFixture();
+    try {
+      await writeFile(
+        path.join(fixture.checkoutRoot, 'foreign.txt'),
+        'foreign\n'
+      );
+      await git(fixture.checkoutRoot, ['add', 'foreign.txt']);
+      const foreignTreeOid = (
+        await git(fixture.checkoutRoot, ['write-tree'])
+      ).trim();
+      const foreignCommitSha = (
+        await git(fixture.checkoutRoot, [
+          'commit-tree',
+          foreignTreeOid,
+          '-p',
+          fixture.revision.headSha,
+          '-m',
+          'test: foreign replacement',
+        ])
+      ).trim();
+      await git(fixture.checkoutRoot, [
+        'reset',
+        '--hard',
+        fixture.revision.headSha,
+      ]);
+      await git(fixture.checkoutRoot, [
+        'replace',
+        fixture.revision.headSha,
+        foreignCommitSha,
+      ]);
+      expect(
+        (await git(fixture.checkoutRoot, ['rev-parse', 'HEAD^{tree}'])).trim()
+      ).toBe(foreignTreeOid);
+
+      await expect(
+        fixture.factory.planningConfig(fixture.revision)
+      ).resolves.toMatchObject({
+        runtimeEnvironment: {
+          REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID: fixture.checkoutTreeOid,
+        },
+      });
     } finally {
       await fixture.dispose();
     }
@@ -334,7 +408,11 @@ async function openSessionFixture() {
       session.providerConfig.runtimeEnvironment
         .REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID!,
     gatewayHash,
+    factory,
     invocationLease,
+    mergeBaseTreeOid:
+      session.providerConfig.runtimeEnvironment
+        .REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID!,
     planningGatewayHash: planning.gatewayBinaryHash,
     requiredWitnessRunner,
     revision,
@@ -389,13 +467,11 @@ function changedPathsDependency(fixture: SessionFixture) {
     {
       kind: 'git_fact',
       fact: 'changed_paths',
-      operandsHash: hash(
-        canonicalJson({
-          baseSha: fixture.revision.baseSha,
-          mergeBaseSha: fixture.revision.mergeBaseSha,
-          headSha: fixture.revision.headSha,
-        })
-      ),
+      operandsHash: contextGitFactOperandsHash({
+        fact: 'changed_paths',
+        mergeBaseTreeOid: fixture.mergeBaseTreeOid,
+        headTreeOid: fixture.checkoutTreeOid,
+      }),
     },
     {
       kind: 'git_fact',

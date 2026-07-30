@@ -15,6 +15,8 @@ import {
   CONTEXT_GATEWAY_POLICY_VERSION,
   canonicalJson,
   changedPathsWitnessStatus,
+  contextGitFactOperandsHash,
+  requireGitOid,
   type ContextGatewayReplayMaterial,
   type ContextGatewayTranscript,
 } from '../../context-gateway/context-gateway-contract';
@@ -115,7 +117,6 @@ export class SubprocessRequiredContextWitnessRunner implements RequiredContextWi
 
 export class ContextGatewayInvocationSessionFactory implements ContextGatewayInvocationSessionFactoryPort {
   private gatewayBundleSnapshotPromise: Promise<Buffer> | undefined;
-  private checkoutTreeOidPromise: Promise<string> | undefined;
 
   constructor(
     private readonly attestations: ReviewContextAttestationPort,
@@ -136,9 +137,9 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
   async planningConfig(
     revision: ContextGatewayRevision
   ): Promise<CodexContextGatewayInvocationConfig> {
-    const [gatewayBundleSnapshot, checkoutTreeOid] = await Promise.all([
+    const [gatewayBundleSnapshot, revisionTreeOids] = await Promise.all([
       this.gatewayBundleSnapshot(),
-      this.checkoutTreeOid(),
+      this.revisionTreeOids(revision),
     ]);
     const gatewayBinaryHash = sha256(gatewayBundleSnapshot);
     return this.providerConfig({
@@ -146,7 +147,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       sessionId: 'planning-session',
       eventChainSeedHash: '0'.repeat(64),
       gatewayBinaryHash,
-      checkoutTreeOid,
+      ...revisionTreeOids,
       transcriptPath: path.join(os.tmpdir(), 'planning-transcript.json'),
       replayMaterialPath: path.join(os.tmpdir(), 'planning-replay.json'),
       gatewayBundlePath: this.options.gatewayBundlePath,
@@ -156,10 +157,11 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
   async open(
     input: OpenContextGatewayInvocationInput
   ): Promise<ContextGatewayInvocationSessionPort> {
-    const [gatewayBundleSnapshot, checkoutTreeOid] = await Promise.all([
+    const [gatewayBundleSnapshot, revisionTreeOids] = await Promise.all([
       this.gatewayBundleSnapshot(),
-      this.checkoutTreeOid(),
+      this.revisionTreeOids(input.revision),
     ]);
+    const { checkoutTreeOid } = revisionTreeOids;
     const gatewayBinaryHash = sha256(gatewayBundleSnapshot);
     const directory = await mkdtemp(
       path.join(os.tmpdir(), 'reviewrouter-context-gateway-')
@@ -220,7 +222,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       sessionId: serverSession.sessionId,
       eventChainSeedHash: serverSession.eventChainSeedHash,
       gatewayBinaryHash,
-      checkoutTreeOid,
+      ...revisionTreeOids,
       transcriptPath,
       replayMaterialPath,
       gatewayBundlePath,
@@ -255,6 +257,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     readonly eventChainSeedHash: string;
     readonly gatewayBinaryHash: string;
     readonly checkoutTreeOid: string;
+    readonly mergeBaseTreeOid: string;
     readonly transcriptPath: string;
     readonly replayMaterialPath: string;
     readonly gatewayBundlePath: string;
@@ -273,6 +276,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH: input.replayMaterialPath,
         REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH: input.gatewayBinaryHash,
         REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID: input.checkoutTreeOid,
+        REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID: input.mergeBaseTreeOid,
         REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH: input.eventChainSeedHash,
         REVIEWROUTER_CONTEXT_BASE_SHA: input.revision.baseSha,
         REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: input.revision.mergeBaseSha,
@@ -288,26 +292,46 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     return Buffer.from(await this.gatewayBundleSnapshotPromise);
   }
 
-  private checkoutTreeOid(): Promise<string> {
-    this.checkoutTreeOidPromise ??= execFileAsync(
+  private async revisionTreeOids(
+    revision: ContextGatewayRevision
+  ): Promise<Readonly<{ checkoutTreeOid: string; mergeBaseTreeOid: string }>> {
+    const headSha = requireGitOid(
+      revision.headSha.toLowerCase(),
+      'context_gateway_head_sha'
+    );
+    const mergeBaseSha = requireGitOid(
+      revision.mergeBaseSha.toLowerCase(),
+      'context_gateway_merge_base_sha'
+    );
+    const [checkoutTreeOid, headTreeOid, mergeBaseTreeOid] = await Promise.all([
+      this.revisionTreeOid('HEAD', 'context_gateway_checkout_tree_oid'),
+      this.revisionTreeOid(headSha, 'context_gateway_head_tree_oid'),
+      this.revisionTreeOid(mergeBaseSha, 'context_gateway_merge_base_tree_oid'),
+    ]);
+    if (checkoutTreeOid !== headTreeOid) {
+      throw new Error('context_gateway_checkout_revision_mismatch');
+    }
+    return Object.freeze({ checkoutTreeOid, mergeBaseTreeOid });
+  }
+
+  private async revisionTreeOid(
+    revision: string,
+    field: string
+  ): Promise<string> {
+    const { stdout } = await execFileAsync(
       'git',
-      ['rev-parse', 'HEAD^{tree}'],
+      ['rev-parse', `${revision}^{tree}`],
       {
         cwd: this.options.checkoutRoot,
         env: {
           PATH: process.env.PATH,
           GIT_CONFIG_NOSYSTEM: '1',
           GIT_CONFIG_GLOBAL: '/dev/null',
+          GIT_NO_REPLACE_OBJECTS: '1',
         },
       }
-    ).then(({ stdout }) => {
-      const oid = stdout.trim().toLowerCase();
-      if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(oid)) {
-        throw new Error('context_gateway_checkout_tree_oid_invalid');
-      }
-      return oid;
-    });
-    return this.checkoutTreeOidPromise;
+    );
+    return requireGitOid(stdout.trim().toLowerCase(), field);
   }
 }
 
@@ -375,17 +399,15 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
         ReviewContextInspectionFailureReason.IncompleteTranscript
       );
     }
-    const expectedChangedPathsOperandsHash = sha256(
-      canonicalJson({
-        baseSha:
-          this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_BASE_SHA!,
-        mergeBaseSha:
-          this.providerConfig.runtimeEnvironment
-            .REVIEWROUTER_CONTEXT_MERGE_BASE_SHA!,
-        headSha:
-          this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_HEAD_SHA!,
-      })
-    );
+    const expectedChangedPathsOperandsHash = contextGitFactOperandsHash({
+      fact: 'changed_paths',
+      mergeBaseTreeOid:
+        this.providerConfig.runtimeEnvironment
+          .REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID!,
+      headTreeOid:
+        this.providerConfig.runtimeEnvironment
+          .REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID!,
+    });
     switch (
       changedPathsWitnessStatus(transcript, expectedChangedPathsOperandsHash)
     ) {
