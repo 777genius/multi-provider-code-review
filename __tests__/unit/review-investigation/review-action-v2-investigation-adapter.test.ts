@@ -1,7 +1,9 @@
 import {
   ReviewInvestigationMutationResultStatus,
   ReviewInvestigationNextAction,
+  ReviewInvestigationPublishedConclusion,
   ReviewInvestigationPublishedState,
+  ReviewInvestigationRestoreResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
 import { ReviewActionV2InvestigationAdapter } from '../../../src/review-investigation/infrastructure/review-action-v2-investigation-adapter';
 import {
@@ -10,15 +12,58 @@ import {
 } from '../../../src/review-investigation/domain/canonical-json';
 import {
   ReviewInvestigationState,
+  ReviewInvestigationConclusion,
   ReviewInvestigationNextAction as DomainNextAction,
   type ReviewInvestigationSnapshot,
 } from '../../../src/review-investigation/domain/investigation-state';
+import { ReviewAgentProviderKind } from '../../../src/review-investigation/domain/runtime-profile';
 import {
   ReviewTurnObligationKind,
   ReviewTurnPurpose,
 } from '../../../src/review-investigation/domain/turn-observation';
 
 describe('ReviewActionV2InvestigationAdapter turn brief', () => {
+  it('restores a complete certificate-backed terminal artifact', async () => {
+    const result = terminalResult();
+    const adapter = new ReviewActionV2InvestigationAdapter({
+      execute: jest.fn().mockResolvedValue(result),
+    } as never);
+
+    await expect(
+      adapter.restore({
+        authorizationToken: 'authorization-token',
+        authorizationId: 'authorization-1',
+        investigationId: 'investigation-1',
+        reviewRevisionHash: digest('r'),
+      })
+    ).resolves.toMatchObject({
+      state: ReviewInvestigationState.Concluded,
+      certificateId: 'certificate-1',
+      terminalProviderKind: ReviewAgentProviderKind.Codex,
+      terminalActualModel: 'gpt-test',
+      conclusion: ReviewInvestigationConclusion.VerifiedClean,
+    });
+  });
+
+  it('rejects a terminal artifact whose payload hash is inconsistent', async () => {
+    const adapter = new ReviewActionV2InvestigationAdapter({
+      execute: jest
+        .fn()
+        .mockResolvedValue(
+          terminalResult({ terminalOutcomeHash: digest('f') })
+        ),
+    } as never);
+
+    await expect(
+      adapter.restore({
+        authorizationToken: 'authorization-token',
+        authorizationId: 'authorization-1',
+        investigationId: 'investigation-1',
+        reviewRevisionHash: digest('r'),
+      })
+    ).rejects.toThrow('investigation_terminal_artifact_invalid');
+  });
+
   it('binds a canonical turn brief to the returned dossier and turn', async () => {
     const brief = canonicalJson({
       briefVersion: 1,
@@ -129,6 +174,13 @@ function planResult(input: {
       leasedAt: '2026-08-02T10:00:00.000Z',
       expiresAt: '2026-08-02T10:05:00.000Z',
     },
+    certificateId: null,
+    certificateHash: null,
+    terminalProviderKind: null,
+    terminalActualModel: null,
+    terminalObservationCanonicalJson: null,
+    terminalOutcomeHash: null,
+    conclusion: null,
   };
   return {
     status: ReviewInvestigationMutationResultStatus.Applied,
@@ -138,10 +190,67 @@ function planResult(input: {
     dossierDigest: digest('d'),
     nextAction: ReviewInvestigationNextAction.RunTurn,
     investigationCanonicalJson: canonicalJson(readModel),
+    certificateId: null,
+    certificateHash: null,
+    terminalProviderKind: null,
+    terminalActualModel: null,
+    terminalObservationCanonicalJson: null,
+    terminalOutcomeHash: null,
+    investigationConclusion: null,
     turnId: 'turn-1',
     turnCapability: 'turn.capability.value',
     turnExpiresAt: '2026-08-02T10:05:00.000Z',
     ...input,
+  };
+}
+
+function terminalResult(
+  overrides: Partial<{
+    terminalOutcomeHash: string;
+  }> = {}
+) {
+  const terminalObservationCanonicalJson = canonicalJson({ payloadVersion: 2 });
+  const terminalOutcomeHash =
+    overrides.terminalOutcomeHash ?? sha256(terminalObservationCanonicalJson);
+  const readModel = {
+    investigationId: 'investigation-1',
+    version: 7,
+    state: ReviewInvestigationState.Concluded,
+    dossierDigest: digest('d'),
+    openObligationCount: 0,
+    satisfiedObligationCount: 2,
+    unresolvableObligationCount: 0,
+    findingCount: 0,
+    semanticTurns: 1,
+    operationalAttempts: 1,
+    criticCycles: 1,
+    nextEligibleAt: null,
+    nextAction: DomainNextAction.Terminal,
+    turn: null,
+    certificateId: 'certificate-1',
+    certificateHash: digest('c'),
+    terminalProviderKind: ReviewAgentProviderKind.Codex,
+    terminalActualModel: 'gpt-test',
+    terminalObservationCanonicalJson,
+    terminalOutcomeHash,
+    conclusion: ReviewInvestigationConclusion.VerifiedClean,
+  };
+  return {
+    status: ReviewInvestigationRestoreResultStatus.Found,
+    investigationId: readModel.investigationId,
+    investigationVersion: String(readModel.version),
+    investigationState: ReviewInvestigationPublishedState.Concluded,
+    dossierDigest: readModel.dossierDigest,
+    nextAction: ReviewInvestigationNextAction.Terminal,
+    investigationCanonicalJson: canonicalJson(readModel),
+    certificateId: readModel.certificateId,
+    certificateHash: readModel.certificateHash,
+    terminalProviderKind: readModel.terminalProviderKind,
+    terminalActualModel: readModel.terminalActualModel,
+    terminalObservationCanonicalJson,
+    terminalOutcomeHash,
+    investigationConclusion:
+      ReviewInvestigationPublishedConclusion.VerifiedClean,
   };
 }
 
@@ -161,6 +270,13 @@ function unplannedSnapshot(): ReviewInvestigationSnapshot {
     nextEligibleAt: null,
     nextAction: DomainNextAction.RunTurn,
     turn: null,
+    certificateId: null,
+    certificateHash: null,
+    terminalProviderKind: null,
+    terminalActualModel: null,
+    terminalObservationCanonicalJson: null,
+    terminalOutcomeHash: null,
+    conclusion: null,
   });
 }
 

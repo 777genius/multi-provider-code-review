@@ -638,6 +638,10 @@ export class ReviewActionV2ControlPlaneAdapter
               input.observation.contextDependencyAttestationId ?? null,
             contextDependencyAttestationHash:
               input.observation.contextDependencyAttestationHash ?? null,
+            investigationCertificateId:
+              input.observation.investigationCertificateId ?? null,
+            investigationCertificateHash:
+              input.observation.investigationCertificateHash ?? null,
             payloadCanonicalJson: input.observation.payloadCanonicalJson,
             payloadHash: input.observation.payloadHash,
             qualityFlags: input.observation.qualityFlags,

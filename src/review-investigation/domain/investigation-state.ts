@@ -2,6 +2,7 @@ import type {
   ReviewTurnObligationKind,
   ReviewTurnPurpose,
 } from './turn-observation';
+import type { ReviewAgentProviderKind } from './runtime-profile';
 
 export enum ReviewInvestigationState {
   Provisional = 'provisional',
@@ -21,6 +22,12 @@ export enum ReviewInvestigationNextAction {
   AwaitCapacity = 'await_capacity',
   Conclude = 'conclude',
   Terminal = 'terminal',
+}
+
+export enum ReviewInvestigationConclusion {
+  VerifiedClean = 'verified_clean',
+  Findings = 'findings',
+  Inconclusive = 'inconclusive',
 }
 
 export enum ReviewInvestigationAbortReason {
@@ -88,6 +95,13 @@ export type ReviewInvestigationSnapshot = Readonly<{
   nextEligibleAt: string | null;
   nextAction: ReviewInvestigationNextAction;
   turn: ReviewInvestigationTurn | null;
+  certificateId: string | null;
+  certificateHash: string | null;
+  terminalProviderKind: ReviewAgentProviderKind | null;
+  terminalActualModel: string | null;
+  terminalObservationCanonicalJson: string | null;
+  terminalOutcomeHash: string | null;
+  conclusion: ReviewInvestigationConclusion | null;
 }>;
 
 export enum ReviewInvestigationRunStatus {

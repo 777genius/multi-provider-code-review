@@ -180,6 +180,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     ]);
     const { checkoutTreeOid } = revisionTreeOids;
     const gatewayBinaryHash = sha256(gatewayBundleSnapshot);
+    const gatewayPolicyVersion = this.policyVersion();
     const directory = await mkdtemp(
       path.join(os.tmpdir(), 'reviewrouter-context-gateway-')
     );
@@ -209,7 +210,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         executionProfile: input.executionProfile,
         providerInvocationKey: input.providerInvocationKey,
         toolPolicyHash: input.toolPolicyHash,
-        gatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
+        gatewayPolicyVersion,
         gatewayBinaryHash,
       })
     );
@@ -221,7 +222,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         sourceWorkSlotId: input.sourceWorkSlotId,
         sourceReviewRevisionHash: input.sourceReviewRevisionHash,
         checkoutTreeOid,
-        gatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
+        gatewayPolicyVersion,
         gatewayBinaryHash,
         confinementEvidenceHash,
       });
@@ -279,8 +280,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     readonly replayMaterialPath: string;
     readonly gatewayBundlePath: string;
   }): CodexContextGatewayInvocationConfig {
-    const policyVersion =
-      this.options.policyVersion ?? CONTEXT_GATEWAY_POLICY_VERSION;
+    const policyVersion = this.policyVersion();
     return Object.freeze({
       command: process.execPath,
       args: Object.freeze([input.gatewayBundlePath]),
@@ -306,6 +306,10 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         REVIEWROUTER_CONTEXT_HEAD_SHA: input.revision.headSha,
       }),
     });
+  }
+
+  private policyVersion(): ContextGatewayPolicyVersion {
+    return this.options.policyVersion ?? CONTEXT_GATEWAY_POLICY_VERSION;
   }
 
   private async gatewayBundleSnapshot(): Promise<Buffer> {

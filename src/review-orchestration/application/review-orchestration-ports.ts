@@ -114,6 +114,8 @@ export type PreparedReviewInvocation = {
   readonly attemptOrdinal: number;
   readonly provider: string;
   readonly requestedModel: string;
+  /** In-memory semantic prompt before provider-specific wrapping. Never persist or log. */
+  readonly reviewPrompt: string;
   readonly immutableRequest: unknown;
   readonly manifestFacts: PreparedReviewInvocationManifestFacts;
   readonly coverageManifest: import('../domain').ReviewPromptCoverageManifest;
@@ -146,7 +148,8 @@ export type PreparedReviewInvocationManifestFacts = {
   readonly executionProfile:
     | 'prompt_only_envelope_v1'
     | 'agentic_unbounded_v1'
-    | 'context_gateway_v1';
+    | 'context_gateway_v1'
+    | 'investigation_gateway_v1';
   readonly baseTreeHash: string | null;
   readonly environmentContractHash: string;
 };
@@ -170,6 +173,8 @@ export type ReviewObservationPayload = {
   readonly fullyConsumed: boolean;
   readonly contextDependencyAttestationId?: string;
   readonly contextDependencyAttestationHash?: string;
+  readonly investigationCertificateId?: string;
+  readonly investigationCertificateHash?: string;
 };
 
 export type ContextGatewaySessionLease = Readonly<{
@@ -521,7 +526,17 @@ export interface PreparedReviewInvocationPort {
   }): Promise<ReviewObservationPayload>;
 }
 
+export enum ReviewInvestigationRecordingMode {
+  RecordOnly = 'record_only',
+  Authoritative = 'authoritative',
+}
+
 export interface ReviewInvestigationRecordingPort {
+  readonly mode: ReviewInvestigationRecordingMode;
+  supports(input: {
+    readonly workSlot: ReviewWorkSlotPlan;
+    readonly invocation: PreparedReviewInvocation;
+  }): boolean;
   execute(input: {
     readonly authorization: ReviewRunAuthorization;
     readonly execution: ReviewExecutionAdmission;

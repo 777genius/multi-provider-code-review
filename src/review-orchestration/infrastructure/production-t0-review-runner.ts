@@ -9,6 +9,7 @@ import { hashIncrementalCompatibility } from '../../cache/key-builder';
 import { ConfigLoader } from '../../config/loader';
 import { applyControlPlaneRuntimeConfig } from '../../control-plane/runtime-config';
 import { ReviewActionV2Client } from '../../control-plane/review-action-v2-client';
+import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../context-gateway/context-gateway-v4-contract';
 import { BatchOrchestrator } from '../../core/batch-orchestrator';
 import { prioritizeFilesByRisk } from '../../review-execution/domain/file-risk-priority';
 import { GitHubClient } from '../../github/client';
@@ -30,6 +31,7 @@ import {
 } from '../../codex-oauth/runtime';
 import {
   ReviewExecutionProviderKind,
+  ReviewInvestigationRecordingMode,
   ReviewOrchestrationResultStatus,
   ReviewTaskKind,
   RunT0ReviewOrchestration,
@@ -61,6 +63,19 @@ import {
 } from './github-review-state-adapter';
 import { createProductionReviewProjectionBuilder } from './production-review-projection';
 import { ReviewActionV2ControlPlaneAdapter } from './review-action-v2-control-plane-adapter';
+import {
+  CodexReviewAgentAdapter,
+  ContextGatewayV4InvestigationAdapter,
+  NodeReviewAgentProcessRunner,
+  ReviewActionV2InvestigationAdapter,
+  RunInvestigationTurn,
+  RunInvestigationWorkSlot,
+} from '../../review-investigation';
+import {
+  ManagedOnlyInvestigationLeaseAdapter,
+  ReviewInvestigationRecordingAdapter,
+  RevisionGuardInvestigationCurrencyAdapter,
+} from './review-investigation-recording-adapter';
 
 const execFileAsync = promisify(execFile);
 const CODEX_RETRY_POLICY_VERSION = 'codex-semantic-retry.v1';
@@ -78,11 +93,12 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     validateInput(input);
     await applyReviewRuntimeConfig(input, this.fetchImpl);
     const config = ConfigLoader.load();
+    const reviewActionClient = new ReviewActionV2Client({
+      apiUrl: input.apiUrl,
+      fetchImpl: this.fetchImpl,
+    });
     const controlPlane = new ReviewActionV2ControlPlaneAdapter(
-      new ReviewActionV2Client({
-        apiUrl: input.apiUrl,
-        fetchImpl: this.fetchImpl,
-      })
+      reviewActionClient
     );
     const oidc = new GitHubActionsOidcTokenProvider({
       fetchImpl: this.fetchImpl,
@@ -138,6 +154,20 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     const codexProviderName = selectCodexProvider(config);
     const model = codexProviderName.slice('codex/'.length);
     const agenticContext = config.codexAgenticContext ?? true;
+    const investigationRecordingRequested = readBooleanFlag(
+      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED
+    );
+    const investigationEffectsEnabled = readBooleanFlag(
+      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED
+    );
+    if (investigationEffectsEnabled && !investigationRecordingRequested) {
+      throw new Error('review_investigation_effects_require_shadow');
+    }
+    if (investigationRecordingRequested && !agenticContext) {
+      throw new Error('review_investigation_requires_agentic_context');
+    }
+    const investigationRecordingEnabled =
+      investigationRecordingRequested && agenticContext;
     const provider = new CodexProvider(model, {
       agenticContext,
       eventAudit: config.codexEventAudit,
@@ -147,15 +177,22 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       process.env.REVIEWROUTER_RUNTIME_CONFIG_VERSION
     );
     const gatewayBundlePath = resolveContextGatewayBundlePath();
+    const requiredContextWitness = new SubprocessRequiredContextWitnessRunner();
     const contextGateway = agenticContext
       ? new ContextGatewayInvocationSessionFactory(
           controlPlane,
           {
             checkoutRoot: path.resolve(input.workspacePath),
             gatewayBundlePath,
+            ...(investigationRecordingEnabled
+              ? { policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION }
+              : {}),
           },
-          new SubprocessRequiredContextWitnessRunner()
+          requiredContextWitness
         )
+      : undefined;
+    const investigationGatewayFactory = investigationRecordingEnabled
+      ? contextGateway
       : undefined;
     const planned = planAssignments({
       authorization,
@@ -172,9 +209,82 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       planned.assignments,
       Math.max(1_000, config.runTimeoutSeconds * 1_000),
       agenticContext,
-      contextGateway
+      contextGateway,
+      investigationEffectsEnabled
     );
     const identities = new DeterministicReviewOrchestrationIdentity();
+    const investigationControlPlane = investigationRecordingEnabled
+      ? new ReviewActionV2InvestigationAdapter(reviewActionClient)
+      : undefined;
+    const investigationAgent = investigationRecordingEnabled
+      ? new CodexReviewAgentAdapter(new NodeReviewAgentProcessRunner(), {
+          ...(input.codexBinaryPath ? { binary: input.codexBinaryPath } : {}),
+          reasoningEffort: 'xhigh',
+        })
+      : undefined;
+    const investigationRecording =
+      investigationControlPlane &&
+      investigationAgent &&
+      investigationGatewayFactory
+        ? new ReviewInvestigationRecordingAdapter(
+            (recordingInput) =>
+              new RunInvestigationWorkSlot({
+                controlPlane: investigationControlPlane,
+                leases: new ManagedOnlyInvestigationLeaseAdapter(),
+                turnRunner: new RunInvestigationTurn({
+                  controlPlane: investigationControlPlane,
+                  currency: new RevisionGuardInvestigationCurrencyAdapter(
+                    revisionGuard
+                  ),
+                  gateway: new ContextGatewayV4InvestigationAdapter(
+                    investigationGatewayFactory,
+                    {
+                      revision: {
+                        baseSha: authorization.facts.baseSha,
+                        mergeBaseSha: authorization.facts.mergeBaseSha,
+                        headSha: authorization.facts.headSha,
+                      },
+                      providerKind:
+                        recordingInput.invocation.manifestFacts.providerKind,
+                      executionProfile:
+                        recordingInput.invocation.manifestFacts
+                          .executionProfile,
+                      providerInvocationKey:
+                        recordingInput.manifest.providerInvocationKey,
+                      toolPolicyHash:
+                        recordingInput.invocation.manifestFacts.toolPolicyHash,
+                    }
+                  ),
+                  agent: investigationAgent,
+                  now: () => new Date(),
+                }),
+              }),
+            {
+              workingDirectory: path.resolve(input.workspacePath),
+              providerCredentialEnvironment: codexCredentialEnvironment,
+              leaseDurationMs: 5 * 60_000,
+              providerTimeoutMs: Math.max(
+                1_000,
+                config.runTimeoutSeconds * 1_000
+              ),
+              certificateTtlMs: 24 * 60 * 60_000,
+              minimumCapacityParkMs: 60_000,
+              maxObligationsForTurn: 64,
+              maxStateTransitions: 128,
+              maxSemanticTurns: 12,
+              maxOperationalAttempts: 24,
+              maxCriticCycles: 3,
+              maxObligations: 1_024,
+              maxFindings: 256,
+              maxProposalsPerTurn: 128,
+              maxReceiptsPerTurn: 256,
+              maxExpansionDepth: 8,
+            },
+            investigationEffectsEnabled
+              ? ReviewInvestigationRecordingMode.Authoritative
+              : ReviewInvestigationRecordingMode.RecordOnly
+          )
+        : undefined;
     const useCase = new RunT0ReviewOrchestration({
       controlPlane,
       revisionGuard,
@@ -193,6 +303,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       invocationFailureClassifier: new ProviderInvocationFailureClassifier(),
       invocationDiagnostics: new LoggingReviewInvocationDiagnostics(logger),
       leaseSupervisor: new CooperativeReviewLeaseSupervisor(),
+      ...(investigationRecording ? { investigationRecording } : {}),
       projectionBuilder: createProductionReviewProjectionBuilder({
         authorizationFacts: authorization.facts,
         pr,
@@ -254,6 +365,31 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     );
     return mapOrchestrationResultToCodexOutcome(result);
   }
+}
+
+function readBooleanFlag(value: string | undefined): boolean {
+  if (
+    value === undefined ||
+    value === '' ||
+    value === '0' ||
+    value === 'false'
+  ) {
+    return false;
+  }
+  if (value === '1' || value === 'true') return true;
+  throw new Error('review_investigation_shadow_flag_invalid');
+}
+
+function codexCredentialEnvironment(): Readonly<NodeJS.ProcessEnv> {
+  return Object.freeze(
+    Object.fromEntries(
+      ['CODEX_HOME', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY']
+        .map((key) => [key, process.env[key]] as const)
+        .filter(
+          (entry): entry is readonly [string, string] => entry[1] !== undefined
+        )
+    )
+  );
 }
 
 export function mapOrchestrationResultToCodexOutcome(result: {

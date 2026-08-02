@@ -17,6 +17,7 @@ import {
   RunInvestigationTurn,
   RunInvestigationTurnStatus,
 } from './run-investigation-turn';
+import type { ReviewAgentProviderKind } from '../domain/runtime-profile';
 
 export class RunInvestigationWorkSlot {
   constructor(
@@ -30,6 +31,7 @@ export class RunInvestigationWorkSlot {
   async execute(
     input: ReviewInvestigationOpenInput & {
       readonly requestedModel: string;
+      readonly providerKind: ReviewAgentProviderKind;
       readonly promptFor: (snapshot: ReviewInvestigationSnapshot) => string;
       readonly workingDirectory: string;
       readonly providerCredentialEnvironment: Readonly<NodeJS.ProcessEnv>;
@@ -107,6 +109,7 @@ export class RunInvestigationWorkSlot {
           reviewRevisionHash: input.reviewRevisionHash,
           providerStrategyId: input.providerStrategyId,
           requestedModel: input.requestedModel,
+          providerKind: input.providerKind,
           prompt: input.promptFor(snapshot),
           workingDirectory: input.workingDirectory,
           timeoutMs: input.providerTimeoutMs,
@@ -147,7 +150,6 @@ export class RunInvestigationWorkSlot {
 function isTerminal(snapshot: ReviewInvestigationSnapshot): boolean {
   return [
     ReviewInvestigationState.Concluded,
-    ReviewInvestigationState.Inconclusive,
     ReviewInvestigationState.Expired,
   ].includes(snapshot.state);
 }

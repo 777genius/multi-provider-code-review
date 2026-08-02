@@ -18,6 +18,11 @@ import {
   type ReviewInvestigationLease,
 } from './investigation-control-plane-port';
 import type { ReviewInvestigationGatewaySessionFactoryPort } from './investigation-gateway-port';
+import {
+  ReviewAgentConfinementStrength,
+  ReviewAgentExecutionProfile,
+  type ReviewAgentProviderKind,
+} from '../domain/runtime-profile';
 
 export enum RunInvestigationTurnStatus {
   Committed = 'committed',
@@ -50,6 +55,7 @@ export class RunInvestigationTurn {
     readonly reviewRevisionHash: string;
     readonly providerStrategyId: string;
     readonly requestedModel: string;
+    readonly providerKind: ReviewAgentProviderKind;
     readonly prompt: string;
     readonly workingDirectory: string;
     readonly timeoutMs: number;
@@ -61,6 +67,15 @@ export class RunInvestigationTurn {
     readonly signal?: AbortSignal;
   }): Promise<RunInvestigationTurnResult> {
     const turn = requireActiveTurn(input.snapshot);
+    await this.dependencies.agent.negotiate({
+      providerKind: input.providerKind,
+      executionProfile: ReviewAgentExecutionProfile.GatewayAttestedAgentV1,
+      minimumConfinement: ReviewAgentConfinementStrength.GatewayOnly,
+      requireActualModelAttribution: true,
+      requireUsageAttribution: true,
+      requireFencedCancellation: true,
+      minimumMaxTurns: input.maxTurns,
+    });
     const invocationId = `${input.snapshot.investigationId}:${turn.turnId}:${input.lease.attemptId}`;
     const current = await this.dependencies.currency.check(input);
     if (current !== ReviewInvestigationCurrency.Current) {

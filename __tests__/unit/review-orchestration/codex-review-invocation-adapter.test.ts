@@ -585,6 +585,7 @@ describe('Codex T0 prepared invocation', () => {
       attemptOrdinal: 1,
       provider: 'codex/gpt-test',
       requestedModel: 'gpt-test',
+      reviewPrompt: 'review',
       immutableRequest: Object.freeze({}),
       coverageManifest: createReviewPromptCoverageManifest({
         workSlotId: 'slot-1',

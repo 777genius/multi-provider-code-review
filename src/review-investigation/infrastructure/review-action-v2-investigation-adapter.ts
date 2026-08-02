@@ -10,6 +10,7 @@ import {
   ReviewInvestigationNextAction as PublishedNextAction,
   ReviewInvestigationOpenResultStatus,
   ReviewInvestigationPublishedAbortReason,
+  ReviewInvestigationPublishedConclusion,
   ReviewInvestigationPublishedRuntimeProfile,
   ReviewInvestigationPublishedState,
   ReviewInvestigationRestoreResultStatus,
@@ -28,12 +29,14 @@ import {
 import { canonicalJson, sha256 } from '../domain/canonical-json';
 import {
   ReviewInvestigationObligationOrigin,
+  ReviewInvestigationConclusion,
   ReviewInvestigationNextAction,
   ReviewInvestigationState,
   type ReviewInvestigationSnapshot,
   type ReviewInvestigationTurn,
   type ReviewInvestigationTurnBrief,
 } from '../domain/investigation-state';
+import { ReviewAgentProviderKind } from '../domain/runtime-profile';
 import {
   ReviewTurnObligationKind,
   ReviewTurnPurpose,
@@ -370,9 +373,16 @@ function snapshotFromResult(
     'nextEligibleAt',
     'nextAction',
     'turn',
+    'certificateId',
+    'certificateHash',
+    'terminalProviderKind',
+    'terminalActualModel',
+    'terminalObservationCanonicalJson',
+    'terminalOutcomeHash',
+    'conclusion',
   ]);
   const turn = root.turn === null ? null : parseTurn(root.turn, turnCapability);
-  const snapshot = Object.freeze({
+  const snapshot: ReviewInvestigationSnapshot = Object.freeze({
     investigationId: requireString(root.investigationId, 'investigation_id'),
     version: requireNonNegativeInteger(root.version, 'investigation_version'),
     state: enumValue(
@@ -410,7 +420,29 @@ function snapshotFromResult(
       'next_action'
     ),
     turn,
+    certificateId: nullableString(root.certificateId),
+    certificateHash: nullableDigest(root.certificateHash, 'certificate_hash'),
+    terminalProviderKind: nullableEnumValue(
+      root.terminalProviderKind,
+      ReviewAgentProviderKind,
+      'terminal_provider_kind'
+    ),
+    terminalActualModel: nullableString(root.terminalActualModel),
+    terminalObservationCanonicalJson: nullableCanonicalJson(
+      root.terminalObservationCanonicalJson,
+      'terminal_observation'
+    ),
+    terminalOutcomeHash: nullableDigest(
+      root.terminalOutcomeHash,
+      'terminal_outcome_hash'
+    ),
+    conclusion: nullableEnumValue(
+      root.conclusion,
+      ReviewInvestigationConclusion,
+      'investigation_conclusion'
+    ),
   });
+  verifyTerminalArtifact(snapshot);
   verifyEnvelopeConsistency(result, snapshot);
   return snapshot;
 }
@@ -585,10 +617,70 @@ function verifyEnvelopeConsistency(
     result.investigationVersion !== String(snapshot.version) ||
     publishedState(snapshot.state) !== result.investigationState ||
     result.dossierDigest !== snapshot.dossierDigest ||
-    publishedNextAction(snapshot.nextAction) !== result.nextAction
+    publishedNextAction(snapshot.nextAction) !== result.nextAction ||
+    result.certificateId !== snapshot.certificateId ||
+    result.certificateHash !== snapshot.certificateHash ||
+    result.terminalProviderKind !== snapshot.terminalProviderKind ||
+    result.terminalActualModel !== snapshot.terminalActualModel ||
+    result.terminalObservationCanonicalJson !==
+      snapshot.terminalObservationCanonicalJson ||
+    result.terminalOutcomeHash !== snapshot.terminalOutcomeHash ||
+    result.investigationConclusion !== publishedConclusion(snapshot.conclusion)
   ) {
     throw invalidResponse('investigation_result_envelope_mismatch');
   }
+}
+
+function verifyTerminalArtifact(snapshot: ReviewInvestigationSnapshot): void {
+  const artifact = [
+    snapshot.certificateId,
+    snapshot.certificateHash,
+    snapshot.terminalObservationCanonicalJson,
+    snapshot.terminalOutcomeHash,
+    snapshot.conclusion,
+  ];
+  const artifactPresent = artifact.some((value) => value !== null);
+  if (artifactPresent && artifact.some((value) => value === null)) {
+    throw invalidResponse('investigation_terminal_artifact_incomplete');
+  }
+  const provenancePresent =
+    snapshot.terminalProviderKind !== null ||
+    snapshot.terminalActualModel !== null;
+  if (
+    provenancePresent &&
+    (snapshot.terminalProviderKind === null ||
+      snapshot.terminalActualModel === null)
+  ) {
+    throw invalidResponse('investigation_terminal_provenance_incomplete');
+  }
+  if (!artifactPresent) {
+    if (provenancePresent) {
+      throw invalidResponse(
+        'investigation_terminal_provenance_without_artifact'
+      );
+    }
+    return;
+  }
+  if (
+    ![
+      ReviewInvestigationState.Concluded,
+      ReviewInvestigationState.Inconclusive,
+    ].includes(snapshot.state) ||
+    snapshot.nextAction !== ReviewInvestigationNextAction.Terminal ||
+    snapshot.turn !== null ||
+    sha256(snapshot.terminalObservationCanonicalJson!) !==
+      snapshot.terminalOutcomeHash ||
+    (snapshot.conclusion !== ReviewInvestigationConclusion.Inconclusive &&
+      !provenancePresent)
+  ) {
+    throw invalidResponse('investigation_terminal_artifact_invalid');
+  }
+}
+
+function publishedConclusion(
+  conclusion: ReviewInvestigationConclusion | null
+): ReviewInvestigationPublishedConclusion | null {
+  return conclusion as ReviewInvestigationPublishedConclusion | null;
 }
 
 function publishedState(
@@ -717,6 +809,35 @@ function nullableString(value: unknown): string | null {
   return value === null || value === undefined
     ? null
     : requireString(value, 'nullable_string');
+}
+
+function nullableDigest(value: unknown, field: string): string | null {
+  return value === null ? null : requireDigest(value, field);
+}
+
+function nullableEnumValue<T extends Record<string, string>>(
+  value: unknown,
+  source: T,
+  field: string
+): T[keyof T] | null {
+  return value === null ? null : enumValue(value, source, field);
+}
+
+function nullableCanonicalJson(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || value.length < 2) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  if (canonicalJson(parsed as Parameters<typeof canonicalJson>[0]) !== value) {
+    throw invalidResponse(`${field}_not_canonical`);
+  }
+  return value;
 }
 
 function requireDigest(value: unknown, field: string): string {

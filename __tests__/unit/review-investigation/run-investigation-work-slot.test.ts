@@ -26,6 +26,7 @@ import {
 } from '../../../src/review-investigation/domain/runtime-profile';
 import {
   ReviewInvestigationNextAction,
+  ReviewInvestigationConclusion,
   ReviewInvestigationRunStatus,
   ReviewInvestigationState,
   type ReviewInvestigationSnapshot,
@@ -47,6 +48,31 @@ const lease: ReviewInvestigationLease = Object.freeze({
 });
 
 describe('RunInvestigationWorkSlot', () => {
+  it('concludes an inconclusive aggregate before treating it as terminal', async () => {
+    const pending = Object.freeze({
+      ...plannedSnapshot(),
+      state: ReviewInvestigationState.Inconclusive,
+      nextAction: ReviewInvestigationNextAction.Conclude,
+      turn: null,
+    });
+    const terminal = terminalSnapshot(4);
+    const controlPlane = controlPlaneFixture(pending);
+    controlPlane.conclude.mockImplementation(async () => {
+      controlPlane.current = terminal;
+      return terminal;
+    });
+    const agent = agentFixture(observation());
+
+    const result = await runnerFixture(controlPlane, agent).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: terminal,
+    });
+    expect(controlPlane.conclude).toHaveBeenCalledTimes(1);
+    expect(agent.executeTurn).not.toHaveBeenCalled();
+  });
+
   it('refreshes a restored active-turn capability before provider execution', async () => {
     const restored = Object.freeze({
       ...plannedSnapshot(),
@@ -365,6 +391,7 @@ function runInput() {
     seedObligations: [],
     initialReceipts: [],
     requestedModel: 'gpt-5.6-sol',
+    providerKind: ReviewAgentProviderKind.Codex,
     promptFor: () => 'Review the current work slot.',
     workingDirectory: '/tmp/sandbox-review',
     providerCredentialEnvironment: {},
@@ -407,16 +434,33 @@ function plannedSnapshot(): ReviewInvestigationSnapshot {
       turnCapability: 'turn.capability.value',
       brief: null,
     }),
+    certificateId: null,
+    certificateHash: null,
+    terminalProviderKind: null,
+    terminalActualModel: null,
+    terminalObservationCanonicalJson: null,
+    terminalOutcomeHash: null,
+    conclusion: null,
   });
 }
 
 function terminalSnapshot(version: number): ReviewInvestigationSnapshot {
+  const terminalObservationCanonicalJson = '{"payloadVersion":2}';
   return Object.freeze({
     ...plannedSnapshot(),
     version,
     state: ReviewInvestigationState.Inconclusive,
     nextAction: ReviewInvestigationNextAction.Terminal,
     turn: null,
+    certificateId: 'certificate-1',
+    certificateHash: 'c'.repeat(64),
+    terminalProviderKind: ReviewAgentProviderKind.Codex,
+    terminalActualModel: 'gpt-test',
+    terminalObservationCanonicalJson,
+    terminalOutcomeHash: createHash('sha256')
+      .update(terminalObservationCanonicalJson)
+      .digest('hex'),
+    conclusion: ReviewInvestigationConclusion.Inconclusive,
   });
 }
 
@@ -449,3 +493,4 @@ function observation(): ReviewTurnObservation {
     contextAttestationReference: null,
   });
 }
+import { createHash } from 'crypto';

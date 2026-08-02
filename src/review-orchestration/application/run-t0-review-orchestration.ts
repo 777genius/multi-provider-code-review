@@ -12,6 +12,7 @@ import {
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
+  ReviewInvestigationRecordingMode,
   RestoredReviewWorkSlotState,
   type AcceptedReviewObservation,
   type AcceptedReviewWorkSlotEvidence,
@@ -1042,8 +1043,13 @@ export class RunT0ReviewOrchestration {
     if (input.signal.aborted) relayLeaseAbort();
     else
       input.signal.addEventListener('abort', relayLeaseAbort, { once: true });
+    const investigate =
+      this.dependencies.investigationRecording?.supports({
+        workSlot: input.workSlot,
+        invocation: input.invocation,
+      }) ?? false;
     const drainOnSupersession =
-      !this.dependencies.investigationRecording &&
+      !investigate &&
       input.invocation.manifestFacts.executionProfile === 'context_gateway_v1';
     const monitor = async () => {
       if (drainOnSupersession) return;
@@ -1062,8 +1068,9 @@ export class RunT0ReviewOrchestration {
     };
     void monitor();
     try {
-      return this.dependencies.investigationRecording
-        ? await this.dependencies.investigationRecording.execute({
+      if (investigate) {
+        const investigationObservation =
+          await this.dependencies.investigationRecording!.execute({
             authorization: input.authorization,
             execution: input.execution,
             workSlot: input.workSlot,
@@ -1073,15 +1080,22 @@ export class RunT0ReviewOrchestration {
             ownerIdHash: input.ownerIdHash,
             sourceReviewRevisionHash: input.revision.reviewRevisionHash,
             signal: abort.signal,
-          })
-        : await this.dependencies.invocations.execute({
-            invocation: input.invocation,
-            manifest: input.manifest,
-            lease: input.currentLease(),
-            sourceExecutionId: input.sourceExecutionId,
-            sourceReviewRevisionHash: input.revision.reviewRevisionHash,
-            signal: abort.signal,
           });
+        if (
+          this.dependencies.investigationRecording!.mode ===
+          ReviewInvestigationRecordingMode.Authoritative
+        ) {
+          return investigationObservation;
+        }
+      }
+      return await this.dependencies.invocations.execute({
+        invocation: input.invocation,
+        manifest: input.manifest,
+        lease: input.currentLease(),
+        sourceExecutionId: input.sourceExecutionId,
+        sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+        signal: abort.signal,
+      });
     } catch (error) {
       if (abort.signal.reason instanceof ReviewExecutionSupersededSignal) {
         throw abort.signal.reason;

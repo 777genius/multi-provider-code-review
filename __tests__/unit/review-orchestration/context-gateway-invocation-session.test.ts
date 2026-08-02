@@ -80,6 +80,11 @@ describe('ContextGatewayInvocationSessionFactory', () => {
       expect(fixture.session.providerConfig.enabledTools).toContain(
         'review_canonical_inventory'
       );
+      expect(fixture.attestations.openGatewaySession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+        })
+      );
     } finally {
       await fixture.dispose();
     }
