@@ -1,7 +1,6 @@
 import { readFile, writeFile } from 'fs/promises';
 import {
   REVIEW_INVESTIGATION_GATEWAY_TOOLS,
-  ReviewAgentExecutionError,
   ReviewAgentFailureClass,
   type ReviewAgentPort,
   type ReviewTurnRequest,
