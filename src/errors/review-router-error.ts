@@ -1,4 +1,8 @@
 import { redactSensitiveText } from '../utils/redaction';
+import {
+  CapacitySignal,
+  classifyProviderCapacitySignal,
+} from '../review-execution/domain/capacity-signal';
 
 export type ReviewErrorCategory =
   | 'configuration'
@@ -20,6 +24,7 @@ export type ReviewErrorCode =
   | 'codex_cli_missing'
   | 'required_provider_unhealthy'
   | 'no_healthy_providers'
+  | 'provider_capacity_limited'
   | 'all_providers_failed'
   | 'github_permission_denied'
   | 'github_inline_comment_failed'
@@ -219,14 +224,12 @@ function descriptorFor(
   }
 
   if (
-    message.includes('rate limit') ||
-    message.includes('rate-limit') ||
-    message.includes('429')
+    message.includes('github') &&
+    (message.includes('rate limit') ||
+      message.includes('rate-limit') ||
+      message.includes('429'))
   ) {
-    if (message.includes('github')) {
-      return descriptors.github_rate_limited;
-    }
-    return { ...descriptors.all_providers_failed, isRetryable: true };
+    return descriptors.github_rate_limited;
   }
 
   if (message.includes('github_oidc_unavailable') || message.includes('oidc')) {
@@ -254,6 +257,10 @@ function descriptorFor(
     message.includes('invalid reviewrouter')
   ) {
     return descriptors.configuration_invalid;
+  }
+
+  if (isProviderCapacityError(rawMessage)) {
+    return descriptors.provider_capacity_limited;
   }
 
   if (message.includes('no healthy providers')) {
@@ -290,6 +297,21 @@ function descriptorFor(
   }
 
   return descriptors.unknown;
+}
+
+function isProviderCapacityError(rawMessage: string): boolean {
+  const hasProviderContext =
+    /\b(?:codex|openai|openrouter|claude|llm|provider)\b/i.test(rawMessage);
+  const isExplicitCodexUsageLimit =
+    /(?:\byou(?:'|\u2019)ve hit your usage limit\b|\bpurchase more credits\b)/i.test(
+      rawMessage
+    );
+
+  return (
+    (hasProviderContext || isExplicitCodexUsageLimit) &&
+    classifyProviderCapacitySignal({ error: rawMessage }) ===
+      CapacitySignal.CapacityPressure
+  );
 }
 
 function getErrorMessage(error: unknown): string {
@@ -428,6 +450,20 @@ const descriptors: Record<ReviewErrorCode, ReviewErrorDescriptor> = {
       'Check provider credentials and model names.',
       'For Codex OAuth, reseed `CODEX_AUTH_JSON` if the token is stale.',
       'For API-key modes, verify the key secret is available to this repository.',
+    ],
+    isRetryable: true,
+    isUserActionable: true,
+  },
+  provider_capacity_limited: {
+    code: 'provider_capacity_limited',
+    category: 'provider_runtime',
+    summary: 'A review provider reached its quota or capacity limit.',
+    whyItMatters:
+      'The required LLM review did not complete, so ReviewRouter marked the run as failed instead of reporting incomplete coverage as a successful review.',
+    nextSteps: [
+      'Wait for the provider limit to reset, then re-run the workflow.',
+      'Switch to another configured provider with available quota or capacity.',
+      'Check the provider usage or billing page if the limit is unexpected.',
     ],
     isRetryable: true,
     isUserActionable: true,

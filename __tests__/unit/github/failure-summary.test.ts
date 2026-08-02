@@ -62,6 +62,24 @@ describe('formatReviewFailureSummary', () => {
     expect(body).toContain('Code: codex_oauth_stale');
   });
 
+  it('formats provider usage exhaustion without an OAuth reseed prompt', () => {
+    const body = formatReviewFailureSummary(
+      new Error(
+        "All LLM providers failed during review; failing because FAIL_ON_NO_HEALTHY_PROVIDERS=true. codex/gpt-5.6-sol: Codex CLI failed with exit code 1: You've hit your usage limit. Visit [redacted-url] to purchase more credits or try again at Aug 8th, 2026 1:18 PM."
+      ),
+      123
+    );
+
+    expect(body).toContain(
+      'A review provider reached its quota or capacity limit'
+    );
+    expect(body).toContain('Wait for the provider limit to reset');
+    expect(body).toContain('Switch to another configured provider');
+    expect(body).toContain('Code: provider_capacity_limited');
+    expect(body.toLowerCase()).not.toContain('reseed');
+    expect(body).not.toContain('reviewrouter.site/install/codex');
+  });
+
   it('redacts obvious secrets from failure comments', () => {
     const body = formatReviewFailureSummary(
       new Error(

@@ -42670,6 +42670,104 @@ function unquoteGitPath3(path28) {
   });
 }
 
+// src/review-execution/domain/capacity-signal.ts
+var STRUCTURED_OUTPUT_ERROR = /\b(?:structured\s+(?:json|output|response)|(?:invalid|malformed)\s+json|json\s+(?:schema|parse|parsing|validation)|(?:parse|parsing|validate)\s+(?:structured\s+)?json|failed\s+to\s+(?:parse|validate).*json)\b/i;
+var CAPACITY_MESSAGE = /(?:\bcapacity[\s_-]*unavailable\b|\brate[\s_-]*limit(?:ed|ing)?\b|\bratelimit(?:ed|ing)?\b|\busage[\s_-]*limit(?:ed|[\s_-]*(?:reached|exceeded|exhausted))?\b|\bbilling[\s_-]*limit(?:ed|[\s_-]*(?:reached|exceeded))?\b|\binsufficient[\s_-]*quota\b|\btoo many requests\b|\b429\b|\bquota(?:[\s_-]*(?:exceeded|exhausted|unavailable|limited))?\b)/i;
+var DEFINITIVE_CAPACITY_CODE = /^(?:429|capacity[_-]?unavailable|rate[_-]?limit(?:ed|_exceeded)?|usage[_-]?limit(?:ed|_reached|_exceeded|_exhausted)?|billing[_-]?limit(?:ed|_reached|_exceeded)?|insufficient[_-]?quota|too[_-]?many[_-]?requests|quota[_-]?(?:exceeded|exhausted|unavailable|limited)|resource[_-]?exhausted)$/i;
+function messageFromError(error2) {
+  if (typeof error2 === "string") return error2;
+  if (typeof error2 === "object" && error2 !== null) {
+    try {
+      const record = error2;
+      const serialized = JSON.stringify({
+        ...record,
+        ..."message" in record && typeof record.message === "string" ? { message: record.message } : error2 instanceof Error ? { message: error2.message } : {}
+      });
+      if (serialized !== "{}") return serialized;
+    } catch {
+    }
+    if (error2 instanceof Error) return error2.message;
+    if ("message" in error2 && typeof error2.message === "string") {
+      return error2.message;
+    }
+  }
+  return void 0;
+}
+function capacityFieldsFromJson(message) {
+  const trimmed = message.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return void 0;
+  try {
+    const parsed = JSON.parse(trimmed);
+    const evidence = collectKnownCapacityFields(parsed);
+    return {
+      fields: evidence.values.join(" "),
+      definitive: evidence.definitive
+    };
+  } catch {
+    return void 0;
+  }
+}
+function collectKnownCapacityFields(value, depth = 0) {
+  if (depth > 2 || typeof value !== "object" || value === null) {
+    return { values: [], definitive: false };
+  }
+  if (Array.isArray(value)) {
+    return value.reduce(
+      (combined, item) => {
+        const nested = collectKnownCapacityFields(item, depth + 1);
+        combined.values.push(...nested.values);
+        combined.definitive ||= nested.definitive;
+        return combined;
+      },
+      { values: [], definitive: false }
+    );
+  }
+  const record = value;
+  const fields = [];
+  let definitive = false;
+  for (const key of ["error", "status", "message", "code"]) {
+    const field = record[key];
+    if (typeof field === "string" || typeof field === "number") {
+      const normalized = String(field);
+      fields.push(normalized);
+      if ((key === "status" || key === "code") && DEFINITIVE_CAPACITY_CODE.test(normalized)) {
+        definitive = true;
+      }
+    } else if (typeof field === "object" && field !== null) {
+      const nested = collectKnownCapacityFields(field, depth + 1);
+      fields.push(...nested.values);
+      definitive ||= nested.definitive;
+    }
+  }
+  return { values: fields, definitive };
+}
+function hasCapacityMessage(message) {
+  if (message === void 0) return false;
+  const jsonFields = capacityFieldsFromJson(message);
+  if (jsonFields !== void 0) {
+    return jsonFields.definitive || !STRUCTURED_OUTPUT_ERROR.test(jsonFields.fields) && CAPACITY_MESSAGE.test(jsonFields.fields);
+  }
+  if (STRUCTURED_OUTPUT_ERROR.test(message)) return false;
+  return CAPACITY_MESSAGE.test(message);
+}
+function classifyOne(result2) {
+  const status = typeof result2.status === "string" ? result2.status : void 0;
+  if (hasCapacityMessage(status) || hasCapacityMessage(messageFromError(result2.error))) {
+    return "capacity_pressure" /* CapacityPressure */;
+  }
+  if (status?.toLowerCase() === "success") return "healthy" /* Healthy */;
+  return "neutral" /* Neutral */;
+}
+function classifyProviderCapacitySignal(result2) {
+  const results = Array.isArray(result2) ? result2 : [result2];
+  if (results.length === 0) return "neutral" /* Neutral */;
+  const signals = results.map(classifyOne);
+  if (signals.includes("capacity_pressure" /* CapacityPressure */)) {
+    return "capacity_pressure" /* CapacityPressure */;
+  }
+  return signals.every((signal) => signal === "healthy" /* Healthy */) ? "healthy" /* Healthy */ : "neutral" /* Neutral */;
+}
+
 // src/errors/review-router-error.ts
 var ReviewRouterError = class extends Error {
   code;
@@ -42765,11 +42863,8 @@ function descriptorFor(rawMessage, error2) {
   if (message.includes("unprocessable entity") || message.includes("internal error occurred") && message.includes("pull") || message.includes("inline comment") || message.includes("create-a-review-for-a-pull-request")) {
     return descriptors.github_inline_comment_failed;
   }
-  if (message.includes("rate limit") || message.includes("rate-limit") || message.includes("429")) {
-    if (message.includes("github")) {
-      return descriptors.github_rate_limited;
-    }
-    return { ...descriptors.all_providers_failed, isRetryable: true };
+  if (message.includes("github") && (message.includes("rate limit") || message.includes("rate-limit") || message.includes("429"))) {
+    return descriptors.github_rate_limited;
   }
   if (message.includes("github_oidc_unavailable") || message.includes("oidc")) {
     return descriptors.oidc_unavailable;
@@ -42782,6 +42877,9 @@ function descriptorFor(rawMessage, error2) {
   }
   if (message.includes("configuration error") || message.includes("validationerror") || message.includes("input required and not supplied") || message.includes("invalid workflow") || message.includes("invalid reviewrouter")) {
     return descriptors.configuration_invalid;
+  }
+  if (isProviderCapacityError(rawMessage)) {
+    return descriptors.provider_capacity_limited;
   }
   if (message.includes("no healthy providers")) {
     return descriptors.no_healthy_providers;
@@ -42799,6 +42897,13 @@ function descriptorFor(rawMessage, error2) {
     return descriptors.filesystem;
   }
   return descriptors.unknown;
+}
+function isProviderCapacityError(rawMessage) {
+  const hasProviderContext = /\b(?:codex|openai|openrouter|claude|llm|provider)\b/i.test(rawMessage);
+  const isExplicitCodexUsageLimit = /(?:\byou(?:'|\u2019)ve hit your usage limit\b|\bpurchase more credits\b)/i.test(
+    rawMessage
+  );
+  return (hasProviderContext || isExplicitCodexUsageLimit) && classifyProviderCapacitySignal({ error: rawMessage }) === "capacity_pressure" /* CapacityPressure */;
 }
 function getErrorMessage(error2) {
   if (error2 instanceof Error) {
@@ -42928,6 +43033,19 @@ var descriptors = {
       "Check provider credentials and model names.",
       "For Codex OAuth, reseed `CODEX_AUTH_JSON` if the token is stale.",
       "For API-key modes, verify the key secret is available to this repository."
+    ],
+    isRetryable: true,
+    isUserActionable: true
+  },
+  provider_capacity_limited: {
+    code: "provider_capacity_limited",
+    category: "provider_runtime",
+    summary: "A review provider reached its quota or capacity limit.",
+    whyItMatters: "The required LLM review did not complete, so ReviewRouter marked the run as failed instead of reporting incomplete coverage as a successful review.",
+    nextSteps: [
+      "Wait for the provider limit to reset, then re-run the workflow.",
+      "Switch to another configured provider with available quota or capacity.",
+      "Check the provider usage or billing page if the limit is unexpected."
     ],
     isRetryable: true,
     isUserActionable: true
@@ -43442,104 +43560,6 @@ var ProgressTracker = class _ProgressTracker {
 // src/core/orchestrator.ts
 var fs15 = __toESM(require("fs/promises"));
 var import_path = __toESM(require("path"));
-
-// src/review-execution/domain/capacity-signal.ts
-var STRUCTURED_OUTPUT_ERROR = /\b(?:structured\s+(?:json|output|response)|(?:invalid|malformed)\s+json|json\s+(?:schema|parse|parsing|validation)|(?:parse|parsing|validate)\s+(?:structured\s+)?json|failed\s+to\s+(?:parse|validate).*json)\b/i;
-var CAPACITY_MESSAGE = /(?:\bcapacity[\s_-]*unavailable\b|\brate[\s_-]*limit(?:ed|ing)?\b|\bratelimit(?:ed|ing)?\b|\busage[\s_-]*limit(?:ed|[\s_-]*(?:reached|exceeded|exhausted))?\b|\bbilling[\s_-]*limit(?:ed|[\s_-]*(?:reached|exceeded))?\b|\binsufficient[\s_-]*quota\b|\btoo many requests\b|\b429\b|\bquota(?:[\s_-]*(?:exceeded|exhausted|unavailable|limited))?\b)/i;
-var DEFINITIVE_CAPACITY_CODE = /^(?:429|capacity[_-]?unavailable|rate[_-]?limit(?:ed|_exceeded)?|usage[_-]?limit(?:ed|_reached|_exceeded|_exhausted)?|billing[_-]?limit(?:ed|_reached|_exceeded)?|insufficient[_-]?quota|too[_-]?many[_-]?requests|quota[_-]?(?:exceeded|exhausted|unavailable|limited)|resource[_-]?exhausted)$/i;
-function messageFromError(error2) {
-  if (typeof error2 === "string") return error2;
-  if (typeof error2 === "object" && error2 !== null) {
-    try {
-      const record = error2;
-      const serialized = JSON.stringify({
-        ...record,
-        ..."message" in record && typeof record.message === "string" ? { message: record.message } : error2 instanceof Error ? { message: error2.message } : {}
-      });
-      if (serialized !== "{}") return serialized;
-    } catch {
-    }
-    if (error2 instanceof Error) return error2.message;
-    if ("message" in error2 && typeof error2.message === "string") {
-      return error2.message;
-    }
-  }
-  return void 0;
-}
-function capacityFieldsFromJson(message) {
-  const trimmed = message.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return void 0;
-  try {
-    const parsed = JSON.parse(trimmed);
-    const evidence = collectKnownCapacityFields(parsed);
-    return {
-      fields: evidence.values.join(" "),
-      definitive: evidence.definitive
-    };
-  } catch {
-    return void 0;
-  }
-}
-function collectKnownCapacityFields(value, depth = 0) {
-  if (depth > 2 || typeof value !== "object" || value === null) {
-    return { values: [], definitive: false };
-  }
-  if (Array.isArray(value)) {
-    return value.reduce(
-      (combined, item) => {
-        const nested = collectKnownCapacityFields(item, depth + 1);
-        combined.values.push(...nested.values);
-        combined.definitive ||= nested.definitive;
-        return combined;
-      },
-      { values: [], definitive: false }
-    );
-  }
-  const record = value;
-  const fields = [];
-  let definitive = false;
-  for (const key of ["error", "status", "message", "code"]) {
-    const field = record[key];
-    if (typeof field === "string" || typeof field === "number") {
-      const normalized = String(field);
-      fields.push(normalized);
-      if ((key === "status" || key === "code") && DEFINITIVE_CAPACITY_CODE.test(normalized)) {
-        definitive = true;
-      }
-    } else if (typeof field === "object" && field !== null) {
-      const nested = collectKnownCapacityFields(field, depth + 1);
-      fields.push(...nested.values);
-      definitive ||= nested.definitive;
-    }
-  }
-  return { values: fields, definitive };
-}
-function hasCapacityMessage(message) {
-  if (message === void 0) return false;
-  const jsonFields = capacityFieldsFromJson(message);
-  if (jsonFields !== void 0) {
-    return jsonFields.definitive || !STRUCTURED_OUTPUT_ERROR.test(jsonFields.fields) && CAPACITY_MESSAGE.test(jsonFields.fields);
-  }
-  if (STRUCTURED_OUTPUT_ERROR.test(message)) return false;
-  return CAPACITY_MESSAGE.test(message);
-}
-function classifyOne(result2) {
-  const status = typeof result2.status === "string" ? result2.status : void 0;
-  if (hasCapacityMessage(status) || hasCapacityMessage(messageFromError(result2.error))) {
-    return "capacity_pressure" /* CapacityPressure */;
-  }
-  if (status?.toLowerCase() === "success") return "healthy" /* Healthy */;
-  return "neutral" /* Neutral */;
-}
-function classifyProviderCapacitySignal(result2) {
-  const results = Array.isArray(result2) ? result2 : [result2];
-  if (results.length === 0) return "neutral" /* Neutral */;
-  const signals = results.map(classifyOne);
-  if (signals.includes("capacity_pressure" /* CapacityPressure */)) {
-    return "capacity_pressure" /* CapacityPressure */;
-  }
-  return signals.every((signal) => signal === "healthy" /* Healthy */) ? "healthy" /* Healthy */ : "neutral" /* Neutral */;
-}
 
 // src/review-execution/domain/file-risk-priority.ts
 var TIER_ORDER = {
@@ -48738,6 +48758,7 @@ function classifyMissingProviderSecret(env) {
 function classifyErrorCategory(error2) {
   const normalized = normalizeReviewError(error2);
   switch (normalized.code) {
+    case "provider_capacity_limited":
     case "github_rate_limited":
       return "provider_rate_limited";
     case "codex_oauth_invalid_secret":

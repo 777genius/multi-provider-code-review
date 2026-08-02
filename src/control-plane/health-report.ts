@@ -178,6 +178,7 @@ function classifyMissingProviderSecret(
 function classifyErrorCategory(error: unknown): SafeErrorCategory {
   const normalized = normalizeReviewError(error);
   switch (normalized.code) {
+    case 'provider_capacity_limited':
     case 'github_rate_limited':
       return 'provider_rate_limited';
     case 'codex_oauth_invalid_secret':
