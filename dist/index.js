@@ -53617,9 +53617,9 @@ var import_path2 = __toESM(require("path"));
 var manifest_default = {
   contractSourceVersion: 1,
   protocolVersion: "2",
-  schemaDigest: "6201c08fbf194e8f73dfe3e730e1b9f869711639c4e2071d3fe3ec2090b299bc",
-  goldenFixtureDigest: "2b23719c7b8ead969ed46748ad0798b416da642ae03322456f84129b665f0c2f",
-  canonicalizerDigest: "aeff2c49f07df28e987a9781d12fe5361e1e10b40ab0c186386176ac7a6d0208",
+  schemaDigest: "60049e46b2c91f93bd012a244c109ca5363e38c7bd9969ff7b4ae0b99a828d45",
+  goldenFixtureDigest: "a00ddff4ccdd64adcb060f3a22a6d51daff843bb94bde5d079b6e0a5ce3e1be0",
+  canonicalizerDigest: "0e8e308c509826c113a98a6a9e93194087b01664bda2986d7b54c1a53f8c58cd",
   canonicalizerGoldenFixtureDigest: "9f638db73ec3696da7f3aa842ed10b7cf7c466986dfbd45b1a602e3b08d75c57",
   negotiationBridge: {
     operationId: "review_run_authorize",
@@ -55805,8 +55805,8 @@ var manifest_default = {
 
 // src/control-plane/generated/review-action-v2/review-action-v2.ts
 var reviewActionV2PublishedProtocolVersion = "2";
-var reviewActionV2PublishedSchemaDigest = "6201c08fbf194e8f73dfe3e730e1b9f869711639c4e2071d3fe3ec2090b299bc";
-var reviewActionV2CanonicalizerDigest = "aeff2c49f07df28e987a9781d12fe5361e1e10b40ab0c186386176ac7a6d0208";
+var reviewActionV2PublishedSchemaDigest = "60049e46b2c91f93bd012a244c109ca5363e38c7bd9969ff7b4ae0b99a828d45";
+var reviewActionV2CanonicalizerDigest = "0e8e308c509826c113a98a6a9e93194087b01664bda2986d7b54c1a53f8c58cd";
 var ReviewActionV2OperationId = /* @__PURE__ */ ((ReviewActionV2OperationId2) => {
   ReviewActionV2OperationId2["ReviewRunAuthorize"] = "review_run_authorize";
   ReviewActionV2OperationId2["ReviewRunRenew"] = "review_run_renew";
@@ -56823,6 +56823,14 @@ var reviewActionV2Operations = [
       },
       {
         name: "providerManifestHash",
+        type: "hash"
+      },
+      {
+        name: "coverageContractCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "coverageContractHash",
         type: "hash"
       }
     ],
@@ -71831,7 +71839,9 @@ var review_investigation_replay_prepare_schema_default = {
         "stableReviewUnitKey",
         "providerVoteLaneId",
         "providerManifestCanonicalJson",
-        "providerManifestHash"
+        "providerManifestHash",
+        "coverageContractCanonicalJson",
+        "coverageContractHash"
       ],
       properties: {
         protocolVersion: {
@@ -71892,6 +71902,14 @@ var review_investigation_replay_prepare_schema_default = {
           minLength: 2
         },
         providerManifestHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        coverageContractCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        coverageContractHash: {
           type: "string",
           pattern: "^[a-f0-9]{64}$"
         }
@@ -94331,6 +94349,7 @@ var ReviewActionV2InvestigationAdapter = class {
     return snapshotFromResult(result2, null);
   }
   async prepareReplay(input) {
+    const coverage = document(input.open.coverageContract);
     let result2;
     try {
       result2 = await this.client.execute(
@@ -94344,7 +94363,9 @@ var ReviewActionV2InvestigationAdapter = class {
           stableReviewUnitKey: input.open.stableReviewUnitKey,
           providerVoteLaneId: input.open.providerVoteLaneId,
           providerManifestCanonicalJson: input.providerManifestCanonicalJson,
-          providerManifestHash: input.providerManifestHash
+          providerManifestHash: input.providerManifestHash,
+          coverageContractCanonicalJson: coverage.canonicalJson,
+          coverageContractHash: coverage.hash
         }
       );
     } catch (error2) {

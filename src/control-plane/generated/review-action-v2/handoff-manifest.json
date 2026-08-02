@@ -1,18 +1,18 @@
 {
-  "canonicalizerDigest": "aeff2c49f07df28e987a9781d12fe5361e1e10b40ab0c186386176ac7a6d0208",
+  "canonicalizerDigest": "0e8e308c509826c113a98a6a9e93194087b01664bda2986d7b54c1a53f8c58cd",
   "contractExportVersion": 1,
-  "expectedPublicActionBaseCommit": "b2a9cae80242fc6ffad17b1b820052635b7f7de5",
+  "expectedPublicActionBaseCommit": "82ada93fe7922705304ab982347ebc8f41a258d3",
   "generatedFileDigests": {
     "fixtures/provider-invocation-manifest-v1.golden.json": "9e0369a80cb91c458befaf0b2aeb41be5b98246e0217b032e8fca414dab579bb",
-    "fixtures/review-action-v2.golden.json": "a575fc03d0851508b31f428f2f5d76dab1712483858f059aca3187119b71d92b",
+    "fixtures/review-action-v2.golden.json": "c77fc85988b32c44e9306c4f9c4345dff49554b3c4cb40e7e31c2bbf0814fda1",
     "fixtures/review-run-authorize.request.json": "ec54f8df8a2a11788e9619cc799eca00608fe99a84f36ea8d1dd4d22729b1e4c",
     "fixtures/review-run-authorize.unsupported.response.json": "89c4255d0d64ab45bb7368b82b0295e2048b3ec7760da5614a96b6c2889a7bb5",
-    "manifest.json": "09f42cc4aaa79a2aa1ed759fa227f6360695121de6fde6d583a268625e916290",
+    "manifest.json": "f4d95705e02274a9e9512e165a237524f79df8f1a063fb5ae71fcf6520f584b5",
     "provider-invocation-manifest-v1.ts": "6861cc12dd5df45140e7b0ee8c7bdf8adbe594b33748eedff6270ee48e9736cd",
     "review-action-v2-negotiation.schema.json": "7f87e91448c11702624aa6a2dcb56077000ef165641eb4448c94cdd567f7ba74",
     "review-action-v2-negotiation.ts": "75e62e3295e345760ff4c6372d03f2f9e4117b42bbe006183984cc68ffd6ee3b",
-    "review-action-v2.schema.json": "6164e18062be5f47fe2df96f46f88b851c29543f2cff9785028f9d9d6b550343",
-    "review-action-v2.ts": "2666913d8e05a23732ed78ba606afe91d519a4190423bd275c9da2ddb8c14a8c",
+    "review-action-v2.schema.json": "10e1b6613a6af8cf88c1df63a1b3e6e2867b30f393b3730b6b03729b22c3891f",
+    "review-action-v2.ts": "03bbbc72b8a154da52c18ab36aebf2d6fd0ae62687e9462259160e98010f3dfe",
     "schemas/review_context_gateway_open.schema.json": "fa248d09ea4464978408a81911f0f5243c2ab8fee01e6f90e2e06d8be70ffaed",
     "schemas/review_context_gateway_seal.schema.json": "8378b3f6e36ed6fdc470d7696dbc51058ffc0b38b8fc3c0750773175f8159812",
     "schemas/review_context_receipt_replay_commit.schema.json": "6828b2d7797543a12d1c8fd7bf3ea2079bd5a98ae7481fd552a06ab6c1513356",
@@ -28,7 +28,7 @@
     "schemas/review_investigation_conclude.schema.json": "fc6972792d31304bd61dccc22a5e58e12b1cdf63b7c7a1893d6bc068f965a8bc",
     "schemas/review_investigation_open.schema.json": "4d5c2d079f13ecc0312ff01dd79fc9ecd7231861f41a63eec44158a1b5e36f9c",
     "schemas/review_investigation_replay.schema.json": "edd6e7dfc3f9bbb2e7032ca6171e3e346353826db2112c82b44fc0d4046b2e41",
-    "schemas/review_investigation_replay_prepare.schema.json": "70b9a20142e16437047e54036d52992c34020921cd7ab8d1ec8bae1fe168f3fa",
+    "schemas/review_investigation_replay_prepare.schema.json": "943ffc7928110f64527dce7a0e16dd73507d0d64b18498efb219ed9381a3761d",
     "schemas/review_investigation_restore.schema.json": "de8076b4e0a121716df690f6d418a2783a2b3ba15860263a1453cb165f53231a",
     "schemas/review_investigation_turn_abort.schema.json": "59dc1a7656d3d4eaab755e407f1ddfa2af87e6f4949be0b61e9754588480ee53",
     "schemas/review_investigation_turn_commit.schema.json": "8ae637e45cf800a2f787fd72645409b43f301a3bd49c84664fd37272a8f0e50b",
@@ -42,8 +42,8 @@
     "schemas/review_run_renew.schema.json": "111f2da451ebdf7cf7946be71e0617b9700d737ebea120eb3d3a6a9c01dc1ad4",
     "schemas/review_snapshot_restore.schema.json": "b939feda8cfdc2d4b5d35cdbfb38fd6ed631377c65686f8bb60dab7764aac2d8"
   },
-  "goldenFixtureDigest": "2b23719c7b8ead969ed46748ad0798b416da642ae03322456f84129b665f0c2f",
+  "goldenFixtureDigest": "a00ddff4ccdd64adcb060f3a22a6d51daff843bb94bde5d079b6e0a5ce3e1be0",
   "protocolVersion": "2",
-  "saasSourceCommit": "e0c24a7a320c3916fa5df367290720b593ff69a3",
-  "schemaDigest": "6201c08fbf194e8f73dfe3e730e1b9f869711639c4e2071d3fe3ec2090b299bc"
+  "saasSourceCommit": "436c0d927321228a8eb2ac901cb1952775052e34",
+  "schemaDigest": "60049e46b2c91f93bd012a244c109ca5363e38c7bd9969ff7b4ae0b99a828d45"
 }

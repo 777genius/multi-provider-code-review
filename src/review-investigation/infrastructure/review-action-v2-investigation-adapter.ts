@@ -286,6 +286,7 @@ export class ReviewActionV2InvestigationAdapter
       ReviewInvestigationReplayControlPlanePort['prepareReplay']
     >[0]
   ): ReturnType<ReviewInvestigationReplayControlPlanePort['prepareReplay']> {
+    const coverage = document(input.open.coverageContract);
     let result;
     try {
       result = await this.client.execute(
@@ -300,6 +301,8 @@ export class ReviewActionV2InvestigationAdapter
           providerVoteLaneId: input.open.providerVoteLaneId,
           providerManifestCanonicalJson: input.providerManifestCanonicalJson,
           providerManifestHash: input.providerManifestHash,
+          coverageContractCanonicalJson: coverage.canonicalJson,
+          coverageContractHash: coverage.hash,
         }
       );
     } catch (error) {
