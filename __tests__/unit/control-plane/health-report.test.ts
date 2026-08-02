@@ -120,6 +120,19 @@ describe('classifyOutcome', () => {
     });
   });
 
+  it('reports provider quota exhaustion as rate limited', () => {
+    expect(
+      classifyOutcome({
+        error: new Error("You've hit your usage limit."),
+      })
+    ).toEqual({
+      providerSetupState: 'unknown',
+      providerHealth: 'degraded',
+      safeErrorCategory: 'provider_rate_limited',
+      safeErrorSummary: 'Provider rate limit was reached.',
+    });
+  });
+
   it('classifies OIDC and runtime config errors with safe categories', () => {
     expect(
       classifyOutcome({
