@@ -97,6 +97,7 @@ describe('RunT0ReviewOrchestration', () => {
     const fixture = createFixture({
       executionProfile: 'investigation_gateway_v1',
       investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationVerifiedCleanEffectsEnabled: true,
     });
 
     const result = await fixture.useCase.execute(fixture.command);
@@ -109,6 +110,27 @@ describe('RunT0ReviewOrchestration', () => {
         observation: expect.objectContaining({
           payloadHash: investigationObservationPayload.payloadHash,
           investigationCertificateId: 'certificate-1',
+        }),
+      })
+    );
+  });
+
+  it('falls back to legacy evidence when verified clean effects are disabled', async () => {
+    const fixture = createFixture({
+      executionProfile: 'investigation_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationVerifiedCleanEffectsEnabled: false,
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: expect.objectContaining({
+          payloadHash: observationPayload.payloadHash,
         }),
       })
     );
@@ -1117,6 +1139,7 @@ function createFixture(
   options: {
     maxAttempts?: number;
     investigationMode?: ReviewInvestigationRecordingMode;
+    investigationVerifiedCleanEffectsEnabled?: boolean;
     executionProfile?:
       | 'prompt_only_envelope_v1'
       | 'agentic_unbounded_v1'
@@ -1298,6 +1321,8 @@ function createFixture(
   const investigationRecording = options.investigationMode
     ? {
         mode: options.investigationMode,
+        verifiedCleanEffectsEnabled:
+          options.investigationVerifiedCleanEffectsEnabled ?? false,
         supports: jest.fn().mockReturnValue(true),
         execute: jest.fn().mockResolvedValue(investigationObservationPayload),
       }
@@ -1392,6 +1417,7 @@ const observationPayload = {
 
 const investigationObservationPayload = {
   ...observationPayload,
+  qualityFlags: ['investigation_verified_clean'] as readonly string[],
   investigationCertificateId: 'certificate-1',
   investigationCertificateHash: hash('certificate-1'),
 };

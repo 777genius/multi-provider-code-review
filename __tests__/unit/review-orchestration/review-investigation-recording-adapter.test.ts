@@ -50,7 +50,7 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       byteCount: Buffer.byteLength(terminalJson),
       findingCount: 0,
       actualModel: 'gpt-test',
-      qualityFlags: [],
+      qualityFlags: ['investigation_verified_clean'],
       transportAttemptCount: 2,
       schemaValidated: true,
       fullyConsumed: true,

@@ -165,6 +165,12 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       process.env
         .REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED
     );
+    const investigationContextCriticEnabled = readBooleanFlag(
+      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED
+    );
+    const investigationVerifiedCleanEnabled = readBooleanFlag(
+      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED
+    );
     if (investigationEffectsEnabled && !investigationRecordingRequested) {
       throw new Error('review_investigation_effects_require_shadow');
     }
@@ -176,6 +182,14 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       !investigationEffectsEnabled
     ) {
       throw new Error('review_investigation_replay_requires_effects');
+    }
+    if (
+      investigationVerifiedCleanEnabled &&
+      (!investigationEffectsEnabled || !investigationContextCriticEnabled)
+    ) {
+      throw new Error(
+        'review_investigation_verified_clean_requires_effects_and_critic'
+      );
     }
     const investigationRecordingEnabled =
       investigationRecordingRequested && agenticContext;
@@ -311,7 +325,8 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
             },
             investigationEffectsEnabled
               ? ReviewInvestigationRecordingMode.Authoritative
-              : ReviewInvestigationRecordingMode.RecordOnly
+              : ReviewInvestigationRecordingMode.RecordOnly,
+            investigationVerifiedCleanEnabled
           )
         : undefined;
     const useCase = new RunT0ReviewOrchestration({

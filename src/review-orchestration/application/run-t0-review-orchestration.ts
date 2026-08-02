@@ -1085,7 +1085,18 @@ export class RunT0ReviewOrchestration {
           this.dependencies.investigationRecording!.mode ===
           ReviewInvestigationRecordingMode.Authoritative
         ) {
-          return investigationObservation;
+          const verifiedClean = investigationObservation.qualityFlags.includes(
+            'investigation_verified_clean'
+          );
+          const findings = investigationObservation.findingCount > 0;
+          if (
+            findings ||
+            (verifiedClean &&
+              this.dependencies.investigationRecording!
+                .verifiedCleanEffectsEnabled === true)
+          ) {
+            return investigationObservation;
+          }
         }
       }
       return await this.dependencies.invocations.execute({

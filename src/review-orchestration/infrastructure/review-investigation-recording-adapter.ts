@@ -58,7 +58,8 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
   constructor(
     private readonly createRunner: ReviewInvestigationRunnerFactory,
     private readonly options: ReviewInvestigationRecordingOptions,
-    readonly mode: ReviewInvestigationRecordingMode = ReviewInvestigationRecordingMode.RecordOnly
+    readonly mode: ReviewInvestigationRecordingMode = ReviewInvestigationRecordingMode.RecordOnly,
+    readonly verifiedCleanEffectsEnabled = false
   ) {}
 
   supports(input: {
@@ -289,6 +290,9 @@ function terminalObservation(
   }
   const qualityFlags = [
     ...(snapshot.findingCount > 0 ? ['investigation_findings'] : []),
+    ...(snapshot.conclusion === ReviewInvestigationConclusion.VerifiedClean
+      ? ['investigation_verified_clean']
+      : []),
     ...(snapshot.conclusion === ReviewInvestigationConclusion.Inconclusive
       ? ['investigation_inconclusive']
       : []),

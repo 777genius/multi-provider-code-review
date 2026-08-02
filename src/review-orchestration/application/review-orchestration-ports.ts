@@ -533,6 +533,7 @@ export enum ReviewInvestigationRecordingMode {
 
 export interface ReviewInvestigationRecordingPort {
   readonly mode: ReviewInvestigationRecordingMode;
+  readonly verifiedCleanEffectsEnabled?: boolean;
   supports(input: {
     readonly workSlot: ReviewWorkSlotPlan;
     readonly invocation: PreparedReviewInvocation;

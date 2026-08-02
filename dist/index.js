@@ -84977,7 +84977,13 @@ var RunT0ReviewOrchestration = class {
           signal: abort.signal
         });
         if (this.dependencies.investigationRecording.mode === "authoritative" /* Authoritative */) {
-          return investigationObservation;
+          const verifiedClean = investigationObservation.qualityFlags.includes(
+            "investigation_verified_clean"
+          );
+          const findings = investigationObservation.findingCount > 0;
+          if (findings || verifiedClean && this.dependencies.investigationRecording.verifiedCleanEffectsEnabled === true) {
+            return investigationObservation;
+          }
         }
       }
       return await this.dependencies.invocations.execute({
@@ -95063,10 +95069,11 @@ function orchestrationLease(lease) {
 
 // src/review-orchestration/infrastructure/review-investigation-recording-adapter.ts
 var ReviewInvestigationRecordingAdapter = class {
-  constructor(createRunner, options, mode = "record_only" /* RecordOnly */) {
+  constructor(createRunner, options, mode = "record_only" /* RecordOnly */, verifiedCleanEffectsEnabled = false) {
     this.createRunner = createRunner;
     this.options = options;
     this.mode = mode;
+    this.verifiedCleanEffectsEnabled = verifiedCleanEffectsEnabled;
   }
   supports(input) {
     return input.workSlot.providerKind === "codex" /* Codex */ && input.invocation.workSlotId === input.workSlot.workSlotId && input.invocation.manifestFacts.executionProfile === (this.mode === "authoritative" /* Authoritative */ ? "investigation_gateway_v1" : "context_gateway_v1") && input.invocation.manifestFacts.taskKindSet.length === 1 && input.invocation.manifestFacts.taskKindSet[0] === "finding_discovery" /* FindingDiscovery */ && input.invocation.coverageManifest.workSlotId === input.workSlot.workSlotId;
@@ -95235,6 +95242,7 @@ function terminalObservation(status, snapshot) {
   }
   const qualityFlags = [
     ...snapshot.findingCount > 0 ? ["investigation_findings"] : [],
+    ...snapshot.conclusion === "verified_clean" /* VerifiedClean */ ? ["investigation_verified_clean"] : [],
     ...snapshot.conclusion === "inconclusive" /* Inconclusive */ ? ["investigation_inconclusive"] : []
   ];
   return Object.freeze({
@@ -95339,6 +95347,12 @@ var ProductionT0ReviewRunner = class {
     const investigationCrossRevisionReplayEnabled = readBooleanFlag(
       process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED
     );
+    const investigationContextCriticEnabled = readBooleanFlag(
+      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED
+    );
+    const investigationVerifiedCleanEnabled = readBooleanFlag(
+      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED
+    );
     if (investigationEffectsEnabled && !investigationRecordingRequested) {
       throw new Error("review_investigation_effects_require_shadow");
     }
@@ -95347,6 +95361,11 @@ var ProductionT0ReviewRunner = class {
     }
     if (investigationCrossRevisionReplayEnabled && !investigationEffectsEnabled) {
       throw new Error("review_investigation_replay_requires_effects");
+    }
+    if (investigationVerifiedCleanEnabled && (!investigationEffectsEnabled || !investigationContextCriticEnabled)) {
+      throw new Error(
+        "review_investigation_verified_clean_requires_effects_and_critic"
+      );
     }
     const investigationRecordingEnabled = investigationRecordingRequested && agenticContext;
     const provider = new CodexProvider(model, {
@@ -95455,7 +95474,8 @@ var ProductionT0ReviewRunner = class {
         maxReceiptsPerTurn: 256,
         maxExpansionDepth: 8
       },
-      investigationEffectsEnabled ? "authoritative" /* Authoritative */ : "record_only" /* RecordOnly */
+      investigationEffectsEnabled ? "authoritative" /* Authoritative */ : "record_only" /* RecordOnly */,
+      investigationVerifiedCleanEnabled
     ) : void 0;
     const useCase = new RunT0ReviewOrchestration({
       controlPlane,
