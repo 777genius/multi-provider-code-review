@@ -81,6 +81,46 @@ describe('normalizeReviewError', () => {
     ).toBe('required_provider_unhealthy');
   });
 
+  it('classifies provider usage exhaustion inside an all-provider failure', () => {
+    const error = normalizeReviewError(
+      new Error(
+        "All LLM providers failed during review; failing because FAIL_ON_NO_HEALTHY_PROVIDERS=true. codex/gpt-5.6-sol: Codex CLI failed with exit code 1: You've hit your usage limit. Visit [redacted-url] to purchase more credits or try again at Aug 8th, 2026 1:18 PM."
+      )
+    );
+
+    expect(error.code).toBe('provider_capacity_limited');
+    expect(error.category).toBe('provider_runtime');
+    expect(error.isRetryable).toBe(true);
+    expect(error.nextSteps).toEqual(
+      expect.arrayContaining([
+        'Wait for the provider limit to reset, then re-run the workflow.',
+        'Switch to another configured provider with available quota or capacity.',
+      ])
+    );
+    expect(error.nextSteps.join('\n').toLowerCase()).not.toContain('reseed');
+  });
+
+  it('does not treat a generic retry hint as provider capacity exhaustion', () => {
+    expect(
+      normalizeReviewError(
+        new Error('All LLM providers failed; try again after reconnecting')
+      ).code
+    ).toBe('all_providers_failed');
+  });
+
+  it('keeps protocol and non-provider quota errors out of provider capacity', () => {
+    expect(
+      normalizeReviewError(
+        new Error(
+          'review_action_v2_protocol_error http_status=429 error_code=capacity_limited'
+        )
+      ).code
+    ).toBe('control_plane_protocol_error');
+    expect(
+      normalizeReviewError(new Error('Filesystem quota exceeded')).code
+    ).toBe('unknown');
+  });
+
   it('classifies Review Action v2 protocol failures as control-plane errors', () => {
     const error = normalizeReviewError(
       new Error(
