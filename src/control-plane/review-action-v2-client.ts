@@ -12,6 +12,12 @@ import reviewExecutionObservationAdoptSchema from './generated/review-action-v2/
 import reviewExecutionRestoreSchema from './generated/review-action-v2/schemas/review_execution_restore.schema.json';
 import reviewExecutionStartSchema from './generated/review-action-v2/schemas/review_execution_start.schema.json';
 import reviewExecutionSupersedeSchema from './generated/review-action-v2/schemas/review_execution_supersede.schema.json';
+import reviewInvestigationConcludeSchema from './generated/review-action-v2/schemas/review_investigation_conclude.schema.json';
+import reviewInvestigationOpenSchema from './generated/review-action-v2/schemas/review_investigation_open.schema.json';
+import reviewInvestigationRestoreSchema from './generated/review-action-v2/schemas/review_investigation_restore.schema.json';
+import reviewInvestigationTurnAbortSchema from './generated/review-action-v2/schemas/review_investigation_turn_abort.schema.json';
+import reviewInvestigationTurnCommitSchema from './generated/review-action-v2/schemas/review_investigation_turn_commit.schema.json';
+import reviewInvestigationTurnPlanSchema from './generated/review-action-v2/schemas/review_investigation_turn_plan.schema.json';
 import reviewInvocationLeaseAcquireSchema from './generated/review-action-v2/schemas/review_invocation_lease_acquire.schema.json';
 import reviewInvocationLeaseReleaseSchema from './generated/review-action-v2/schemas/review_invocation_lease_release.schema.json';
 import reviewInvocationLeaseRenewSchema from './generated/review-action-v2/schemas/review_invocation_lease_renew.schema.json';
@@ -124,6 +130,18 @@ const responseSchemas = {
     reviewExecutionObservationAdoptSchema,
   [ReviewActionV2OperationId.ReviewExecutionFinalize]:
     reviewExecutionFinalizeSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationOpen]:
+    reviewInvestigationOpenSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationRestore]:
+    reviewInvestigationRestoreSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationTurnPlan]:
+    reviewInvestigationTurnPlanSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationTurnCommit]:
+    reviewInvestigationTurnCommitSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationTurnAbort]:
+    reviewInvestigationTurnAbortSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationConclude]:
+    reviewInvestigationConcludeSchema,
   [ReviewActionV2OperationId.ReviewInvocationLeaseAcquire]:
     reviewInvocationLeaseAcquireSchema,
   [ReviewActionV2OperationId.ReviewInvocationLeaseRenew]:
