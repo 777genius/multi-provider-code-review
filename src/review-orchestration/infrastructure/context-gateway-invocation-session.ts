@@ -20,6 +20,11 @@ import {
   type ContextGatewayReplayMaterial,
   type ContextGatewayTranscript,
 } from '../../context-gateway/context-gateway-contract';
+import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../context-gateway/context-gateway-v4-contract';
+import {
+  ContextGatewayV4Recorder,
+  type ContextGatewayV4Transcript,
+} from '../../context-gateway/context-gateway-v4-recorder';
 import type { CodexContextGatewayInvocationConfig } from '../../providers/codex';
 import type { ProviderCredentialLease } from '../../providers/prepared-invocation';
 import type {
@@ -41,6 +46,17 @@ const ENABLED_TOOLS = Object.freeze([
   'review_search_text',
   'review_git_fact',
 ]);
+const V4_ENABLED_TOOLS = Object.freeze([
+  'review_read_file',
+  'review_list_directory',
+  'review_search_text',
+  'review_canonical_inventory',
+  'review_git_fact',
+]);
+
+export type ContextGatewayPolicyVersion =
+  | typeof CONTEXT_GATEWAY_POLICY_VERSION
+  | typeof CONTEXT_GATEWAY_V4_POLICY_VERSION;
 
 export type ContextGatewayRevision = Readonly<{
   baseSha: string;
@@ -123,6 +139,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     private readonly options: Readonly<{
       checkoutRoot: string;
       gatewayBundlePath: string;
+      policyVersion?: ContextGatewayPolicyVersion;
     }>,
     private readonly requiredWitnessRunner: RequiredContextWitnessRunnerPort
   ) {
@@ -262,14 +279,20 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     readonly replayMaterialPath: string;
     readonly gatewayBundlePath: string;
   }): CodexContextGatewayInvocationConfig {
+    const policyVersion =
+      this.options.policyVersion ?? CONTEXT_GATEWAY_POLICY_VERSION;
     return Object.freeze({
       command: process.execPath,
       args: Object.freeze([input.gatewayBundlePath]),
       cwd: this.options.checkoutRoot,
       gatewayBinaryHash: input.gatewayBinaryHash,
-      gatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
-      enabledTools: ENABLED_TOOLS,
+      gatewayPolicyVersion: policyVersion,
+      enabledTools:
+        policyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION
+          ? V4_ENABLED_TOOLS
+          : ENABLED_TOOLS,
       runtimeEnvironment: Object.freeze({
+        REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: policyVersion,
         REVIEWROUTER_CONTEXT_SESSION_ID: input.sessionId,
         REVIEWROUTER_CONTEXT_ROOT: this.options.checkoutRoot,
         REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH: input.transcriptPath,
@@ -361,6 +384,12 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     readonly actualModel: string;
     readonly terminalOutcomeHash: string;
   }): Promise<ContextDependencyAttestationReference | null> {
+    if (
+      this.providerConfig.gatewayPolicyVersion ===
+      CONTEXT_GATEWAY_V4_POLICY_VERSION
+    ) {
+      return this.sealV4(input);
+    }
     let rawTranscriptCanonicalJson: string;
     let rawReplayMaterialCanonicalJson: string;
     try {
@@ -442,6 +471,49 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
       replayMaterialCanonicalJson,
       replayMaterialHash: sha256(replayMaterialCanonicalJson),
     });
+  }
+
+  private async sealV4(input: {
+    readonly actualModel: string;
+    readonly terminalOutcomeHash: string;
+  }): Promise<ContextDependencyAttestationReference | null> {
+    try {
+      const recorder = new ContextGatewayV4Recorder({
+        sessionId: this.serverSession.sessionId,
+        transcriptPath: this.transcriptPath,
+        secret: this.secret,
+        gatewayBinaryHash: this.providerConfig.gatewayBinaryHash,
+        checkoutTreeOid:
+          this.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID!,
+        eventChainSeedHash: this.serverSession.eventChainSeedHash,
+      });
+      await recorder.resume();
+      const transcript = recorder.snapshot();
+      const transcriptCanonicalJson = createV4WireSealPayload(transcript);
+      const replayMaterialCanonicalJson = canonicalJson({
+        materialVersion: 1,
+        sourceDependencies: [],
+      });
+      return this.attestations.sealGatewaySession({
+        invocationLease: this.invocationLease,
+        session: this.serverSession,
+        providerSucceeded: true,
+        schemaValidated: true,
+        fullyConsumed: true,
+        actualModel: input.actualModel,
+        terminalOutcomeHash: input.terminalOutcomeHash,
+        transcriptCanonicalJson,
+        transcriptHash: sha256(transcriptCanonicalJson),
+        replayMaterialCanonicalJson,
+        replayMaterialHash: sha256(replayMaterialCanonicalJson),
+      });
+    } catch (error) {
+      if (error instanceof ReviewContextInspectionFailure) throw error;
+      throw new ReviewContextInspectionFailure(
+        ReviewContextInspectionFailureReason.GatewayOutputUnavailable
+      );
+    }
   }
 
   async dispose(): Promise<void> {
@@ -593,6 +665,23 @@ function createWireSealPayload(
   return Object.freeze({
     transcriptCanonicalJson,
     replayMaterialCanonicalJson,
+  });
+}
+
+function createV4WireSealPayload(
+  transcript: ContextGatewayV4Transcript
+): string {
+  return canonicalJson({
+    manifestVersion: 3,
+    gatewayPolicyVersion: transcript.gatewayPolicyVersion,
+    gatewayBinaryHash: transcript.gatewayBinaryHash,
+    checkoutTreeOid: transcript.checkoutTreeOid,
+    eventChainSeedHash: transcript.eventChainSeedHash,
+    authenticatedChainHash: transcript.authenticatedChainHash,
+    complete: true,
+    confinementTainted: transcript.confinementTainted,
+    terminalFailureClass: transcript.terminalFailureClass,
+    events: transcript.events,
   });
 }
 

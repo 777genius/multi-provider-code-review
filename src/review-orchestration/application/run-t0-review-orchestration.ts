@@ -28,6 +28,7 @@ import {
   type ReviewInvocationDiagnosticsPort,
   type ReviewInvocationFailureClassifierPort,
   type ReviewInvocationLeaseSupervisorPort,
+  type ReviewInvestigationRecordingPort,
   type ReviewOidcTokenPort,
   type ReviewOrchestrationDelayPort,
   type ReviewOrchestrationIdentityPort,
@@ -93,6 +94,7 @@ export type RunT0ReviewOrchestrationDependencies = {
   readonly invocations: PreparedReviewInvocationPort;
   readonly invocationFailureClassifier: ReviewInvocationFailureClassifierPort;
   readonly invocationDiagnostics?: ReviewInvocationDiagnosticsPort;
+  readonly investigationRecording?: ReviewInvestigationRecordingPort;
   readonly leaseSupervisor: ReviewInvocationLeaseSupervisorPort;
   readonly projectionBuilder: CurrentReviewProjectionBuilderPort;
   readonly contextReplay?: ContextDependencyReplayPort;
@@ -692,11 +694,15 @@ export class RunT0ReviewOrchestration {
             lease = await this.renewLease(lease!, input.ownerIdHash);
             return lease;
           },
-          operation: (signal) =>
+          operation: (signal, currentLease) =>
             this.executeInvocationWithRevisionWatch({
+              authorization: input.authorization,
+              execution: input.execution,
+              workSlot: input.workSlot,
+              ownerIdHash: input.ownerIdHash,
               invocation,
               manifest,
-              lease: lease!,
+              currentLease,
               sourceExecutionId: input.execution.executionId,
               signal,
               revision: input.revision,
@@ -1022,7 +1028,11 @@ export class RunT0ReviewOrchestration {
     readonly signal: AbortSignal;
     readonly invocation: PreparedReviewInvocation;
     readonly manifest: ProviderInvocationManifest;
-    readonly lease: ReviewInvocationLease;
+    readonly currentLease: () => ReviewInvocationLease;
+    readonly authorization: ReviewRunAuthorization;
+    readonly execution: ReviewExecutionAdmission;
+    readonly workSlot: ReviewWorkSlotPlan;
+    readonly ownerIdHash: string;
     readonly sourceExecutionId: string;
     readonly revision: ReviewRevisionFacts;
   }): Promise<ReviewObservationPayload> {
@@ -1033,6 +1043,7 @@ export class RunT0ReviewOrchestration {
     else
       input.signal.addEventListener('abort', relayLeaseAbort, { once: true });
     const drainOnSupersession =
+      !this.dependencies.investigationRecording &&
       input.invocation.manifestFacts.executionProfile === 'context_gateway_v1';
     const monitor = async () => {
       if (drainOnSupersession) return;
@@ -1051,14 +1062,26 @@ export class RunT0ReviewOrchestration {
     };
     void monitor();
     try {
-      return await this.dependencies.invocations.execute({
-        invocation: input.invocation,
-        manifest: input.manifest,
-        lease: input.lease,
-        sourceExecutionId: input.sourceExecutionId,
-        sourceReviewRevisionHash: input.revision.reviewRevisionHash,
-        signal: abort.signal,
-      });
+      return this.dependencies.investigationRecording
+        ? await this.dependencies.investigationRecording.execute({
+            authorization: input.authorization,
+            execution: input.execution,
+            workSlot: input.workSlot,
+            invocation: input.invocation,
+            manifest: input.manifest,
+            currentLease: input.currentLease,
+            ownerIdHash: input.ownerIdHash,
+            sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+            signal: abort.signal,
+          })
+        : await this.dependencies.invocations.execute({
+            invocation: input.invocation,
+            manifest: input.manifest,
+            lease: input.currentLease(),
+            sourceExecutionId: input.sourceExecutionId,
+            sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+            signal: abort.signal,
+          });
     } catch (error) {
       if (abort.signal.reason instanceof ReviewExecutionSupersededSignal) {
         throw abort.signal.reason;

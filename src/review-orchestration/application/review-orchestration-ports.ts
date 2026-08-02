@@ -521,11 +521,28 @@ export interface PreparedReviewInvocationPort {
   }): Promise<ReviewObservationPayload>;
 }
 
+export interface ReviewInvestigationRecordingPort {
+  execute(input: {
+    readonly authorization: ReviewRunAuthorization;
+    readonly execution: ReviewExecutionAdmission;
+    readonly workSlot: ReviewWorkSlotPlan;
+    readonly invocation: PreparedReviewInvocation;
+    readonly manifest: ProviderInvocationManifest;
+    readonly currentLease: () => ReviewInvocationLease;
+    readonly ownerIdHash: string;
+    readonly sourceReviewRevisionHash: string;
+    readonly signal: AbortSignal;
+  }): Promise<ReviewObservationPayload>;
+}
+
 export interface ReviewInvocationLeaseSupervisorPort {
   run<T>(input: {
     readonly lease: ReviewInvocationLease;
     readonly renew: () => Promise<ReviewInvocationLease>;
-    readonly operation: (signal: AbortSignal) => Promise<T>;
+    readonly operation: (
+      signal: AbortSignal,
+      currentLease: () => ReviewInvocationLease
+    ) => Promise<T>;
   }): Promise<T>;
 }
 

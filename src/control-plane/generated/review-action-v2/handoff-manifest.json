@@ -1,18 +1,18 @@
 {
   "canonicalizerDigest": "369414747d438f5766a637eb6f890d4c0c548ab53e97d3b94acf7cbd767bf036",
   "contractExportVersion": 1,
-  "expectedPublicActionBaseCommit": "626739854b5c67d94b3f0118738c106b4a232c41",
+  "expectedPublicActionBaseCommit": "0d25ed624f652e134decb5ea6348b3b720160748",
   "generatedFileDigests": {
     "fixtures/provider-invocation-manifest-v1.golden.json": "9e0369a80cb91c458befaf0b2aeb41be5b98246e0217b032e8fca414dab579bb",
-    "fixtures/review-action-v2.golden.json": "8879251ca3d5dadc8dcaf7fd84127e26b88c911efe7e20719f5d4f16df22ff8d",
+    "fixtures/review-action-v2.golden.json": "03a7e6dc33054bf1343e56cd3b05b6f19e545e1672754c105572d3a4fce3902e",
     "fixtures/review-run-authorize.request.json": "ec54f8df8a2a11788e9619cc799eca00608fe99a84f36ea8d1dd4d22729b1e4c",
     "fixtures/review-run-authorize.unsupported.response.json": "89c4255d0d64ab45bb7368b82b0295e2048b3ec7760da5614a96b6c2889a7bb5",
-    "manifest.json": "6552dc280fcd676d7be61abb8a45ed9f1333eec174973f1f1a3591f8921f640b",
+    "manifest.json": "1a7a81cf2501ce2340a23cc5fb56f0e37283acd5cd7a96877465bc6227f71c9a",
     "provider-invocation-manifest-v1.ts": "6861cc12dd5df45140e7b0ee8c7bdf8adbe594b33748eedff6270ee48e9736cd",
     "review-action-v2-negotiation.schema.json": "7f87e91448c11702624aa6a2dcb56077000ef165641eb4448c94cdd567f7ba74",
     "review-action-v2-negotiation.ts": "75e62e3295e345760ff4c6372d03f2f9e4117b42bbe006183984cc68ffd6ee3b",
-    "review-action-v2.schema.json": "b0953dc62466c75ce77b270d12a8787062f9eea4ccca9b50652be0de9cbc626b",
-    "review-action-v2.ts": "5bf8387de4cf7f07311961c250d7d92f78468af9488119c77f8ec76085d3dfa7",
+    "review-action-v2.schema.json": "6fb3849a7ddf0e216d70fffd2e5b373ff48a79bec4ef3950ae73a88656d93e55",
+    "review-action-v2.ts": "60ad1c3fe6ec1f47f435df95c83f2d66c71352f2ca8c624ab753ab58358ec82e",
     "schemas/review_context_gateway_open.schema.json": "fa248d09ea4464978408a81911f0f5243c2ab8fee01e6f90e2e06d8be70ffaed",
     "schemas/review_context_gateway_seal.schema.json": "8378b3f6e36ed6fdc470d7696dbc51058ffc0b38b8fc3c0750773175f8159812",
     "schemas/review_context_replay_commit.schema.json": "c7001d3f5b9029d1d3f21b23e932c28a48b64bf4745966c2f36d4cb3c136e6e7",
@@ -29,7 +29,7 @@
     "schemas/review_investigation_restore.schema.json": "5db7050b9472ac73d0abc4525540a60a4e0cb2ce18e64d82b106ca5bafc549ab",
     "schemas/review_investigation_turn_abort.schema.json": "dda5a53d287533d9170482c26147c2460300656a14634d268957dcf669e76f0c",
     "schemas/review_investigation_turn_commit.schema.json": "11c359caff35c9c9c843af92f041246815a14db5a5d95c863835e5d11e8cda33",
-    "schemas/review_investigation_turn_plan.schema.json": "54598783372ddede55664484612c2335be24226dce1010043ef5f1a7ed5765ef",
+    "schemas/review_investigation_turn_plan.schema.json": "70120b7c60a8430991d238750939e943a9d881dc89719b97e299f85f961af0dc",
     "schemas/review_invocation_lease_acquire.schema.json": "583fa525052f83b592fcb81d6d1bec90f61acc3c3edf3d8c0d0c2e45ae6de5ed",
     "schemas/review_invocation_lease_release.schema.json": "d74fac8edf1ee1456648564193d4905223c12a19df89d99d274f4e5196a4a427",
     "schemas/review_invocation_lease_renew.schema.json": "227048f53fa22b8e46bbf347bba62b3ce14ef4530f5e298dc99375ea4ad8efb8",
@@ -39,8 +39,8 @@
     "schemas/review_run_renew.schema.json": "111f2da451ebdf7cf7946be71e0617b9700d737ebea120eb3d3a6a9c01dc1ad4",
     "schemas/review_snapshot_restore.schema.json": "b939feda8cfdc2d4b5d35cdbfb38fd6ed631377c65686f8bb60dab7764aac2d8"
   },
-  "goldenFixtureDigest": "6dffaa4a6ae3ca04bfa05eb8580c72b0967d6825c271ed2df5f6d793b99acc20",
+  "goldenFixtureDigest": "831d6d90aeb0534e0ba2bac145c3fae2685368bfba1876812eb69d407f025503",
   "protocolVersion": "2",
-  "saasSourceCommit": "d27e95423caab51389c0fa6a3f4367fe893bfc86",
-  "schemaDigest": "5f81380522a0830d96ff280e1f825b09e8e6a62c96258380132489e6812d4038"
+  "saasSourceCommit": "a81e3fdb68463fdffba29a9c2573c4cfcaf4581c",
+  "schemaDigest": "c8358f0c56e9babe705f2ebf29f79e697a87be78e921ee01cbfdb254949ed05e"
 }

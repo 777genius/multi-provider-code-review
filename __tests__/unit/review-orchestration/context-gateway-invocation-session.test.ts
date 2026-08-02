@@ -14,17 +14,77 @@ import {
   contextGitFactOperandsHash,
 } from '../../../src/context-gateway/context-gateway-contract';
 import {
+  CONTEXT_GATEWAY_V4_POLICY_VERSION,
+  ContextGatewayV4OperationKind,
+} from '../../../src/context-gateway/context-gateway-v4-contract';
+import { ContextGatewayV4Recorder } from '../../../src/context-gateway/context-gateway-v4-recorder';
+import {
   ReviewContextInspectionFailureReason,
   type ReviewContextAttestationPort,
 } from '../../../src/review-orchestration/application';
 import {
   ContextGatewayInvocationSessionFactory,
+  type ContextGatewayPolicyVersion,
   type RequiredContextWitnessRunnerPort,
 } from '../../../src/review-orchestration/infrastructure/context-gateway-invocation-session';
 
 const execFileAsync = promisify(execFile);
 
 describe('ContextGatewayInvocationSessionFactory', () => {
+  it('seals an authenticated v4 transcript with replay explicitly disabled', async () => {
+    const fixture = await openSessionFixture(CONTEXT_GATEWAY_V4_POLICY_VERSION);
+    try {
+      const recorder = new ContextGatewayV4Recorder({
+        sessionId: fixture.serverSession.sessionId,
+        transcriptPath:
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH!,
+        secret: fixture.secret,
+        gatewayBinaryHash: fixture.gatewayHash,
+        checkoutTreeOid: fixture.checkoutTreeOid,
+        eventChainSeedHash: fixture.serverSession.eventChainSeedHash,
+      });
+      await recorder.initialize();
+      await recorder.recordSucceeded({
+        operation: {
+          kind: ContextGatewayV4OperationKind.GitFact,
+          fact: 'merge_base',
+        },
+        result: {
+          complete: true,
+          fact: 'merge_base',
+          itemCount: 1,
+          resultHash: hash('merge-base-result'),
+        },
+        operationReceiptId: hash('operation-receipt'),
+      });
+
+      await expect(
+        fixture.session.seal({
+          actualModel: 'gpt-test-actual',
+          terminalOutcomeHash: hash('outcome'),
+        })
+      ).resolves.toMatchObject({ attestationId: 'attestation-1' });
+
+      const sealInput =
+        fixture.attestations.sealGatewaySession.mock.calls[0][0];
+      expect(JSON.parse(sealInput.transcriptCanonicalJson)).toMatchObject({
+        manifestVersion: 3,
+        gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+        complete: true,
+      });
+      expect(JSON.parse(sealInput.replayMaterialCanonicalJson)).toEqual({
+        materialVersion: 1,
+        sourceDependencies: [],
+      });
+      expect(fixture.session.providerConfig.enabledTools).toContain(
+        'review_canonical_inventory'
+      );
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
   it('seals a complete changed_paths witness with a non-empty replay plan', async () => {
     const fixture = await openSessionFixture();
     try {
@@ -335,7 +395,9 @@ describe('ContextGatewayInvocationSessionFactory', () => {
 
 type SessionFixture = Awaited<ReturnType<typeof openSessionFixture>>;
 
-async function openSessionFixture() {
+async function openSessionFixture(
+  policyVersion: ContextGatewayPolicyVersion = CONTEXT_GATEWAY_POLICY_VERSION
+) {
   const checkoutRoot = await mkdtemp(
     path.join(os.tmpdir(), 'reviewrouter-gateway-session-test-')
   );
@@ -369,7 +431,7 @@ async function openSessionFixture() {
   };
   const factory = new ContextGatewayInvocationSessionFactory(
     attestations as unknown as ReviewContextAttestationPort,
-    { checkoutRoot, gatewayBundlePath },
+    { checkoutRoot, gatewayBundlePath, policyVersion },
     requiredWitnessRunner as RequiredContextWitnessRunnerPort
   );
   const revision = {

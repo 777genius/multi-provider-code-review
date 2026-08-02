@@ -506,7 +506,10 @@ export class CooperativeReviewLeaseSupervisor implements ReviewInvocationLeaseSu
   async run<T>(input: {
     readonly lease: ReviewInvocationLease;
     readonly renew: () => Promise<ReviewInvocationLease>;
-    readonly operation: (signal: AbortSignal) => Promise<T>;
+    readonly operation: (
+      signal: AbortSignal,
+      currentLease: () => ReviewInvocationLease
+    ) => Promise<T>;
   }): Promise<T> {
     let stopped = false;
     let stopWake: (() => void) | undefined;
@@ -559,7 +562,9 @@ export class CooperativeReviewLeaseSupervisor implements ReviewInvocationLeaseSu
 
     try {
       return await Promise.race([
-        Promise.resolve().then(() => input.operation(abort.signal)),
+        Promise.resolve().then(() =>
+          input.operation(abort.signal, () => currentLease)
+        ),
         leaseFailure,
       ]);
     } finally {
