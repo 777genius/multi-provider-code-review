@@ -42,6 +42,10 @@ describe('context gateway release metadata', () => {
     expect(described).toEqual({
       artifactKind: 'reviewrouter-context-gateway',
       contextGatewayPolicyVersion: 'context-gateway-v3',
+      supportedContextGatewayPolicyVersions: [
+        'context-gateway-v3',
+        'context-gateway-v4',
+      ],
       metadataVersion: 1,
     });
     expect(metadata).toEqual({
@@ -51,6 +55,8 @@ describe('context gateway release metadata', () => {
         .digest('hex'),
       contextGatewayEntrypointPath: 'dist/context-gateway.js',
       contextGatewayPolicyVersion: described.contextGatewayPolicyVersion,
+      supportedContextGatewayPolicyVersions:
+        described.supportedContextGatewayPolicyVersions,
       metadataVersion: 1,
     });
   });

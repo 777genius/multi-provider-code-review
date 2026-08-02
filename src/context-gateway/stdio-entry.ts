@@ -9,10 +9,23 @@ import {
   CONTEXT_GATEWAY_POLICY_VERSION,
   requireGitOid,
   requireSha256,
+  sha256,
 } from './context-gateway-contract';
+import {
+  CONTEXT_GATEWAY_V4_POLICY_VERSION,
+  ContextGatewayV4OperationKind,
+  ContextGatewayV4Revision,
+  ContextOperationFailureClass,
+} from './context-gateway-v4-contract';
 import { ContextGatewayRecorder } from './context-gateway-recorder';
-import { CONTEXT_GATEWAY_TOOL_DEFINITIONS } from './context-gateway-tool-definitions';
+import { ContextGatewayV4Recorder } from './context-gateway-v4-recorder';
+import { parseContextGatewayV4Request } from './context-gateway-v4-request';
+import {
+  CONTEXT_GATEWAY_TOOL_DEFINITIONS,
+  CONTEXT_GATEWAY_V4_TOOL_DEFINITIONS,
+} from './context-gateway-tool-definitions';
 import { FilesystemContextGateway } from './filesystem-context-gateway';
+import { FilesystemContextGatewayV4 } from './filesystem-context-gateway-v4';
 import { captureRequiredContextWitness } from './required-context-witness';
 
 async function main(): Promise<void> {
@@ -22,6 +35,10 @@ async function main(): Promise<void> {
       `${JSON.stringify({
         artifactKind: 'reviewrouter-context-gateway',
         contextGatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
+        supportedContextGatewayPolicyVersions: [
+          CONTEXT_GATEWAY_POLICY_VERSION,
+          CONTEXT_GATEWAY_V4_POLICY_VERSION,
+        ],
         metadataVersion: 1,
       })}\n`
     );
@@ -29,6 +46,10 @@ async function main(): Promise<void> {
   }
   const config = readConfig();
   const preflightOnly = mode === ContextGatewayMode.Preflight;
+  if (config.policyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION) {
+    await runV4(config, preflightOnly);
+    return;
+  }
   const recorder = new ContextGatewayRecorder({
     sessionId: config.sessionId,
     transcriptPath: config.transcriptPath,
@@ -110,6 +131,137 @@ async function main(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
+async function runV4(
+  config: ReturnType<typeof readConfig>,
+  preflightOnly: boolean
+): Promise<void> {
+  const secret = Buffer.from(config.secret, 'base64url');
+  const recorder = new ContextGatewayV4Recorder({
+    sessionId: config.sessionId,
+    transcriptPath: config.transcriptPath,
+    secret,
+    gatewayBinaryHash: config.gatewayBinaryHash,
+    checkoutTreeOid: config.checkoutTreeOid,
+    eventChainSeedHash: config.eventChainSeedHash,
+  });
+  if (preflightOnly) await recorder.initialize();
+  else await recorder.resume();
+  const gateway = await FilesystemContextGatewayV4.create({
+    root: config.root,
+    sessionId: config.sessionId,
+    checkoutTreeOid: config.checkoutTreeOid,
+    mergeBaseSha: config.mergeBaseSha,
+    headSha: config.headSha,
+    secret,
+    recorder,
+  });
+  if (preflightOnly) {
+    let cursor: string | undefined;
+    do {
+      const page = await gateway.canonicalInventory({
+        pageSize: 2_000,
+        cursor,
+      });
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    await gateway.gitFact({ fact: 'merge_base' });
+    return;
+  }
+
+  const server = new Server(
+    {
+      name: 'reviewrouter-context-gateway',
+      version: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+    },
+    { capabilities: { tools: {} } }
+  );
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: CONTEXT_GATEWAY_V4_TOOL_DEFINITIONS,
+  }));
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    switch (request.params.name) {
+      case 'review_read_file': {
+        const requestInput = await parseContextGatewayV4Request({
+          recorder,
+          operationKind: ContextGatewayV4OperationKind.FileRead,
+          argumentsValue: request.params.arguments,
+          parse: (args) => ({
+            path: requireString(args.path, 'path'),
+            revision: optionalRevision(args.revision),
+            startByte: optionalInteger(args.startByte, 'startByte'),
+            maxBytes: optionalInteger(args.maxBytes, 'maxBytes'),
+          }),
+        });
+        return response(await gateway.readFile(requestInput));
+      }
+      case 'review_list_directory': {
+        const requestInput = await parseContextGatewayV4Request({
+          recorder,
+          operationKind: ContextGatewayV4OperationKind.DirectoryList,
+          argumentsValue: request.params.arguments,
+          parse: (args) => ({
+            path: requireString(args.path, 'path'),
+            revision: optionalRevision(args.revision),
+            maxDepth: optionalInteger(args.maxDepth, 'maxDepth'),
+            includeHidden: optionalBoolean(args.includeHidden, 'includeHidden'),
+            pageSize: optionalInteger(args.pageSize, 'pageSize'),
+            cursor: optionalString(args.cursor, 'cursor'),
+          }),
+        });
+        return response(await gateway.listDirectory(requestInput));
+      }
+      case 'review_search_text': {
+        const requestInput = await parseContextGatewayV4Request({
+          recorder,
+          operationKind: ContextGatewayV4OperationKind.TextSearch,
+          argumentsValue: request.params.arguments,
+          parse: (args) => ({
+            query: requireString(args.query, 'query'),
+            paths: optionalStringArray(args.paths, 'paths'),
+            revision: optionalRevision(args.revision),
+            caseSensitive: optionalBoolean(args.caseSensitive, 'caseSensitive'),
+            pageSize: optionalInteger(args.pageSize, 'pageSize'),
+            cursor: optionalString(args.cursor, 'cursor'),
+          }),
+        });
+        return response(await gateway.searchText(requestInput));
+      }
+      case 'review_canonical_inventory': {
+        const requestInput = await parseContextGatewayV4Request({
+          recorder,
+          operationKind: ContextGatewayV4OperationKind.CanonicalInventory,
+          argumentsValue: request.params.arguments,
+          parse: (args) => ({
+            pageSize: optionalInteger(args.pageSize, 'pageSize'),
+            cursor: optionalString(args.cursor, 'cursor'),
+          }),
+        });
+        return response(await gateway.canonicalInventory(requestInput));
+      }
+      case 'review_git_fact': {
+        const requestInput = await parseContextGatewayV4Request({
+          recorder,
+          operationKind: ContextGatewayV4OperationKind.GitFact,
+          argumentsValue: request.params.arguments,
+          parse: (args) => ({ fact: requireGitFact(args.fact) }),
+        });
+        return response(await gateway.gitFact(requestInput));
+      }
+      default:
+        await recorder.recordRejected({
+          operation: {
+            kind: ContextGatewayV4OperationKind.UnsupportedTool,
+            requestedToolHash: sha256(request.params.name),
+          },
+          failureClass: ContextOperationFailureClass.ConfinementViolation,
+          sanitizedReason: 'context_gateway_tool_unknown',
+        });
+        throw new Error('context_gateway_tool_unknown');
+    }
+  });
+  await server.connect(new StdioServerTransport());
+}
+
 enum ContextGatewayMode {
   Serve = 'serve',
   Preflight = 'preflight',
@@ -135,6 +287,9 @@ function response(value: unknown) {
 
 function readConfig() {
   const config = {
+    policyVersion: readPolicyVersion(
+      process.env.REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION
+    ),
     sessionId: requiredEnv('REVIEWROUTER_CONTEXT_SESSION_ID'),
     root: requiredEnv('REVIEWROUTER_CONTEXT_ROOT'),
     transcriptPath: requiredEnv('REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH'),
@@ -173,6 +328,20 @@ function readConfig() {
   return config;
 }
 
+function readPolicyVersion(
+  value: string | undefined
+):
+  | typeof CONTEXT_GATEWAY_POLICY_VERSION
+  | typeof CONTEXT_GATEWAY_V4_POLICY_VERSION {
+  if (value === undefined || value === CONTEXT_GATEWAY_POLICY_VERSION) {
+    return CONTEXT_GATEWAY_POLICY_VERSION;
+  }
+  if (value === CONTEXT_GATEWAY_V4_POLICY_VERSION) {
+    return CONTEXT_GATEWAY_V4_POLICY_VERSION;
+  }
+  throw new Error('context_gateway_policy_version_invalid');
+}
+
 function requireRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('context_gateway_tool_arguments_invalid');
@@ -199,6 +368,24 @@ function optionalBoolean(value: unknown, field: string): boolean | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'boolean') {
     throw new Error(`context_gateway_${field}_invalid`);
+  }
+  return value;
+}
+
+function optionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  return requireString(value, field);
+}
+
+function optionalRevision(
+  value: unknown
+): ContextGatewayV4Revision | undefined {
+  if (value === undefined) return undefined;
+  if (
+    value !== ContextGatewayV4Revision.Head &&
+    value !== ContextGatewayV4Revision.MergeBase
+  ) {
+    throw new Error('context_gateway_revision_invalid');
   }
   return value;
 }

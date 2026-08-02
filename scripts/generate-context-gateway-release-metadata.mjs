@@ -2,12 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import {
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,6 +30,8 @@ export function generateContextGatewayReleaseMetadata(input = {}) {
     contextGatewayEntrypointDigest: sha256(readFileSync(entrypoint)),
     contextGatewayEntrypointPath: entrypointPath,
     contextGatewayPolicyVersion: description.contextGatewayPolicyVersion,
+    supportedContextGatewayPolicyVersions:
+      description.supportedContextGatewayPolicyVersions,
     metadataVersion: METADATA_VERSION,
   });
   const bytes = canonicalJson(metadata);
@@ -76,14 +73,27 @@ function describeGateway(entrypoint) {
     'artifactKind',
     'contextGatewayPolicyVersion',
     'metadataVersion',
+    'supportedContextGatewayPolicyVersions',
   ];
   if (
     !isRecord(value) ||
-    JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(expectedKeys) ||
+    JSON.stringify(Object.keys(value).sort()) !==
+      JSON.stringify(expectedKeys) ||
     value.artifactKind !== ARTIFACT_KIND ||
     value.metadataVersion !== METADATA_VERSION ||
     typeof value.contextGatewayPolicyVersion !== 'string' ||
     !POLICY_PATTERN.test(value.contextGatewayPolicyVersion) ||
+    !Array.isArray(value.supportedContextGatewayPolicyVersions) ||
+    value.supportedContextGatewayPolicyVersions.length < 1 ||
+    value.supportedContextGatewayPolicyVersions.length > 16 ||
+    !value.supportedContextGatewayPolicyVersions.every(
+      (policy) => typeof policy === 'string' && POLICY_PATTERN.test(policy)
+    ) ||
+    new Set(value.supportedContextGatewayPolicyVersions).size !==
+      value.supportedContextGatewayPolicyVersions.length ||
+    !value.supportedContextGatewayPolicyVersions.includes(
+      value.contextGatewayPolicyVersion
+    ) ||
     result.stdout !== `${JSON.stringify(value)}\n`
   ) {
     throw new Error('context_gateway_description_invalid');
@@ -133,7 +143,9 @@ function isRecord(value) {
 function main() {
   const args = process.argv.slice(2);
   if (args.length > 1 || (args.length === 1 && args[0] !== '--check')) {
-    throw new Error('usage: generate-context-gateway-release-metadata [--check]');
+    throw new Error(
+      'usage: generate-context-gateway-release-metadata [--check]'
+    );
   }
   const metadata = generateContextGatewayReleaseMetadata({
     check: args[0] === '--check',
