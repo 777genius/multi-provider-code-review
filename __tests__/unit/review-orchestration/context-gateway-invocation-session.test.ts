@@ -18,6 +18,7 @@ import {
   ContextGatewayV4OperationKind,
 } from '../../../src/context-gateway/context-gateway-v4-contract';
 import { ContextGatewayV4Recorder } from '../../../src/context-gateway/context-gateway-v4-recorder';
+import { ContextGatewayV4ReplayMaterialRecorder } from '../../../src/context-gateway/context-gateway-v4-replay-material';
 import {
   ReviewContextInspectionFailureReason,
   type ReviewContextAttestationPort,
@@ -31,7 +32,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 describe('ContextGatewayInvocationSessionFactory', () => {
-  it('seals an authenticated v4 transcript with replay explicitly disabled', async () => {
+  it('seals an authenticated v4 transcript with bound replay material', async () => {
     const fixture = await openSessionFixture(CONTEXT_GATEWAY_V4_POLICY_VERSION);
     try {
       const recorder = new ContextGatewayV4Recorder({
@@ -45,7 +46,14 @@ describe('ContextGatewayInvocationSessionFactory', () => {
         eventChainSeedHash: fixture.serverSession.eventChainSeedHash,
       });
       await recorder.initialize();
-      await recorder.recordSucceeded({
+      const replay = new ContextGatewayV4ReplayMaterialRecorder({
+        sessionId: fixture.serverSession.sessionId,
+        replayMaterialPath:
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!,
+      });
+      await replay.initialize();
+      const event = await recorder.recordSucceeded({
         operation: {
           kind: ContextGatewayV4OperationKind.GitFact,
           fact: 'merge_base',
@@ -57,6 +65,10 @@ describe('ContextGatewayInvocationSessionFactory', () => {
           resultHash: hash('merge-base-result'),
         },
         operationReceiptId: hash('operation-receipt'),
+      });
+      await replay.recordSucceeded({
+        event,
+        replayInput: { fact: 'merge_base' },
       });
 
       await expect(
@@ -74,8 +86,14 @@ describe('ContextGatewayInvocationSessionFactory', () => {
         complete: true,
       });
       expect(JSON.parse(sealInput.replayMaterialCanonicalJson)).toEqual({
-        materialVersion: 1,
-        sourceDependencies: [],
+        replayMaterialVersion: 2,
+        sessionId: fixture.serverSession.sessionId,
+        entries: [
+          expect.objectContaining({
+            operationKind: ContextGatewayV4OperationKind.GitFact,
+            replayInput: { fact: 'merge_base' },
+          }),
+        ],
       });
       expect(fixture.session.providerConfig.enabledTools).toContain(
         'review_canonical_inventory'
