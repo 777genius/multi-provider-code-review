@@ -1,9 +1,12 @@
 import {
+  ReviewActionV2OperationId,
+  ReviewContextReceiptReplayCommitResultStatus,
   ReviewInvestigationMutationResultStatus,
   ReviewInvestigationNextAction,
   ReviewInvestigationPublishedConclusion,
   ReviewInvestigationPublishedState,
   ReviewInvestigationRestoreResultStatus,
+  ReviewInvestigationReplayPrepareResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
 import { ReviewActionV2InvestigationAdapter } from '../../../src/review-investigation/infrastructure/review-action-v2-investigation-adapter';
 import {
@@ -143,7 +146,110 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
       })
     ).rejects.toThrow('turn_brief_hash_mismatch');
   });
+
+  it('parses a selective replay preparation and preserves its private capability', async () => {
+    const replayPlanCanonicalJson = canonicalJson({ planVersion: 2 });
+    const replayPreparationCanonicalJson = canonicalJson({
+      obligations: [
+        {
+          obligationId: sha256('obligation'),
+          contextAttestationId: 'attestation-1',
+          contextAttestationHash: digest('a'),
+          sourceOperationReceiptIdsHash: sha256('receipts'),
+          replayCapability: 'private.replay.capability',
+          replayPlanCanonicalJson,
+          replayPlanHash: sha256(replayPlanCanonicalJson),
+        },
+      ],
+    });
+    const client = {
+      execute: jest.fn().mockResolvedValue({
+        status: ReviewInvestigationReplayPrepareResultStatus.Prepared,
+        sourceInvestigationId: 'source-investigation',
+        sourceCertificateId: 'source-certificate',
+        sourceCertificateHash: digest('c'),
+        replayPreparationCanonicalJson,
+        replayPreparationHash: sha256(replayPreparationCanonicalJson),
+      }),
+    };
+    const adapter = new ReviewActionV2InvestigationAdapter(client as never);
+
+    const result = await adapter.prepareReplay({
+      open: openInput(),
+      providerManifestCanonicalJson: '{}',
+      providerManifestHash: sha256('{}'),
+    });
+
+    expect(result?.obligations[0]).toMatchObject({
+      obligationId: sha256('obligation'),
+      replayCapability: 'private.replay.capability',
+    });
+    expect(client.execute).toHaveBeenCalledWith(
+      ReviewActionV2OperationId.ReviewInvestigationReplayPrepare,
+      expect.objectContaining({
+        targetExecutionId: 'execution-1',
+        targetWorkSlotId: 'work-slot-1',
+      })
+    );
+  });
+
+  it('commits a receipt proof with a deterministic request identity', async () => {
+    const client = {
+      execute: jest.fn().mockResolvedValue({
+        status: ReviewContextReceiptReplayCommitResultStatus.Idempotent,
+        replayProofId: 'proof-1',
+        replayProofHash: sha256('proof'),
+      }),
+    };
+    const adapter = new ReviewActionV2InvestigationAdapter(client as never);
+
+    await expect(
+      adapter.commitReceiptReplay({
+        open: openInput(),
+        prepared: {
+          obligationId: sha256('obligation'),
+          contextAttestationId: 'attestation-1',
+          contextAttestationHash: digest('a'),
+          sourceOperationReceiptIdsHash: sha256('receipts'),
+          replayCapability: 'private.replay.capability',
+          replayPlanCanonicalJson: '{}',
+          replayPlanHash: sha256('{}'),
+        },
+        result: {
+          targetCheckoutTreeOid: '1'.repeat(40),
+          replayResultCanonicalJson: '{}',
+          replayResultHash: sha256('{}'),
+        },
+      })
+    ).resolves.toEqual({ replayProofId: 'proof-1' });
+    expect(client.execute).toHaveBeenCalledWith(
+      ReviewActionV2OperationId.ReviewContextReceiptReplayCommit,
+      expect.objectContaining({
+        idempotencyKey: expect.stringMatching(
+          /^rr:investigation:receipt-replay-commit:/
+        ),
+      })
+    );
+  });
 });
+
+function openInput() {
+  return Object.freeze({
+    authorizationToken: 'authorization-token',
+    authorizationId: 'authorization-1',
+    executionId: 'execution-1',
+    workSlotId: 'work-slot-1',
+    reviewRevisionHash: sha256('revision'),
+    stableReviewUnitKey: 'stable-unit-1',
+    providerVoteLaneId: 'lane-1',
+    providerStrategyId: sha256('strategy'),
+    runtimeProfile: 'gateway_attested_agent_v1',
+    coverageContract: {},
+    investigationPolicy: {},
+    seedObligations: [],
+    initialReceipts: [],
+  });
+}
 
 function planResult(input: {
   turnBriefCanonicalJson: string;

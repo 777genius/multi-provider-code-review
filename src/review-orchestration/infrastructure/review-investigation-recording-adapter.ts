@@ -26,7 +26,10 @@ import {
   ReviewAgentProviderKind,
 } from '../../review-investigation/domain/runtime-profile';
 import { ReviewTurnObligationKind } from '../../review-investigation/domain/turn-observation';
-import { canonicalJson } from '../../review-investigation/domain/canonical-json';
+import {
+  canonicalJson,
+  sha256,
+} from '../../review-investigation/domain/canonical-json';
 
 export type ReviewInvestigationRunnerFactory = (
   input: Parameters<ReviewInvestigationRecordingPort['execute']>[0]
@@ -106,6 +109,33 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
       investigationPolicy: investigationPolicy(this.options),
       seedObligations: seedObligations(input.invocation),
       initialReceipts: [],
+      targetScope: {
+        workspaceId: input.authorization.facts.workspaceId,
+        repositoryConnectionId:
+          input.authorization.facts.repositoryConnectionId,
+        scmRepositoryIdentityId:
+          input.authorization.facts.scmRepositoryIdentityId,
+        pullRequestNumber: input.authorization.facts.pullRequestNumber,
+        trustDomain: input.authorization.facts.trustDomain,
+        authorizationScopeHash: sha256(
+          canonicalJson({
+            workspaceId: input.authorization.facts.workspaceId,
+            repositoryConnectionId:
+              input.authorization.facts.repositoryConnectionId,
+            scmRepositoryIdentityId:
+              input.authorization.facts.scmRepositoryIdentityId,
+            pullRequestNumber: input.authorization.facts.pullRequestNumber,
+          })
+        ),
+      },
+      targetRevision: {
+        baseSha: input.authorization.facts.baseSha,
+        mergeBaseSha: input.authorization.facts.mergeBaseSha,
+        headSha: input.authorization.facts.headSha,
+        reviewRevisionHash: input.authorization.facts.reviewRevisionHash,
+      },
+      providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
+      providerManifestHash: sha256(input.manifest.manifestCanonicalJson),
       requestedModel: input.invocation.requestedModel,
       providerKind: ReviewAgentProviderKind.Codex,
       promptFor: (snapshot) =>

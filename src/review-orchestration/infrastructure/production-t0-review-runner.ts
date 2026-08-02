@@ -68,6 +68,7 @@ import {
   ContextGatewayV4InvestigationAdapter,
   NodeReviewAgentProcessRunner,
   ReviewActionV2InvestigationAdapter,
+  ReplayInvestigationOnRevision,
   RunInvestigationTurn,
   RunInvestigationWorkSlot,
 } from '../../review-investigation';
@@ -160,11 +161,21 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     const investigationEffectsEnabled = readBooleanFlag(
       process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED
     );
+    const investigationCrossRevisionReplayEnabled = readBooleanFlag(
+      process.env
+        .REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED
+    );
     if (investigationEffectsEnabled && !investigationRecordingRequested) {
       throw new Error('review_investigation_effects_require_shadow');
     }
     if (investigationRecordingRequested && !agenticContext) {
       throw new Error('review_investigation_requires_agentic_context');
+    }
+    if (
+      investigationCrossRevisionReplayEnabled &&
+      !investigationEffectsEnabled
+    ) {
+      throw new Error('review_investigation_replay_requires_effects');
     }
     const investigationRecordingEnabled =
       investigationRecordingRequested && agenticContext;
@@ -193,6 +204,12 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       : undefined;
     const investigationGatewayFactory = investigationRecordingEnabled
       ? contextGateway
+      : undefined;
+    const contextReplayRunner = contextGateway
+      ? new ContextAttestationReplayRunner({
+          checkoutRoot: path.resolve(input.workspacePath),
+          gatewayBundlePath,
+        })
       : undefined;
     const planned = planAssignments({
       authorization,
@@ -227,15 +244,26 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       investigationAgent &&
       investigationGatewayFactory
         ? new ReviewInvestigationRecordingAdapter(
-            (recordingInput) =>
-              new RunInvestigationWorkSlot({
+            (recordingInput) => {
+              const currency = new RevisionGuardInvestigationCurrencyAdapter(
+                revisionGuard
+              );
+              return new RunInvestigationWorkSlot({
                 controlPlane: investigationControlPlane,
                 leases: new ManagedOnlyInvestigationLeaseAdapter(),
+                ...(investigationCrossRevisionReplayEnabled &&
+                contextReplayRunner
+                  ? {
+                      replay: new ReplayInvestigationOnRevision({
+                        controlPlane: investigationControlPlane,
+                        receipts: contextReplayRunner,
+                        currency,
+                      }),
+                    }
+                  : {}),
                 turnRunner: new RunInvestigationTurn({
                   controlPlane: investigationControlPlane,
-                  currency: new RevisionGuardInvestigationCurrencyAdapter(
-                    revisionGuard
-                  ),
+                  currency,
                   gateway: new ContextGatewayV4InvestigationAdapter(
                     investigationGatewayFactory,
                     {
@@ -258,7 +286,8 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
                   agent: investigationAgent,
                   now: () => new Date(),
                 }),
-              }),
+              });
+            },
             {
               workingDirectory: path.resolve(input.workspacePath),
               providerCredentialEnvironment: codexCredentialEnvironment,
@@ -322,10 +351,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       }),
       ...(contextGateway
         ? {
-            contextReplay: new ContextAttestationReplayRunner({
-              checkoutRoot: path.resolve(input.workspacePath),
-              gatewayBundlePath,
-            }),
+            contextReplay: contextReplayRunner,
             contextAttestations: controlPlane,
           }
         : {}),

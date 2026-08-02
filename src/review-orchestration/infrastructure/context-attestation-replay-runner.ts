@@ -19,11 +19,24 @@ import {
 } from '../../context-gateway/context-gateway-contract';
 import { ContextGatewayRecorder } from '../../context-gateway/context-gateway-recorder';
 import { FilesystemContextGateway } from '../../context-gateway/filesystem-context-gateway';
+import {
+  CONTEXT_GATEWAY_V4_POLICY_VERSION,
+  ContextGatewayV4OperationKind,
+  ContextGatewayV4Revision,
+  ContextOperationOutcomeKind,
+} from '../../context-gateway/context-gateway-v4-contract';
+import { ContextGatewayV4Recorder } from '../../context-gateway/context-gateway-v4-recorder';
+import { FilesystemContextGatewayV4 } from '../../context-gateway/filesystem-context-gateway-v4';
 import type {
   ContextDependencyReplayCandidate,
   ContextDependencyReplayPort,
   ReviewRevisionFacts,
 } from '../application';
+import type {
+  InvestigationReceiptReplayPort,
+  PreparedInvestigationReceiptReplay,
+  ReviewInvestigationTargetRevision,
+} from '../../review-investigation/application';
 
 const execFileAsync = promisify(execFile);
 const MAX_REPLAY_PLAN_BYTES = 512 * 1024;
@@ -44,7 +57,33 @@ type ReplayPlan = Readonly<{
   sourceDependencies: readonly ReplayPlanDependency[];
 }>;
 
-export class ContextAttestationReplayRunner implements ContextDependencyReplayPort {
+type ReplayPlanV4Operation = Readonly<{
+  operationKind: ContextGatewayV4OperationKind;
+  replayInput: Readonly<Record<string, unknown>>;
+}>;
+
+type ReplayPlanV4 = Readonly<{
+  planVersion: 2;
+  attestationId: string;
+  attestationHash: string;
+  gatewayPolicyVersion: typeof CONTEXT_GATEWAY_V4_POLICY_VERSION;
+  gatewayBinaryHash: string;
+  sourceOperationReceiptIds: readonly string[];
+  sourceOperationReceiptIdsHash: string;
+  operations: readonly ReplayPlanV4Operation[];
+}>;
+
+type ReplayCandidate = Readonly<{
+  attestationId: string;
+  attestationHash: string;
+  replayPlanCanonicalJson: string;
+  replayPlanHash: string;
+  sourceOperationReceiptIdsHash?: string;
+}>;
+
+export class ContextAttestationReplayRunner
+  implements ContextDependencyReplayPort, InvestigationReceiptReplayPort
+{
   constructor(
     private readonly options: Readonly<{
       checkoutRoot: string;
@@ -63,15 +102,49 @@ export class ContextAttestationReplayRunner implements ContextDependencyReplayPo
     readonly candidate: ContextDependencyReplayCandidate;
     readonly targetRevision: ReviewRevisionFacts;
   }) {
-    const plan = parseReplayPlan(input.candidate);
+    return this.replayCandidate(input.candidate, input.targetRevision);
+  }
+
+  async replayReceipt(input: {
+    readonly prepared: PreparedInvestigationReceiptReplay;
+    readonly targetRevision: ReviewInvestigationTargetRevision;
+  }) {
+    return this.replayCandidate(
+      {
+        attestationId: input.prepared.contextAttestationId,
+        attestationHash: input.prepared.contextAttestationHash,
+        replayPlanCanonicalJson: input.prepared.replayPlanCanonicalJson,
+        replayPlanHash: input.prepared.replayPlanHash,
+        sourceOperationReceiptIdsHash:
+          input.prepared.sourceOperationReceiptIdsHash,
+      },
+      input.targetRevision
+    );
+  }
+
+  private async replayCandidate(
+    candidate: ReplayCandidate,
+    targetRevision: ReviewRevisionFacts | ReviewInvestigationTargetRevision
+  ) {
+    const plan = parseReplayPlan(candidate);
     const [targetCheckoutTreeOid, gatewayBinaryHash] = await Promise.all([
-      this.checkoutTreeOid(input.targetRevision.headSha),
+      this.checkoutTreeOid(targetRevision.headSha),
       readFile(this.options.gatewayBundlePath).then(sha256),
     ]);
-    if (
-      plan.gatewayPolicyVersion !== CONTEXT_GATEWAY_POLICY_VERSION ||
-      plan.gatewayBinaryHash !== gatewayBinaryHash
-    ) {
+    if (plan.gatewayBinaryHash !== gatewayBinaryHash) {
+      return null;
+    }
+
+    if (plan.planVersion === 2) {
+      return this.replayV4({
+        candidate,
+        plan,
+        targetRevision,
+        targetCheckoutTreeOid,
+        gatewayBinaryHash,
+      });
+    }
+    if (plan.gatewayPolicyVersion !== CONTEXT_GATEWAY_POLICY_VERSION) {
       return null;
     }
 
@@ -82,9 +155,9 @@ export class ContextAttestationReplayRunner implements ContextDependencyReplayPo
     try {
       const eventChainSeedHash = sha256(
         canonicalizeReviewContextReplayChainSeed({
-          planHash: input.candidate.replayPlanHash,
-          attestationId: input.candidate.attestationId,
-          targetReviewRevisionHash: input.targetRevision.reviewRevisionHash,
+          planHash: candidate.replayPlanHash,
+          attestationId: candidate.attestationId,
+          targetReviewRevisionHash: targetRevision.reviewRevisionHash,
           targetCheckoutTreeOid,
         })
       );
@@ -101,15 +174,15 @@ export class ContextAttestationReplayRunner implements ContextDependencyReplayPo
         root: this.options.checkoutRoot,
         checkoutTreeOid: targetCheckoutTreeOid,
         baseSha: requireGitOid(
-          input.targetRevision.baseSha.toLowerCase(),
+          targetRevision.baseSha.toLowerCase(),
           'target_base_sha'
         ),
         mergeBaseSha: requireGitOid(
-          input.targetRevision.mergeBaseSha.toLowerCase(),
+          targetRevision.mergeBaseSha.toLowerCase(),
           'target_merge_base_sha'
         ),
         headSha: requireGitOid(
-          input.targetRevision.headSha.toLowerCase(),
+          targetRevision.headSha.toLowerCase(),
           'target_head_sha'
         ),
         recorder,
@@ -155,6 +228,120 @@ export class ContextAttestationReplayRunner implements ContextDependencyReplayPo
       });
       return Object.freeze({
         targetCheckoutTreeOid,
+        replayResultCanonicalJson,
+        replayResultHash: sha256(replayResultCanonicalJson),
+      });
+    } finally {
+      secret.fill(0);
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+
+  private async replayV4(input: {
+    readonly candidate: ReplayCandidate;
+    readonly plan: ReplayPlanV4;
+    readonly targetRevision:
+      ReviewRevisionFacts | ReviewInvestigationTargetRevision;
+    readonly targetCheckoutTreeOid: string;
+    readonly gatewayBinaryHash: string;
+  }) {
+    const directory = await mkdtemp(
+      path.join(os.tmpdir(), 'reviewrouter-context-replay-v4-')
+    );
+    const secret = randomBytes(32);
+    try {
+      const eventChainSeedHash = sha256(
+        canonicalizeReviewContextReplayChainSeed({
+          planHash: input.candidate.replayPlanHash,
+          attestationId: input.candidate.attestationId,
+          targetReviewRevisionHash: input.targetRevision.reviewRevisionHash,
+          targetCheckoutTreeOid: input.targetCheckoutTreeOid,
+        })
+      );
+      const sessionId = `replay-v4-${input.candidate.attestationHash.slice(0, 32)}`;
+      const recorder = new ContextGatewayV4Recorder({
+        sessionId,
+        transcriptPath: path.join(directory, 'transcript.json'),
+        secret,
+        gatewayBinaryHash: input.gatewayBinaryHash,
+        checkoutTreeOid: input.targetCheckoutTreeOid,
+        eventChainSeedHash,
+      });
+      await recorder.initialize();
+      const gateway = await FilesystemContextGatewayV4.create({
+        root: this.options.checkoutRoot,
+        sessionId,
+        checkoutTreeOid: input.targetCheckoutTreeOid,
+        mergeBaseSha: requireGitOid(
+          input.targetRevision.mergeBaseSha.toLowerCase(),
+          'target_merge_base_sha'
+        ),
+        headSha: requireGitOid(
+          input.targetRevision.headSha.toLowerCase(),
+          'target_head_sha'
+        ),
+        secret,
+        recorder,
+      });
+      try {
+        for (const operation of input.plan.operations) {
+          await replayV4Operation(gateway, operation);
+        }
+      } catch {
+        return null;
+      }
+      const transcript = recorder.snapshot();
+      if (
+        transcript.events.length === 0 ||
+        transcript.confinementTainted ||
+        transcript.terminalFailureClass !== null ||
+        transcript.events.some(
+          (event) =>
+            event.outcome !== ContextOperationOutcomeKind.Succeeded ||
+            event.result === null ||
+            event.operationReceiptId === null
+        )
+      ) {
+        return null;
+      }
+      let previousEventHash = eventChainSeedHash;
+      const events = transcript.events.map((event, index) => {
+        const identity = {
+          sequence: index + 1,
+          previousEventHash,
+          operationKey: event.operationKey,
+          operation: event.operation,
+          result: event.result!,
+        };
+        const eventHash = sha256(
+          canonicalizeReviewContextReplayEvent(identity)
+        );
+        const synthetic = Object.freeze({
+          ...identity,
+          eventHash,
+          operationKind: event.operationKind,
+          outcome: ContextOperationOutcomeKind.Succeeded,
+          failureClass: null,
+          operationReceiptId: event.operationReceiptId!,
+          sanitizedReason: null,
+        });
+        previousEventHash = eventHash;
+        return synthetic;
+      });
+      const replayResultCanonicalJson = canonicalJson({
+        manifestVersion: 3,
+        gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+        gatewayBinaryHash: input.gatewayBinaryHash,
+        checkoutTreeOid: input.targetCheckoutTreeOid,
+        eventChainSeedHash,
+        authenticatedChainHash: previousEventHash,
+        complete: true,
+        confinementTainted: false,
+        terminalFailureClass: null,
+        events,
+      });
+      return Object.freeze({
+        targetCheckoutTreeOid: input.targetCheckoutTreeOid,
         replayResultCanonicalJson,
         replayResultHash: sha256(replayResultCanonicalJson),
       });
@@ -253,9 +440,163 @@ async function replayOperation(
   }
 }
 
+async function replayV4Operation(
+  gateway: FilesystemContextGatewayV4,
+  source: ReplayPlanV4Operation
+): Promise<void> {
+  switch (source.operationKind) {
+    case ContextGatewayV4OperationKind.FileRead:
+      await gateway.readFile(fileReadInput(source.replayInput));
+      return;
+    case ContextGatewayV4OperationKind.DirectoryList: {
+      const replayInput = directoryListInput(source.replayInput);
+      await replayAllPages((cursor) =>
+        gateway.listDirectory({
+          ...replayInput,
+          ...(cursor === null ? {} : { cursor }),
+        })
+      );
+      return;
+    }
+    case ContextGatewayV4OperationKind.TextSearch: {
+      const replayInput = textSearchInput(source.replayInput);
+      await replayAllPages((cursor) =>
+        gateway.searchText({
+          ...replayInput,
+          ...(cursor === null ? {} : { cursor }),
+        })
+      );
+      return;
+    }
+    case ContextGatewayV4OperationKind.CanonicalInventory: {
+      const replayInput = canonicalInventoryInput(source.replayInput);
+      await replayAllPages((cursor) =>
+        gateway.canonicalInventory({
+          ...replayInput,
+          ...(cursor === null ? {} : { cursor }),
+        })
+      );
+      return;
+    }
+    case ContextGatewayV4OperationKind.GitFact:
+      await gateway.gitFact(gitFactInput(source.replayInput));
+      return;
+    case ContextGatewayV4OperationKind.UnsupportedTool:
+      throw new Error('context_replay_v4_operation_unsupported');
+  }
+}
+
+async function replayAllPages(
+  call: (cursor: string | null) => Promise<unknown>
+): Promise<void> {
+  let cursor: string | null = null;
+  for (let page = 0; page < CONTEXT_GATEWAY_MAX_OPERATIONS; page += 1) {
+    const response = await call(cursor);
+    if (!isRecord(response)) {
+      throw new Error('context_replay_v4_page_invalid');
+    }
+    if (response.complete === true) {
+      if (response.nextCursor !== null) {
+        throw new Error('context_replay_v4_page_terminal_invalid');
+      }
+      return;
+    }
+    if (
+      response.complete !== false ||
+      typeof response.nextCursor !== 'string' ||
+      response.nextCursor.length === 0
+    ) {
+      throw new Error('context_replay_v4_page_incomplete');
+    }
+    cursor = response.nextCursor;
+  }
+  throw new Error('context_replay_v4_page_budget_exceeded');
+}
+
+function fileReadInput(input: Readonly<Record<string, unknown>>): {
+  readonly path: string;
+  readonly revision?: ContextGatewayV4Revision;
+  readonly startByte?: number;
+  readonly maxBytes?: number;
+} {
+  requireAllowedKeys(input, ['path', 'revision', 'startByte', 'maxBytes']);
+  return Object.freeze({
+    path: stringField(input, 'path'),
+    ...optionalRevision(input),
+    ...optionalInteger(input, 'startByte', 0),
+    ...optionalInteger(input, 'maxBytes', 1),
+  });
+}
+
+function directoryListInput(input: Readonly<Record<string, unknown>>): {
+  readonly path: string;
+  readonly revision?: ContextGatewayV4Revision;
+  readonly maxDepth?: number;
+  readonly includeHidden?: boolean;
+  readonly pageSize?: number;
+} {
+  requireAllowedKeys(input, [
+    'path',
+    'revision',
+    'maxDepth',
+    'includeHidden',
+    'pageSize',
+  ]);
+  return Object.freeze({
+    path: stringField(input, 'path'),
+    ...optionalRevision(input),
+    ...optionalInteger(input, 'maxDepth', 1),
+    ...optionalBoolean(input, 'includeHidden'),
+    ...optionalInteger(input, 'pageSize', 1),
+  });
+}
+
+function textSearchInput(input: Readonly<Record<string, unknown>>): {
+  readonly query: string;
+  readonly paths?: readonly string[];
+  readonly revision?: ContextGatewayV4Revision;
+  readonly caseSensitive?: boolean;
+  readonly pageSize?: number;
+} {
+  requireAllowedKeys(input, [
+    'query',
+    'paths',
+    'revision',
+    'caseSensitive',
+    'pageSize',
+  ]);
+  return Object.freeze({
+    query: stringField(input, 'query'),
+    ...optionalStringArray(input, 'paths'),
+    ...optionalRevision(input),
+    ...optionalBoolean(input, 'caseSensitive'),
+    ...optionalInteger(input, 'pageSize', 1),
+  });
+}
+
+function canonicalInventoryInput(input: Readonly<Record<string, unknown>>): {
+  readonly pageSize?: number;
+} {
+  requireAllowedKeys(input, ['pageSize']);
+  return Object.freeze({ ...optionalInteger(input, 'pageSize', 1) });
+}
+
+function gitFactInput(input: Readonly<Record<string, unknown>>): {
+  readonly fact: 'merge_base' | 'changed_paths' | 'diff_stat';
+} {
+  requireAllowedKeys(input, ['fact']);
+  return Object.freeze({
+    fact: enumField(input, 'fact', [
+      'merge_base',
+      'changed_paths',
+      'diff_stat',
+    ] as const),
+  });
+}
+
 function parseReplayPlan(
-  candidate: ContextDependencyReplayCandidate
-): ReplayPlan {
+  candidate: ReplayCandidate
+): ReplayPlan | ReplayPlanV4 {
   if (
     Buffer.byteLength(candidate.replayPlanCanonicalJson, 'utf8') >
       MAX_REPLAY_PLAN_BYTES ||
@@ -265,6 +606,12 @@ function parseReplayPlan(
   }
   const parsed = JSON.parse(candidate.replayPlanCanonicalJson) as unknown;
   if (!isRecord(parsed)) throw new Error('context_replay_plan_invalid');
+  if (canonicalJson(parsed) !== candidate.replayPlanCanonicalJson) {
+    throw new Error('context_replay_plan_not_canonical');
+  }
+  if (parsed.planVersion === 2) {
+    return parseReplayPlanV4(parsed, candidate);
+  }
   requireExactKeys(parsed, [
     'attestationHash',
     'attestationId',
@@ -330,6 +677,84 @@ function parseReplayPlan(
   });
 }
 
+function parseReplayPlanV4(
+  parsed: Record<string, unknown>,
+  candidate: ReplayCandidate
+): ReplayPlanV4 {
+  requireExactKeys(parsed, [
+    'attestationHash',
+    'attestationId',
+    'gatewayBinaryHash',
+    'gatewayPolicyVersion',
+    'operations',
+    'planVersion',
+    'sourceOperationReceiptIds',
+    'sourceOperationReceiptIdsHash',
+  ]);
+  const sourceOperationReceiptIds = requireDigestArray(
+    parsed.sourceOperationReceiptIds,
+    'source_operation_receipt_ids',
+    CONTEXT_GATEWAY_MAX_OPERATIONS
+  );
+  const sourceOperationReceiptIdsHash = requireSha256(
+    stringField(parsed, 'sourceOperationReceiptIdsHash'),
+    'source_operation_receipt_ids_hash'
+  );
+  if (
+    parsed.planVersion !== 2 ||
+    parsed.attestationId !== candidate.attestationId ||
+    parsed.attestationHash !== candidate.attestationHash ||
+    parsed.gatewayPolicyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION ||
+    sourceOperationReceiptIdsHash !==
+      sha256(
+        canonicalJson({ operationReceiptIds: sourceOperationReceiptIds })
+      ) ||
+    (candidate.sourceOperationReceiptIdsHash !== undefined &&
+      candidate.sourceOperationReceiptIdsHash !==
+        sourceOperationReceiptIdsHash) ||
+    !Array.isArray(parsed.operations) ||
+    parsed.operations.length === 0 ||
+    parsed.operations.length > CONTEXT_GATEWAY_MAX_OPERATIONS
+  ) {
+    throw new Error('context_replay_v4_plan_scope_invalid');
+  }
+  const operations = parsed.operations.map((value) => {
+    if (!isRecord(value))
+      throw new Error('context_replay_v4_operation_invalid');
+    requireExactKeys(value, ['operationKind', 'replayInput']);
+    const operationKind = enumField(value, 'operationKind', [
+      ContextGatewayV4OperationKind.FileRead,
+      ContextGatewayV4OperationKind.DirectoryList,
+      ContextGatewayV4OperationKind.TextSearch,
+      ContextGatewayV4OperationKind.CanonicalInventory,
+      ContextGatewayV4OperationKind.GitFact,
+    ] as const);
+    if (!isRecord(value.replayInput)) {
+      throw new Error('context_replay_v4_input_invalid');
+    }
+    return Object.freeze({
+      operationKind,
+      replayInput: Object.freeze({ ...value.replayInput }),
+    });
+  });
+  return Object.freeze({
+    planVersion: 2,
+    attestationId: candidate.attestationId,
+    attestationHash: requireSha256(
+      candidate.attestationHash,
+      'source_attestation_hash'
+    ),
+    gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+    gatewayBinaryHash: requireSha256(
+      stringField(parsed, 'gatewayBinaryHash'),
+      'source_gateway_binary_hash'
+    ),
+    sourceOperationReceiptIds,
+    sourceOperationReceiptIdsHash,
+    operations: Object.freeze(operations),
+  });
+}
+
 function gitOptions(cwd: string) {
   return {
     cwd,
@@ -386,6 +811,25 @@ function stringArrayField(
   return result;
 }
 
+function requireDigestArray(
+  value: unknown,
+  field: string,
+  maximum: number
+): readonly string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maximum) {
+    throw new Error(`context_replay_${field}_invalid`);
+  }
+  const result = value.map((entry) => requireSha256(entry, field));
+  const sorted = [...result].sort(compareCodeUnits);
+  if (
+    new Set(result).size !== result.length ||
+    canonicalJson(result) !== canonicalJson(sorted)
+  ) {
+    throw new Error(`context_replay_${field}_invalid`);
+  }
+  return Object.freeze(result);
+}
+
 function integerField(
   value: Record<string, unknown>,
   field: string,
@@ -404,6 +848,49 @@ function booleanField(value: Record<string, unknown>, field: string): boolean {
     throw new Error(`context_replay_${field}_invalid`);
   }
   return result;
+}
+
+function optionalRevision(value: Readonly<Record<string, unknown>>): {
+  readonly revision?: ContextGatewayV4Revision;
+} {
+  if (value.revision === undefined) return {};
+  return {
+    revision: enumField(value, 'revision', [
+      ContextGatewayV4Revision.Head,
+      ContextGatewayV4Revision.MergeBase,
+    ] as const),
+  };
+}
+
+function optionalInteger<Field extends string>(
+  value: Readonly<Record<string, unknown>>,
+  field: Field,
+  minimum: number
+): Partial<Readonly<Record<Field, number>>> {
+  if (value[field] === undefined) return {};
+  return { [field]: integerField(value, field, minimum) } as Partial<
+    Readonly<Record<Field, number>>
+  >;
+}
+
+function optionalBoolean<Field extends string>(
+  value: Readonly<Record<string, unknown>>,
+  field: Field
+): Partial<Readonly<Record<Field, boolean>>> {
+  if (value[field] === undefined) return {};
+  return { [field]: booleanField(value, field) } as Partial<
+    Readonly<Record<Field, boolean>>
+  >;
+}
+
+function optionalStringArray<Field extends string>(
+  value: Readonly<Record<string, unknown>>,
+  field: Field
+): Partial<Readonly<Record<Field, readonly string[]>>> {
+  if (value[field] === undefined) return {};
+  return { [field]: stringArrayField(value, field) } as Partial<
+    Readonly<Record<Field, readonly string[]>>
+  >;
 }
 
 function enumField<const Values extends readonly string[]>(
@@ -426,6 +913,22 @@ function requireExactKeys(
   if (canonicalJson(actual) !== canonicalJson([...expected].sort())) {
     throw new Error('context_replay_object_shape_invalid');
   }
+}
+
+function requireAllowedKeys(
+  value: Readonly<Record<string, unknown>>,
+  allowed: readonly string[]
+): void {
+  const allowedSet = new Set(allowed);
+  if (Object.keys(value).some((key) => !allowedSet.has(key))) {
+    throw new Error('context_replay_object_shape_invalid');
+  }
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

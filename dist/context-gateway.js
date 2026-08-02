@@ -3226,8 +3226,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path5) {
-      let input = path5;
+    function removeDotSegments(path6) {
+      let input = path6;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3479,8 +3479,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path5, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
+        const [path6, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path6 && path6 !== "/" ? path6 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -7108,10 +7108,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path5) {
-  if (!path5)
+function getElementAtPath(obj, path6) {
+  if (!path6)
     return obj;
-  return path5.reduce((acc, key) => acc?.[key], obj);
+  return path6.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7431,11 +7431,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path5, issues) {
+function prefixIssues(path6, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path5);
+    iss.path.unshift(path6);
     return iss;
   });
 }
@@ -14756,6 +14756,165 @@ async function atomicPrivateWrite2(target, content) {
   await (0, import_promises2.rename)(temporary, target);
 }
 
+// src/context-gateway/context-gateway-v4-replay-material.ts
+var import_crypto5 = require("crypto");
+var import_promises3 = require("fs/promises");
+var import_path2 = __toESM(require("path"));
+var MAX_ENTRIES = 2e3;
+var MAX_STATE_BYTES2 = 2 * 1024 * 1024;
+var ContextGatewayV4ReplayMaterialRecorder = class {
+  constructor(config2) {
+    this.config = config2;
+  }
+  entries = [];
+  mutationTail = Promise.resolve();
+  async initialize() {
+    await (0, import_promises3.mkdir)(import_path2.default.dirname(this.config.replayMaterialPath), {
+      recursive: true,
+      mode: 448
+    });
+    try {
+      await (0, import_promises3.writeFile)(this.config.replayMaterialPath, "", {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 384
+      });
+    } catch {
+      throw new Error("context_gateway_v4_replay_already_initialized");
+    }
+    await this.flush();
+  }
+  async resume() {
+    if (this.entries.length > 0) {
+      throw new Error("context_gateway_v4_replay_already_active");
+    }
+    const raw = await (0, import_promises3.readFile)(this.config.replayMaterialPath, "utf8");
+    if (raw.length < 2 || Buffer.byteLength(raw, "utf8") > MAX_STATE_BYTES2) {
+      throw new Error("context_gateway_v4_replay_size_invalid");
+    }
+    const parsed = JSON.parse(raw);
+    if (canonicalJson(parsed) !== raw || parsed.replayMaterialVersion !== 2 || parsed.sessionId !== this.config.sessionId || !Array.isArray(parsed.entries) || parsed.entries.length > MAX_ENTRIES) {
+      throw new Error("context_gateway_v4_replay_identity_invalid");
+    }
+    let previousSequence = 0;
+    for (const candidate of parsed.entries) {
+      const entry = normalizeEntry(candidate, previousSequence);
+      this.entries.push(entry);
+      previousSequence = entry.sequence;
+    }
+  }
+  recordSucceeded(input) {
+    const operationReceiptId = input.event.operationReceiptId;
+    if (!operationReceiptId) {
+      throw new Error("context_gateway_v4_replay_receipt_missing");
+    }
+    return this.serializeMutation(async () => {
+      if (this.entries.length >= MAX_ENTRIES || input.event.sequence <= (this.entries.at(-1)?.sequence ?? 0)) {
+        throw new Error("context_gateway_v4_replay_sequence_invalid");
+      }
+      const entry = normalizeEntry(
+        {
+          sequence: input.event.sequence,
+          operationReceiptId,
+          operationKey: input.event.operationKey,
+          operationKind: input.event.operationKind,
+          replayInput: input.replayInput
+        },
+        this.entries.at(-1)?.sequence ?? 0
+      );
+      if (operationForReplayInput(entry.operationKind, entry.replayInput) !== input.event.operationKey) {
+        throw new Error("context_gateway_v4_replay_input_mismatch");
+      }
+      this.entries.push(entry);
+      await this.flush();
+    });
+  }
+  snapshot() {
+    return Object.freeze({
+      replayMaterialVersion: 2,
+      sessionId: this.config.sessionId,
+      entries: Object.freeze([...this.entries])
+    });
+  }
+  serializeMutation(operation) {
+    const mutation = this.mutationTail.then(operation);
+    this.mutationTail = mutation.then(
+      () => void 0,
+      () => void 0
+    );
+    return mutation;
+  }
+  async flush() {
+    await atomicPrivateWrite3(
+      this.config.replayMaterialPath,
+      canonicalJson(this.snapshot())
+    );
+  }
+};
+function operationForReplayInput(kind, replayInput) {
+  switch (kind) {
+    case "file_read" /* FileRead */:
+      return sha256(
+        canonicalJson({
+          kind,
+          inputHash: sha256(canonicalJson(replayInput))
+        })
+      );
+    case "directory_list" /* DirectoryList */:
+    case "canonical_inventory" /* CanonicalInventory */:
+      return sha256(
+        canonicalJson({
+          kind,
+          inputHash: sha256(
+            canonicalJson({
+              ...replayInput,
+              cursor: typeof replayInput.cursor === "string" ? sha256(replayInput.cursor) : null
+            })
+          )
+        })
+      );
+    case "text_search" /* TextSearch */:
+      return sha256(
+        canonicalJson({
+          kind,
+          inputHash: sha256(
+            canonicalJson({
+              ...replayInput,
+              query: sha256(String(replayInput.query)),
+              cursor: typeof replayInput.cursor === "string" ? sha256(replayInput.cursor) : null
+            })
+          )
+        })
+      );
+    case "git_fact" /* GitFact */:
+      return sha256(canonicalJson({ kind, fact: replayInput.fact }));
+    case "unsupported_tool" /* UnsupportedTool */:
+      throw new Error("context_gateway_v4_replay_kind_unsupported");
+  }
+}
+function normalizeEntry(candidate, previousSequence) {
+  if (!Number.isSafeInteger(candidate.sequence) || candidate.sequence <= previousSequence || !Object.values(ContextGatewayV4OperationKind).includes(
+    candidate.operationKind
+  ) || candidate.operationKind === "unsupported_tool" /* UnsupportedTool */ || !isRecord2(candidate.replayInput)) {
+    throw new Error("context_gateway_v4_replay_entry_invalid");
+  }
+  requireSha256(candidate.operationReceiptId, "operation_receipt_id");
+  requireSha256(candidate.operationKey, "operation_key");
+  return Object.freeze({
+    ...candidate,
+    replayInput: Object.freeze({ ...candidate.replayInput })
+  });
+}
+function isRecord2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+async function atomicPrivateWrite3(target, content) {
+  await (0, import_promises3.mkdir)(import_path2.default.dirname(target), { recursive: true, mode: 448 });
+  const temporary = `${target}.${process.pid}.${(0, import_crypto5.randomBytes)(6).toString("hex")}.tmp`;
+  await (0, import_promises3.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
+  await (0, import_promises3.rename)(temporary, target);
+}
+
 // src/context-gateway/context-gateway-v4-request.ts
 async function parseContextGatewayV4Request(input) {
   try {
@@ -14996,9 +15155,9 @@ function defineTool(tool) {
 
 // src/context-gateway/filesystem-context-gateway.ts
 var import_child_process = require("child_process");
-var import_promises3 = require("fs/promises");
+var import_promises4 = require("fs/promises");
 var import_os = require("os");
-var path3 = __toESM(require("path"));
+var path4 = __toESM(require("path"));
 var import_util2 = require("util");
 var execFileAsync = (0, import_util2.promisify)(import_child_process.execFile);
 var MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -15025,7 +15184,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
   }
   revisionTreeOidPromises = /* @__PURE__ */ new Map();
   static async create(input) {
-    const root = await (0, import_promises3.realpath)(input.root);
+    const root = await (0, import_promises4.realpath)(input.root);
     requireGitOid(input.checkoutTreeOid, "checkout_tree_oid");
     requireGitOid(input.baseSha, "base_sha");
     requireGitOid(input.mergeBaseSha, "merge_base_sha");
@@ -15277,7 +15436,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
               }
             )).sort();
           } finally {
-            await (0, import_promises3.rm)(isolatedGit.gitDirectory, {
+            await (0, import_promises4.rm)(isolatedGit.gitDirectory, {
               recursive: true,
               force: true
             });
@@ -15406,10 +15565,10 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     if (gitPath.length === 0) {
       throw new Error("context_gateway_git_info_attributes_path_invalid");
     }
-    const attributesPath = path3.isAbsolute(gitPath) ? gitPath : path3.resolve(this.root, gitPath);
+    const attributesPath = path4.isAbsolute(gitPath) ? gitPath : path4.resolve(this.root, gitPath);
     let infoAttributes;
     try {
-      infoAttributes = await (0, import_promises3.readFile)(attributesPath);
+      infoAttributes = await (0, import_promises4.readFile)(attributesPath);
     } catch (error2) {
       if (error2.code !== "ENOENT") throw error2;
       infoAttributes = null;
@@ -15447,24 +15606,24 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     ]);
   }
   async createIsolatedGitDirectory(policy) {
-    const gitDirectory = await (0, import_promises3.mkdtemp)(
-      path3.join((0, import_os.tmpdir)(), "reviewrouter-context-git-")
+    const gitDirectory = await (0, import_promises4.mkdtemp)(
+      path4.join((0, import_os.tmpdir)(), "reviewrouter-context-git-")
     );
     try {
       const [objectsPathOutput, objectFormatOutput] = await Promise.all([
         this.gitText(["rev-parse", "--git-path", "objects"]),
         this.gitText(["rev-parse", "--show-object-format=storage"]),
-        (0, import_promises3.mkdir)(path3.join(gitDirectory, "objects", "info"), { recursive: true }),
-        (0, import_promises3.mkdir)(path3.join(gitDirectory, "refs", "heads"), { recursive: true }),
-        (0, import_promises3.mkdir)(path3.join(gitDirectory, "info"), { recursive: true }),
-        (0, import_promises3.mkdir)(path3.join(gitDirectory, "worktree"), { recursive: true })
+        (0, import_promises4.mkdir)(path4.join(gitDirectory, "objects", "info"), { recursive: true }),
+        (0, import_promises4.mkdir)(path4.join(gitDirectory, "refs", "heads"), { recursive: true }),
+        (0, import_promises4.mkdir)(path4.join(gitDirectory, "info"), { recursive: true }),
+        (0, import_promises4.mkdir)(path4.join(gitDirectory, "worktree"), { recursive: true })
       ]);
       const rawObjectsPath = objectsPathOutput.trim();
       if (rawObjectsPath.length === 0) {
         throw new Error("context_gateway_git_objects_path_invalid");
       }
-      const objectsPath = await (0, import_promises3.realpath)(
-        path3.isAbsolute(rawObjectsPath) ? rawObjectsPath : path3.resolve(this.root, rawObjectsPath)
+      const objectsPath = await (0, import_promises4.realpath)(
+        path4.isAbsolute(rawObjectsPath) ? rawObjectsPath : path4.resolve(this.root, rawObjectsPath)
       );
       if (objectsPath.includes("\0") || objectsPath.includes("\n")) {
         throw new Error("context_gateway_git_objects_path_invalid");
@@ -15475,20 +15634,20 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       }
       const config2 = objectFormat === "sha256" ? "[core]\n	repositoryformatversion = 1\n	bare = false\n[extensions]\n	objectformat = sha256\n" : "[core]\n	repositoryformatversion = 0\n	bare = false\n";
       await Promise.all([
-        (0, import_promises3.writeFile)(path3.join(gitDirectory, "HEAD"), "ref: refs/heads/unused\n"),
-        (0, import_promises3.writeFile)(path3.join(gitDirectory, "config"), config2),
-        (0, import_promises3.writeFile)(
-          path3.join(gitDirectory, "objects", "info", "alternates"),
+        (0, import_promises4.writeFile)(path4.join(gitDirectory, "HEAD"), "ref: refs/heads/unused\n"),
+        (0, import_promises4.writeFile)(path4.join(gitDirectory, "config"), config2),
+        (0, import_promises4.writeFile)(
+          path4.join(gitDirectory, "objects", "info", "alternates"),
           `${objectsPath}
 `
         ),
-        policy.infoAttributes === null ? Promise.resolve() : (0, import_promises3.writeFile)(
-          path3.join(gitDirectory, "info", "attributes"),
+        policy.infoAttributes === null ? Promise.resolve() : (0, import_promises4.writeFile)(
+          path4.join(gitDirectory, "info", "attributes"),
           policy.infoAttributes
         )
       ]);
-      const indexPath = path3.join(gitDirectory, "index");
-      const workTreePath = path3.join(gitDirectory, "worktree");
+      const indexPath = path4.join(gitDirectory, "index");
+      const workTreePath = path4.join(gitDirectory, "worktree");
       await this.gitText(["read-tree", "--reset", this.headSha], /* @__PURE__ */ new Set([0]), {
         GIT_DIR: gitDirectory,
         GIT_INDEX_FILE: indexPath,
@@ -15496,7 +15655,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       });
       return Object.freeze({ gitDirectory, indexPath, workTreePath });
     } catch (error2) {
-      await (0, import_promises3.rm)(gitDirectory, { recursive: true, force: true });
+      await (0, import_promises4.rm)(gitDirectory, { recursive: true, force: true });
       throw error2;
     }
   }
@@ -15568,10 +15727,10 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
   }
 };
 function normalizeRelativePath(value) {
-  if (typeof value !== "string" || value.length === 0 || value.length > 1024 || value.includes("\0") || value.includes("\\") || path3.isAbsolute(value)) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 1024 || value.includes("\0") || value.includes("\\") || path4.isAbsolute(value)) {
     throw new Error("context_gateway_path_invalid");
   }
-  const normalized = path3.posix.normalize(value);
+  const normalized = path4.posix.normalize(value);
   if (normalized === ".." || normalized.startsWith("../") || normalized.split("/").some((segment) => segment === "..")) {
     throw new Error("context_gateway_path_invalid");
   }
@@ -15586,8 +15745,8 @@ function boundedInteger(value, minimum, maximum, field) {
 
 // src/context-gateway/filesystem-context-gateway-v4.ts
 var import_child_process3 = require("child_process");
-var import_promises4 = require("fs/promises");
-var import_path2 = __toESM(require("path"));
+var import_promises5 = require("fs/promises");
+var import_path3 = __toESM(require("path"));
 var import_util4 = require("util");
 
 // src/context-gateway/canonical-git-inventory.ts
@@ -15658,15 +15817,15 @@ function parseRawInventory(raw) {
   const entries = [];
   for (let index = 0; index < tokens.length; index += 2) {
     const record2 = tokens[index];
-    const path5 = tokens[index + 1];
+    const path6 = tokens[index + 1];
     const match = RAW_RECORD.exec(record2);
-    if (!match || !path5 || path5.includes("\0")) {
+    if (!match || !path6 || path6.includes("\0")) {
       throw new Error("canonical_inventory_raw_record_invalid");
     }
     entries.push(
       Object.freeze({
         status: rawStatus(match[5]),
-        path: path5,
+        path: path6,
         beforeMode: match[1],
         afterMode: match[2],
         beforeOid: requireGitOidOrZero(match[3]),
@@ -15877,7 +16036,7 @@ var MAX_FILE_TOTAL_BYTES = 32 * 1024 * 1024;
 var MAX_DIRECTORY_RESULTS = 25e4;
 var MAX_SEARCH_RESULTS2 = 1e5;
 var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
-  constructor(root, sessionId, mergeBaseSha, headSha, mergeBaseTreeOid, headTreeOid, secret, recorder, now) {
+  constructor(root, sessionId, mergeBaseSha, headSha, mergeBaseTreeOid, headTreeOid, secret, recorder, replayMaterial, now) {
     this.root = root;
     this.sessionId = sessionId;
     this.mergeBaseSha = mergeBaseSha;
@@ -15886,11 +16045,12 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     this.headTreeOid = headTreeOid;
     this.secret = secret;
     this.recorder = recorder;
+    this.replayMaterial = replayMaterial;
     this.now = now;
   }
   inventoryPromise = null;
   static async create(input) {
-    const root = await (0, import_promises4.realpath)(input.root);
+    const root = await (0, import_promises5.realpath)(input.root);
     requireGitOid(
       input.checkoutTreeOid,
       "context_gateway_v4_checkout_tree_oid"
@@ -15924,6 +16084,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       normalizedHeadTreeOid,
       input.secret,
       input.recorder,
+      input.replayMaterial ?? null,
       input.now ?? Date.now
     );
   }
@@ -15931,7 +16092,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     const operation = this.operation("file_read" /* FileRead */, {
       inputHash: sha256(canonicalJson(input))
     });
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       const relativePath = normalizeRelativePath2(input.path);
       const revision = input.revision ?? "head" /* Head */;
       const revisionSha = this.revisionSha(revision);
@@ -16026,7 +16187,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         )
       }
     );
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       const relativePath = normalizeRelativePath2(input.path);
       const revision = input.revision ?? "head" /* Head */;
       const revisionSha = this.revisionSha(revision);
@@ -16096,7 +16257,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         })
       )
     });
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       if (typeof input.query !== "string" || input.query.length < 1 || input.query.length > 4096 || input.query.includes("\0")) {
         throw new Error("text_search_query_invalid");
       }
@@ -16169,7 +16330,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         )
       }
     );
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       const inventory = await this.inventory();
       const pageSize = boundedInteger2(
         input.pageSize ?? 500,
@@ -16214,7 +16375,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     const operation = this.operation("git_fact" /* GitFact */, {
       fact: input.fact
     });
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       let values;
       switch (input.fact) {
         case "merge_base":
@@ -16327,14 +16488,15 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
   operation(kind, facts) {
     return Object.freeze({ kind, ...facts });
   }
-  async execute(operation, action) {
+  async execute(operation, replayInput, action) {
     try {
       const completed = await action();
-      await this.recorder.recordSucceeded({
+      const event = await this.recorder.recordSucceeded({
         operation,
         result: completed.result,
         operationReceiptId: completed.operationReceiptId
       });
+      await this.replayMaterial?.recordSucceeded({ event, replayInput });
       return completed.response;
     } catch (error2) {
       const failureClass = classifyContextGatewayV4Failure(error2);
@@ -16398,10 +16560,10 @@ async function gitTreeEntry(root, revision, relativePath) {
   };
 }
 function normalizeRelativePath2(value) {
-  if (typeof value !== "string" || value.length < 1 || value.length > 1024 || value.includes("\0") || value.includes("\\") || import_path2.default.isAbsolute(value)) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 1024 || value.includes("\0") || value.includes("\\") || import_path3.default.isAbsolute(value)) {
     throw new Error("context_gateway_path_invalid");
   }
-  const normalized = import_path2.default.posix.normalize(value);
+  const normalized = import_path3.default.posix.normalize(value);
   if (normalized === ".." || normalized.startsWith("../") || normalized.split("/").some((segment) => segment === "..")) {
     throw new Error("context_gateway_path_invalid");
   }
@@ -16578,8 +16740,17 @@ async function runV4(config2, preflightOnly) {
     checkoutTreeOid: config2.checkoutTreeOid,
     eventChainSeedHash: config2.eventChainSeedHash
   });
-  if (preflightOnly) await recorder.initialize();
-  else await recorder.resume();
+  const replayMaterial = new ContextGatewayV4ReplayMaterialRecorder({
+    sessionId: config2.sessionId,
+    replayMaterialPath: config2.replayMaterialPath
+  });
+  if (preflightOnly) {
+    await recorder.initialize();
+    await replayMaterial.initialize();
+  } else {
+    await recorder.resume();
+    await replayMaterial.resume();
+  }
   const gateway = await FilesystemContextGatewayV4.create({
     root: config2.root,
     sessionId: config2.sessionId,
@@ -16587,7 +16758,8 @@ async function runV4(config2, preflightOnly) {
     mergeBaseSha: config2.mergeBaseSha,
     headSha: config2.headSha,
     secret,
-    recorder
+    recorder,
+    replayMaterial
   });
   if (preflightOnly) {
     let cursor;

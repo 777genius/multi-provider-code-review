@@ -19,6 +19,7 @@ import {
 } from './context-gateway-v4-contract';
 import { ContextGatewayRecorder } from './context-gateway-recorder';
 import { ContextGatewayV4Recorder } from './context-gateway-v4-recorder';
+import { ContextGatewayV4ReplayMaterialRecorder } from './context-gateway-v4-replay-material';
 import { parseContextGatewayV4Request } from './context-gateway-v4-request';
 import {
   CONTEXT_GATEWAY_TOOL_DEFINITIONS,
@@ -144,8 +145,17 @@ async function runV4(
     checkoutTreeOid: config.checkoutTreeOid,
     eventChainSeedHash: config.eventChainSeedHash,
   });
-  if (preflightOnly) await recorder.initialize();
-  else await recorder.resume();
+  const replayMaterial = new ContextGatewayV4ReplayMaterialRecorder({
+    sessionId: config.sessionId,
+    replayMaterialPath: config.replayMaterialPath,
+  });
+  if (preflightOnly) {
+    await recorder.initialize();
+    await replayMaterial.initialize();
+  } else {
+    await recorder.resume();
+    await replayMaterial.resume();
+  }
   const gateway = await FilesystemContextGatewayV4.create({
     root: config.root,
     sessionId: config.sessionId,
@@ -154,6 +164,7 @@ async function runV4(
     headSha: config.headSha,
     secret,
     recorder,
+    replayMaterial,
   });
   if (preflightOnly) {
     let cursor: string | undefined;

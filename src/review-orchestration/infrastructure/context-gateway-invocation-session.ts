@@ -495,10 +495,10 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
       await recorder.resume();
       const transcript = recorder.snapshot();
       const transcriptCanonicalJson = createV4WireSealPayload(transcript);
-      const replayMaterialCanonicalJson = canonicalJson({
-        materialVersion: 1,
-        sourceDependencies: [],
-      });
+      const replayMaterialCanonicalJson = await readBoundedCanonicalJson(
+        this.replayMaterialPath,
+        MAX_REPLAY_MATERIAL_BYTES
+      );
       return this.attestations.sealGatewaySession({
         invocationLease: this.invocationLease,
         session: this.serverSession,

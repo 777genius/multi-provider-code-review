@@ -22,6 +22,7 @@ import {
   decodeContextGatewayV4Cursor,
 } from './context-gateway-v4-contract';
 import { ContextGatewayV4Recorder } from './context-gateway-v4-recorder';
+import { ContextGatewayV4ReplayMaterialRecorder } from './context-gateway-v4-replay-material';
 
 const execFileAsync = promisify(execFile);
 const MAX_FILE_RANGE_BYTES = 2 * 1024 * 1024;
@@ -43,6 +44,7 @@ export class FilesystemContextGatewayV4 {
     private readonly headTreeOid: string,
     private readonly secret: Buffer,
     private readonly recorder: ContextGatewayV4Recorder,
+    private readonly replayMaterial: ContextGatewayV4ReplayMaterialRecorder | null,
     private readonly now: () => number
   ) {}
 
@@ -54,6 +56,7 @@ export class FilesystemContextGatewayV4 {
     readonly headSha: string;
     readonly secret: Buffer;
     readonly recorder: ContextGatewayV4Recorder;
+    readonly replayMaterial?: ContextGatewayV4ReplayMaterialRecorder;
     readonly now?: () => number;
   }): Promise<FilesystemContextGatewayV4> {
     const root = await realpath(input.root);
@@ -90,6 +93,7 @@ export class FilesystemContextGatewayV4 {
       normalizedHeadTreeOid,
       input.secret,
       input.recorder,
+      input.replayMaterial ?? null,
       input.now ?? Date.now
     );
   }
@@ -103,7 +107,7 @@ export class FilesystemContextGatewayV4 {
     const operation = this.operation(ContextGatewayV4OperationKind.FileRead, {
       inputHash: sha256(canonicalJson(input)),
     });
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       const relativePath = normalizeRelativePath(input.path);
       const revision = input.revision ?? ContextGatewayV4Revision.Head;
       const revisionSha = this.revisionSha(revision);
@@ -220,7 +224,7 @@ export class FilesystemContextGatewayV4 {
         ),
       }
     );
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       const relativePath = normalizeRelativePath(input.path);
       const revision = input.revision ?? ContextGatewayV4Revision.Head;
       const revisionSha = this.revisionSha(revision);
@@ -304,7 +308,7 @@ export class FilesystemContextGatewayV4 {
         })
       ),
     });
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       if (
         typeof input.query !== 'string' ||
         input.query.length < 1 ||
@@ -388,7 +392,7 @@ export class FilesystemContextGatewayV4 {
         ),
       }
     );
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       const inventory = await this.inventory();
       const pageSize = boundedInteger(
         input.pageSize ?? 500,
@@ -436,7 +440,7 @@ export class FilesystemContextGatewayV4 {
     const operation = this.operation(ContextGatewayV4OperationKind.GitFact, {
       fact: input.fact,
     });
-    return this.execute(operation, async () => {
+    return this.execute(operation, input, async () => {
       let values: string[];
       switch (input.fact) {
         case 'merge_base':
@@ -576,6 +580,7 @@ export class FilesystemContextGatewayV4 {
 
   private async execute<T>(
     operation: ReturnType<FilesystemContextGatewayV4['operation']>,
+    replayInput: Readonly<Record<string, unknown>>,
     action: () => Promise<{
       readonly response: T;
       readonly result: Readonly<Record<string, unknown>>;
@@ -584,11 +589,12 @@ export class FilesystemContextGatewayV4 {
   ): Promise<T> {
     try {
       const completed = await action();
-      await this.recorder.recordSucceeded({
+      const event = await this.recorder.recordSucceeded({
         operation,
         result: completed.result,
         operationReceiptId: completed.operationReceiptId,
       });
+      await this.replayMaterial?.recordSucceeded({ event, replayInput });
       return completed.response;
     } catch (error) {
       const failureClass = classifyContextGatewayV4Failure(error);

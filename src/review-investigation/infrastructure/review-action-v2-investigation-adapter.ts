@@ -9,6 +9,8 @@ import {
   ReviewInvestigationMutationResultStatus,
   ReviewInvestigationNextAction as PublishedNextAction,
   ReviewInvestigationOpenResultStatus,
+  ReviewInvestigationReplayPrepareResultStatus,
+  ReviewContextReceiptReplayCommitResultStatus,
   ReviewInvestigationPublishedAbortReason,
   ReviewInvestigationPublishedConclusion,
   ReviewInvestigationPublishedRuntimeProfile,
@@ -16,6 +18,8 @@ import {
   ReviewInvestigationRestoreResultStatus,
   type ReviewInvestigationConcludeResult,
   type ReviewInvestigationOpenResult,
+  type ReviewInvestigationReplayPrepareResult,
+  type ReviewInvestigationReplayResult,
   type ReviewInvestigationRestoreResult,
   type ReviewInvestigationTurnAbortResult,
   type ReviewInvestigationTurnCommitResult,
@@ -25,6 +29,8 @@ import {
   ReviewInvestigationControlPlaneError,
   ReviewInvestigationControlPlaneFailureClass,
   type ReviewInvestigationControlPlanePort,
+  type ReviewInvestigationReplayControlPlanePort,
+  type PreparedInvestigationReplay,
 } from '../application/investigation-control-plane-port';
 import { canonicalJson, sha256 } from '../domain/canonical-json';
 import {
@@ -49,9 +55,14 @@ type InvestigationResult =
   | ReviewInvestigationTurnPlanResult
   | ReviewInvestigationTurnCommitResult
   | ReviewInvestigationTurnAbortResult
-  | ReviewInvestigationConcludeResult;
+  | ReviewInvestigationConcludeResult
+  | ReviewInvestigationReplayResult;
 
-export class ReviewActionV2InvestigationAdapter implements ReviewInvestigationControlPlanePort {
+export class ReviewActionV2InvestigationAdapter
+  implements
+    ReviewInvestigationControlPlanePort,
+    ReviewInvestigationReplayControlPlanePort
+{
   constructor(private readonly client: ReviewActionV2Client) {}
 
   async open(
@@ -270,6 +281,150 @@ export class ReviewActionV2InvestigationAdapter implements ReviewInvestigationCo
     return snapshotFromResult(result, null);
   }
 
+  async prepareReplay(
+    input: Parameters<
+      ReviewInvestigationReplayControlPlanePort['prepareReplay']
+    >[0]
+  ): ReturnType<ReviewInvestigationReplayControlPlanePort['prepareReplay']> {
+    let result;
+    try {
+      result = await this.client.execute(
+        ReviewActionV2OperationId.ReviewInvestigationReplayPrepare,
+        {
+          authorizationToken: input.open.authorizationToken,
+          authorizationId: input.open.authorizationId,
+          targetExecutionId: input.open.executionId,
+          targetWorkSlotId: input.open.workSlotId,
+          targetReviewRevisionHash: input.open.reviewRevisionHash,
+          stableReviewUnitKey: input.open.stableReviewUnitKey,
+          providerVoteLaneId: input.open.providerVoteLaneId,
+          providerManifestCanonicalJson: input.providerManifestCanonicalJson,
+          providerManifestHash: input.providerManifestHash,
+        }
+      );
+    } catch (error) {
+      const mapped = transportError(
+        error,
+        ReviewActionV2OperationId.ReviewInvestigationReplayPrepare,
+        false
+      );
+      if (
+        mapped.failureClass ===
+          ReviewInvestigationControlPlaneFailureClass.CapabilityDisabled ||
+        mapped.failureClass ===
+          ReviewInvestigationControlPlaneFailureClass.Rejected
+      ) {
+        return null;
+      }
+      throw mapped;
+    }
+    if (
+      result.status === ReviewInvestigationReplayPrepareResultStatus.Missing ||
+      result.status === ReviewInvestigationReplayPrepareResultStatus.Rejected
+    ) {
+      return null;
+    }
+    if (
+      result.status !== ReviewInvestigationReplayPrepareResultStatus.Prepared
+    ) {
+      throw invalidResponse('investigation_replay_prepare_status_invalid');
+    }
+    return parseReplayPreparation(result);
+  }
+
+  async commitReceiptReplay(
+    input: Parameters<
+      ReviewInvestigationReplayControlPlanePort['commitReceiptReplay']
+    >[0]
+  ): ReturnType<
+    ReviewInvestigationReplayControlPlanePort['commitReceiptReplay']
+  > {
+    const result = await this.mutation(
+      ReviewActionV2OperationId.ReviewContextReceiptReplayCommit,
+      () =>
+        this.client.execute(
+          ReviewActionV2OperationId.ReviewContextReceiptReplayCommit,
+          {
+            authorizationToken: input.open.authorizationToken,
+            idempotencyKey: idempotencyKey('receipt-replay-commit', {
+              executionId: input.open.executionId,
+              workSlotId: input.open.workSlotId,
+              attestationId: input.prepared.contextAttestationId,
+              attestationHash: input.prepared.contextAttestationHash,
+              sourceOperationReceiptIdsHash:
+                input.prepared.sourceOperationReceiptIdsHash,
+              targetReviewRevisionHash: input.open.reviewRevisionHash,
+              targetCheckoutTreeOid: input.result.targetCheckoutTreeOid,
+              replayResultHash: input.result.replayResultHash,
+            }),
+            executionId: input.open.executionId,
+            workSlotId: input.open.workSlotId,
+            attestationId: input.prepared.contextAttestationId,
+            attestationHash: input.prepared.contextAttestationHash,
+            targetReviewRevisionHash: input.open.reviewRevisionHash,
+            targetCheckoutTreeOid: input.result.targetCheckoutTreeOid,
+            replayCapability: input.prepared.replayCapability,
+            replayResultCanonicalJson: input.result.replayResultCanonicalJson,
+            replayResultHash: input.result.replayResultHash,
+          }
+        )
+    );
+    if (
+      result.status === ReviewContextReceiptReplayCommitResultStatus.Denied ||
+      result.status === ReviewContextReceiptReplayCommitResultStatus.Conflict
+    ) {
+      return null;
+    }
+    if (
+      result.status !== ReviewContextReceiptReplayCommitResultStatus.Accepted &&
+      result.status !== ReviewContextReceiptReplayCommitResultStatus.Idempotent
+    ) {
+      throw statusError(result.status);
+    }
+    return Object.freeze({
+      replayProofId: requireString(result.replayProofId, 'replay_proof_id'),
+    });
+  }
+
+  async replay(
+    input: Parameters<ReviewInvestigationReplayControlPlanePort['replay']>[0]
+  ): ReturnType<ReviewInvestigationReplayControlPlanePort['replay']> {
+    const targetScope = document(input.scope);
+    const targetRevision = document(input.revision);
+    const replayProofs = document(input.replayProofs);
+    const result = await this.mutation(
+      ReviewActionV2OperationId.ReviewInvestigationReplay,
+      () =>
+        this.client.execute(
+          ReviewActionV2OperationId.ReviewInvestigationReplay,
+          {
+            authorizationToken: input.open.authorizationToken,
+            idempotencyKey: idempotencyKey('replay', {
+              sourceInvestigationId: input.prepared.sourceInvestigationId,
+              sourceCertificateHash: input.prepared.sourceCertificateHash,
+              targetExecutionId: input.open.executionId,
+              targetWorkSlotId: input.open.workSlotId,
+              targetRevisionHash: targetRevision.hash,
+              replayProofsHash: replayProofs.hash,
+            }),
+            authorizationId: input.open.authorizationId,
+            sourceInvestigationId: input.prepared.sourceInvestigationId,
+            sourceCertificateHash: input.prepared.sourceCertificateHash,
+            targetExecutionId: input.open.executionId,
+            targetWorkSlotId: input.open.workSlotId,
+            targetScopeCanonicalJson: targetScope.canonicalJson,
+            targetScopeHash: targetScope.hash,
+            targetRevisionCanonicalJson: targetRevision.canonicalJson,
+            targetRevisionHash: targetRevision.hash,
+            replayProofsCanonicalJson: replayProofs.canonicalJson,
+            replayProofsHash: replayProofs.hash,
+          }
+        )
+    );
+    requireMutationApplied(result.status);
+    return snapshotFromResult(result, null);
+  }
+
   private async mutation<Operation extends ReviewActionV2OperationId, Result>(
     operationId: Operation,
     execute: () => Promise<Result>
@@ -285,6 +440,94 @@ export class ReviewActionV2InvestigationAdapter implements ReviewInvestigationCo
 function document(value: Parameters<typeof canonicalJson>[0]) {
   const serialized = canonicalJson(value);
   return Object.freeze({ canonicalJson: serialized, hash: sha256(serialized) });
+}
+
+function parseReplayPreparation(
+  result: ReviewInvestigationReplayPrepareResult
+): PreparedInvestigationReplay {
+  const raw = requireCanonicalDocumentString(
+    result.replayPreparationCanonicalJson,
+    'replay_preparation'
+  );
+  if (
+    sha256(raw) !==
+    requireDigest(result.replayPreparationHash, 'replay_preparation_hash')
+  ) {
+    throw invalidResponse('replay_preparation_hash_mismatch');
+  }
+  const parsed = requireRecord(JSON.parse(raw), 'replay_preparation');
+  requireExactKeys(parsed, ['obligations']);
+  const obligations = requireArray(
+    parsed.obligations,
+    'replay_preparation_obligations',
+    1_024
+  ).map((value) => {
+    const obligation = requireRecord(value, 'replay_preparation_obligation');
+    requireExactKeys(obligation, [
+      'obligationId',
+      'contextAttestationId',
+      'contextAttestationHash',
+      'sourceOperationReceiptIdsHash',
+      'replayCapability',
+      'replayPlanCanonicalJson',
+      'replayPlanHash',
+    ]);
+    const replayPlanCanonicalJson = requireCanonicalDocumentString(
+      obligation.replayPlanCanonicalJson,
+      'replay_plan',
+      512 * 1_024
+    );
+    const replayPlanHash = requireDigest(
+      obligation.replayPlanHash,
+      'replay_plan_hash'
+    );
+    if (sha256(replayPlanCanonicalJson) !== replayPlanHash) {
+      throw invalidResponse('replay_plan_hash_mismatch');
+    }
+    return Object.freeze({
+      obligationId: requireDigest(obligation.obligationId, 'obligation_id'),
+      contextAttestationId: requireString(
+        obligation.contextAttestationId,
+        'context_attestation_id'
+      ),
+      contextAttestationHash: requireDigest(
+        obligation.contextAttestationHash,
+        'context_attestation_hash'
+      ),
+      sourceOperationReceiptIdsHash: requireDigest(
+        obligation.sourceOperationReceiptIdsHash,
+        'source_operation_receipt_ids_hash'
+      ),
+      replayCapability: requireString(
+        obligation.replayCapability,
+        'replay_capability'
+      ),
+      replayPlanCanonicalJson,
+      replayPlanHash,
+    });
+  });
+  if (
+    obligations.length === 0 ||
+    new Set(obligations.map((item) => item.obligationId)).size !==
+      obligations.length
+  ) {
+    throw invalidResponse('replay_preparation_obligations_invalid');
+  }
+  return Object.freeze({
+    sourceInvestigationId: requireString(
+      result.sourceInvestigationId,
+      'source_investigation_id'
+    ),
+    sourceCertificateId: requireString(
+      result.sourceCertificateId,
+      'source_certificate_id'
+    ),
+    sourceCertificateHash: requireDigest(
+      result.sourceCertificateHash,
+      'source_certificate_hash'
+    ),
+    obligations: Object.freeze(obligations),
+  });
 }
 
 function idempotencyKey(
@@ -853,9 +1096,37 @@ function requireNonNegativeInteger(value: unknown, field: string): number {
   return Number(value);
 }
 
-function requireArray(value: unknown, field: string): readonly unknown[] {
-  if (!Array.isArray(value) || value.length > 256) {
+function requireArray(
+  value: unknown,
+  field: string,
+  maximum = 256
+): readonly unknown[] {
+  if (!Array.isArray(value) || value.length > maximum) {
     throw invalidResponse(`${field}_invalid`);
+  }
+  return value;
+}
+
+function requireCanonicalDocumentString(
+  value: unknown,
+  field: string,
+  maximumBytes = 2 * 1_024 * 1_024
+): string {
+  if (
+    typeof value !== 'string' ||
+    value.length < 2 ||
+    Buffer.byteLength(value, 'utf8') > maximumBytes
+  ) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  if (canonicalJson(parsed as Parameters<typeof canonicalJson>[0]) !== value) {
+    throw invalidResponse(`${field}_not_canonical`);
   }
   return value;
 }

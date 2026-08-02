@@ -12,6 +12,9 @@ import {
   type ReviewInvestigationLeasePort,
   type ReviewInvestigationLease,
   type ReviewInvestigationOpenInput,
+  type ReviewInvestigationReplayUseCasePort,
+  type ReviewInvestigationTargetScope,
+  type ReviewInvestigationTargetRevision,
 } from './investigation-control-plane-port';
 import {
   RunInvestigationTurn,
@@ -25,6 +28,7 @@ export class RunInvestigationWorkSlot {
       controlPlane: ReviewInvestigationControlPlanePort;
       leases: ReviewInvestigationLeasePort;
       turnRunner: RunInvestigationTurn;
+      replay?: ReviewInvestigationReplayUseCasePort;
     }>
   ) {}
 
@@ -45,9 +49,32 @@ export class RunInvestigationWorkSlot {
       readonly maxStateTransitions: number;
       readonly managedLease?: () => ReviewInvestigationLease;
       readonly signal?: AbortSignal;
+      readonly targetRevision?: ReviewInvestigationTargetRevision;
+      readonly targetScope?: ReviewInvestigationTargetScope;
+      readonly providerManifestCanonicalJson?: string;
+      readonly providerManifestHash?: string;
     }
   ): Promise<ReviewInvestigationRunResult> {
-    let snapshot = await this.dependencies.controlPlane.open(input);
+    let replayed: ReviewInvestigationSnapshot | null = null;
+    if (this.dependencies.replay) {
+      if (
+        !input.targetRevision ||
+        !input.targetScope ||
+        !input.providerManifestCanonicalJson ||
+        !input.providerManifestHash
+      ) {
+        throw new Error('review_investigation_replay_input_missing');
+      }
+      replayed = await this.dependencies.replay.execute({
+        open: input,
+        scope: input.targetScope,
+        revision: input.targetRevision,
+        providerManifestCanonicalJson: input.providerManifestCanonicalJson,
+        providerManifestHash: input.providerManifestHash,
+      });
+    }
+    let snapshot =
+      replayed ?? (await this.dependencies.controlPlane.open(input));
     for (
       let transition = 0;
       transition < input.maxStateTransitions;

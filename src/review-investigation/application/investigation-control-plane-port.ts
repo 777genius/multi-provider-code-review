@@ -55,8 +55,89 @@ export type ReviewInvestigationOpenInput = Readonly<{
   initialReceipts: CanonicalJsonValue;
 }>;
 
+export type ReviewInvestigationTargetRevision = Readonly<{
+  baseSha: string;
+  mergeBaseSha: string;
+  headSha: string;
+  reviewRevisionHash: string;
+}>;
+
+export type ReviewInvestigationTargetScope = Readonly<{
+  workspaceId: string;
+  repositoryConnectionId: string;
+  scmRepositoryIdentityId: string;
+  pullRequestNumber: number;
+  trustDomain: string;
+  authorizationScopeHash: string;
+}>;
+
+export type PreparedInvestigationReceiptReplay = Readonly<{
+  obligationId: string;
+  contextAttestationId: string;
+  contextAttestationHash: string;
+  sourceOperationReceiptIdsHash: string;
+  replayCapability: string;
+  replayPlanCanonicalJson: string;
+  replayPlanHash: string;
+}>;
+
+export type PreparedInvestigationReplay = Readonly<{
+  sourceInvestigationId: string;
+  sourceCertificateId: string;
+  sourceCertificateHash: string;
+  obligations: readonly PreparedInvestigationReceiptReplay[];
+}>;
+
+export type InvestigationReceiptReplayResult = Readonly<{
+  targetCheckoutTreeOid: string;
+  replayResultCanonicalJson: string;
+  replayResultHash: string;
+}>;
+
+export interface ReviewInvestigationReplayControlPlanePort {
+  prepareReplay(input: {
+    readonly open: ReviewInvestigationOpenInput;
+    readonly providerManifestCanonicalJson: string;
+    readonly providerManifestHash: string;
+  }): Promise<PreparedInvestigationReplay | null>;
+  commitReceiptReplay(input: {
+    readonly open: ReviewInvestigationOpenInput;
+    readonly prepared: PreparedInvestigationReceiptReplay;
+    readonly result: InvestigationReceiptReplayResult;
+  }): Promise<{ readonly replayProofId: string } | null>;
+  replay(input: {
+    readonly open: ReviewInvestigationOpenInput;
+    readonly scope: ReviewInvestigationTargetScope;
+    readonly revision: ReviewInvestigationTargetRevision;
+    readonly prepared: PreparedInvestigationReplay;
+    readonly replayProofs: readonly Readonly<{
+      obligationId: string;
+      replayProofId: string;
+    }>[];
+  }): Promise<ReviewInvestigationSnapshot>;
+}
+
+export interface InvestigationReceiptReplayPort {
+  replayReceipt(input: {
+    readonly prepared: PreparedInvestigationReceiptReplay;
+    readonly targetRevision: ReviewInvestigationTargetRevision;
+  }): Promise<InvestigationReceiptReplayResult | null>;
+}
+
+export interface ReviewInvestigationReplayUseCasePort {
+  execute(input: {
+    readonly open: ReviewInvestigationOpenInput;
+    readonly scope: ReviewInvestigationTargetScope;
+    readonly revision: ReviewInvestigationTargetRevision;
+    readonly providerManifestCanonicalJson: string;
+    readonly providerManifestHash: string;
+  }): Promise<ReviewInvestigationSnapshot | null>;
+}
+
 export interface ReviewInvestigationControlPlanePort {
-  open(input: ReviewInvestigationOpenInput): Promise<ReviewInvestigationSnapshot>;
+  open(
+    input: ReviewInvestigationOpenInput
+  ): Promise<ReviewInvestigationSnapshot>;
   restore(input: {
     readonly authorizationToken: string;
     readonly authorizationId: string;
