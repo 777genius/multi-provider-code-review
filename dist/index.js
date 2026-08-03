@@ -23658,7 +23658,8 @@ var CodexProvider = class _CodexProvider extends Provider {
     return values;
   }
   truncateCliError(message) {
-    return message.length > 800 ? `${message.slice(0, 800)}...` : message;
+    if (message.length <= 800) return message;
+    return `[leading output truncated] ...${message.slice(-768)}`;
   }
   normalizeCodexError(error2) {
     const err = error2 instanceof Error ? error2 : new Error(String(error2));
