@@ -319,6 +319,18 @@ export function isTerminalOutcomeCommentMatch(
   }
 ): boolean {
   if (body.includes(input.marker)) return true;
+  const revisionMarker = input.marker.match(
+    /<!--\s*reviewrouter:codex-oauth:terminal:([a-f0-9]{40}):[^\s>]+\s*-->/i
+  );
+  if (
+    revisionMarker &&
+    new RegExp(
+      `<!--\\s*reviewrouter:codex-oauth:terminal:${revisionMarker[1]}:[^\\s>]+\\s*-->`,
+      'i'
+    ).test(body)
+  ) {
+    return true;
+  }
   if (input.dedupeKey === 'max_changed_lines_exceeded') {
     return isLegacyMaxChangedLinesSkippedComment(body);
   }

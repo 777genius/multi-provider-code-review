@@ -50,41 +50,57 @@ export class GitHubReviewRevisionGuard implements ReviewRevisionGuardPort {
     readonly baseSha: string;
     readonly headSha: string;
   }> {
-    const response = await this.readGitHubRevisionFact(() =>
-      this.client.octokit.rest.pulls.get({
+    return await this.readGitHubRevisionFact(async () => {
+      const response = await this.client.octokit.rest.pulls.get({
         owner: this.client.owner,
         repo: this.client.repo,
         pull_number: this.scope.pullRequestNumber,
-      })
-    );
-    return {
-      baseSha: requireCommitSha(response.data.base?.sha, 'base_sha'),
-      headSha: requireCommitSha(response.data.head?.sha, 'head_sha'),
-    };
+      });
+      return {
+        baseSha: requireCommitSha(response.data.base?.sha, 'base_sha'),
+        headSha: requireCommitSha(response.data.head?.sha, 'head_sha'),
+      };
+    });
   }
 
   private async loadMergeBase(pointer: {
     readonly baseSha: string;
     readonly headSha: string;
   }): Promise<string> {
-    const response = await this.readGitHubRevisionFact(() =>
-      this.client.octokit.rest.repos.compareCommitsWithBasehead({
-        owner: this.client.owner,
-        repo: this.client.repo,
-        basehead: `${pointer.baseSha}...${pointer.headSha}`,
-      })
-    );
-    return requireCommitSha(response.data.merge_base_commit?.sha, 'merge_base');
+    return await this.readGitHubRevisionFact(async () => {
+      const response =
+        await this.client.octokit.rest.repos.compareCommitsWithBasehead({
+          owner: this.client.owner,
+          repo: this.client.repo,
+          basehead: `${pointer.baseSha}...${pointer.headSha}`,
+        });
+      return requireCommitSha(
+        response.data.merge_base_commit?.sha,
+        'merge_base'
+      );
+    });
   }
 
   private async readGitHubRevisionFact<T>(read: () => Promise<T>): Promise<T> {
     try {
       return await read();
     } catch (error) {
-      if (!isTransientGitHubReadError(error)) throw error;
-      throw new Error('review_action_v2_revision_guard_unavailable', {
-        cause: error,
-      });
+      if (isTransientGitHubReadError(error)) {
+        throw new Error('review_action_v2_revision_guard_unavailable', {
+          cause: error,
+        });
+      }
+      if (isGitHubHttpReadError(error)) {
+        throw new Error('review_action_v2_revision_guard_failed', {
+          cause: error,
+        });
+      }
+      if (isRevisionFactValidationError(error)) {
+        throw new Error('review_action_v2_revision_guard_failed', {
+          cause: error,
+        });
+      }
+      throw error;
     }
   }
 
@@ -280,7 +296,6 @@ const TRANSIENT_GITHUB_NETWORK_ERROR_CODES = [
 function isTransientGitHubReadError(error: unknown): boolean {
   const candidate = error as {
     readonly status?: unknown;
-    readonly code?: unknown;
     readonly message?: unknown;
   };
   const status =
@@ -299,10 +314,55 @@ function isTransientGitHubReadError(error: unknown): boolean {
   ) {
     return true;
   }
+  return hasTransientNetworkErrorCode(error);
+}
+
+function isGitHubHttpReadError(error: unknown): boolean {
+  const status = (error as { readonly status?: unknown })?.status;
+  return typeof status === 'number' && status >= 400 && status <= 599;
+}
+
+function isRevisionFactValidationError(error: unknown): boolean {
   return (
-    typeof candidate?.code === 'string' &&
-    TRANSIENT_GITHUB_NETWORK_ERROR_CODES.some((code) => code === candidate.code)
+    error instanceof Error &&
+    /^review_action_v2_(?:base_sha|head_sha|merge_base)_invalid$/.test(
+      error.message
+    )
   );
+}
+
+function hasTransientNetworkErrorCode(
+  error: unknown,
+  visited = new Set<object>(),
+  depth = 0
+): boolean {
+  if (!error || typeof error !== 'object' || depth > 4 || visited.has(error)) {
+    return false;
+  }
+  visited.add(error);
+  const code = readOwnDataProperty(error, 'code');
+  if (
+    typeof code === 'string' &&
+    TRANSIENT_GITHUB_NETWORK_ERROR_CODES.some(
+      (transientCode) => transientCode === code
+    )
+  ) {
+    return true;
+  }
+  const cause = readOwnDataProperty(error, 'cause');
+  if (hasTransientNetworkErrorCode(cause, visited, depth + 1)) return true;
+  const errors = readOwnDataProperty(error, 'errors');
+  return (
+    Array.isArray(errors) &&
+    errors.some((nested) =>
+      hasTransientNetworkErrorCode(nested, visited, depth + 1)
+    )
+  );
+}
+
+function readOwnDataProperty(value: object, property: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, property);
+  return descriptor && 'value' in descriptor ? descriptor.value : undefined;
 }
 
 function canonicalJson(value: unknown): string {

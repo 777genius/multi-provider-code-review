@@ -12,9 +12,16 @@ export class GitHubClient {
 
   constructor(
     token: string,
-    options: { readonly tokenProvider?: GitHubTokenProvider } = {}
+    options: {
+      readonly tokenProvider?: GitHubTokenProvider;
+      readonly sleep?: (delayMs: number) => Promise<void>;
+    } = {}
   ) {
-    this.octokit = createResilientOctokit(token, options.tokenProvider);
+    this.octokit = createResilientOctokit(
+      token,
+      options.tokenProvider,
+      options.sleep
+    );
 
     // Prefer the explicit Actions env var, then fall back to the event payload.
     const repoEnv =
@@ -172,7 +179,9 @@ export class GitHubClient {
 
 function createResilientOctokit(
   initialToken: string,
-  tokenProvider?: GitHubTokenProvider
+  tokenProvider?: GitHubTokenProvider,
+  sleep: (delayMs: number) => Promise<void> = (delayMs) =>
+    new Promise((resolve) => setTimeout(resolve, delayMs))
 ): Octokit {
   const octokit = new Octokit();
   octokit.hook.wrap('request', async (request, options) => {
@@ -196,10 +205,15 @@ function createResilientOctokit(
           authRefreshAttempted = true;
           continue;
         }
-        if (isTransientGitHubStatus(status) && transientFailures < 2) {
-          const delayMs = transientFailures === 0 ? 250 : 1_000;
+        if (
+          isSafeRetryMethod(options.method) &&
+          isTransientGitHubRequestError(error) &&
+          transientFailures < 2
+        ) {
+          const delayMs = githubRetryDelayMs(error, transientFailures);
+          if (delayMs === undefined) throw error;
           transientFailures += 1;
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          await sleep(delayMs);
           continue;
         }
         throw error;
@@ -217,8 +231,137 @@ function getHttpStatus(error: unknown): number | undefined {
   return typeof status === 'number' ? status : undefined;
 }
 
-function isTransientGitHubStatus(status: number | undefined): boolean {
-  return status === 502 || status === 503 || status === 504;
+const MAX_GITHUB_RETRY_DELAY_MS = 10_000;
+const TRANSIENT_GITHUB_NETWORK_ERROR_CODES = [
+  'EAI_AGAIN',
+  'ECONNABORTED',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENETDOWN',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_SOCKET',
+] as const;
+
+function isSafeRetryMethod(method: unknown): boolean {
+  return (
+    typeof method === 'string' &&
+    ['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())
+  );
+}
+
+function isTransientGitHubRequestError(error: unknown): boolean {
+  const status = getHttpStatus(error);
+  if (
+    status === 408 ||
+    status === 429 ||
+    (status !== undefined && status >= 500 && status <= 599)
+  ) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : undefined;
+  if (
+    status === 403 &&
+    typeof message === 'string' &&
+    /rate limit|secondary rate limit|abuse detection/i.test(message)
+  ) {
+    return true;
+  }
+  return hasTransientNetworkErrorCode(error);
+}
+
+function githubRetryDelayMs(
+  error: unknown,
+  transientFailures: number
+): number | undefined {
+  const serverDelayMs = githubServerRetryDelayMs(error);
+  if (serverDelayMs !== undefined) {
+    return serverDelayMs <= MAX_GITHUB_RETRY_DELAY_MS
+      ? serverDelayMs
+      : undefined;
+  }
+  return transientFailures === 0 ? 250 : 1_000;
+}
+
+function githubServerRetryDelayMs(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const response = readOwnDataProperty(error, 'response');
+  if (!response || typeof response !== 'object') return undefined;
+  const headers = readOwnDataProperty(response, 'headers');
+  if (!headers || typeof headers !== 'object') return undefined;
+
+  const retryAfter = readHeader(headers, 'retry-after');
+  if (retryAfter !== undefined) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.ceil(seconds * 1_000);
+    }
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) return Math.max(0, retryAt - Date.now());
+  }
+
+  if (!isRateLimitResponse(error, headers)) return undefined;
+  const reset = readHeader(headers, 'x-ratelimit-reset');
+  const resetSeconds = reset === undefined ? NaN : Number(reset);
+  return Number.isFinite(resetSeconds)
+    ? Math.max(0, Math.ceil(resetSeconds * 1_000 - Date.now()))
+    : undefined;
+}
+
+function isRateLimitResponse(error: unknown, headers: object): boolean {
+  const status = getHttpStatus(error);
+  return (
+    (status === 403 || status === 429) &&
+    readHeader(headers, 'x-ratelimit-remaining') === '0'
+  );
+}
+
+function readHeader(headers: object, expectedName: string): string | undefined {
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() !== expectedName) continue;
+    const value = readOwnDataProperty(headers, key);
+    if (typeof value === 'string' || typeof value === 'number') {
+      return String(value);
+    }
+  }
+  return undefined;
+}
+
+function hasTransientNetworkErrorCode(
+  error: unknown,
+  visited = new Set<object>(),
+  depth = 0
+): boolean {
+  if (!error || typeof error !== 'object' || depth > 4 || visited.has(error)) {
+    return false;
+  }
+  visited.add(error);
+  const code = readOwnDataProperty(error, 'code');
+  if (
+    typeof code === 'string' &&
+    TRANSIENT_GITHUB_NETWORK_ERROR_CODES.some(
+      (transientCode) => transientCode === code
+    )
+  ) {
+    return true;
+  }
+  const cause = readOwnDataProperty(error, 'cause');
+  if (hasTransientNetworkErrorCode(cause, visited, depth + 1)) return true;
+  const errors = readOwnDataProperty(error, 'errors');
+  return (
+    Array.isArray(errors) &&
+    errors.some((nested) =>
+      hasTransientNetworkErrorCode(nested, visited, depth + 1)
+    )
+  );
+}
+
+function readOwnDataProperty(value: object, property: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, property);
+  return descriptor && 'value' in descriptor ? descriptor.value : undefined;
 }
 
 function getRepositoryFromEventPayload(): string | undefined {
