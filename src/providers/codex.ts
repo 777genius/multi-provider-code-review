@@ -84,6 +84,22 @@ type CodexAgenticAuditMode = 'off' | 'rerun' | 'strict';
 
 const MAX_OPTIONAL_AGENTIC_RETRY_PROMPT_TOKENS = 24_000;
 
+const REVIEW_OUTPUT_CONTRACT = [
+  'FINAL OUTPUT CONTRACT:',
+  'Return exactly one JSON object with exactly two top-level arrays: "findings" and "revalidations".',
+  'Each finding object must contain exactly these fields: "file", "startLine", "line", "endLine", "severity", "title", "message", and "suggestion".',
+  'Each revalidation object must contain exactly these fields: "targetId", "fingerprint", "verdict", "confidence", "evidence", and "rationale".',
+  'Each revalidation evidence object must contain exactly these fields: "path", "startLine", "endLine", and "reason".',
+  'Return ONLY one valid JSON object.',
+  'No markdown, no prose, no code fences, comments, trailing commas, or text before/after the JSON.',
+  'If there are no findings and no lifecycle targets to revalidate, return exactly {"findings":[],"revalidations":[]}.',
+  'Do not invent example findings or revalidations, and never copy schema descriptions or field names as field values.',
+  'The "findings" array may be empty. "severity" must be one of "critical", "major", or "minor".',
+  'The "revalidations" array may be empty. Include entries only for targetId values listed in the deterministic prompt.',
+  'When a finding covers a changed block, set "startLine" and "endLine" to its RIGHT-side range and keep "line" equal to "endLine". For a single line, use null for both range fields.',
+  'The "suggestion" field is required; use null unless there is an exact safe replacement.',
+] as const;
+
 type CodexAgenticAudit = {
   commandExecutions: number;
   readOnlyExplorationCommands: number;
@@ -523,6 +539,7 @@ export class CodexProvider extends Provider {
       request.cwd
     );
     const parsed = this.parseNonEmptyReviewContent(content, runResult.stderr);
+    this.assertNoPlaceholderFindings(parsed.findings);
     const actualModel = this.resolveEffectiveActualModel(
       runResult.actualModelObservation,
       prepared.requestedModel
@@ -1178,15 +1195,7 @@ export class CodexProvider extends Provider {
       prompt,
       '</deterministic_review_prompt>',
       '',
-      'FINAL OUTPUT CONTRACT:',
-      'Return exactly one JSON object matching this shape: {"findings":[{"file":"path","startLine":null,"line":1,"endLine":null,"severity":"major","title":"short","message":"specific evidence","suggestion":null}],"revalidations":[{"targetId":"rrt_example","fingerprint":"abc","verdict":"resolved","confidence":0.9,"evidence":[{"path":"src/file.ts","startLine":1,"endLine":2,"reason":"why current code fixes it"}],"rationale":"short reason"}]}',
-      'Return ONLY one valid JSON object.',
-      'No markdown, prose, code fences, comments, trailing commas, or text before/after the JSON.',
-      'If no findings, return exactly {"findings":[],"revalidations":[]}.',
-      'The "findings" array may be empty. "severity" must be one of "critical", "major", or "minor".',
-      'The "revalidations" array may be empty. Include entries only for targetId values listed in the deterministic prompt.',
-      'When a finding covers a changed block, set "startLine" and "endLine" to its RIGHT-side range and keep "line" equal to "endLine". For a single line, use null for both range fields.',
-      'The "suggestion" field is required; use null unless there is an exact safe replacement.',
+      ...REVIEW_OUTPUT_CONTRACT,
     ].join('\n');
   }
 
@@ -1228,16 +1237,7 @@ export class CodexProvider extends Provider {
       prompt,
       '</deterministic_review_prompt>',
       '',
-      'FINAL OUTPUT CONTRACT:',
-      'Return exactly one JSON object matching this shape: {"findings":[{"file":"path","startLine":null,"line":1,"endLine":null,"severity":"major","title":"short","message":"specific evidence","suggestion":null}],"revalidations":[{"targetId":"rrt_example","fingerprint":"abc","verdict":"resolved","confidence":0.9,"evidence":[{"path":"src/file.ts","startLine":1,"endLine":2,"reason":"why current code fixes it"}],"rationale":"short reason"}]}',
-      'Return ONLY one valid JSON object.',
-      'No markdown, no prose, no code fences, comments, trailing commas, or text before/after the JSON.',
-      'If no findings, return exactly {"findings":[],"revalidations":[]}.',
-      'The "findings" array may be empty. "severity" must be one of "critical", "major", or "minor".',
-      'The "revalidations" array may be empty. Include entries only for targetId values listed in the deterministic prompt.',
-      'When the issue covers a changed block, set "startLine" to the first affected RIGHT-side line and "endLine" to the last affected RIGHT-side line; keep "line" equal to "endLine". For single-line findings, set "startLine" and "endLine" to null.',
-      'The "suggestion" field is required by schema; use null unless there is an exact safe replacement.',
-      'Do not return markdown, prose, or a bare JSON array.',
+      ...REVIEW_OUTPUT_CONTRACT,
     ]
       .filter((line) => line !== undefined)
       .join('\n');
@@ -1251,15 +1251,7 @@ export class CodexProvider extends Provider {
       prompt,
       '</deterministic_review_prompt>',
       '',
-      'FINAL OUTPUT CONTRACT:',
-      'Return exactly one JSON object matching this shape: {"findings":[{"file":"path","startLine":null,"line":1,"endLine":null,"severity":"major","title":"short","message":"specific evidence","suggestion":null}],"revalidations":[{"targetId":"rrt_example","fingerprint":"abc","verdict":"resolved","confidence":0.9,"evidence":[{"path":"src/file.ts","startLine":1,"endLine":2,"reason":"why current code fixes it"}],"rationale":"short reason"}]}',
-      'Return ONLY one valid JSON object.',
-      'No markdown, no prose, no code fences, comments, trailing commas, or text before/after the JSON.',
-      'If no findings, return exactly {"findings":[],"revalidations":[]}.',
-      'The "findings" array may be empty. The "suggestion" field is required and may be null.',
-      'The "revalidations" array may be empty. Include entries only for targetId values listed in the deterministic prompt.',
-      'When the issue covers a changed block, set "startLine" to the first affected RIGHT-side line and "endLine" to the last affected RIGHT-side line; keep "line" equal to "endLine". For single-line findings, set "startLine" and "endLine" to null.',
-      'Do not return markdown, prose, or a bare JSON array.',
+      ...REVIEW_OUTPUT_CONTRACT,
     ].join('\n');
   }
 
@@ -1943,6 +1935,12 @@ export class CodexProvider extends Provider {
     }
   }
 
+  private assertNoPlaceholderFindings(findings: Finding[]): void {
+    if (findings.some((finding) => this.isPlaceholderFinding(finding))) {
+      throw new Error('Codex CLI returned placeholder review JSON');
+    }
+  }
+
   private isPlaceholderFinding(finding: Finding): boolean {
     return (
       finding.file === 'path' ||
@@ -2264,7 +2262,8 @@ export class CodexProvider extends Provider {
     const jsonMessages = this.extractCliErrorMessages(input)
       .map((message) => this.sanitizeCliErrorText(message))
       .map((message) => message.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((message) => !this.isPlaceholderCliDiagnostic(message));
     if (jsonMessages.length > 0) {
       return this.truncateCliError([...new Set(jsonMessages)].join(' '));
     }
@@ -2287,6 +2286,12 @@ export class CodexProvider extends Provider {
     const summary = (important.length > 0 ? important : lines).join(' ');
 
     return this.truncateCliError(summary);
+  }
+
+  private isPlaceholderCliDiagnostic(message: string): boolean {
+    return /^(?:\.\.\.\s*)?(?:warning\s+)?specific evidence$/i.test(
+      message.trim()
+    );
   }
 
   private sanitizeCliErrorText(value: string): string {
