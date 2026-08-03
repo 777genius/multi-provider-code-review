@@ -1600,6 +1600,40 @@ describe('CodexProvider', () => {
     expect(thrown?.message).not.toContain('{\\"');
   });
 
+  it('preserves trailing Codex diagnostics after a long echoed prompt', async () => {
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('--version')) {
+        return createMockProcess();
+      }
+
+      return createMockProcess((proc) => {
+        proc.stdout.emit(
+          'data',
+          JSON.stringify({
+            type: 'error',
+            message: `SENSITIVE_PROMPT_PREFIX ${'review request with timeout semantics '.repeat(40)}You've hit your usage limit. Try again after 2026-08-10 01:00.`,
+          })
+        );
+      }, 1);
+    });
+
+    const provider = new CodexProvider('gpt-5.5', {
+      agenticContext: false,
+    });
+
+    let thrown: Error | undefined;
+    try {
+      await provider.review('review prompt', 1000);
+    } catch (error) {
+      thrown = error as Error;
+    }
+
+    expect(thrown).toBeInstanceOf(RateLimitError);
+    expect(thrown?.message).toContain("You've hit your usage limit");
+    expect(thrown?.message).toContain('2026-08-10 01:00');
+    expect(thrown?.message).not.toContain('SENSITIVE_PROMPT_PREFIX');
+  });
+
   it('redacts secrets decoded from nested Codex error JSON', () => {
     const provider = new CodexProvider('gpt-5.6-sol');
     const formatted = (provider as any).formatCliError(

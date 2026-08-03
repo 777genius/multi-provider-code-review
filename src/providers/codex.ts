@@ -2419,7 +2419,13 @@ export class CodexProvider extends Provider {
   }
 
   private truncateCliError(message: string): string {
-    return message.length > 800 ? `${message.slice(0, 800)}...` : message;
+    if (message.length <= 800) return message;
+
+    // Codex JSON error events can echo the entire request before appending the
+    // actionable provider diagnostic. Keeping only the prefix both exposes
+    // prompt content and discards errors such as usage-limit or auth failures.
+    // Preserve the bounded suffix where CLI diagnostics are emitted instead.
+    return `[leading output truncated] ...${message.slice(-768)}`;
   }
 
   private normalizeCodexError(error: unknown): Error {
