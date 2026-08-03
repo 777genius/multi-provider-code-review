@@ -622,6 +622,25 @@ describe('CodexProvider', () => {
     expect(prompt).toContain('{"findings":[],"revalidations":[]}');
   });
 
+  it('never teaches Codex placeholder values that ReviewRouter rejects', async () => {
+    const provider = new CodexProvider('gpt-5.6-sol');
+    const prompts = [
+      (provider as any).wrapContextGatewayReviewPrompt('review prompt'),
+      await (provider as any).wrapAgenticReviewPrompt('review prompt'),
+      (provider as any).wrapPromptOnlyReviewPrompt('review prompt'),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt).not.toContain('"file":"path"');
+      expect(prompt).not.toContain('"title":"short"');
+      expect(prompt).not.toContain('"message":"specific evidence"');
+      expect(prompt).not.toContain('"targetId":"rrt_example"');
+      expect(prompt).toContain(
+        'never copy schema descriptions or field names as field values'
+      );
+    }
+  });
+
   it('parses strict schema findings with nullable suggestion', () => {
     const provider = new CodexProvider('gpt-5.4-mini');
     const findings = (provider as any).extractFindings(
@@ -1335,6 +1354,44 @@ describe('CodexProvider', () => {
     expect(result.findings).toEqual([]);
   });
 
+  it('rejects placeholder review JSON even when Codex exits successfully', async () => {
+    spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('--version')) {
+        return createMockProcess();
+      }
+
+      return createMockProcess(() => {
+        const outputIndex = args.indexOf('--output-last-message');
+        fs.writeFileSync(
+          args[outputIndex + 1],
+          JSON.stringify({
+            findings: [
+              {
+                file: 'path',
+                startLine: null,
+                line: 1,
+                endLine: null,
+                severity: 'major',
+                title: 'short',
+                message: 'specific evidence',
+                suggestion: null,
+              },
+            ],
+            revalidations: [],
+          })
+        );
+      });
+    });
+
+    const provider = new CodexProvider('gpt-5.6-sol', {
+      agenticContext: false,
+    });
+
+    await expect(provider.review('review prompt', 1000)).rejects.toThrow(
+      'placeholder review JSON'
+    );
+  });
+
   it('uses the pinned native Codex model when JSONL omits session configuration', async () => {
     spawnMock.mockImplementation((_cmd: string, args: string[]) => {
       if (args.includes('--version')) {
@@ -1560,6 +1617,31 @@ describe('CodexProvider', () => {
     expect(formatted).toContain('authentication failed');
     expect(formatted).toContain('refresh_token=***');
     expect(formatted).not.toContain('refresh-secret-value-123456789');
+  });
+
+  it('does not mask a CLI failure with echoed review placeholders', () => {
+    const provider = new CodexProvider('gpt-5.6-sol');
+    const formatted = (provider as any).formatCliError(
+      [
+        JSON.stringify({ type: 'error', message: '... specific evidence' }),
+        'structured output validation failed',
+      ].join('\n'),
+      ''
+    );
+
+    expect(formatted).toContain('structured output validation failed');
+    expect(formatted).not.toBe('... specific evidence');
+  });
+
+  it('preserves stdout failures when stderr contains only a placeholder', () => {
+    const provider = new CodexProvider('gpt-5.6-sol');
+    const formatted = (provider as any).formatCliError(
+      JSON.stringify({ type: 'error', message: '... specific evidence' }),
+      'structured output validation failed'
+    );
+
+    expect(formatted).toContain('structured output validation failed');
+    expect(formatted).not.toContain('specific evidence');
   });
 
   it('redacts secrets from raw Codex CLI error text', () => {
