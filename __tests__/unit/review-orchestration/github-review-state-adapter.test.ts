@@ -23,22 +23,23 @@ describe('GitHubReviewRevisionGuard', () => {
     };
   }
 
-  it('normalizes transient GitHub read failures without exposing provider text', async () => {
-    const error = Object.assign(
-      new Error('secondary rate limit with unsafe provider detail'),
-      { status: 403 }
-    );
-    const client = clientWith({
-      pullsGet: jest.fn().mockRejectedValue(error),
+  it('normalizes exhausted transient failures without exposing provider text', async () => {
+    const error = new Error('request failed', {
+      cause: Object.assign(new Error('unsafe socket detail'), {
+        code: 'ECONNRESET',
+      }),
     });
+    const pullsGet = jest.fn().mockRejectedValue(error);
+    const client = clientWith({ pullsGet });
     const guard = new GitHubReviewRevisionGuard(client as never, scope);
 
     await expect(guard.loadCurrentRevision()).rejects.toThrow(
       'review_action_v2_revision_guard_unavailable'
     );
+    expect(pullsGet).toHaveBeenCalledTimes(1);
   });
 
-  it('does not hide invalid revision facts as transient GitHub failures', async () => {
+  it('normalizes invalid revision facts as a permanent guard failure', async () => {
     const client = clientWith({
       pullsGet: jest.fn().mockResolvedValue({
         data: {
@@ -50,17 +51,22 @@ describe('GitHubReviewRevisionGuard', () => {
     const guard = new GitHubReviewRevisionGuard(client as never, scope);
 
     await expect(guard.loadCurrentRevision()).rejects.toThrow(
-      'review_action_v2_base_sha_invalid'
+      'review_action_v2_revision_guard_failed'
     );
   });
 
-  it('preserves non-retryable GitHub failures', async () => {
+  it('normalizes non-retryable GitHub failures without reading deprecated code', async () => {
     const error = Object.assign(new Error('not found'), { status: 404 });
+    const deprecatedCodeGetter = jest.fn(() => 404);
+    Object.defineProperty(error, 'code', { get: deprecatedCodeGetter });
     const client = clientWith({
       pullsGet: jest.fn().mockRejectedValue(error),
     });
     const guard = new GitHubReviewRevisionGuard(client as never, scope);
 
-    await expect(guard.loadCurrentRevision()).rejects.toBe(error);
+    await expect(guard.loadCurrentRevision()).rejects.toThrow(
+      'review_action_v2_revision_guard_failed'
+    );
+    expect(deprecatedCodeGetter).not.toHaveBeenCalled();
   });
 });

@@ -189,7 +189,6 @@ describe('Codex OAuth rotating runtime', () => {
   it('runs server-published v2 without exposing a comment token or v1 comments', async () => {
     const events: string[] = [];
     const v2Review = jest.fn(async (input) => {
-      events.push('v2-review');
       expect(input).toMatchObject({
         repository: '777genius/agent-teams-ai',
         pullRequestNumber: 252,
@@ -199,7 +198,13 @@ describe('Codex OAuth rotating runtime', () => {
         codexBinaryPath: '/tmp/codex-bin',
         scmReadToken: 'ghs_checkout',
         scmReadTokenExpiresAt: '2026-05-25T12:15:00.000Z',
+        refreshScmReadToken: expect.any(Function),
       });
+      await expect(input.refreshScmReadToken()).resolves.toEqual({
+        token: 'ghs_checkout',
+        expiresAt: '2026-05-25T12:15:00.000Z',
+      });
+      events.push('v2-review');
       expect(input).not.toHaveProperty('commentToken');
       expect(input).not.toHaveProperty('commentTokenProvider');
       expect(input).not.toHaveProperty('comments');
@@ -243,6 +248,7 @@ describe('Codex OAuth rotating runtime', () => {
       'writeback',
       'checkout-token',
       'checkout',
+      'checkout-token',
       'v2-review',
       'clear-oidc-env',
       'clear-auth-material',

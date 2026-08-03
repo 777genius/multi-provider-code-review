@@ -367,6 +367,8 @@ function buildV2TerminalOutcomeReport(
   const laneBusy = review.blockingFailure === 'required_provider_lane_busy';
   const revisionUnavailable =
     review.blockingFailure === 'review_action_v2_revision_guard_unavailable';
+  const revisionFailed =
+    review.blockingFailure === 'review_action_v2_revision_guard_failed';
   const delayed = laneBusy || revisionUnavailable;
   return terminalOutcomeReport({
     inputs,
@@ -374,33 +376,47 @@ function buildV2TerminalOutcomeReport(
       ? 'lane-busy'
       : revisionUnavailable
         ? 'revision-unavailable'
-        : 'partial',
-    title: delayed ? 'Review delayed ⚠️' : 'Review incomplete ⚠️',
+        : revisionFailed
+          ? 'revision-failed'
+          : 'partial',
+    title: delayed
+      ? 'Review delayed ⚠️'
+      : revisionFailed
+        ? 'Review failed ⚠️'
+        : 'Review incomplete ⚠️',
     summary: laneBusy
       ? 'ReviewRouter could not complete required coverage because all required provider lanes were busy.'
       : revisionUnavailable
         ? 'ReviewRouter temporarily could not verify the current pull request revision.'
-        : 'ReviewRouter completed only partial coverage for this revision.',
+        : revisionFailed
+          ? 'ReviewRouter could not verify the current pull request revision.'
+          : 'ReviewRouter completed only partial coverage for this revision.',
     rows: [
-      ['Outcome', 'partial'],
+      ['Outcome', revisionFailed ? 'failed' : 'partial'],
       [
         'Reason',
         laneBusy
           ? 'provider lanes busy'
           : revisionUnavailable
             ? 'repository state temporarily unavailable'
-            : 'required coverage incomplete',
+            : revisionFailed
+              ? 'repository revision validation failed'
+              : 'required coverage incomplete',
       ],
     ],
     note: delayed
       ? 'Partial evidence is preserved for retry. This result is not an all-clear.'
-      : 'Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.',
-    statusState: delayed ? 'pending' : 'failure',
+      : revisionFailed
+        ? 'No approval was published. Check repository access and availability, then rerun the review.'
+        : 'Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.',
+    statusState: delayed ? 'pending' : revisionFailed ? 'error' : 'failure',
     statusDescription: laneBusy
       ? 'Review delayed: provider lanes are busy.'
       : revisionUnavailable
         ? 'Review delayed: repository state is temporarily unavailable.'
-        : 'Review incomplete: required coverage did not finish.',
+        : revisionFailed
+          ? 'Review failed: repository revision could not be verified.'
+          : 'Review incomplete: required coverage did not finish.',
   });
 }
 

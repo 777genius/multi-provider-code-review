@@ -112,13 +112,16 @@ describe('GitHubClient', () => {
         .reply(502, { message: 'Bad gateway' })
         .get('/repos/owner/repo')
         .reply(200, { id: 1, name: 'repo' });
-      const client = new GitHubClient(mockToken, { tokenProvider });
+      const sleep = jest.fn(async () => undefined);
+      const client = new GitHubClient(mockToken, { tokenProvider, sleep });
 
       await expect(
         client.octokit.rest.repos.get({ owner: 'owner', repo: 'repo' })
       ).resolves.toMatchObject({ status: 200 });
       expect(tokenProvider.getToken).toHaveBeenCalledTimes(1);
       expect(tokenProvider.refreshToken).not.toHaveBeenCalled();
+      expect(sleep).toHaveBeenNthCalledWith(1, 250);
+      expect(sleep).toHaveBeenNthCalledWith(2, 1_000);
       expect(requests.isDone()).toBe(true);
     });
 
@@ -130,12 +133,73 @@ describe('GitHubClient', () => {
         .reply(503, { message: 'Service unavailable' })
         .get('/repos/owner/repo')
         .reply(200, { id: 1, name: 'repo' });
-      const client = new GitHubClient(mockToken);
+      const sleep = jest.fn(async () => undefined);
+      const client = new GitHubClient(mockToken, { sleep });
 
       await expect(
         client.octokit.rest.repos.get({ owner: 'owner', repo: 'repo' })
       ).resolves.toMatchObject({ status: 200 });
+      expect(sleep).toHaveBeenCalledWith(250);
       expect(requests.isDone()).toBe(true);
+    });
+
+    it('honors a bounded Retry-After before retrying a rate limit', async () => {
+      const requests = nock('https://api.github.com', {
+        reqheaders: { authorization: 'token TEST_TOKEN' },
+      })
+        .get('/repos/owner/repo')
+        .reply(429, { message: 'rate limit exceeded' }, { 'Retry-After': '2' })
+        .get('/repos/owner/repo')
+        .reply(200, { id: 1, name: 'repo' });
+      const sleep = jest.fn(async () => undefined);
+      const client = new GitHubClient(mockToken, { sleep });
+
+      await expect(
+        client.octokit.rest.repos.get({ owner: 'owner', repo: 'repo' })
+      ).resolves.toMatchObject({ status: 200 });
+      expect(sleep).toHaveBeenCalledWith(2_000);
+      expect(requests.isDone()).toBe(true);
+    });
+
+    it('does not wait or retry beyond the bounded server delay', async () => {
+      const request = nock('https://api.github.com', {
+        reqheaders: { authorization: 'token TEST_TOKEN' },
+      })
+        .get('/repos/owner/repo')
+        .reply(
+          429,
+          { message: 'rate limit exceeded' },
+          { 'Retry-After': '60' }
+        );
+      const sleep = jest.fn(async () => undefined);
+      const client = new GitHubClient(mockToken, { sleep });
+
+      await expect(
+        client.octokit.rest.repos.get({ owner: 'owner', repo: 'repo' })
+      ).rejects.toMatchObject({ status: 429 });
+      expect(sleep).not.toHaveBeenCalled();
+      expect(request.isDone()).toBe(true);
+    });
+
+    it('does not retry non-idempotent GitHub writes', async () => {
+      const request = nock('https://api.github.com', {
+        reqheaders: { authorization: 'token TEST_TOKEN' },
+      })
+        .post('/repos/owner/repo/issues/1/comments', { body: 'hello' })
+        .reply(503, { message: 'Service unavailable' });
+      const sleep = jest.fn(async () => undefined);
+      const client = new GitHubClient(mockToken, { sleep });
+
+      await expect(
+        client.octokit.rest.issues.createComment({
+          owner: 'owner',
+          repo: 'repo',
+          issue_number: 1,
+          body: 'hello',
+        })
+      ).rejects.toMatchObject({ status: 503 });
+      expect(sleep).not.toHaveBeenCalled();
+      expect(request.isDone()).toBe(true);
     });
   });
 });
