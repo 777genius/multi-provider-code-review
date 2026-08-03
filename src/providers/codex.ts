@@ -2258,7 +2258,7 @@ export class CodexProvider extends Provider {
   }
 
   private formatCliError(stderr: string, stdout: string): string {
-    const input = stderr || stdout || 'no output';
+    const input = [stderr, stdout].filter(Boolean).join('\n') || 'no output';
     const jsonMessages = this.extractCliErrorMessages(input)
       .map((message) => this.sanitizeCliErrorText(message))
       .map((message) => message.trim())
@@ -2273,6 +2273,15 @@ export class CodexProvider extends Provider {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
+      .filter((line) => {
+        const nestedDiagnostics = this.extractCliErrorMessages(line);
+        return (
+          nestedDiagnostics.length === 0 ||
+          nestedDiagnostics.some(
+            (message) => !this.isPlaceholderCliDiagnostic(message)
+          )
+        );
+      })
       .filter(
         (line) =>
           !line.startsWith('user') && !line.includes('Respond with exactly:')

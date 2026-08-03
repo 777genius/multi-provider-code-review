@@ -1633,6 +1633,17 @@ describe('CodexProvider', () => {
     expect(formatted).not.toBe('... specific evidence');
   });
 
+  it('preserves stdout failures when stderr contains only a placeholder', () => {
+    const provider = new CodexProvider('gpt-5.6-sol');
+    const formatted = (provider as any).formatCliError(
+      JSON.stringify({ type: 'error', message: '... specific evidence' }),
+      'structured output validation failed'
+    );
+
+    expect(formatted).toContain('structured output validation failed');
+    expect(formatted).not.toContain('specific evidence');
+  });
+
   it('redacts secrets from raw Codex CLI error text', () => {
     const provider = new CodexProvider('gpt-5.4-mini');
     const formatted = (provider as any).formatCliError(
