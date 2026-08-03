@@ -303,11 +303,20 @@ function githubServerRetryDelayMs(error: unknown): number | undefined {
     if (Number.isFinite(retryAt)) return Math.max(0, retryAt - Date.now());
   }
 
+  if (!isRateLimitResponse(error, headers)) return undefined;
   const reset = readHeader(headers, 'x-ratelimit-reset');
   const resetSeconds = reset === undefined ? NaN : Number(reset);
   return Number.isFinite(resetSeconds)
     ? Math.max(0, Math.ceil(resetSeconds * 1_000 - Date.now()))
     : undefined;
+}
+
+function isRateLimitResponse(error: unknown, headers: object): boolean {
+  const status = getHttpStatus(error);
+  return (
+    (status === 403 || status === 429) &&
+    readHeader(headers, 'x-ratelimit-remaining') === '0'
+  );
 }
 
 function readHeader(headers: object, expectedName: string): string | undefined {

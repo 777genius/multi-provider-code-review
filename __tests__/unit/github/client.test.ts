@@ -143,6 +143,32 @@ describe('GitHubClient', () => {
       expect(requests.isDone()).toBe(true);
     });
 
+    it('ignores rate-limit window headers on ordinary server failures', async () => {
+      const resetAt = Math.floor(Date.now() / 1_000) + 3_600;
+      const requests = nock('https://api.github.com', {
+        reqheaders: { authorization: 'token TEST_TOKEN' },
+      })
+        .get('/repos/owner/repo')
+        .reply(
+          503,
+          { message: 'Service unavailable' },
+          {
+            'X-RateLimit-Remaining': '4000',
+            'X-RateLimit-Reset': String(resetAt),
+          }
+        )
+        .get('/repos/owner/repo')
+        .reply(200, { id: 1, name: 'repo' });
+      const sleep = jest.fn(async () => undefined);
+      const client = new GitHubClient(mockToken, { sleep });
+
+      await expect(
+        client.octokit.rest.repos.get({ owner: 'owner', repo: 'repo' })
+      ).resolves.toMatchObject({ status: 200 });
+      expect(sleep).toHaveBeenCalledWith(250);
+      expect(requests.isDone()).toBe(true);
+    });
+
     it('honors a bounded Retry-After before retrying a rate limit', async () => {
       const requests = nock('https://api.github.com', {
         reqheaders: { authorization: 'token TEST_TOKEN' },

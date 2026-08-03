@@ -31999,9 +31999,14 @@ function githubServerRetryDelayMs(error2) {
     const retryAt = Date.parse(retryAfter);
     if (Number.isFinite(retryAt)) return Math.max(0, retryAt - Date.now());
   }
+  if (!isRateLimitResponse(error2, headers)) return void 0;
   const reset = readHeader(headers, "x-ratelimit-reset");
   const resetSeconds = reset === void 0 ? NaN : Number(reset);
   return Number.isFinite(resetSeconds) ? Math.max(0, Math.ceil(resetSeconds * 1e3 - Date.now())) : void 0;
+}
+function isRateLimitResponse(error2, headers) {
+  const status = getHttpStatus(error2);
+  return (status === 403 || status === 429) && readHeader(headers, "x-ratelimit-remaining") === "0";
 }
 function readHeader(headers, expectedName) {
   for (const key of Object.keys(headers)) {
@@ -80895,6 +80900,7 @@ function deterministicIdempotencyKey(purpose, parts) {
 // src/review-orchestration/infrastructure/production-t0-review-runner.ts
 var execFileAsync6 = (0, import_util9.promisify)(import_child_process15.execFile);
 var CODEX_RETRY_POLICY_VERSION = "codex-semantic-retry.v1";
+var SCM_READ_TOKEN_EXPIRY_MARGIN_MS = 3e4;
 var ProductionT0ReviewRunner = class {
   constructor(fetchImpl = fetch) {
     this.fetchImpl = fetchImpl;
@@ -81141,16 +81147,18 @@ function createScmReadTokenProvider(input) {
           cause: error2
         });
       }
+      let validated;
       try {
-        capability = validateScmReadCapability(refreshed);
+        validated = validateScmReadCapability(refreshed);
       } catch (error2) {
         throw new Error("review_action_v2_revision_guard_failed", {
           cause: error2
         });
       }
-      if (Date.parse(capability.expiresAt) <= Date.now() + 3e4) {
+      if (Date.parse(validated.expiresAt) <= Date.now() + SCM_READ_TOKEN_EXPIRY_MARGIN_MS) {
         throw new Error("review_action_v2_revision_guard_unavailable");
       }
+      capability = validated;
       return capability.token;
     })();
     try {
@@ -81161,7 +81169,7 @@ function createScmReadTokenProvider(input) {
   };
   return {
     async getToken() {
-      return Date.parse(capability.expiresAt) <= Date.now() + 3e4 ? await refresh() : capability.token;
+      return Date.parse(capability.expiresAt) <= Date.now() + SCM_READ_TOKEN_EXPIRY_MARGIN_MS ? await refresh() : capability.token;
     },
     refreshToken: refresh
   };

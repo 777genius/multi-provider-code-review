@@ -14,6 +14,10 @@ import type { PRContext, ReviewConfig } from '../../../src/types';
 import { compareCodeUnits } from '../../../src/review-orchestration/infrastructure/production-review-projection';
 
 describe('ProductionT0ReviewRunner policy', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('treats providerRetries as the total provider attempt budget', () => {
     expect(resolveT0AttemptBudget(3, 10)).toBe(3);
     expect(resolveT0AttemptBudget(0, 10)).toBe(1);
@@ -122,7 +126,6 @@ describe('ProductionT0ReviewRunner policy', () => {
     await expect(provider.getToken()).resolves.toBe('ghs_refreshed');
     await expect(provider.getToken()).resolves.toBe('ghs_refreshed');
     expect(refresh).toHaveBeenCalledTimes(1);
-    jest.useRealTimers();
   });
 
   it('coalesces concurrent SCM token refreshes', async () => {
@@ -141,24 +144,25 @@ describe('ProductionT0ReviewRunner policy', () => {
       Promise.all([provider.getToken(), provider.getToken()])
     ).resolves.toEqual(['ghs_refreshed', 'ghs_refreshed']);
     expect(refresh).toHaveBeenCalledTimes(1);
-    jest.useRealTimers();
   });
 
   it('rejects stale refreshed SCM capabilities as temporarily unavailable', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-08-03T12:00:00.000Z'));
+    const refresh = jest.fn(async () => ({
+      token: 'ghs_still_expiring',
+      expiresAt: '2026-08-03T12:00:25.000Z',
+    }));
     const provider = createScmReadTokenProvider({
-      token: 'ghs_expiring',
-      expiresAt: '2026-08-03T12:00:20.000Z',
-      refresh: jest.fn(async () => ({
-        token: 'ghs_still_expiring',
-        expiresAt: '2026-08-03T12:00:25.000Z',
-      })),
+      token: 'ghs_initial',
+      expiresAt: '2026-08-03T13:00:00.000Z',
+      refresh,
     });
 
-    await expect(provider.getToken()).rejects.toThrow(
+    await expect(provider.refreshToken()).rejects.toThrow(
       'review_action_v2_revision_guard_unavailable'
     );
-    jest.useRealTimers();
+    await expect(provider.getToken()).resolves.toBe('ghs_initial');
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes SCM token refresh errors for terminal reporting', async () => {
@@ -174,7 +178,6 @@ describe('ProductionT0ReviewRunner policy', () => {
     await expect(provider.getToken()).rejects.toThrow(
       'review_action_v2_revision_guard_unavailable'
     );
-    jest.useRealTimers();
   });
 
   it('distinguishes permanent and transient SCM token endpoint failures', async () => {
@@ -200,7 +203,6 @@ describe('ProductionT0ReviewRunner policy', () => {
         ).getToken()
       ).rejects.toThrow('review_action_v2_revision_guard_unavailable');
     }
-    jest.useRealTimers();
   });
 });
 

@@ -65,6 +65,7 @@ import { ReviewActionV2ControlPlaneAdapter } from './review-action-v2-control-pl
 
 const execFileAsync = promisify(execFile);
 const CODEX_RETRY_POLICY_VERSION = 'codex-semantic-retry.v1';
+const SCM_READ_TOKEN_EXPIRY_MARGIN_MS = 30_000;
 
 export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
@@ -352,16 +353,21 @@ export function createScmReadTokenProvider(input: {
           cause: error,
         });
       }
+      let validated: { readonly token: string; readonly expiresAt: string };
       try {
-        capability = validateScmReadCapability(refreshed);
+        validated = validateScmReadCapability(refreshed);
       } catch (error) {
         throw new Error('review_action_v2_revision_guard_failed', {
           cause: error,
         });
       }
-      if (Date.parse(capability.expiresAt) <= Date.now() + 30_000) {
+      if (
+        Date.parse(validated.expiresAt) <=
+        Date.now() + SCM_READ_TOKEN_EXPIRY_MARGIN_MS
+      ) {
         throw new Error('review_action_v2_revision_guard_unavailable');
       }
+      capability = validated;
       return capability.token;
     })();
     try {
@@ -372,7 +378,8 @@ export function createScmReadTokenProvider(input: {
   };
   return {
     async getToken() {
-      return Date.parse(capability.expiresAt) <= Date.now() + 30_000
+      return Date.parse(capability.expiresAt) <=
+        Date.now() + SCM_READ_TOKEN_EXPIRY_MARGIN_MS
         ? await refresh()
         : capability.token;
     },
