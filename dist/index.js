@@ -93223,12 +93223,19 @@ var BuildCurrentReviewProjection = class {
     );
     const inlineChunks = coverageOnly ? [] : buildInlineChunks(occurrences, this.limits);
     const summaryBody = coverageOnly ? [
-      "Review coverage is partial. ReviewRouter published this summary, but inline findings and lifecycle changes were held back.",
+      "ReviewRouter did not complete required coverage. Preliminary findings are preserved below; inline comments and lifecycle changes were held back.",
       "",
       removeAllClearClaims(presentation.summaryBody)
     ].join("\n") : allClear ? presentation.summaryBody : removeAllClearClaims(presentation.summaryBody);
-    const checkTitle = coverageOnly ? "Review coverage is partial" : allClear ? presentation.checkTitle : removeAllClearClaims(presentation.checkTitle);
+    const checkTitle = coverageOnly ? "Review incomplete - partial coverage" : allClear ? presentation.checkTitle : removeAllClearClaims(presentation.checkTitle);
     const checkSummary = coverageOnly ? summaryBody : allClear ? presentation.checkSummary : removeAllClearClaims(presentation.checkSummary);
+    if (coverageOnly) {
+      assertPartialPresentationDoesNotClaimCompletion(
+        summaryBody,
+        checkTitle,
+        checkSummary
+      );
+    }
     this.validateRenderedText(
       summaryBody,
       presentation.checkName,
@@ -93611,6 +93618,13 @@ function resolveCheckConclusion(projected, gate) {
 function removeAllClearClaims(body) {
   return body.replace(/\ball[ -]?clear\b/gi, "No blocking findings in reviewed coverage").replace(/\bno issues? found\b/gi, "No issues found in reviewed coverage");
 }
+function assertPartialPresentationDoesNotClaimCompletion(summaryBody, checkTitle, checkSummary) {
+  const completedHeading = /^##\s+Review complete(?:d)?\b/im;
+  const completedTitle = /^\s*Review complete(?:d)?\b/i;
+  if (completedHeading.test(summaryBody) || completedTitle.test(checkTitle) || completedHeading.test(checkSummary)) {
+    throw new Error("partial review presentation must not claim completion");
+  }
+}
 function countOccurrenceStates(occurrences) {
   const counts = {
     ["new" /* New */]: 0,
@@ -93917,20 +93931,21 @@ var LegacyReviewProjectionPolicyAdapter = class {
     );
     const coverageLines = query.coverage.state === "partial" /* Partial */ ? [
       "",
-      "Coverage is partial.",
+      "### Coverage not completed",
       ...query.coverage.limitations.map(
         (limitation) => `- ${limitation}`
       )
     ] : [];
+    const reviewSummary = query.coverage.state === "partial" /* Partial */ ? formatPartialReviewSummary(review.summary, currentOccurrences.length) : review.summary;
     const summaryBody = [
-      review.summary,
+      reviewSummary,
       ...lifecycleLines.length > 0 ? ["", ...lifecycleLines] : [],
       ...coverageLines
     ].join("\n");
     return {
       summaryBody,
       checkName: "ReviewRouter",
-      checkTitle: query.coverage.state === "partial" /* Partial */ ? "Review completed with partial coverage" : "Review completed",
+      checkTitle: query.coverage.state === "partial" /* Partial */ ? "Review incomplete - partial coverage" : "Review completed",
       checkSummary: summaryBody,
       checkConclusion: query.coverage.state === "partial" /* Partial */ ? "neutral" /* Neutral */ : void 0,
       placements
@@ -94025,6 +94040,17 @@ var LegacyReviewProjectionPolicyAdapter = class {
     };
   }
 };
+function formatPartialReviewSummary(summary, preliminaryFindingCount) {
+  const findingLabel = preliminaryFindingCount === 1 ? "finding" : "findings";
+  const partialHeading = `## Review incomplete - ${preliminaryFindingCount} preliminary ${findingLabel} preserved \u26A0\uFE0F`;
+  const partialNote = "<sub>These preliminary findings were preserved in this summary. Inline comments and lifecycle changes were withheld because required coverage did not complete.</sub>";
+  const completeHeading = /^## Review complete[^\n]*$/m;
+  const synthesisNote = /^<sub>[^\n]*<\/sub>$/m;
+  if (!completeHeading.test(summary) || !synthesisNote.test(summary)) {
+    throw new Error("legacy_partial_review_summary_contract_invalid");
+  }
+  return summary.replace(completeHeading, partialHeading).replace(synthesisNote, partialNote);
+}
 function toLegacyFinding(finding) {
   const occurrence = "lineageId" in finding ? finding : void 0;
   const sourceFindingId = "sourceFindingId" in finding ? finding.sourceFindingId : occurrence?.sourceFindingIds[0] ?? occurrence?.lineageId ?? "historical";
@@ -98879,18 +98905,29 @@ function mapOrchestrationResultToCodexOutcome(result2) {
     case "completed" /* Completed */:
       return { outcome: "completed" /* Completed */ };
     case "partial_completed" /* PartialCompleted */:
-      return result2.failureCode ? {
-        outcome: "partial_completed" /* PartialCompleted */,
-        blockingFailure: result2.failureCode
-      } : { outcome: "partial_completed" /* PartialCompleted */ };
-    case "publication_not_applied" /* PublicationNotApplied */:
-    case "publication_stale" /* PublicationStale */:
-      return { outcome: "completed" /* Completed */ };
-    case "superseded" /* Superseded */:
-      return { outcome: "superseded" /* Superseded */ };
-    default:
       return {
         outcome: "partial_completed" /* PartialCompleted */,
+        reason: mapPartialFailureReason(result2.failureCode),
+        ...result2.failureCode ? { blockingFailure: result2.failureCode } : {}
+      };
+    case "publication_not_applied" /* PublicationNotApplied */:
+      return {
+        outcome: "publication_not_applied" /* PublicationNotApplied */,
+        reason: "publication_conflict" /* PublicationConflict */,
+        blockingFailure: result2.failureCode ?? "review_action_v2_publication_not_applied"
+      };
+    case "publication_stale" /* PublicationStale */:
+      return {
+        outcome: "publication_stale" /* PublicationStale */,
+        reason: "publication_stale" /* PublicationStale */,
+        blockingFailure: result2.failureCode ?? "review_action_v2_publication_stale"
+      };
+    case "superseded" /* Superseded */:
+      return { outcome: "superseded" /* Superseded */ };
+    case "failed" /* Failed */:
+      return {
+        outcome: "failed" /* Failed */,
+        reason: mapExecutionFailureReason(result2.failureCode),
         blockingFailure: result2.failureCode ?? `review_action_v2_${result2.status}`
       };
   }
@@ -98901,9 +98938,29 @@ function mapRevisionGuardErrorToCodexOutcome(error2) {
     return void 0;
   }
   return {
-    outcome: "partial_completed" /* PartialCompleted */,
+    outcome: "failed" /* Failed */,
+    reason: code === "review_action_v2_revision_guard_unavailable" ? "revision_guard_unavailable" /* RevisionGuardUnavailable */ : "revision_guard_failed" /* RevisionGuardFailed */,
     blockingFailure: code
   };
+}
+function mapPartialFailureReason(failureCode) {
+  switch (failureCode) {
+    case void 0:
+    case "required_review_coverage_incomplete":
+      return "required_review_coverage_incomplete" /* RequiredReviewCoverageIncomplete */;
+    case "required_provider_lane_busy":
+      return "required_provider_lane_busy" /* RequiredProviderLaneBusy */;
+    case "required_work_exhausted":
+      return "required_work_exhausted" /* RequiredWorkExhausted */;
+    default:
+      return "unknown" /* Unknown */;
+  }
+}
+function mapExecutionFailureReason(failureCode) {
+  if (failureCode === "provider_capacity_unavailable") {
+    return "provider_capacity_unavailable" /* ProviderCapacityUnavailable */;
+  }
+  return failureCode ? "execution_failed" /* ExecutionFailed */ : "unknown" /* Unknown */;
 }
 function createScmReadTokenProvider(input) {
   let capability = validateScmReadCapability({
@@ -99362,8 +99419,9 @@ async function runCodexOAuthRotatingAction(options = {}) {
           report
         );
       }
-      if (runtime.v2Review.blockingFailure) {
-        setFailed(runtime.v2Review.blockingFailure);
+      const terminalFailureCode = v2TerminalFailureCode(runtime.v2Review);
+      if (terminalFailureCode) {
+        setFailed(terminalFailureCode);
       }
       return;
     }
@@ -99380,7 +99438,7 @@ function buildSkippedTerminalOutcomeReport(inputs, runtime) {
   if (runtime.reason === "max_changed_lines_exceeded") {
     return terminalOutcomeReport({
       inputs,
-      kind: "skipped",
+      kind: "skipped" /* Skipped */,
       marker: "<!-- reviewrouter:codex-oauth:terminal:max-changed-lines-exceeded -->",
       dedupeKey: "max_changed_lines_exceeded",
       title: "Review skipped \u26A0\uFE0F",
@@ -99398,7 +99456,7 @@ function buildSkippedTerminalOutcomeReport(inputs, runtime) {
   const statusState = runtime.reason === "github_put_failed" || runtime.reason === "permission_required" ? "error" : "failure";
   return terminalOutcomeReport({
     inputs,
-    kind: "skipped",
+    kind: "skipped" /* Skipped */,
     title: "Review skipped \u26A0\uFE0F",
     summary: skippedReasonSummary(runtime.reason),
     rows: [
@@ -99418,7 +99476,7 @@ function buildV2TerminalOutcomeReport(inputs, review) {
   if (review.outcome === "superseded" /* Superseded */) {
     return terminalOutcomeReport({
       inputs,
-      kind: "stale",
+      kind: "stale" /* Stale */,
       title: "Review superseded \u26A0\uFE0F",
       summary: "ReviewRouter stopped publishing this result because a newer PR revision exists.",
       rows: [
@@ -99430,26 +99488,75 @@ function buildV2TerminalOutcomeReport(inputs, review) {
       statusDescription: "Review superseded by a newer PR revision."
     });
   }
-  const laneBusy = review.blockingFailure === "required_provider_lane_busy";
-  const revisionUnavailable = review.blockingFailure === "review_action_v2_revision_guard_unavailable";
-  const revisionFailed = review.blockingFailure === "review_action_v2_revision_guard_failed";
+  if (review.outcome === "publication_stale" /* PublicationStale */) {
+    return terminalOutcomeReport({
+      inputs,
+      kind: "publication-stale" /* PublicationStale */,
+      title: "Review result stale \u26A0\uFE0F",
+      summary: "ReviewRouter did not publish this result because the revision or lifecycle preconditions changed before publication.",
+      rows: [
+        ["Reviewed commit", shortSha(inputs.headSha)],
+        ["Published findings", "0"]
+      ],
+      note: "Review evidence was preserved, but this result is not approval evidence. Re-run the current revision.",
+      statusState: "failure",
+      statusDescription: "Review result stale: publication was withheld."
+    });
+  }
+  if (review.outcome === "publication_not_applied" /* PublicationNotApplied */) {
+    return terminalOutcomeReport({
+      inputs,
+      kind: "publication-not-applied" /* PublicationNotApplied */,
+      title: "Review not published \u26A0\uFE0F",
+      summary: "ReviewRouter completed computation but could not apply the publication request safely.",
+      rows: [
+        ["Reviewed commit", shortSha(inputs.headSha)],
+        ["Published findings", "0"]
+      ],
+      note: "Review evidence was preserved. No approval was published; rerun the current revision after the publication conflict is resolved.",
+      statusState: "failure",
+      statusDescription: "Review not published: publication conflict."
+    });
+  }
+  const laneBusy = review.outcome === "partial_completed" /* PartialCompleted */ && review.reason === "required_provider_lane_busy" /* RequiredProviderLaneBusy */;
+  const revisionUnavailable = review.outcome === "failed" /* Failed */ && review.reason === "revision_guard_unavailable" /* RevisionGuardUnavailable */;
+  const revisionFailed = review.outcome === "failed" /* Failed */ && review.reason === "revision_guard_failed" /* RevisionGuardFailed */;
+  const providerCapacity = review.outcome === "failed" /* Failed */ && review.reason === "provider_capacity_unavailable" /* ProviderCapacityUnavailable */;
+  const executionFailed = review.outcome === "failed" /* Failed */ && !revisionUnavailable && !revisionFailed && !providerCapacity;
   const delayed = laneBusy || revisionUnavailable;
   return terminalOutcomeReport({
     inputs,
-    kind: laneBusy ? "lane-busy" : revisionUnavailable ? "revision-unavailable" : revisionFailed ? "revision-failed" : "partial",
-    title: delayed ? "Review delayed \u26A0\uFE0F" : revisionFailed ? "Review failed \u26A0\uFE0F" : "Review incomplete \u26A0\uFE0F",
-    summary: laneBusy ? "ReviewRouter could not complete required coverage because all required provider lanes were busy." : revisionUnavailable ? "ReviewRouter temporarily could not verify the current pull request revision." : revisionFailed ? "ReviewRouter could not verify the current pull request revision." : "ReviewRouter completed only partial coverage for this revision.",
+    kind: laneBusy ? "lane-busy" /* LaneBusy */ : revisionUnavailable ? "revision-unavailable" /* RevisionUnavailable */ : revisionFailed ? "revision-failed" /* RevisionFailed */ : providerCapacity ? "provider-capacity" /* ProviderCapacity */ : executionFailed ? "failed" /* Failed */ : "partial" /* Partial */,
+    title: delayed ? "Review delayed \u26A0\uFE0F" : revisionFailed ? "Review failed \u26A0\uFE0F" : providerCapacity ? "Review unavailable \u26A0\uFE0F" : executionFailed ? "Review failed \u26A0\uFE0F" : "Review incomplete \u26A0\uFE0F",
+    summary: laneBusy ? "ReviewRouter could not complete required coverage because all required provider lanes were busy." : revisionUnavailable ? "ReviewRouter temporarily could not verify the current pull request revision." : revisionFailed ? "ReviewRouter could not verify the current pull request revision." : providerCapacity ? "ReviewRouter could not complete required coverage because provider capacity is temporarily unavailable." : executionFailed ? "ReviewRouter could not complete the review because review execution failed." : "ReviewRouter completed only partial coverage for this revision.",
     rows: [
-      ["Outcome", revisionFailed ? "failed" : "partial"],
+      [
+        "Outcome",
+        revisionFailed ? "failed" : providerCapacity ? "not completed" : executionFailed ? "failed" : "partial"
+      ],
       [
         "Reason",
-        laneBusy ? "provider lanes busy" : revisionUnavailable ? "repository state temporarily unavailable" : revisionFailed ? "repository revision validation failed" : "required coverage incomplete"
+        laneBusy ? "provider lanes busy" : revisionUnavailable ? "repository state temporarily unavailable" : revisionFailed ? "repository revision validation failed" : providerCapacity ? "provider capacity unavailable" : executionFailed ? "review execution failed" : "required coverage incomplete"
       ]
     ],
-    note: delayed ? "Partial evidence is preserved for retry. This result is not an all-clear." : revisionFailed ? "No approval was published. Check repository access and availability, then rerun the review." : "Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.",
-    statusState: delayed ? "pending" : revisionFailed ? "error" : "failure",
-    statusDescription: laneBusy ? "Review delayed: provider lanes are busy." : revisionUnavailable ? "Review delayed: repository state is temporarily unavailable." : revisionFailed ? "Review failed: repository revision could not be verified." : "Review incomplete: required coverage did not finish."
+    note: delayed ? "Partial evidence is preserved for retry. This result is not an all-clear." : revisionFailed ? "No approval was published. Check repository access and availability, then rerun the review." : providerCapacity ? "No all-clear was published. Partial evidence is preserved; rerun after provider capacity is available." : executionFailed ? "No approval was published. Inspect the workflow failure and rerun the current revision." : "Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.",
+    statusState: revisionFailed || executionFailed ? "error" : "failure",
+    statusDescription: laneBusy ? "Review delayed: provider lanes are busy." : revisionUnavailable ? "Review delayed: repository state is temporarily unavailable." : revisionFailed ? "Review failed: repository revision could not be verified." : providerCapacity ? "Review unavailable: provider capacity is exhausted." : executionFailed ? "Review failed: execution did not complete." : "Review incomplete: required coverage did not finish."
   });
+}
+function v2TerminalFailureCode(review) {
+  switch (review.outcome) {
+    case "completed" /* Completed */:
+      return null;
+    case "superseded" /* Superseded */:
+      return "review_superseded_by_newer_revision";
+    case "partial_completed" /* PartialCompleted */:
+      return review.blockingFailure ?? "required_review_coverage_incomplete";
+    case "publication_not_applied" /* PublicationNotApplied */:
+    case "publication_stale" /* PublicationStale */:
+    case "failed" /* Failed */:
+      return review.blockingFailure;
+  }
 }
 function terminalOutcomeReport(input) {
   const marker = input.marker ?? `<!-- reviewrouter:codex-oauth:terminal:${input.inputs.headSha}:${input.kind} -->`;

@@ -41,12 +41,60 @@ export enum CodexOAuthV2ReviewOutcome {
   Completed = 'completed',
   PartialCompleted = 'partial_completed',
   Superseded = 'superseded',
+  PublicationNotApplied = 'publication_not_applied',
+  PublicationStale = 'publication_stale',
+  Failed = 'failed',
 }
 
-export type CodexOAuthV2ReviewResult = {
-  readonly outcome: CodexOAuthV2ReviewOutcome;
-  readonly blockingFailure?: string;
-};
+export enum CodexOAuthV2TerminalReason {
+  RequiredReviewCoverageIncomplete = 'required_review_coverage_incomplete',
+  RequiredProviderLaneBusy = 'required_provider_lane_busy',
+  RequiredWorkExhausted = 'required_work_exhausted',
+  ProviderCapacityUnavailable = 'provider_capacity_unavailable',
+  RevisionGuardUnavailable = 'revision_guard_unavailable',
+  RevisionGuardFailed = 'revision_guard_failed',
+  PublicationConflict = 'publication_conflict',
+  PublicationStale = 'publication_stale',
+  ExecutionFailed = 'execution_failed',
+  Unknown = 'unknown',
+}
+
+type CodexOAuthV2PartialReason =
+  | CodexOAuthV2TerminalReason.RequiredReviewCoverageIncomplete
+  | CodexOAuthV2TerminalReason.RequiredProviderLaneBusy
+  | CodexOAuthV2TerminalReason.RequiredWorkExhausted
+  | CodexOAuthV2TerminalReason.Unknown;
+
+type CodexOAuthV2FailureReason =
+  | CodexOAuthV2TerminalReason.ProviderCapacityUnavailable
+  | CodexOAuthV2TerminalReason.RevisionGuardUnavailable
+  | CodexOAuthV2TerminalReason.RevisionGuardFailed
+  | CodexOAuthV2TerminalReason.ExecutionFailed
+  | CodexOAuthV2TerminalReason.Unknown;
+
+export type CodexOAuthV2ReviewResult =
+  | { readonly outcome: CodexOAuthV2ReviewOutcome.Completed }
+  | {
+      readonly outcome: CodexOAuthV2ReviewOutcome.PartialCompleted;
+      readonly reason: CodexOAuthV2PartialReason;
+      readonly blockingFailure?: string;
+    }
+  | { readonly outcome: CodexOAuthV2ReviewOutcome.Superseded }
+  | {
+      readonly outcome: CodexOAuthV2ReviewOutcome.PublicationNotApplied;
+      readonly reason: CodexOAuthV2TerminalReason.PublicationConflict;
+      readonly blockingFailure: string;
+    }
+  | {
+      readonly outcome: CodexOAuthV2ReviewOutcome.PublicationStale;
+      readonly reason: CodexOAuthV2TerminalReason.PublicationStale;
+      readonly blockingFailure: string;
+    }
+  | {
+      readonly outcome: CodexOAuthV2ReviewOutcome.Failed;
+      readonly reason: CodexOAuthV2FailureReason;
+      readonly blockingFailure: string;
+    };
 
 export interface CodexOAuthV2ReviewRunnerPort {
   run(input: {
@@ -168,7 +216,8 @@ export type CodexOAuthV2RuntimePorts = CodexOAuthSharedRuntimePorts & {
 };
 
 export type CodexOAuthRuntimePorts =
-  CodexOAuthLegacyRuntimePorts | CodexOAuthV2RuntimePorts;
+  | CodexOAuthLegacyRuntimePorts
+  | CodexOAuthV2RuntimePorts;
 
 export type CodexOAuthReviewComputationResult = {
   skipped: boolean;

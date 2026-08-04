@@ -20,6 +20,19 @@ export type CodexOAuthTerminalOutcomeCommitStatus = {
 
 export type CodexOAuthTerminalOutcomeDedupeKey = 'max_changed_lines_exceeded';
 
+export enum CodexOAuthTerminalOutcomeKind {
+  Skipped = 'skipped',
+  Stale = 'stale',
+  PublicationStale = 'publication-stale',
+  PublicationNotApplied = 'publication-not-applied',
+  LaneBusy = 'lane-busy',
+  ProviderCapacity = 'provider-capacity',
+  RevisionUnavailable = 'revision-unavailable',
+  RevisionFailed = 'revision-failed',
+  Partial = 'partial',
+  Failed = 'failed',
+}
+
 export type CodexOAuthTerminalOutcomeReport = {
   readonly marker: string;
   readonly dedupeKey?: CodexOAuthTerminalOutcomeDedupeKey;

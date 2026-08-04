@@ -28,6 +28,8 @@ import type {
 import { GitHubActionsOidcTokenProvider } from '../../codex-oauth/github-actions-oidc';
 import {
   CodexOAuthV2ReviewOutcome,
+  CodexOAuthV2TerminalReason,
+  type CodexOAuthV2ReviewResult,
   type CodexOAuthV2ReviewRunnerPort,
 } from '../../codex-oauth/runtime';
 import {
@@ -101,7 +103,9 @@ const SCM_READ_TOKEN_EXPIRY_MARGIN_MS = 30_000;
 export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
 
-  async run(input: Parameters<CodexOAuthV2ReviewRunnerPort['run']>[0]) {
+  async run(
+    input: Parameters<CodexOAuthV2ReviewRunnerPort['run']>[0]
+  ): Promise<CodexOAuthV2ReviewResult> {
     return withRunnerEnvironment(input, async () => {
       try {
         return await this.runInWorkspace(input);
@@ -115,7 +119,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
 
   private async runInWorkspace(
     input: Parameters<CodexOAuthV2ReviewRunnerPort['run']>[0]
-  ) {
+  ): Promise<CodexOAuthV2ReviewResult> {
     validateInput(input);
     await applyReviewRuntimeConfig(input, this.fetchImpl);
     const config = ConfigLoader.load();
@@ -529,28 +533,36 @@ function createConfiguredProductionInvestigationAgents(input: {
 export function mapOrchestrationResultToCodexOutcome(result: {
   readonly status: ReviewOrchestrationResultStatus;
   readonly failureCode?: string;
-}): {
-  readonly outcome: CodexOAuthV2ReviewOutcome;
-  readonly blockingFailure?: string;
-} {
+}): CodexOAuthV2ReviewResult {
   switch (result.status) {
     case ReviewOrchestrationResultStatus.Completed:
       return { outcome: CodexOAuthV2ReviewOutcome.Completed };
     case ReviewOrchestrationResultStatus.PartialCompleted:
-      return result.failureCode
-        ? {
-            outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
-            blockingFailure: result.failureCode,
-          }
-        : { outcome: CodexOAuthV2ReviewOutcome.PartialCompleted };
-    case ReviewOrchestrationResultStatus.PublicationNotApplied:
-    case ReviewOrchestrationResultStatus.PublicationStale:
-      return { outcome: CodexOAuthV2ReviewOutcome.Completed };
-    case ReviewOrchestrationResultStatus.Superseded:
-      return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
-    default:
       return {
         outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        reason: mapPartialFailureReason(result.failureCode),
+        ...(result.failureCode ? { blockingFailure: result.failureCode } : {}),
+      };
+    case ReviewOrchestrationResultStatus.PublicationNotApplied:
+      return {
+        outcome: CodexOAuthV2ReviewOutcome.PublicationNotApplied,
+        reason: CodexOAuthV2TerminalReason.PublicationConflict,
+        blockingFailure:
+          result.failureCode ?? 'review_action_v2_publication_not_applied',
+      };
+    case ReviewOrchestrationResultStatus.PublicationStale:
+      return {
+        outcome: CodexOAuthV2ReviewOutcome.PublicationStale,
+        reason: CodexOAuthV2TerminalReason.PublicationStale,
+        blockingFailure:
+          result.failureCode ?? 'review_action_v2_publication_stale',
+      };
+    case ReviewOrchestrationResultStatus.Superseded:
+      return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
+    case ReviewOrchestrationResultStatus.Failed:
+      return {
+        outcome: CodexOAuthV2ReviewOutcome.Failed,
+        reason: mapExecutionFailureReason(result.failureCode),
         blockingFailure:
           result.failureCode ?? `review_action_v2_${result.status}`,
       };
@@ -559,7 +571,10 @@ export function mapOrchestrationResultToCodexOutcome(result: {
 
 export function mapRevisionGuardErrorToCodexOutcome(error: unknown):
   | {
-      readonly outcome: CodexOAuthV2ReviewOutcome.PartialCompleted;
+      readonly outcome: CodexOAuthV2ReviewOutcome.Failed;
+      readonly reason:
+        | CodexOAuthV2TerminalReason.RevisionGuardUnavailable
+        | CodexOAuthV2TerminalReason.RevisionGuardFailed;
       readonly blockingFailure: string;
     }
   | undefined {
@@ -571,9 +586,47 @@ export function mapRevisionGuardErrorToCodexOutcome(error: unknown):
     return undefined;
   }
   return {
-    outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+    outcome: CodexOAuthV2ReviewOutcome.Failed,
+    reason:
+      code === 'review_action_v2_revision_guard_unavailable'
+        ? CodexOAuthV2TerminalReason.RevisionGuardUnavailable
+        : CodexOAuthV2TerminalReason.RevisionGuardFailed,
     blockingFailure: code,
   };
+}
+
+function mapPartialFailureReason(
+  failureCode: string | undefined
+):
+  | CodexOAuthV2TerminalReason.RequiredReviewCoverageIncomplete
+  | CodexOAuthV2TerminalReason.RequiredProviderLaneBusy
+  | CodexOAuthV2TerminalReason.RequiredWorkExhausted
+  | CodexOAuthV2TerminalReason.Unknown {
+  switch (failureCode) {
+    case undefined:
+    case 'required_review_coverage_incomplete':
+      return CodexOAuthV2TerminalReason.RequiredReviewCoverageIncomplete;
+    case 'required_provider_lane_busy':
+      return CodexOAuthV2TerminalReason.RequiredProviderLaneBusy;
+    case 'required_work_exhausted':
+      return CodexOAuthV2TerminalReason.RequiredWorkExhausted;
+    default:
+      return CodexOAuthV2TerminalReason.Unknown;
+  }
+}
+
+function mapExecutionFailureReason(
+  failureCode: string | undefined
+):
+  | CodexOAuthV2TerminalReason.ProviderCapacityUnavailable
+  | CodexOAuthV2TerminalReason.ExecutionFailed
+  | CodexOAuthV2TerminalReason.Unknown {
+  if (failureCode === 'provider_capacity_unavailable') {
+    return CodexOAuthV2TerminalReason.ProviderCapacityUnavailable;
+  }
+  return failureCode
+    ? CodexOAuthV2TerminalReason.ExecutionFailed
+    : CodexOAuthV2TerminalReason.Unknown;
 }
 
 export function createScmReadTokenProvider(input: {

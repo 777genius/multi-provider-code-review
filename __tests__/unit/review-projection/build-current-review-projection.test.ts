@@ -86,11 +86,21 @@ class DeterministicPresentationPolicy implements ReviewPresentationPolicyPort {
   async projectPresentation(
     query: ProjectReviewPresentationQuery
   ): Promise<ProjectedReviewPresentation> {
+    const partial = query.coverage.state === ProjectionCoverageState.Partial;
+    const preliminaryFindingCount = query.occurrences.length;
+    const preliminaryFindingLabel =
+      preliminaryFindingCount === 1 ? 'finding' : 'findings';
     return {
-      summaryBody: this.summary,
+      summaryBody: partial
+        ? `## Review incomplete - ${preliminaryFindingCount} preliminary ${preliminaryFindingLabel} preserved ⚠️\n\n${this.summary}`
+        : this.summary,
       checkName: 'ReviewRouter',
-      checkTitle: 'Review complete',
-      checkSummary: this.summary,
+      checkTitle: partial
+        ? 'Review incomplete - partial coverage'
+        : 'Review complete',
+      checkSummary: partial
+        ? `## Review incomplete\n\n${this.summary}`
+        : this.summary,
       checkConclusion: CheckConclusion.Success,
       placements: query.occurrences.map((occurrence) => ({
         lineageId: occurrence.lineageId,
@@ -356,7 +366,16 @@ describe('BuildCurrentReviewProjection', () => {
     );
     expect(result.envelope.publishing.summary.allClear).toBe(false);
     expect(result.envelope.publishing.summary.body).not.toMatch(/all clear/i);
+    expect(result.envelope.publishing.summary.body).toContain(
+      'Review incomplete - 1 preliminary finding preserved'
+    );
+    expect(result.envelope.publishing.summary.body).not.toMatch(
+      /^##\s+Review complete(?:d)?\b/im
+    );
     expect(result.envelope.publishing.check.title).not.toMatch(/all clear/i);
+    expect(result.envelope.publishing.check.title).toBe(
+      'Review incomplete - partial coverage'
+    );
     expect(result.envelope.publishing.check.summary).not.toMatch(/all clear/i);
     expect(result.envelope.publishing.check.conclusion).toBe(
       CheckConclusion.Neutral
@@ -374,6 +393,27 @@ describe('BuildCurrentReviewProjection', () => {
       occurrenceProvenance: [],
       lineageHints: [],
     });
+  });
+
+  it('rejects a partial presentation that claims the review completed', async () => {
+    const invalidPresentation: ReviewPresentationPolicyPort = {
+      projectPresentation: jest.fn(async () => ({
+        summaryBody: '## Review complete with findings ⚠️',
+        checkName: 'ReviewRouter',
+        checkTitle: 'Review completed with partial coverage',
+        checkSummary: '## Review complete with findings ⚠️',
+        placements: [],
+      })),
+    };
+    const useCase = createUseCase(
+      new MutableInventoryPort(inventory({ complete: false })),
+      testLimits(),
+      invalidPresentation
+    );
+
+    await expect(useCase.execute(command())).rejects.toThrow(
+      'partial review presentation must not claim completion'
+    );
   });
 
   it('changes projection when a current human reply or skip changes inventory', async () => {
@@ -578,13 +618,14 @@ describe('BuildCurrentReviewProjection', () => {
 
 function createUseCase(
   lifecycleInventory: CurrentLifecycleInventoryPort,
-  limits: ReviewProjectionLimits = testLimits()
+  limits: ReviewProjectionLimits = testLimits(),
+  presentationPolicy: ReviewPresentationPolicyPort = new DeterministicPresentationPolicy()
 ): BuildCurrentReviewProjection {
   return new BuildCurrentReviewProjection({
     lifecycleInventory,
     findingPolicy: new PassThroughFindingPolicy(),
     lifecyclePolicy: new RevalidationLifecyclePolicy(),
-    presentationPolicy: new DeterministicPresentationPolicy(),
+    presentationPolicy,
     mergeGatePolicy: new DeterministicGatePolicy(),
     limits,
   });

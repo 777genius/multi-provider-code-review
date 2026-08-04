@@ -2,12 +2,21 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { runCodexOAuthRotatingRuntime } from '../../../src/codex-oauth/runtime';
-import { runCodexOAuthRotatingAction } from '../../../src/codex-oauth/action';
+import {
+  runCodexOAuthRotatingAction,
+  type CodexOAuthTerminalOutcomeReport,
+} from '../../../src/codex-oauth/action';
 import {
   CodexOAuthReviewRuntimeMode,
   CodexOAuthV2ReviewOutcome,
+  CodexOAuthV2TerminalReason,
+  type CodexOAuthV2ReviewResult,
+  type CodexOAuthV2ReviewRunnerPort,
 } from '../../../src/codex-oauth/runtime';
-import { ReviewActionV2RuntimeMode } from '../../../src/control-plane/review-action-v2-contract';
+import {
+  ReviewActionV2RuntimeMode,
+  type ReviewActionV2Activation,
+} from '../../../src/control-plane/review-action-v2-contract';
 
 jest.mock('../../../src/codex-oauth/runtime', () => ({
   ...jest.requireActual('../../../src/codex-oauth/runtime'),
@@ -149,7 +158,9 @@ describe('Codex OAuth rotating setup PR preview', () => {
       'INPUT_OPENROUTER-API-KEY': 'provider-secret-not-read-before-admission',
     };
     const terminalOutcomeReporter = {
-      post: jest.fn(async () => undefined),
+      post: jest.fn(
+        async (_report: CodexOAuthTerminalOutcomeReport) => undefined
+      ),
     };
 
     await runCodexOAuthRotatingAction({ terminalOutcomeReporter });
@@ -267,6 +278,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
       publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
       v2Review: {
         outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        reason: CodexOAuthV2TerminalReason.RequiredProviderLaneBusy,
         blockingFailure: 'required_provider_lane_busy',
       },
     });
@@ -307,7 +319,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
           '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:lane-busy -->',
         body: expect.stringContaining('provider lanes were busy'),
         commitStatus: {
-          state: 'pending',
+          state: 'failure',
           description: 'Review delayed: provider lanes are busy.',
           context: 'ReviewRouter',
         },
@@ -320,7 +332,8 @@ describe('Codex OAuth rotating setup PR preview', () => {
       status: 'completed',
       publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
       v2Review: {
-        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        outcome: CodexOAuthV2ReviewOutcome.Failed,
+        reason: CodexOAuthV2TerminalReason.RevisionGuardUnavailable,
         blockingFailure: 'review_action_v2_revision_guard_unavailable',
       },
     });
@@ -360,7 +373,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
           'repository state temporarily unavailable'
         ),
         commitStatus: {
-          state: 'pending',
+          state: 'failure',
           description:
             'Review delayed: repository state is temporarily unavailable.',
           context: 'ReviewRouter',
@@ -374,7 +387,8 @@ describe('Codex OAuth rotating setup PR preview', () => {
       status: 'completed',
       publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
       v2Review: {
-        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        outcome: CodexOAuthV2ReviewOutcome.Failed,
+        reason: CodexOAuthV2TerminalReason.RevisionGuardFailed,
         blockingFailure: 'review_action_v2_revision_guard_failed',
       },
     });
@@ -421,6 +435,180 @@ describe('Codex OAuth rotating setup PR preview', () => {
     );
   });
 
+  it('reports exhausted provider capacity without disguising it as generic partial coverage', async () => {
+    mockedRuntime.mockResolvedValue({
+      status: 'completed',
+      publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
+      v2Review: {
+        outcome: CodexOAuthV2ReviewOutcome.Failed,
+        reason: CodexOAuthV2TerminalReason.ProviderCapacityUnavailable,
+        blockingFailure: 'provider_capacity_unavailable',
+      },
+    });
+    process.env = {
+      ...actionEnv({ eventPath, outputPath, headRef: 'feature/change' }),
+      GITHUB_STEP_SUMMARY: stepSummaryPath,
+    };
+    const terminalOutcomeReporter = {
+      post: jest.fn(async () => undefined),
+    };
+
+    await runCodexOAuthRotatingAction({
+      reviewActionV2Activation: v2Activation(),
+      terminalOutcomeReporter,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(fs.readFileSync(stepSummaryPath, 'utf8')).toContain(
+      'Review unavailable'
+    );
+    expect(terminalOutcomeReporter.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        marker:
+          '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:provider-capacity -->',
+        body: expect.stringContaining(
+          'provider capacity is temporarily unavailable'
+        ),
+        commitStatus: {
+          state: 'failure',
+          description: 'Review unavailable: provider capacity is exhausted.',
+          context: 'ReviewRouter',
+        },
+      })
+    );
+  });
+
+  it('reports generic partial coverage as incomplete and never as complete', async () => {
+    mockedRuntime.mockResolvedValue({
+      status: 'completed',
+      publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
+      v2Review: {
+        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        reason: CodexOAuthV2TerminalReason.RequiredReviewCoverageIncomplete,
+        blockingFailure: 'required_review_coverage_incomplete',
+      },
+    });
+    process.env = {
+      ...actionEnv({ eventPath, outputPath, headRef: 'feature/change' }),
+      GITHUB_STEP_SUMMARY: stepSummaryPath,
+    };
+    const terminalOutcomeReporter = {
+      post: jest.fn(
+        async (_report: CodexOAuthTerminalOutcomeReport) => undefined
+      ),
+    };
+
+    await runCodexOAuthRotatingAction({
+      reviewActionV2Activation: v2Activation(),
+      terminalOutcomeReporter,
+    });
+
+    expect(process.exitCode).toBe(1);
+    const report = terminalOutcomeReporter.post.mock.calls[0]?.[0];
+    expect(report).toEqual(
+      expect.objectContaining({
+        marker:
+          '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:partial -->',
+        body: expect.stringContaining('Review incomplete'),
+        commitStatus: {
+          state: 'failure',
+          description: 'Review incomplete: required coverage did not finish.',
+          context: 'ReviewRouter',
+        },
+      })
+    );
+    expect(report?.body).not.toMatch(/Review complete(?:d)?/i);
+  });
+
+  it('reports superseded revisions as stale without publishing approval evidence', async () => {
+    mockedRuntime.mockResolvedValue({
+      status: 'completed',
+      publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
+      v2Review: { outcome: CodexOAuthV2ReviewOutcome.Superseded },
+    });
+    process.env = {
+      ...actionEnv({ eventPath, outputPath, headRef: 'feature/change' }),
+      GITHUB_STEP_SUMMARY: stepSummaryPath,
+    };
+    const terminalOutcomeReporter = {
+      post: jest.fn(async () => undefined),
+    };
+
+    await runCodexOAuthRotatingAction({
+      reviewActionV2Activation: v2Activation(),
+      terminalOutcomeReporter,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(terminalOutcomeReporter.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        marker:
+          '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:stale -->',
+        body: expect.stringContaining('newer PR revision exists'),
+        commitStatus: {
+          state: 'failure',
+          description: 'Review superseded by a newer PR revision.',
+          context: 'ReviewRouter',
+        },
+      })
+    );
+  });
+
+  it.each([
+    [
+      {
+        outcome: CodexOAuthV2ReviewOutcome.PublicationStale,
+        reason: CodexOAuthV2TerminalReason.PublicationStale,
+        blockingFailure: 'publication_request_revision_mismatch',
+      } satisfies CodexOAuthV2ReviewResult,
+      'publication-stale',
+      'Review result stale',
+    ],
+    [
+      {
+        outcome: CodexOAuthV2ReviewOutcome.PublicationNotApplied,
+        reason: CodexOAuthV2TerminalReason.PublicationConflict,
+        blockingFailure: 'publication_request_conflict',
+      } satisfies CodexOAuthV2ReviewResult,
+      'publication-not-applied',
+      'Review not published',
+    ],
+  ] as const)(
+    'never clears warnings or publishes success for %s',
+    async (v2Review, markerKind, expectedTitle) => {
+      mockedRuntime.mockResolvedValue({
+        status: 'completed',
+        publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
+        v2Review,
+      });
+      process.env = {
+        ...actionEnv({ eventPath, outputPath, headRef: 'feature/change' }),
+        GITHUB_STEP_SUMMARY: stepSummaryPath,
+      };
+      const terminalOutcomeReporter = {
+        post: jest.fn(async () => undefined),
+        clear: jest.fn(async () => undefined),
+        status: jest.fn(async () => undefined),
+      };
+
+      await runCodexOAuthRotatingAction({
+        reviewActionV2Activation: v2Activation(),
+        terminalOutcomeReporter,
+      });
+
+      expect(process.exitCode).toBe(1);
+      expect(terminalOutcomeReporter.clear).not.toHaveBeenCalled();
+      expect(terminalOutcomeReporter.status).not.toHaveBeenCalled();
+      expect(terminalOutcomeReporter.post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          marker: `<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:${markerKind} -->`,
+          body: expect.stringContaining(expectedTitle),
+          commitStatus: expect.objectContaining({ state: 'failure' }),
+        })
+      );
+    }
+  );
+
   it('wires verified v2 without exposing legacy comment capabilities', async () => {
     mockedRuntime.mockResolvedValue({
       status: 'completed',
@@ -436,10 +624,12 @@ describe('Codex OAuth rotating setup PR preview', () => {
       GITHUB_RUN_ID: '123456789',
       GITHUB_SERVER_URL: 'https://github.example.com',
     };
-    const v2ReviewRunner = {
-      run: jest.fn(async () => ({
-        outcome: CodexOAuthV2ReviewOutcome.Completed,
-      })),
+    const v2ReviewRunner: CodexOAuthV2ReviewRunnerPort = {
+      run: jest.fn(
+        async (): Promise<CodexOAuthV2ReviewResult> => ({
+          outcome: CodexOAuthV2ReviewOutcome.Completed,
+        })
+      ),
     };
     const terminalOutcomeReporter = {
       post: jest.fn(async () => undefined),
@@ -568,6 +758,20 @@ function actionEnv(input: {
     'INPUT_API-URL': 'https://api.reviewrouter.site',
     'INPUT_PROVIDER-INSTANCE-ID': 'codex-rotating:1196598615',
     'INPUT_WORKFLOW-SCHEMA-VERSION': '1',
+  };
+}
+
+function v2Activation(): ReviewActionV2Activation {
+  return {
+    mode: ReviewActionV2RuntimeMode.T0,
+    handoff: {
+      saasSourceCommit: 'a'.repeat(40),
+      expectedPublicActionBaseCommit: 'b'.repeat(40),
+      schemaDigest: 'c'.repeat(64),
+      canonicalizerDigest: 'd'.repeat(64),
+      goldenFixtureDigest: 'e'.repeat(64),
+      generatedFileCount: 8,
+    },
   };
 }
 
