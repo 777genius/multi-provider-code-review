@@ -440,13 +440,25 @@ describe('RunInvestigationWorkSlot', () => {
         'authentication_unavailable'
       )
     );
+    const diagnostics = {
+      record: jest.fn(async () => undefined),
+    };
 
-    const result = await runnerFixture(controlPlane, agent).execute(runInput());
+    const result = await runnerFixture(controlPlane, agent, {
+      diagnostics,
+    }).execute(runInput());
 
     expect(result.status).toBe(ReviewInvestigationRunStatus.Parked);
     expect(agent.executeTurn).toHaveBeenCalledTimes(1);
     expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
     expect(controlPlane.planTurn).not.toHaveBeenCalled();
+    expect(diagnostics.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: ReviewInvestigationOperationalFailurePhase.AgentExecution,
+        failureClass: ReviewAgentFailureClass.AuthenticationUnavailable,
+        code: 'review_investigation_agent_execution_failure',
+      })
+    );
   });
 
   it.each(['open', 'seal'] as const)(

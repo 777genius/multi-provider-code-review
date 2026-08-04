@@ -25958,7 +25958,6 @@ function buildReviewAgentTurnOutputSchema() {
   const receiptIds = {
     type: "array",
     maxItems: MAX_COLLECTION_ITEMS,
-    uniqueItems: true,
     items: { type: "string", pattern: "^[a-f0-9]{64}$" }
   };
   return Object.freeze({
@@ -25974,7 +25973,10 @@ function buildReviewAgentTurnOutputSchema() {
       "criticDecision"
     ],
     properties: {
-      outputVersion: { const: REVIEW_TURN_OUTPUT_VERSION },
+      outputVersion: {
+        type: "integer",
+        const: REVIEW_TURN_OUTPUT_VERSION
+      },
       findings: {
         type: "array",
         maxItems: MAX_COLLECTION_ITEMS,
@@ -25990,7 +25992,10 @@ function buildReviewAgentTurnOutputSchema() {
             "evidenceOperationReceiptIds"
           ],
           properties: {
-            severity: { enum: Object.values(ReviewTurnFindingSeverity) },
+            severity: {
+              type: "string",
+              enum: Object.values(ReviewTurnFindingSeverity)
+            },
             title: { type: "string", minLength: 1, maxLength: 240 },
             body: { type: "string", minLength: 1, maxLength: 16e3 },
             path: { type: "string", minLength: 1, maxLength: 2e3 },
@@ -26013,6 +26018,7 @@ function buildReviewAgentTurnOutputSchema() {
           ],
           properties: {
             kind: {
+              type: "string",
               enum: REVIEW_TURN_PROVIDER_PROPOSABLE_OBLIGATION_KINDS
             },
             canonicalSubject: {
@@ -26083,7 +26089,10 @@ function buildReviewAgentTurnOutputSchema() {
       criticDecision: {
         anyOf: [
           { type: "null" },
-          { enum: Object.values(ReviewTurnCriticDecision) }
+          {
+            type: "string",
+            enum: Object.values(ReviewTurnCriticDecision)
+          }
         ]
       }
     }
@@ -85911,7 +85920,12 @@ var RunInvestigationTurn = class {
           ...input.signal === void 0 ? {} : { signal: input.signal }
         });
       } catch (error2) {
-        return this.abortProviderFailure(input, error2);
+        const failure = await this.recordOperationalFailure(
+          input,
+          error2,
+          "agent_execution" /* AgentExecution */
+        );
+        return this.abortProviderFailure(input, failure);
       }
       if (await this.dependencies.currency.check(input) !== "current" /* Current */) {
         await cancelPreservingSemanticOutcome(
@@ -86054,6 +86068,10 @@ var operationalFailureCodes = Object.freeze({
   ["agent_cancel" /* AgentCancel */]: Object.freeze({
     default: "review_investigation_agent_cancel_failure",
     confinement: "review_investigation_agent_cancel_confinement_failure"
+  }),
+  ["agent_execution" /* AgentExecution */]: Object.freeze({
+    default: "review_investigation_agent_execution_failure",
+    confinement: "review_investigation_agent_execution_confinement_failure"
   }),
   ["gateway_cleanup" /* GatewayCleanup */]: Object.freeze({
     default: "review_investigation_gateway_cleanup_failure",
@@ -96500,6 +96518,15 @@ function classifyProviderFailure(diagnostic, termination) {
       "authentication_unavailable" /* AuthenticationUnavailable */,
       null,
       "review_agent_authentication_unavailable"
+    );
+  }
+  if (/(?:invalid_json_schema|invalid schema for response_format|(?:invalid|rejected|unsupported) structured output schema|structured output schema (?:is )?(?:invalid|rejected|unsupported))/iu.test(
+    diagnostic
+  )) {
+    return new ReviewAgentExecutionError(
+      "schema_invalid_output" /* SchemaInvalidOutput */,
+      null,
+      "review_agent_output_invalid"
     );
   }
   if (/(?:usage limit|quota|insufficient_quota|billing limit)/iu.test(diagnostic)) {

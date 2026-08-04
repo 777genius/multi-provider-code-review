@@ -150,7 +150,12 @@ export class RunInvestigationTurn {
           ...(input.signal === undefined ? {} : { signal: input.signal }),
         });
       } catch (error) {
-        return this.abortProviderFailure(input, error);
+        const failure = await this.recordOperationalFailure(
+          input,
+          error,
+          ReviewInvestigationOperationalFailurePhase.AgentExecution
+        );
+        return this.abortProviderFailure(input, failure);
       }
 
       if (
@@ -344,6 +349,10 @@ const operationalFailureCodes = Object.freeze({
   [ReviewInvestigationOperationalFailurePhase.AgentCancel]: Object.freeze({
     default: 'review_investigation_agent_cancel_failure',
     confinement: 'review_investigation_agent_cancel_confinement_failure',
+  }),
+  [ReviewInvestigationOperationalFailurePhase.AgentExecution]: Object.freeze({
+    default: 'review_investigation_agent_execution_failure',
+    confinement: 'review_investigation_agent_execution_confinement_failure',
   }),
   [ReviewInvestigationOperationalFailurePhase.GatewayCleanup]: Object.freeze({
     default: 'review_investigation_gateway_cleanup_failure',

@@ -34,7 +34,10 @@ describe('review agent turn observation v2', () => {
       'unresolvableClaims',
       'criticDecision',
     ]);
-    expect(schema.properties.outputVersion).toEqual({ const: 2 });
+    expect(schema.properties.outputVersion).toEqual({
+      type: 'integer',
+      const: 2,
+    });
     expect(schema.properties.obligationProposals).toMatchObject({
       type: 'array',
       maxItems: REVIEW_TURN_MAX_OBLIGATION_PROPOSALS,
@@ -67,11 +70,169 @@ describe('review agent turn observation v2', () => {
           operationReceiptIds: {
             maxItems: 256,
             minItems: 1,
-            uniqueItems: true,
           },
         },
       },
     });
+  });
+
+  it('types every const and enum node for strict provider compatibility', () => {
+    const schema = buildReviewAgentTurnOutputSchema();
+    const typedValueNodes: Array<{
+      path: string;
+      keyword: 'const' | 'enum';
+      type: unknown;
+    }> = [];
+
+    visitSchema(schema, '$', (node, path) => {
+      for (const keyword of ['const', 'enum'] as const) {
+        if (Object.prototype.hasOwnProperty.call(node, keyword)) {
+          typedValueNodes.push({ path, keyword, type: node.type });
+        }
+      }
+    });
+
+    expect(typedValueNodes).toEqual([
+      {
+        path: '$.properties.outputVersion',
+        keyword: 'const',
+        type: 'integer',
+      },
+      {
+        path: '$.properties.findings.items.properties.severity',
+        keyword: 'enum',
+        type: 'string',
+      },
+      {
+        path: '$.properties.obligationProposals.items.properties.kind',
+        keyword: 'enum',
+        type: 'string',
+      },
+      {
+        path: '$.properties.criticDecision.anyOf[1]',
+        keyword: 'enum',
+        type: 'string',
+      },
+    ]);
+  });
+
+  it('omits unsupported uniqueItems constraints from the provider schema', () => {
+    const unsupportedNodes: string[] = [];
+
+    visitSchema(buildReviewAgentTurnOutputSchema(), '$', (node, path) => {
+      if (Object.prototype.hasOwnProperty.call(node, 'uniqueItems')) {
+        unsupportedNodes.push(path);
+      }
+    });
+
+    expect(unsupportedNodes).toEqual([]);
+  });
+
+  it('keeps every object node closed with all properties required', () => {
+    const schema = buildReviewAgentTurnOutputSchema();
+    const objectNodes: Array<{
+      path: string;
+      additionalProperties: unknown;
+      required: unknown;
+      propertyNames: string[];
+    }> = [];
+
+    visitSchema(schema, '$', (node, path) => {
+      if (node.type !== 'object') {
+        return;
+      }
+      const properties = node.properties as
+        Readonly<Record<string, unknown>> | undefined;
+      objectNodes.push({
+        path,
+        additionalProperties: node.additionalProperties,
+        required: node.required,
+        propertyNames: Object.keys(properties ?? {}),
+      });
+    });
+
+    expect(objectNodes).toEqual([
+      {
+        path: '$',
+        additionalProperties: false,
+        required: [
+          'outputVersion',
+          'findings',
+          'obligationProposals',
+          'closureClaims',
+          'operationBackedDiscoveryClaims',
+          'unresolvableClaims',
+          'criticDecision',
+        ],
+        propertyNames: [
+          'outputVersion',
+          'findings',
+          'obligationProposals',
+          'closureClaims',
+          'operationBackedDiscoveryClaims',
+          'unresolvableClaims',
+          'criticDecision',
+        ],
+      },
+      {
+        path: '$.properties.findings.items',
+        additionalProperties: false,
+        required: [
+          'severity',
+          'title',
+          'body',
+          'path',
+          'line',
+          'evidenceOperationReceiptIds',
+        ],
+        propertyNames: [
+          'severity',
+          'title',
+          'body',
+          'path',
+          'line',
+          'evidenceOperationReceiptIds',
+        ],
+      },
+      {
+        path: '$.properties.obligationProposals.items',
+        additionalProperties: false,
+        required: [
+          'kind',
+          'canonicalSubject',
+          'canonicalRequirement',
+          'riskPriority',
+        ],
+        propertyNames: [
+          'kind',
+          'canonicalSubject',
+          'canonicalRequirement',
+          'riskPriority',
+        ],
+      },
+      {
+        path: '$.properties.closureClaims.items',
+        additionalProperties: false,
+        required: ['obligationId', 'operationReceiptIds'],
+        propertyNames: ['obligationId', 'operationReceiptIds'],
+      },
+      {
+        path: '$.properties.operationBackedDiscoveryClaims.items',
+        additionalProperties: false,
+        required: ['sourceObligationId', 'query', 'operationReceiptIds'],
+        propertyNames: ['sourceObligationId', 'query', 'operationReceiptIds'],
+      },
+      {
+        path: '$.properties.unresolvableClaims.items',
+        additionalProperties: false,
+        required: ['obligationId', 'reason', 'evidenceOperationReceiptIds'],
+        propertyNames: [
+          'obligationId',
+          'reason',
+          'evidenceOperationReceiptIds',
+        ],
+      },
+    ]);
   });
 
   it('accepts 128 proposals and rejects 129 before control-plane commit', () => {
@@ -464,6 +625,28 @@ describe('fake control-plane proposal recording', () => {
     expect(obligations).toEqual([]);
   });
 });
+
+function visitSchema(
+  value: unknown,
+  path: string,
+  visit: (node: Readonly<Record<string, unknown>>, path: string) => void
+): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      visitSchema(item, `${path}[${index}]`, visit)
+    );
+    return;
+  }
+  if (value === null || typeof value !== 'object') {
+    return;
+  }
+
+  const node = value as Readonly<Record<string, unknown>>;
+  visit(node, path);
+  for (const [key, child] of Object.entries(node)) {
+    visitSchema(child, `${path}.${key}`, visit);
+  }
+}
 
 function validOutput() {
   return {

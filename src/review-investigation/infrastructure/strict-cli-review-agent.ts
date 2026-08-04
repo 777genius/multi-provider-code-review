@@ -422,6 +422,17 @@ function classifyProviderFailure(
     );
   }
   if (
+    /(?:invalid_json_schema|invalid schema for response_format|(?:invalid|rejected|unsupported) structured output schema|structured output schema (?:is )?(?:invalid|rejected|unsupported))/iu.test(
+      diagnostic
+    )
+  ) {
+    return new ReviewAgentExecutionError(
+      ReviewAgentFailureClass.SchemaInvalidOutput,
+      null,
+      'review_agent_output_invalid'
+    );
+  }
+  if (
     /(?:usage limit|quota|insufficient_quota|billing limit)/iu.test(diagnostic)
   ) {
     return new ReviewAgentExecutionError(
