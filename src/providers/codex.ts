@@ -377,7 +377,7 @@ export class CodexProvider extends Provider {
       ? true
       : this.shouldUseAgenticContext();
     const finalPrompt = contextGateway
-      ? this.wrapContextGatewayReviewPrompt(prompt)
+      ? this.wrapContextGatewayReviewPrompt(prompt, contextGateway.enabledTools)
       : agenticContext
         ? await this.wrapAgenticReviewPrompt(prompt)
         : this.wrapPromptOnlyReviewPrompt(prompt);
@@ -1184,16 +1184,16 @@ export class CodexProvider extends Provider {
     }
   }
 
-  private wrapContextGatewayReviewPrompt(prompt: string): string {
+  private wrapContextGatewayReviewPrompt(
+    prompt: string,
+    enabledTools: readonly string[]
+  ): string {
     return [
       'You are running as review-router inside GitHub Actions.',
       '',
       'Use the deterministic PR context below as the source of truth for review scope.',
       'For related repository context, use only these read-only ReviewRouter MCP tools:',
-      '- review_read_file',
-      '- review_list_directory',
-      '- review_search_text',
-      '- review_git_fact',
+      ...enabledTools.map((tool) => `- ${tool}`),
       'Before returning final JSON, you MUST call at least one ReviewRouter MCP tool to inspect repository context beyond the deterministic prompt.',
       'Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.',
       'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.',

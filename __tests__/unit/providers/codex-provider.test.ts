@@ -385,8 +385,10 @@ describe('CodexProvider', () => {
 
   it('does not delegate the required changed-paths witness to the model', () => {
     const provider = new CodexProvider('gpt-5.4-mini');
+    const gateway = contextGatewayConfig();
     const prompt = (provider as any).wrapContextGatewayReviewPrompt(
-      'deterministic review input'
+      'deterministic review input',
+      gateway.enabledTools
     );
 
     expect(prompt).not.toContain('MUST call review_git_fact');
@@ -394,6 +396,17 @@ describe('CodexProvider', () => {
     expect(prompt).toContain('truncated');
     expect(prompt).toContain('complete');
     expect(prompt).toContain('do not produce final JSON');
+  });
+
+  it('lists the v4 canonical-inventory tool in the confined review prompt', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const gateway = contextGatewayV4Config();
+    const prompt = (provider as any).wrapContextGatewayReviewPrompt(
+      'deterministic review input',
+      gateway.enabledTools
+    );
+
+    expect(prompt).toContain('- review_canonical_inventory');
   });
 
   it('keeps ephemeral runner paths and gateway session data out of semantic identity', async () => {
@@ -703,8 +716,12 @@ describe('CodexProvider', () => {
 
   it('never teaches Codex placeholder values that ReviewRouter rejects', async () => {
     const provider = new CodexProvider('gpt-5.6-sol');
+    const gateway = contextGatewayConfig();
     const prompts = [
-      (provider as any).wrapContextGatewayReviewPrompt('review prompt'),
+      (provider as any).wrapContextGatewayReviewPrompt(
+        'review prompt',
+        gateway.enabledTools
+      ),
       await (provider as any).wrapAgenticReviewPrompt('review prompt'),
       (provider as any).wrapPromptOnlyReviewPrompt('review prompt'),
     ];
