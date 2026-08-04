@@ -5,6 +5,8 @@ import {
   CodexOAuthReviewRuntimeMode,
   runCodexOAuthRotatingRuntime,
   CodexOAuthV2ReviewOutcome,
+  type CodexOAuthV2ReviewResult,
+  type CodexOAuthV2ReviewRunnerPort,
   CodexOAuthV2RuntimePorts,
 } from '../../../src/codex-oauth/runtime';
 
@@ -188,32 +190,34 @@ describe('Codex OAuth rotating runtime', () => {
 
   it('runs server-published v2 without exposing a comment token or v1 comments', async () => {
     const events: string[] = [];
-    const v2Review = jest.fn(async (input) => {
-      expect(input).toMatchObject({
-        repository: '777genius/agent-teams-ai',
-        pullRequestNumber: 252,
-        headSha: '0123456789abcdef0123456789abcdef01234567',
-        workspacePath: '/tmp/workspace',
-        codexHome: '/tmp/codex-home',
-        codexBinaryPath: '/tmp/codex-bin',
-        scmReadToken: 'ghs_checkout',
-        scmReadTokenExpiresAt: '2026-05-25T12:15:00.000Z',
-        refreshScmReadToken: expect.any(Function),
-      });
-      await expect(input.refreshScmReadToken()).resolves.toEqual({
-        token: 'ghs_checkout',
-        expiresAt: '2026-05-25T12:15:00.000Z',
-      });
-      events.push('v2-review');
-      expect(input).not.toHaveProperty('commentToken');
-      expect(input).not.toHaveProperty('commentTokenProvider');
-      expect(input).not.toHaveProperty('comments');
-      expect(input).not.toHaveProperty('write');
-      expect(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe(
-        'oidc-request-token'
-      );
-      return { outcome: CodexOAuthV2ReviewOutcome.Completed };
-    });
+    const v2Review: CodexOAuthV2ReviewRunnerPort['run'] = jest.fn(
+      async (input): Promise<CodexOAuthV2ReviewResult> => {
+        expect(input).toMatchObject({
+          repository: '777genius/agent-teams-ai',
+          pullRequestNumber: 252,
+          headSha: '0123456789abcdef0123456789abcdef01234567',
+          workspacePath: '/tmp/workspace',
+          codexHome: '/tmp/codex-home',
+          codexBinaryPath: '/tmp/codex-bin',
+          scmReadToken: 'ghs_checkout',
+          scmReadTokenExpiresAt: '2026-05-25T12:15:00.000Z',
+          refreshScmReadToken: expect.any(Function),
+        });
+        await expect(input.refreshScmReadToken()).resolves.toEqual({
+          token: 'ghs_checkout',
+          expiresAt: '2026-05-25T12:15:00.000Z',
+        });
+        events.push('v2-review');
+        expect(input).not.toHaveProperty('commentToken');
+        expect(input).not.toHaveProperty('commentTokenProvider');
+        expect(input).not.toHaveProperty('comments');
+        expect(input).not.toHaveProperty('write');
+        expect(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe(
+          'oidc-request-token'
+        );
+        return { outcome: CodexOAuthV2ReviewOutcome.Completed };
+      }
+    );
     const ports = buildV2Ports(events, { run: v2Review });
 
     const result = await runCodexOAuthRotatingRuntime(
@@ -292,9 +296,11 @@ describe('Codex OAuth rotating runtime', () => {
 
   it('rejects a checkout capability if the control plane widens it to write', async () => {
     const events: string[] = [];
-    const v2Review = jest.fn(async () => ({
-      outcome: CodexOAuthV2ReviewOutcome.Completed,
-    }));
+    const v2Review: CodexOAuthV2ReviewRunnerPort['run'] = jest.fn(
+      async (): Promise<CodexOAuthV2ReviewResult> => ({
+        outcome: CodexOAuthV2ReviewOutcome.Completed,
+      })
+    );
     const ports = buildV2Ports(events, { run: v2Review });
     ports.controlPlane.checkoutToken = jest.fn(async () => ({
       protocolVersion: 1 as const,
@@ -335,9 +341,11 @@ describe('Codex OAuth rotating runtime', () => {
 
   it('preserves stale queued secret semantics in v2 mode', async () => {
     const events: string[] = [];
-    const v2Review = jest.fn(async () => ({
-      outcome: CodexOAuthV2ReviewOutcome.Completed,
-    }));
+    const v2Review: CodexOAuthV2ReviewRunnerPort['run'] = jest.fn(
+      async (): Promise<CodexOAuthV2ReviewResult> => ({
+        outcome: CodexOAuthV2ReviewOutcome.Completed,
+      })
+    );
     const ports = buildV2Ports(events, { run: v2Review });
     ports.controlPlane.finalize = jest.fn(async () => {
       events.push('finalize');

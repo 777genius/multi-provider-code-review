@@ -15,7 +15,10 @@ import {
   ReviewOrchestrationResultStatus,
   type ReviewRunAuthorization,
 } from '../../../src/review-orchestration/application';
-import { CodexOAuthV2ReviewOutcome } from '../../../src/codex-oauth/runtime';
+import {
+  CodexOAuthV2ReviewOutcome,
+  CodexOAuthV2TerminalReason,
+} from '../../../src/codex-oauth/runtime';
 import type { PRContext, ReviewConfig } from '../../../src/types';
 import { compareCodeUnits } from '../../../src/review-orchestration/infrastructure/production-review-projection';
 import {
@@ -84,16 +87,29 @@ describe('ProductionT0ReviewRunner policy', () => {
     expect(['ä', 'z', 'A'].sort(compareCodeUnits)).toEqual(['A', 'z', 'ä']);
   });
 
-  it('does not fail the action when publication was safely not applied', () => {
-    for (const status of [
+  it.each([
+    [
       ReviewOrchestrationResultStatus.PublicationNotApplied,
+      CodexOAuthV2ReviewOutcome.PublicationNotApplied,
+      CodexOAuthV2TerminalReason.PublicationConflict,
+      'review_action_v2_publication_not_applied',
+    ],
+    [
       ReviewOrchestrationResultStatus.PublicationStale,
-    ]) {
+      CodexOAuthV2ReviewOutcome.PublicationStale,
+      CodexOAuthV2TerminalReason.PublicationStale,
+      'review_action_v2_publication_stale',
+    ],
+  ])(
+    'never maps %s to a completed review',
+    (status, outcome, reason, blockingFailure) => {
       expect(mapOrchestrationResultToCodexOutcome({ status })).toEqual({
-        outcome: CodexOAuthV2ReviewOutcome.Completed,
+        outcome,
+        reason,
+        blockingFailure,
       });
     }
-  });
+  );
 
   it('keeps incomplete required partial coverage blocking', () => {
     expect(
@@ -103,6 +119,7 @@ describe('ProductionT0ReviewRunner policy', () => {
       })
     ).toEqual({
       outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+      reason: CodexOAuthV2TerminalReason.RequiredProviderLaneBusy,
       blockingFailure: 'required_provider_lane_busy',
     });
   });
@@ -114,7 +131,8 @@ describe('ProductionT0ReviewRunner policy', () => {
         failureCode: 'provider_failed',
       })
     ).toEqual({
-      outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+      outcome: CodexOAuthV2ReviewOutcome.Failed,
+      reason: CodexOAuthV2TerminalReason.ExecutionFailed,
       blockingFailure: 'provider_failed',
     });
   });
@@ -667,7 +685,11 @@ describe('ProductionT0ReviewRunner policy', () => {
       expect(
         mapRevisionGuardErrorToCodexOutcome(new Error(blockingFailure))
       ).toEqual({
-        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        outcome: CodexOAuthV2ReviewOutcome.Failed,
+        reason:
+          blockingFailure === 'review_action_v2_revision_guard_unavailable'
+            ? CodexOAuthV2TerminalReason.RevisionGuardUnavailable
+            : CodexOAuthV2TerminalReason.RevisionGuardFailed,
         blockingFailure,
       });
     }
@@ -773,7 +795,8 @@ describe('ProductionT0ReviewRunner policy', () => {
 
 function authorizationWithInvestigation(
   providerKinds: readonly (
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode
   )[] = [ReviewExecutionProviderKind.Codex]
 ): ReviewRunAuthorization {
   return authorizationWithInvestigationCapabilities(
@@ -829,7 +852,8 @@ function authorizationWithInvestigationCapabilities(
 
 function authorizationWithLegacyInvestigation(
   providerKinds: readonly (
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode
   )[] = [ReviewExecutionProviderKind.Codex]
 ): ReviewRunAuthorization {
   const base = authorization(1);

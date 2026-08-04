@@ -131,6 +131,98 @@ describe('LegacyReviewProjectionPolicyAdapter', () => {
     );
   });
 
+  it('presents partial coverage as incomplete while preserving preliminary findings', async () => {
+    const projected = await adapter.projectPresentation({
+      scope: {
+        scmRepositoryIdentityId: 'repo-1',
+        pullRequestNumber: 46,
+        baseSha: '0'.repeat(40),
+        reviewedHeadSha: '1'.repeat(40),
+        reviewRevisionHash: 'revision-partial',
+      },
+      presentation: {
+        title: 'Partial review',
+        author: 'author',
+        additions: 1,
+        deletions: 0,
+      },
+      providerExecution: {
+        plannedProviders: 1,
+        succeededProviders: 1,
+      },
+      coverage: {
+        state: ProjectionCoverageState.Partial,
+        mode: 'full',
+        totalFiles: 2,
+        reviewedFiles: 1,
+        unreviewedFiles: 1,
+        limitations: ['work_slot_coverage_incomplete:slot-2'],
+      },
+      occurrences: [occurrence()],
+      revisionFiles: [revisionFile()],
+      limits: REVIEW_PROJECTION_ABSOLUTE_LIMITS,
+    });
+
+    expect(projected.summaryBody).toContain(
+      '## Review incomplete - 1 preliminary finding preserved ⚠️'
+    );
+    expect(projected.summaryBody).toContain(
+      'Inline comments and lifecycle changes were withheld'
+    );
+    expect(projected.summaryBody).toContain('### Coverage not completed');
+    expect(projected.summaryBody).toContain(
+      '- work_slot_coverage_incomplete:slot-2'
+    );
+    expect(projected.summaryBody).not.toMatch(
+      /^##\s+Review complete(?:d)?\b/im
+    );
+    expect(projected.checkTitle).toBe('Review incomplete - partial coverage');
+    expect(projected.checkConclusion).toBe('neutral');
+  });
+
+  it('does not claim a clean review when partial coverage found nothing', async () => {
+    const projected = await adapter.projectPresentation({
+      scope: {
+        scmRepositoryIdentityId: 'repo-1',
+        pullRequestNumber: 46,
+        baseSha: '0'.repeat(40),
+        reviewedHeadSha: '1'.repeat(40),
+        reviewRevisionHash: 'revision-partial-empty',
+      },
+      presentation: {
+        title: 'Partial review',
+        author: 'author',
+        additions: 1,
+        deletions: 0,
+      },
+      providerExecution: {
+        plannedProviders: 1,
+        succeededProviders: 1,
+      },
+      coverage: {
+        state: ProjectionCoverageState.Partial,
+        mode: 'full',
+        totalFiles: 2,
+        reviewedFiles: 1,
+        unreviewedFiles: 1,
+        limitations: ['work_slot_coverage_incomplete:slot-2'],
+      },
+      occurrences: [],
+      revisionFiles: [revisionFile()],
+      limits: REVIEW_PROJECTION_ABSOLUTE_LIMITS,
+    });
+
+    expect(projected.summaryBody).toContain(
+      '## Review incomplete - 0 preliminary findings preserved ⚠️'
+    );
+    expect(projected.summaryBody).not.toContain(
+      'No critical, major, or minor findings were reported for this revision.'
+    );
+    expect(projected.summaryBody).toContain(
+      'Inline comments and lifecycle changes were withheld'
+    );
+  });
+
   it('does not count carried occurrences as severity-gate blockers', () => {
     const decision = adapter.evaluateMergeGate({
       failOnSeverity: FindingSeverity.Major,

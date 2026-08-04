@@ -241,14 +241,18 @@ export class LegacyReviewProjectionPolicyAdapter
       query.coverage.state === ProjectionCoverageState.Partial
         ? [
             '',
-            'Coverage is partial.',
+            '### Coverage not completed',
             ...query.coverage.limitations.map(
               (limitation) => `- ${limitation}`
             ),
           ]
         : [];
+    const reviewSummary =
+      query.coverage.state === ProjectionCoverageState.Partial
+        ? formatPartialReviewSummary(review.summary, currentOccurrences.length)
+        : review.summary;
     const summaryBody = [
-      review.summary,
+      reviewSummary,
       ...(lifecycleLines.length > 0 ? ['', ...lifecycleLines] : []),
       ...coverageLines,
     ].join('\n');
@@ -258,7 +262,7 @@ export class LegacyReviewProjectionPolicyAdapter
       checkName: 'ReviewRouter',
       checkTitle:
         query.coverage.state === ProjectionCoverageState.Partial
-          ? 'Review completed with partial coverage'
+          ? 'Review incomplete - partial coverage'
           : 'Review completed',
       checkSummary: summaryBody,
       checkConclusion:
@@ -379,6 +383,25 @@ export class LegacyReviewProjectionPolicyAdapter
       body: inline.body,
     };
   }
+}
+
+function formatPartialReviewSummary(
+  summary: string,
+  preliminaryFindingCount: number
+): string {
+  const findingLabel = preliminaryFindingCount === 1 ? 'finding' : 'findings';
+  const partialHeading = `## Review incomplete - ${preliminaryFindingCount} preliminary ${findingLabel} preserved ⚠️`;
+  const partialNote =
+    '<sub>These preliminary findings were preserved in this summary. Inline comments and lifecycle changes were withheld because required coverage did not complete.</sub>';
+  const completeHeading = /^## Review complete[^\n]*$/m;
+  const synthesisNote = /^<sub>[^\n]*<\/sub>$/m;
+  if (!completeHeading.test(summary) || !synthesisNote.test(summary)) {
+    throw new Error('legacy_partial_review_summary_contract_invalid');
+  }
+
+  return summary
+    .replace(completeHeading, partialHeading)
+    .replace(synthesisNote, partialNote);
 }
 
 function toLegacyFinding(

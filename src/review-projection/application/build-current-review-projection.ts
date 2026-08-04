@@ -180,7 +180,7 @@ export class BuildCurrentReviewProjection {
       : buildInlineChunks(occurrences, this.limits);
     const summaryBody = coverageOnly
       ? [
-          'Review coverage is partial. ReviewRouter published this summary, but inline findings and lifecycle changes were held back.',
+          'ReviewRouter did not complete required coverage. Preliminary findings are preserved below; inline comments and lifecycle changes were held back.',
           '',
           removeAllClearClaims(presentation.summaryBody),
         ].join('\n')
@@ -188,7 +188,7 @@ export class BuildCurrentReviewProjection {
         ? presentation.summaryBody
         : removeAllClearClaims(presentation.summaryBody);
     const checkTitle = coverageOnly
-      ? 'Review coverage is partial'
+      ? 'Review incomplete - partial coverage'
       : allClear
         ? presentation.checkTitle
         : removeAllClearClaims(presentation.checkTitle);
@@ -197,6 +197,13 @@ export class BuildCurrentReviewProjection {
       : allClear
         ? presentation.checkSummary
         : removeAllClearClaims(presentation.checkSummary);
+    if (coverageOnly) {
+      assertPartialPresentationDoesNotClaimCompletion(
+        summaryBody,
+        checkTitle,
+        checkSummary
+      );
+    }
     this.validateRenderedText(
       summaryBody,
       presentation.checkName,
@@ -529,7 +536,7 @@ function buildInlineChunks(
 
   assertWithinProjectionLimit('maxInlineComments', comments.length, limits);
   const chunks: ReviewProjectionInlineChunkFact[] = [];
-  for (let offset = 0; offset < comments.length;) {
+  for (let offset = 0; offset < comments.length; ) {
     const chunkComments = comments.slice(
       offset,
       offset + limits.maxInlineCommentsPerChunk
@@ -715,6 +722,22 @@ function removeAllClearClaims(body: string): string {
   return body
     .replace(/\ball[ -]?clear\b/gi, 'No blocking findings in reviewed coverage')
     .replace(/\bno issues? found\b/gi, 'No issues found in reviewed coverage');
+}
+
+function assertPartialPresentationDoesNotClaimCompletion(
+  summaryBody: string,
+  checkTitle: string,
+  checkSummary: string
+): void {
+  const completedHeading = /^##\s+Review complete(?:d)?\b/im;
+  const completedTitle = /^\s*Review complete(?:d)?\b/i;
+  if (
+    completedHeading.test(summaryBody) ||
+    completedTitle.test(checkTitle) ||
+    completedHeading.test(checkSummary)
+  ) {
+    throw new Error('partial review presentation must not claim completion');
+  }
 }
 
 function countOccurrenceStates(
