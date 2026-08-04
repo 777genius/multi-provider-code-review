@@ -1,5 +1,12 @@
 # Self-Hosted Deployment Guide
 
+> Legacy standalone guide. This document describes the old token/webhook
+> runtime and is not the provider-neutral Review Investigation control plane.
+> New self-hosted deployments use the SaaS repository's
+> `deploy/self-hosted/README.md` and
+> `docs/operations/review-router-self-hosted-test-matrix.md`. Do not treat the
+> commands below as Review Investigation readiness or E2E evidence.
+
 Deploy ReviewRouter in your own infrastructure using Docker.
 
 ## Quick Start

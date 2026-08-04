@@ -1,4 +1,5 @@
 export * from './review-action-v2-control-plane-adapter';
+export * from './review-investigation-recording-adapter';
 export * from './review-observation-normalizer';
 export * from './current-review-projection-builder-adapter';
 export * from './codex-review-invocation-adapter';

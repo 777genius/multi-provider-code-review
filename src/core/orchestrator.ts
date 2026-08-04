@@ -125,9 +125,11 @@ import {
 } from '../control-plane/memory';
 import { ExecutionDeadline } from '../review-execution/domain/execution-deadline';
 import {
+  aggregateWorkSlotProviderResults,
   classifyProviderCapacitySignal,
   createReviewBatchPlan,
   prioritizeFilesByRisk,
+  type WorkSlotProviderResult,
 } from '../review-execution/domain';
 import {
   AdaptiveBatchScheduler,
@@ -936,6 +938,7 @@ export class ReviewOrchestrator {
           logger.info(`Processing ${batches.length} batch(es)`);
 
           const batchResults: ProviderResult[] = [];
+          const workSlotProviderResults: WorkSlotProviderResult[] = [];
           const restoredCheckpointResults =
             checkpointSession?.acceptedBatchResults ?? new Map();
           if (
@@ -971,6 +974,12 @@ export class ReviewOrchestrator {
               restoredResults
             );
             batchResults.push(...restoredResults);
+            workSlotProviderResults.push(
+              ...restoredResults.map((providerResult) => ({
+                workSlotId: plannedBatch.id,
+                providerResult,
+              }))
+            );
             this.recordLifecycleBatchProviderFailures(
               lifecycleTargetsByBatch[plannedBatch.index] ?? [],
               restoredResults,
@@ -1097,6 +1106,12 @@ export class ReviewOrchestrator {
             const batchIndex = result.item.index;
             if (result.status === BatchExecutionStatus.Fulfilled) {
               batchResults.push(...result.result);
+              workSlotProviderResults.push(
+                ...result.result.map((providerResult) => ({
+                  workSlotId: result.item.id,
+                  providerResult,
+                }))
+              );
               const requiredFailure = this.findRequiredProviderExecutionFailure(
                 requiredHealthyProviders,
                 result.result
@@ -1173,6 +1188,12 @@ export class ReviewOrchestrator {
                 lifecycleAssignedTargetIds,
               }));
               batchResults.push(...failedBatchResults);
+              workSlotProviderResults.push(
+                ...failedBatchResults.map((providerResult) => ({
+                  workSlotId: result.item.id,
+                  providerResult,
+                }))
+              );
               const requiredFailure = this.findRequiredProviderExecutionFailure(
                 requiredHealthyProviders,
                 failedBatchResults
@@ -1210,16 +1231,9 @@ export class ReviewOrchestrator {
           );
           lifecycleProviderResults = batchResults;
 
-          // Merge results deterministically: prefer batch results over health checks, unique per provider
-          const mergedMap = new Map<string, ProviderResult>();
-          for (const result of allHealthResults) {
-            mergedMap.set(result.name, result);
-          }
-          for (const result of batchResults) {
-            mergedMap.set(result.name, result);
-          }
-          const mergedResults = Array.from(mergedMap.values()).sort((a, b) =>
-            a.name.localeCompare(b.name)
+          const mergedResults = aggregateWorkSlotProviderResults(
+            allHealthResults,
+            workSlotProviderResults
           );
 
           // Record reliability for all results (both successes and failures)

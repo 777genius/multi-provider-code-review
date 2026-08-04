@@ -4,6 +4,7 @@ import {
   ReviewActionV2ClientError,
 } from '../../control-plane/review-action-v2-client';
 import {
+  reviewInvestigationRolloutAuthorizationV2Contract,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
   ReviewActionV2OperationId,
@@ -26,7 +27,10 @@ import {
 } from '../../control-plane/generated/review-action-v2/review-action-v2';
 import {
   ReviewEvidenceLookupKind,
+  ReviewCapabilityKind,
   ReviewExecutionProviderKind,
+  ReviewInvestigationAuthorizationDescriptorVersion,
+  ReviewInvestigationRolloutCapability,
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
@@ -38,6 +42,7 @@ import {
   type ReviewExecutionAdmission,
   type ReviewInvocationLease,
   type ReviewProtocolLimits,
+  type ReviewInvestigationCapabilityDescriptor,
   type ReviewRunAuthorization,
   type RestoredReviewExecution,
   type ReviewWorkSlotPlan,
@@ -122,6 +127,9 @@ export class ReviewActionV2ControlPlaneAdapter
           input.gatewayPolicyVersion,
           input.gatewayBinaryHash,
           input.confinementEvidenceHash,
+          ...(input.openingIntentDiscriminator === undefined
+            ? []
+            : [input.openingIntentDiscriminator]),
         ]),
         attemptId: input.invocationLease.attemptId,
         sourceLeaseId: input.invocationLease.leaseId,
@@ -638,6 +646,10 @@ export class ReviewActionV2ControlPlaneAdapter
               input.observation.contextDependencyAttestationId ?? null,
             contextDependencyAttestationHash:
               input.observation.contextDependencyAttestationHash ?? null,
+            investigationCertificateId:
+              input.observation.investigationCertificateId ?? null,
+            investigationCertificateHash:
+              input.observation.investigationCertificateHash ?? null,
             payloadCanonicalJson: input.observation.payloadCanonicalJson,
             payloadHash: input.observation.payloadHash,
             qualityFlags: input.observation.qualityFlags,
@@ -1216,10 +1228,17 @@ function parseRestoredWorkSlotState(
 
 function parseAuthorizationFacts(value: string | undefined) {
   const parsed = parseCanonicalObject(value);
-  const providerVoteLanes = parsed.providerVoteLanes;
-  if (!Array.isArray(providerVoteLanes) || providerVoteLanes.length === 0) {
-    throw new Error('review_action_v2_provider_vote_lanes_invalid');
-  }
+  const providerVoteLanes = parseProviderVoteLanes(parsed.providerVoteLanes);
+  const hasReviewInvestigation = Object.prototype.hasOwnProperty.call(
+    parsed,
+    'reviewInvestigation'
+  );
+  const reviewInvestigation = !hasReviewInvestigation
+    ? undefined
+    : parseOptionalReviewInvestigationCapability(
+        parsed.reviewInvestigation,
+        providerVoteLanes
+      );
   const facts = {
     workspaceId: requireString(parsed.workspaceId, 'workspace_id'),
     repositoryConnectionId: requireString(
@@ -1256,26 +1275,8 @@ function parseAuthorizationFacts(value: string | undefined) {
       'selected_protocol_version'
     ),
     schemaDigest: requireDigest(parsed.schemaDigest, 'schema_digest'),
-    providerVoteLanes: providerVoteLanes.map((value) => {
-      if (!isRecord(value)) {
-        throw new Error('review_action_v2_provider_vote_lane_invalid');
-      }
-      const providerKind = requireString(value.providerKind, 'provider_kind');
-      if (
-        !Object.values(ReviewExecutionProviderKind).includes(
-          providerKind as ReviewExecutionProviderKind
-        )
-      ) {
-        throw new Error('review_action_v2_provider_kind_invalid');
-      }
-      return {
-        providerKind: providerKind as ReviewExecutionProviderKind,
-        providerVoteIdentityHash: requireDigest(
-          value.providerVoteIdentityHash,
-          'provider_vote_identity_hash'
-        ),
-      };
-    }),
+    ...(reviewInvestigation === undefined ? {} : { reviewInvestigation }),
+    providerVoteLanes,
   };
   const expectedKeys = [
     'baseSha',
@@ -1285,6 +1286,7 @@ function parseAuthorizationFacts(value: string | undefined) {
     'providerVoteLanes',
     'pullRequestNumber',
     'repositoryConnectionId',
+    ...(hasReviewInvestigation ? ['reviewInvestigation'] : []),
     'reviewRevisionHash',
     'schemaDigest',
     'scmRepositoryIdentityId',
@@ -1298,6 +1300,213 @@ function parseAuthorizationFacts(value: string | undefined) {
     throw new Error('review_action_v2_authorization_facts_fields_invalid');
   }
   return facts;
+}
+
+function parseProviderVoteLanes(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('review_action_v2_provider_vote_lanes_invalid');
+  }
+  return Object.freeze(
+    value.map((lane) => {
+      if (!isRecord(lane)) {
+        throw new Error('review_action_v2_provider_vote_lane_invalid');
+      }
+      const providerKind = requireString(lane.providerKind, 'provider_kind');
+      if (
+        !Object.values(ReviewExecutionProviderKind).includes(
+          providerKind as ReviewExecutionProviderKind
+        )
+      ) {
+        throw new Error('review_action_v2_provider_kind_invalid');
+      }
+      return Object.freeze({
+        providerKind: providerKind as ReviewExecutionProviderKind,
+        providerVoteIdentityHash: requireDigest(
+          lane.providerVoteIdentityHash,
+          'provider_vote_identity_hash'
+        ),
+      });
+    })
+  );
+}
+
+function parseOptionalReviewInvestigationCapability(
+  value: unknown,
+  providerVoteLanes: readonly Readonly<{
+    providerKind: ReviewExecutionProviderKind;
+  }>[]
+): ReviewInvestigationCapabilityDescriptor | undefined {
+  try {
+    return parseReviewInvestigationCapability(value, providerVoteLanes);
+  } catch {
+    return undefined;
+  }
+}
+
+function parseReviewInvestigationCapability(
+  value: unknown,
+  providerVoteLanes: readonly Readonly<{
+    providerKind: ReviewExecutionProviderKind;
+  }>[]
+): ReviewInvestigationCapabilityDescriptor {
+  if (!isRecord(value)) {
+    throw new Error('review_action_v2_review_investigation_invalid');
+  }
+  return parseReviewInvestigationCapabilityV2(value, providerVoteLanes);
+}
+
+function parseReviewInvestigationCapabilityV2(
+  value: Record<string, unknown>,
+  providerVoteLanes: readonly Readonly<{
+    providerKind: ReviewExecutionProviderKind;
+  }>[]
+) {
+  requireExactKeys(value, [
+    'authorizationDescriptorVersion',
+    'capability',
+    'coverageProfileHash',
+    'policyHash',
+    'providerCapabilities',
+  ]);
+  if (
+    value.authorizationDescriptorVersion !==
+      ReviewInvestigationAuthorizationDescriptorVersion.V2 ||
+    value.authorizationDescriptorVersion !==
+      reviewInvestigationRolloutAuthorizationV2Contract.authorizationDescriptorVersion ||
+    value.capability !== ReviewCapabilityKind.ReviewInvestigationV1 ||
+    value.capability !==
+      reviewInvestigationRolloutAuthorizationV2Contract.capability
+  ) {
+    throw new Error('review_action_v2_review_investigation_capability_invalid');
+  }
+  if (
+    !Array.isArray(value.providerCapabilities) ||
+    value.providerCapabilities.length === 0 ||
+    value.providerCapabilities.length > 2
+  ) {
+    throw new Error(
+      'review_action_v2_review_investigation_provider_capabilities_invalid'
+    );
+  }
+  const providerCapabilities = value.providerCapabilities.map((row) => {
+    if (!isRecord(row)) {
+      throw new Error(
+        'review_action_v2_review_investigation_provider_capability_invalid'
+      );
+    }
+    requireExactKeys(row, ['capabilities', 'providerKind']);
+    const providerKind = parseInvestigationProviderKind(row.providerKind);
+    if (
+      !Array.isArray(row.capabilities) ||
+      row.capabilities.length === 0 ||
+      row.capabilities.length >
+        reviewInvestigationRolloutAuthorizationV2Contract.capabilities.length
+    ) {
+      throw new Error(
+        'review_action_v2_review_investigation_capabilities_invalid'
+      );
+    }
+    const capabilities = row.capabilities.map(parseRolloutCapability);
+    if (
+      new Set(capabilities).size !== capabilities.length ||
+      !isStrictlyLexicographicallySorted(capabilities) ||
+      !capabilities.includes(ReviewInvestigationRolloutCapability.Recording) ||
+      !isDependencyClosed(capabilities)
+    ) {
+      throw new Error(
+        'review_action_v2_review_investigation_capabilities_not_canonical'
+      );
+    }
+    return Object.freeze({
+      providerKind,
+      capabilities: Object.freeze(capabilities),
+    });
+  });
+  const providerKinds = providerCapabilities.map((row) => row.providerKind);
+  if (
+    new Set(providerKinds).size !== providerKinds.length ||
+    !isStrictlyLexicographicallySorted(providerKinds) ||
+    !providersAreLaneAuthorized(providerKinds, providerVoteLanes)
+  ) {
+    throw new Error(
+      'review_action_v2_review_investigation_provider_capabilities_not_canonical'
+    );
+  }
+  return Object.freeze({
+    authorizationDescriptorVersion:
+      ReviewInvestigationAuthorizationDescriptorVersion.V2,
+    capability: ReviewCapabilityKind.ReviewInvestigationV1,
+    coverageProfileHash: requireDigest(
+      value.coverageProfileHash,
+      'review_investigation_coverage_profile_hash'
+    ),
+    policyHash: requireDigest(
+      value.policyHash,
+      'review_investigation_policy_hash'
+    ),
+    providerCapabilities: Object.freeze(providerCapabilities),
+  });
+}
+
+function parseInvestigationProviderKind(value: unknown) {
+  if (
+    value !== ReviewExecutionProviderKind.Codex &&
+    value !== ReviewExecutionProviderKind.ClaudeCode
+  ) {
+    throw new Error(
+      'review_action_v2_review_investigation_provider_kind_invalid'
+    );
+  }
+  return value;
+}
+
+function parseRolloutCapability(
+  value: unknown
+): ReviewInvestigationRolloutCapability {
+  if (
+    typeof value !== 'string' ||
+    !reviewInvestigationRolloutAuthorizationV2Contract.capabilities.includes(
+      value as (typeof reviewInvestigationRolloutAuthorizationV2Contract.capabilities)[number]
+    )
+  ) {
+    throw new Error(
+      'review_action_v2_review_investigation_rollout_capability_invalid'
+    );
+  }
+  return value as ReviewInvestigationRolloutCapability;
+}
+
+function isDependencyClosed(
+  capabilities: readonly ReviewInvestigationRolloutCapability[]
+): boolean {
+  const granted = new Set<string>(capabilities);
+  const dependencies =
+    reviewInvestigationRolloutAuthorizationV2Contract.dependencies as Readonly<
+      Record<string, readonly string[]>
+    >;
+  return capabilities.every((capability) =>
+    dependencies[capability].every((dependency) => granted.has(dependency))
+  );
+}
+
+function providersAreLaneAuthorized(
+  providerKinds: readonly (
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
+  )[],
+  providerVoteLanes: readonly Readonly<{
+    providerKind: ReviewExecutionProviderKind;
+  }>[]
+): boolean {
+  const authorized = new Set(
+    providerVoteLanes.map((lane) => lane.providerKind)
+  );
+  return providerKinds.every((providerKind) => authorized.has(providerKind));
+}
+
+function isStrictlyLexicographicallySorted(values: readonly string[]): boolean {
+  return values.every(
+    (value, index) => index === 0 || values[index - 1]! < value
+  );
 }
 
 function parseLease(result: {

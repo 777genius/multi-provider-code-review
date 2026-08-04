@@ -26,8 +26,43 @@ describe('production review projection coverage', () => {
     expect(envelope.projectionPolicyVersion).toBe(
       'review-projection-policy.v4-t0'
     );
+    expect(envelope.authoritativeObservationIds).toEqual([
+      'observation-required-slot',
+    ]);
     expect(summary).toContain('| Providers | 1/1 succeeded |');
     expect(summary).not.toContain('1 failed');
+  });
+
+  it('records every accepted clean observation in deterministic authoritative lineage', async () => {
+    const builder = projectionBuilder([
+      assignment('z-required-slot', true),
+      assignment('a-optional-slot', false),
+    ]);
+
+    const projection = await builder.build({
+      acceptedEvidence: [
+        acceptedEvidence(
+          'z-required-slot',
+          fullCoverageManifest('z-required-slot'),
+          ['investigation_verified_clean']
+        ),
+        acceptedEvidence(
+          'a-optional-slot',
+          fullCoverageManifest('a-optional-slot'),
+          ['investigation_verified_clean']
+        ),
+      ],
+      exhaustedWorkSlotIds: [],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+    const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
+
+    expect(envelope.authoritativeObservationIds).toEqual([
+      'observation-a-optional-slot',
+      'observation-z-required-slot',
+    ]);
+    expect(envelope.occurrences).toEqual([]);
+    expect(envelope.publishing.summary.allClear).toBe(true);
   });
 
   it('reports an exhausted required provider slot as 0/1', async () => {
@@ -79,8 +114,10 @@ describe('production review projection coverage', () => {
     });
     const summary = JSON.parse(projection.projectionEnvelopeCanonicalJson)
       .publishing.summary.body;
+    const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
 
     expect(summary).toContain('| Providers | 0/0 succeeded |');
+    expect(envelope.authoritativeObservationIds).toEqual([]);
   });
 
   it('makes required-slot coverage partial when context inspection is incomplete', async () => {

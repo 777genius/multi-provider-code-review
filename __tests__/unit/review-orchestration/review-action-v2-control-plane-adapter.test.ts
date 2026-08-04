@@ -22,8 +22,11 @@ import {
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
 import { logger } from '../../../src/utils/logger';
 import {
+  ReviewCapabilityKind,
   ReviewExecutionProviderKind,
   ReviewEvidenceLookupKind,
+  ReviewInvestigationAuthorizationDescriptorVersion,
+  ReviewInvestigationRolloutCapability,
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
@@ -58,6 +61,369 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         facts: authorizationFacts,
       })
     );
+  });
+
+  it('accepts old authorization facts that omit investigation capability', async () => {
+    const execute = jest.fn().mockResolvedValue(authorizationResponse());
+
+    await expect(
+      createAdapter(execute).authorize({ oidcToken: 'oidc.token' })
+    ).resolves.toMatchObject({
+      facts: expect.not.objectContaining({
+        reviewInvestigation: expect.anything(),
+      }),
+    });
+  });
+
+  it('parses the strict review investigation authorization descriptor V2', async () => {
+    const reviewInvestigation = {
+      authorizationDescriptorVersion:
+        ReviewInvestigationAuthorizationDescriptorVersion.V2,
+      capability: ReviewCapabilityKind.ReviewInvestigationV1,
+      coverageProfileHash: hash('coverage-profile'),
+      policyHash: hash('investigation-policy'),
+      providerCapabilities: [
+        {
+          providerKind: ReviewExecutionProviderKind.Codex,
+          capabilities: [
+            ReviewInvestigationRolloutCapability.ContextCritic,
+            ReviewInvestigationRolloutCapability.Recording,
+            ReviewInvestigationRolloutCapability.Shadow,
+          ],
+        },
+      ],
+    } as const;
+    const execute = jest.fn().mockResolvedValue({
+      ...authorizationResponse(),
+      authorizationFactsCanonicalJson: canonicalJson({
+        ...authorizationFacts,
+        reviewInvestigation,
+      }),
+    });
+
+    await expect(
+      createAdapter(execute).authorize({ oidcToken: 'oidc.token' })
+    ).resolves.toMatchObject({
+      facts: { reviewInvestigation },
+    });
+  });
+
+  it('ignores a versionless V1 provider allowlist and stays on legacy review', async () => {
+    const reviewInvestigation = {
+      capability: ReviewCapabilityKind.ReviewInvestigationV1,
+      coverageProfileHash: hash('coverage-profile'),
+      policyHash: hash('investigation-policy'),
+      providerKinds: [ReviewExecutionProviderKind.Codex],
+    } as const;
+    const execute = jest.fn().mockResolvedValue({
+      ...authorizationResponse(),
+      authorizationFactsCanonicalJson: canonicalJson({
+        ...authorizationFacts,
+        reviewInvestigation,
+      }),
+    });
+
+    await expect(
+      createAdapter(execute).authorize({ oidcToken: 'oidc.token' })
+    ).resolves.toMatchObject({
+      facts: expect.not.objectContaining({
+        reviewInvestigation: expect.anything(),
+      }),
+    });
+  });
+
+  it.each([
+    {
+      name: 'unknown top-level field',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [ReviewInvestigationRolloutCapability.Recording],
+          },
+        ],
+        futureField: true,
+      },
+    },
+    {
+      name: 'unsupported provider',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.OpenRouter,
+            capabilities: [ReviewInvestigationRolloutCapability.Recording],
+          },
+        ],
+      },
+    },
+    {
+      name: 'unsupported descriptor version',
+      descriptor: {
+        authorizationDescriptorVersion: 3,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [ReviewInvestigationRolloutCapability.Recording],
+          },
+        ],
+      },
+    },
+    {
+      name: 'empty provider rows',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [],
+      },
+    },
+    {
+      name: 'duplicate provider rows',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [ReviewInvestigationRolloutCapability.Recording],
+          },
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [ReviewInvestigationRolloutCapability.Recording],
+          },
+        ],
+      },
+    },
+    {
+      name: 'unsorted capabilities',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [
+              ReviewInvestigationRolloutCapability.Shadow,
+              ReviewInvestigationRolloutCapability.Recording,
+            ],
+          },
+        ],
+      },
+    },
+    {
+      name: 'duplicate capabilities',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [
+              ReviewInvestigationRolloutCapability.Recording,
+              ReviewInvestigationRolloutCapability.Recording,
+            ],
+          },
+        ],
+      },
+    },
+    {
+      name: 'unknown capability',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [
+              'future_capability',
+              ReviewInvestigationRolloutCapability.Recording,
+            ],
+          },
+        ],
+      },
+    },
+    {
+      name: 'dependency gap',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [
+              ReviewInvestigationRolloutCapability.ContextCritic,
+              ReviewInvestigationRolloutCapability.Recording,
+            ],
+          },
+        ],
+      },
+    },
+    {
+      name: 'row without recording authority',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [],
+          },
+        ],
+      },
+    },
+    {
+      name: 'unknown provider-row field',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: hash('coverage-profile'),
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [ReviewInvestigationRolloutCapability.Recording],
+            futureField: true,
+          },
+        ],
+      },
+    },
+    {
+      name: 'invalid coverage profile hash',
+      descriptor: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: 'not-a-hash',
+        policyHash: hash('investigation-policy'),
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [ReviewInvestigationRolloutCapability.Recording],
+          },
+        ],
+      },
+    },
+  ])(
+    'ignores an invalid optional descriptor with $name',
+    async ({ descriptor }) => {
+      const execute = jest.fn().mockResolvedValue({
+        ...authorizationResponse(),
+        authorizationFactsCanonicalJson: canonicalJson({
+          ...authorizationFacts,
+          reviewInvestigation: descriptor,
+        }),
+      });
+
+      const result = await createAdapter(execute).authorize({
+        oidcToken: 'oidc.token',
+      });
+
+      expect(result.facts).toMatchObject(authorizationFacts);
+      expect(result.facts.reviewInvestigation).toBeUndefined();
+    }
+  );
+
+  it('ignores unsorted provider rows while preserving base authorization', async () => {
+    const providerVoteLanes = [
+      {
+        providerKind: ReviewExecutionProviderKind.ClaudeCode,
+        providerVoteIdentityHash: '7'.repeat(64),
+      },
+      ...authorizationFacts.providerVoteLanes,
+    ];
+    const execute = jest.fn().mockResolvedValue({
+      ...authorizationResponse(),
+      authorizationFactsCanonicalJson: canonicalJson({
+        ...authorizationFacts,
+        providerVoteLanes,
+        reviewInvestigation: {
+          authorizationDescriptorVersion:
+            ReviewInvestigationAuthorizationDescriptorVersion.V2,
+          capability: ReviewCapabilityKind.ReviewInvestigationV1,
+          coverageProfileHash: hash('coverage-profile'),
+          policyHash: hash('investigation-policy'),
+          providerCapabilities: [
+            {
+              providerKind: ReviewExecutionProviderKind.Codex,
+              capabilities: [ReviewInvestigationRolloutCapability.Recording],
+            },
+            {
+              providerKind: ReviewExecutionProviderKind.ClaudeCode,
+              capabilities: [ReviewInvestigationRolloutCapability.Recording],
+            },
+          ],
+        },
+      }),
+    });
+
+    const result = await createAdapter(execute).authorize({
+      oidcToken: 'oidc.token',
+    });
+
+    expect(result.facts.providerVoteLanes).toEqual(providerVoteLanes);
+    expect(result.facts.reviewInvestigation).toBeUndefined();
+  });
+
+  it('ignores a provider row without an authorized lane', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      ...authorizationResponse(),
+      authorizationFactsCanonicalJson: canonicalJson({
+        ...authorizationFacts,
+        reviewInvestigation: {
+          authorizationDescriptorVersion:
+            ReviewInvestigationAuthorizationDescriptorVersion.V2,
+          capability: ReviewCapabilityKind.ReviewInvestigationV1,
+          coverageProfileHash: hash('coverage-profile'),
+          policyHash: hash('investigation-policy'),
+          providerCapabilities: [
+            {
+              providerKind: ReviewExecutionProviderKind.ClaudeCode,
+              capabilities: [ReviewInvestigationRolloutCapability.Recording],
+            },
+          ],
+        },
+      }),
+    });
+
+    const result = await createAdapter(execute).authorize({
+      oidcToken: 'oidc.token',
+    });
+
+    expect(result.facts.reviewInvestigation).toBeUndefined();
   });
 
   it.each(['superseded_no_effect', 'failed_no_effect'])(

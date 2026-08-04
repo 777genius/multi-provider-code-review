@@ -9,6 +9,7 @@ import { hashIncrementalCompatibility } from '../../cache/key-builder';
 import { ConfigLoader } from '../../config/loader';
 import { applyControlPlaneRuntimeConfig } from '../../control-plane/runtime-config';
 import { ReviewActionV2Client } from '../../control-plane/review-action-v2-client';
+import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../context-gateway/context-gateway-v4-contract';
 import { BatchOrchestrator } from '../../core/batch-orchestrator';
 import { prioritizeFilesByRisk } from '../../review-execution/domain/file-risk-priority';
 import { GitHubClient } from '../../github/client';
@@ -62,6 +63,36 @@ import {
 } from './github-review-state-adapter';
 import { createProductionReviewProjectionBuilder } from './production-review-projection';
 import { ReviewActionV2ControlPlaneAdapter } from './review-action-v2-control-plane-adapter';
+import {
+  CodexReviewAgentAdapter,
+  ContextGatewayV4InvestigationAdapter,
+  LoggingInvestigationOperationalDiagnostics,
+  NodeReviewAgentProcessRunner,
+  ReviewInvestigationControlPlaneError,
+  ReviewInvestigationControlPlaneFailureClass,
+  ReviewInvestigationLegacyFallbackSignal,
+  ReviewAgentProviderKind,
+  ReviewActionV2InvestigationAdapter,
+  ReplayInvestigationOnRevision,
+  RunInvestigationTurn,
+  RunInvestigationWorkSlot,
+  type ReviewAgentExecutionSessionResolverPort,
+  type ReviewInvestigationControlPlanePort,
+  type ReviewInvestigationReplayControlPlanePort,
+} from '../../review-investigation';
+import {
+  ManagedOnlyInvestigationLeaseAdapter,
+  REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+  ReviewInvestigationRecordingAdapter,
+  RevisionGuardInvestigationCurrencyAdapter,
+} from './review-investigation-recording-adapter';
+import {
+  createProductionReviewInvestigationAgentSelector,
+  productionReviewInvestigationRecordingMode,
+  readProductionReviewInvestigationRolloutFlags,
+  resolveProductionReviewInvestigationRollout,
+  type ConfiguredProductionReviewAgent,
+} from './production-review-investigation-composition';
 
 const execFileAsync = promisify(execFile);
 const CODEX_RETRY_POLICY_VERSION = 'codex-semantic-retry.v1';
@@ -88,11 +119,12 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     validateInput(input);
     await applyReviewRuntimeConfig(input, this.fetchImpl);
     const config = ConfigLoader.load();
+    const reviewActionClient = new ReviewActionV2Client({
+      apiUrl: input.apiUrl,
+      fetchImpl: this.fetchImpl,
+    });
     const controlPlane = new ReviewActionV2ControlPlaneAdapter(
-      new ReviewActionV2Client({
-        apiUrl: input.apiUrl,
-        fetchImpl: this.fetchImpl,
-      })
+      reviewActionClient
     );
     const oidc = new GitHubActionsOidcTokenProvider({
       fetchImpl: this.fetchImpl,
@@ -155,6 +187,13 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     const codexProviderName = selectCodexProvider(config);
     const model = codexProviderName.slice('codex/'.length);
     const agenticContext = config.codexAgenticContext ?? true;
+    const investigationRollout = resolveProductionReviewInvestigationRollout({
+      flags: readProductionReviewInvestigationRolloutFlags(),
+      agenticContext,
+      authorization,
+      primaryProviderKind: ReviewExecutionProviderKind.Codex,
+    });
+    const investigationRecordingEnabled = investigationRollout.recordingEnabled;
     const provider = new CodexProvider(model, {
       agenticContext,
       eventAudit: config.codexEventAudit,
@@ -164,15 +203,28 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       process.env.REVIEWROUTER_RUNTIME_CONFIG_VERSION
     );
     const gatewayBundlePath = resolveContextGatewayBundlePath();
+    const requiredContextWitness = new SubprocessRequiredContextWitnessRunner();
     const contextGateway = agenticContext
       ? new ContextGatewayInvocationSessionFactory(
           controlPlane,
           {
             checkoutRoot: path.resolve(input.workspacePath),
             gatewayBundlePath,
+            ...(investigationRecordingEnabled
+              ? { policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION }
+              : {}),
           },
-          new SubprocessRequiredContextWitnessRunner()
+          requiredContextWitness
         )
+      : undefined;
+    const investigationGatewayFactory = investigationRecordingEnabled
+      ? contextGateway
+      : undefined;
+    const contextReplayRunner = contextGateway
+      ? new ContextAttestationReplayRunner({
+          checkoutRoot: path.resolve(input.workspacePath),
+          gatewayBundlePath,
+        })
       : undefined;
     const planned = planAssignments({
       authorization,
@@ -189,9 +241,97 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       planned.assignments,
       Math.max(1_000, config.runTimeoutSeconds * 1_000),
       agenticContext,
-      contextGateway
+      contextGateway,
+      investigationRecordingEnabled
     );
     const identities = new DeterministicReviewOrchestrationIdentity();
+    const investigationProtocol = investigationRecordingEnabled
+      ? new ReviewActionV2InvestigationAdapter(reviewActionClient)
+      : undefined;
+    const investigationControlPlane = investigationProtocol
+      ? new LegacyFallbackBeforeInvestigationAuthorityControlPlane(
+          investigationProtocol
+        )
+      : undefined;
+    const investigationRecording =
+      investigationControlPlane && investigationGatewayFactory
+        ? new ReviewInvestigationRecordingAdapter(
+            (recordingInput) => {
+              const currency = new RevisionGuardInvestigationCurrencyAdapter(
+                revisionGuard
+              );
+              const gateway = new ContextGatewayV4InvestigationAdapter(
+                investigationGatewayFactory,
+                {
+                  revision: {
+                    baseSha: authorization.facts.baseSha,
+                    mergeBaseSha: authorization.facts.mergeBaseSha,
+                    headSha: authorization.facts.headSha,
+                  },
+                  preparedManifestKey: recordingInput.manifest.manifestKey,
+                  providerKind:
+                    recordingInput.invocation.manifestFacts.providerKind,
+                  requestedModel: recordingInput.invocation.requestedModel,
+                  executionProfile:
+                    recordingInput.invocation.manifestFacts.executionProfile,
+                  providerInvocationKey:
+                    recordingInput.manifest.providerInvocationKey,
+                  toolPolicyHash:
+                    recordingInput.invocation.manifestFacts.toolPolicyHash,
+                }
+              );
+              const agents = createProductionReviewInvestigationAgentSelector({
+                authorization,
+                primaryProviderKind: ReviewAgentProviderKind.Codex,
+                contextCriticEnabled: investigationRollout.contextCriticEnabled,
+                agents: createConfiguredProductionInvestigationAgents({
+                  codexModel: model,
+                  codexBinaryPath: input.codexBinaryPath,
+                  executionSessions: gateway,
+                }),
+              });
+              return new RunInvestigationWorkSlot({
+                controlPlane: investigationControlPlane,
+                leases: new ManagedOnlyInvestigationLeaseAdapter(),
+                ...(investigationRollout.crossRevisionReplayEnabled &&
+                contextReplayRunner
+                  ? {
+                      replay: new ReplayInvestigationOnRevision({
+                        controlPlane: investigationControlPlane,
+                        receipts: contextReplayRunner,
+                        currency,
+                      }),
+                    }
+                  : {}),
+                turnRunner: new RunInvestigationTurn({
+                  controlPlane: investigationControlPlane,
+                  currency,
+                  gateway,
+                  agents,
+                  diagnostics: new LoggingInvestigationOperationalDiagnostics(
+                    logger
+                  ),
+                  now: () => new Date(),
+                }),
+              });
+            },
+            {
+              workingDirectory: path.resolve(input.workspacePath),
+              leaseDurationMs: 5 * 60_000,
+              providerTimeoutMs: Math.max(
+                1_000,
+                config.runTimeoutSeconds * 1_000
+              ),
+              certificateTtlMs: 24 * 60 * 60_000,
+              minimumCapacityParkMs: 60_000,
+              maxObligationsForTurn: 64,
+              maxStateTransitions: 128,
+              policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+            },
+            productionReviewInvestigationRecordingMode(investigationRollout),
+            investigationRollout.verifiedCleanEnabled
+          )
+        : undefined;
     const useCase = new RunT0ReviewOrchestration({
       controlPlane,
       revisionGuard,
@@ -210,6 +350,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       invocationFailureClassifier: new ProviderInvocationFailureClassifier(),
       invocationDiagnostics: new LoggingReviewInvocationDiagnostics(logger),
       leaseSupervisor: new CooperativeReviewLeaseSupervisor(),
+      ...(investigationRecording ? { investigationRecording } : {}),
       projectionBuilder: createProductionReviewProjectionBuilder({
         authorizationFacts: authorization.facts,
         pr,
@@ -228,10 +369,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       }),
       ...(contextGateway
         ? {
-            contextReplay: new ContextAttestationReplayRunner({
-              checkoutRoot: path.resolve(input.workspacePath),
-              gatewayBundlePath,
-            }),
+            contextReplay: contextReplayRunner,
             contextAttestations: controlPlane,
           }
         : {}),
@@ -271,6 +409,121 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     );
     return mapOrchestrationResultToCodexOutcome(result);
   }
+}
+
+type ProductionInvestigationControlPlanePort =
+  ReviewInvestigationControlPlanePort &
+    ReviewInvestigationReplayControlPlanePort;
+
+export class LegacyFallbackBeforeInvestigationAuthorityControlPlane implements ProductionInvestigationControlPlanePort {
+  constructor(
+    private readonly delegate: ProductionInvestigationControlPlanePort
+  ) {}
+
+  open(input: Parameters<ReviewInvestigationControlPlanePort['open']>[0]) {
+    return this.openWithLegacyFallback(() => this.delegate.open(input));
+  }
+
+  restore(
+    input: Parameters<ReviewInvestigationControlPlanePort['restore']>[0]
+  ) {
+    return this.delegate.restore(input);
+  }
+
+  planTurn(
+    input: Parameters<ReviewInvestigationControlPlanePort['planTurn']>[0]
+  ) {
+    return this.delegate.planTurn(input);
+  }
+
+  commitTurn(
+    input: Parameters<ReviewInvestigationControlPlanePort['commitTurn']>[0]
+  ) {
+    return this.delegate.commitTurn(input);
+  }
+
+  abortTurn(
+    input: Parameters<ReviewInvestigationControlPlanePort['abortTurn']>[0]
+  ) {
+    return this.delegate.abortTurn(input);
+  }
+
+  conclude(
+    input: Parameters<ReviewInvestigationControlPlanePort['conclude']>[0]
+  ) {
+    return this.delegate.conclude(input);
+  }
+
+  prepareReplay(
+    input: Parameters<
+      ReviewInvestigationReplayControlPlanePort['prepareReplay']
+    >[0]
+  ) {
+    return this.delegate.prepareReplay(input);
+  }
+
+  commitReceiptReplay(
+    input: Parameters<
+      ReviewInvestigationReplayControlPlanePort['commitReceiptReplay']
+    >[0]
+  ) {
+    return this.delegate.commitReceiptReplay(input);
+  }
+
+  replay(
+    input: Parameters<ReviewInvestigationReplayControlPlanePort['replay']>[0]
+  ) {
+    return this.delegate.replay(input);
+  }
+
+  private async openWithLegacyFallback<T>(
+    execute: () => Promise<T>
+  ): Promise<T> {
+    try {
+      return await execute();
+    } catch (error) {
+      if (
+        error instanceof ReviewInvestigationControlPlaneError &&
+        error.failureClass ===
+          ReviewInvestigationControlPlaneFailureClass.CapabilityDisabled
+      ) {
+        throw new ReviewInvestigationLegacyFallbackSignal();
+      }
+      throw error;
+    }
+  }
+}
+
+function codexCredentialEnvironment(): Readonly<NodeJS.ProcessEnv> {
+  return Object.freeze(
+    Object.fromEntries(
+      ['CODEX_HOME', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY']
+        .map((key) => [key, process.env[key]] as const)
+        .filter(
+          (entry): entry is readonly [string, string] => entry[1] !== undefined
+        )
+    )
+  );
+}
+
+function createConfiguredProductionInvestigationAgents(input: {
+  readonly codexModel: string;
+  readonly codexBinaryPath: string | undefined;
+  readonly executionSessions: ReviewAgentExecutionSessionResolverPort;
+}): readonly ConfiguredProductionReviewAgent[] {
+  const processRunner = new NodeReviewAgentProcessRunner();
+  return Object.freeze([
+    {
+      providerKind: ReviewAgentProviderKind.Codex,
+      requestedModel: input.codexModel,
+      agent: new CodexReviewAgentAdapter(processRunner, {
+        executionSessions: input.executionSessions,
+        providerCredentialEnvironment: codexCredentialEnvironment,
+        ...(input.codexBinaryPath ? { binary: input.codexBinaryPath } : {}),
+        reasoningEffort: 'xhigh',
+      }),
+    },
+  ] satisfies readonly ConfiguredProductionReviewAgent[]);
 }
 
 export function mapOrchestrationResultToCodexOutcome(result: {

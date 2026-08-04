@@ -319,12 +319,12 @@ var require_add = __commonJS({
       }
       if (kind === "after") {
         hook = function(method, options) {
-          var result;
+          var result2;
           return Promise.resolve().then(method.bind(null, options)).then(function(result_) {
-            result = result_;
-            return orig(result, options);
+            result2 = result_;
+            return orig(result2, options);
           }).then(function() {
-            return result;
+            return result2;
           });
         };
       }
@@ -479,18 +479,18 @@ var require_dist_node2 = __commonJS({
       return typeof Ctor === "function" && Ctor instanceof Ctor && Function.prototype.call(Ctor) === Function.prototype.call(value);
     }
     function mergeDeep(defaults2, options) {
-      const result = Object.assign({}, defaults2);
+      const result2 = Object.assign({}, defaults2);
       Object.keys(options).forEach((key) => {
         if (isPlainObject2(options[key])) {
           if (!(key in defaults2))
-            Object.assign(result, { [key]: options[key] });
+            Object.assign(result2, { [key]: options[key] });
           else
-            result[key] = mergeDeep(defaults2[key], options[key]);
+            result2[key] = mergeDeep(defaults2[key], options[key]);
         } else {
-          Object.assign(result, { [key]: options[key] });
+          Object.assign(result2, { [key]: options[key] });
         }
       });
-      return result;
+      return result2;
     }
     function removeUndefinedProperties(obj) {
       for (const key in obj) {
@@ -546,13 +546,13 @@ var require_dist_node2 = __commonJS({
       return matches.map(removeNonChars).reduce((a2, b2) => a2.concat(b2), []);
     }
     function omit(object, keysToOmit) {
-      const result = { __proto__: null };
+      const result2 = { __proto__: null };
       for (const key of Object.keys(object)) {
         if (keysToOmit.indexOf(key) === -1) {
-          result[key] = object[key];
+          result2[key] = object[key];
         }
       }
-      return result;
+      return result2;
     }
     function encodeReserved(str2) {
       return str2.split(/(%[0-9A-Fa-f]{2})/g).map(function(part) {
@@ -582,28 +582,28 @@ var require_dist_node2 = __commonJS({
       return operator === ";" || operator === "&" || operator === "?";
     }
     function getValues(context, operator, key, modifier) {
-      var value = context[key], result = [];
+      var value = context[key], result2 = [];
       if (isDefined(value) && value !== "") {
         if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
           value = value.toString();
           if (modifier && modifier !== "*") {
             value = value.substring(0, parseInt(modifier, 10));
           }
-          result.push(
+          result2.push(
             encodeValue(operator, value, isKeyOperator(operator) ? key : "")
           );
         } else {
           if (modifier === "*") {
             if (Array.isArray(value)) {
               value.filter(isDefined).forEach(function(value2) {
-                result.push(
+                result2.push(
                   encodeValue(operator, value2, isKeyOperator(operator) ? key : "")
                 );
               });
             } else {
               Object.keys(value).forEach(function(k2) {
                 if (isDefined(value[k2])) {
-                  result.push(encodeValue(operator, value[k2], k2));
+                  result2.push(encodeValue(operator, value[k2], k2));
                 }
               });
             }
@@ -622,24 +622,24 @@ var require_dist_node2 = __commonJS({
               });
             }
             if (isKeyOperator(operator)) {
-              result.push(encodeUnreserved(key) + "=" + tmp.join(","));
+              result2.push(encodeUnreserved(key) + "=" + tmp.join(","));
             } else if (tmp.length !== 0) {
-              result.push(tmp.join(","));
+              result2.push(tmp.join(","));
             }
           }
         }
       } else {
         if (operator === ";") {
           if (isDefined(value)) {
-            result.push(encodeUnreserved(key));
+            result2.push(encodeUnreserved(key));
           }
         } else if (value === "" && (operator === "&" || operator === "?")) {
-          result.push(encodeUnreserved(key) + "=");
+          result2.push(encodeUnreserved(key) + "=");
         } else if (value === "") {
-          result.push("");
+          result2.push("");
         }
       }
-      return result;
+      return result2;
     }
     function parseUrl(template) {
       return {
@@ -1239,16 +1239,16 @@ var require_dist_node6 = __commonJS({
       const parsedOptions = typeof query === "string" ? Object.assign({ query }, options) : query;
       const requestOptions = Object.keys(
         parsedOptions
-      ).reduce((result, key) => {
+      ).reduce((result2, key) => {
         if (NON_VARIABLE_OPTIONS.includes(key)) {
-          result[key] = parsedOptions[key];
-          return result;
+          result2[key] = parsedOptions[key];
+          return result2;
         }
-        if (!result.variables) {
-          result.variables = {};
+        if (!result2.variables) {
+          result2.variables = {};
         }
-        result.variables[key] = parsedOptions[key];
-        return result;
+        result2.variables[key] = parsedOptions[key];
+        return result2;
       }, {});
       const baseUrl = parsedOptions.baseUrl || request2.endpoint.DEFAULTS.baseUrl;
       if (GHES_V3_SUFFIX_REGEX.test(baseUrl)) {
@@ -1564,15 +1564,15 @@ var require_dist_node9 = __commonJS({
         octokit.log.debug("request", options);
         const start = Date.now();
         const requestOptions = octokit.request.endpoint.parse(options);
-        const path25 = requestOptions.url.replace(options.baseUrl, "");
+        const path28 = requestOptions.url.replace(options.baseUrl, "");
         return request(options).then((response) => {
           octokit.log.info(
-            `${requestOptions.method} ${path25} - ${response.status} in ${Date.now() - start}ms`
+            `${requestOptions.method} ${path28} - ${response.status} in ${Date.now() - start}ms`
           );
           return response;
         }).catch((error2) => {
           octokit.log.info(
-            `${requestOptions.method} ${path25} - ${error2.status} in ${Date.now() - start}ms`
+            `${requestOptions.method} ${path28} - ${error2.status} in ${Date.now() - start}ms`
           );
           throw error2;
         });
@@ -1684,8 +1684,8 @@ var require_dist_node10 = __commonJS({
       );
     }
     function gather(octokit, results, iterator2, mapFn) {
-      return iterator2.next().then((result) => {
-        if (result.done) {
+      return iterator2.next().then((result2) => {
+        if (result2.done) {
           return results;
         }
         let earlyExit = false;
@@ -1693,7 +1693,7 @@ var require_dist_node10 = __commonJS({
           earlyExit = true;
         }
         results = results.concat(
-          mapFn ? mapFn(result.value, done) : result.value.data
+          mapFn ? mapFn(result2.value, done) : result2.value.data
         );
         if (earlyExit) {
           return results;
@@ -6143,10 +6143,10 @@ var require_keyword = __commonJS({
       if (def.async && !schemaEnv.$async)
         throw new Error("async keyword in sync schema");
     }
-    function useKeyword(gen, keyword, result) {
-      if (result === void 0)
+    function useKeyword(gen, keyword, result2) {
+      if (result2 === void 0)
         throw new Error(`keyword "${keyword}" failed to compile`);
-      return gen.scopeValue("keyword", typeof result == "function" ? { ref: result } : { ref: result, code: (0, codegen_1.stringify)(result) });
+      return gen.scopeValue("keyword", typeof result2 == "function" ? { ref: result2 } : { ref: result2, code: (0, codegen_1.stringify)(result2) });
     }
     function validSchemaType(schema2, schemaType, allowUndefined = false) {
       return !schemaType.length || schemaType.some((st2) => st2 === "array" ? Array.isArray(schema2) : st2 === "object" ? schema2 && typeof schema2 == "object" && !Array.isArray(schema2) : typeof schema2 == st2 || allowUndefined && typeof schema2 == "undefined");
@@ -7447,8 +7447,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path25) {
-      let input = path25;
+    function removeDotSegments(path28) {
+      let input = path28;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -7700,8 +7700,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path25, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path25 && path25 !== "/" ? path25 : void 0;
+        const [path28, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path28 && path28 !== "/" ? path28 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -12060,11 +12060,11 @@ function requireCommon() {
     return target;
   }
   function repeat(string, count) {
-    let result = "";
+    let result2 = "";
     for (let cycle = 0; cycle < count; cycle += 1) {
-      result += string;
+      result2 += string;
     }
-    return result;
+    return result2;
   }
   function isNegativeZero(number) {
     return number === 0 && Number.NEGATIVE_INFINITY === 1 / number;
@@ -12162,7 +12162,7 @@ function requireSnippet() {
       }
     }
     if (foundLineNo < 0) foundLineNo = lineStarts.length - 1;
-    let result = "";
+    let result2 = "";
     const lineNoLength = Math.min(mark.line + options.linesAfter, lineEnds.length).toString().length;
     const maxLineLength = options.maxLength - (options.indent + lineNoLength + 3);
     for (let i2 = 1; i2 <= options.linesBefore; i2++) {
@@ -12174,11 +12174,11 @@ function requireSnippet() {
         mark.position - (lineStarts[foundLineNo] - lineStarts[foundLineNo - i2]),
         maxLineLength
       );
-      result = common2.repeat(" ", options.indent) + padStart((mark.line - i2 + 1).toString(), lineNoLength) + " | " + line2.str + "\n" + result;
+      result2 = common2.repeat(" ", options.indent) + padStart((mark.line - i2 + 1).toString(), lineNoLength) + " | " + line2.str + "\n" + result2;
     }
     const line = getLine(mark.buffer, lineStarts[foundLineNo], lineEnds[foundLineNo], mark.position, maxLineLength);
-    result += common2.repeat(" ", options.indent) + padStart((mark.line + 1).toString(), lineNoLength) + " | " + line.str + "\n";
-    result += common2.repeat("-", options.indent + lineNoLength + 3 + line.pos) + "^\n";
+    result2 += common2.repeat(" ", options.indent) + padStart((mark.line + 1).toString(), lineNoLength) + " | " + line.str + "\n";
+    result2 += common2.repeat("-", options.indent + lineNoLength + 3 + line.pos) + "^\n";
     for (let i2 = 1; i2 <= options.linesAfter; i2++) {
       if (foundLineNo + i2 >= lineEnds.length) break;
       const line2 = getLine(
@@ -12188,9 +12188,9 @@ function requireSnippet() {
         mark.position - (lineStarts[foundLineNo] - lineStarts[foundLineNo + i2]),
         maxLineLength
       );
-      result += common2.repeat(" ", options.indent) + padStart((mark.line + i2 + 1).toString(), lineNoLength) + " | " + line2.str + "\n";
+      result2 += common2.repeat(" ", options.indent) + padStart((mark.line + i2 + 1).toString(), lineNoLength) + " | " + line2.str + "\n";
     }
-    return result.replace(/\n$/, "");
+    return result2.replace(/\n$/, "");
   }
   snippet = makeSnippet;
   return snippet;
@@ -12219,15 +12219,15 @@ function requireType() {
     "mapping"
   ];
   function compileStyleAliases(map2) {
-    const result = {};
+    const result2 = {};
     if (map2 !== null) {
       Object.keys(map2).forEach(function(style) {
         map2[style].forEach(function(alias) {
-          result[String(alias)] = style;
+          result2[String(alias)] = style;
         });
       });
     }
-    return result;
+    return result2;
   }
   function Type2(tag, options) {
     options = options || {};
@@ -12267,20 +12267,20 @@ function requireSchema() {
   const YAMLException2 = requireException();
   const Type2 = requireType();
   function compileList(schema2, name) {
-    const result = [];
+    const result2 = [];
     schema2[name].forEach(function(currentType) {
-      let newIndex = result.length;
-      result.forEach(function(previousType, previousIndex) {
+      let newIndex = result2.length;
+      result2.forEach(function(previousType, previousIndex) {
         if (previousType.tag === currentType.tag && previousType.kind === currentType.kind && previousType.multi === currentType.multi) {
           newIndex = previousIndex;
         }
       });
-      result[newIndex] = currentType;
+      result2[newIndex] = currentType;
     });
-    return result;
+    return result2;
   }
   function compileMap() {
-    const result = {
+    const result2 = {
       scalar: {},
       sequence: {},
       mapping: {},
@@ -12294,16 +12294,16 @@ function requireSchema() {
     };
     function collectType(type2) {
       if (type2.multi) {
-        result.multi[type2.kind].push(type2);
-        result.multi["fallback"].push(type2);
+        result2.multi[type2.kind].push(type2);
+        result2.multi["fallback"].push(type2);
       } else {
-        result[type2.kind][type2.tag] = result["fallback"][type2.tag] = type2;
+        result2[type2.kind][type2.tag] = result2["fallback"][type2.tag] = type2;
       }
     }
     for (let index = 0, length = arguments.length; index < length; index += 1) {
       arguments[index].forEach(collectType);
     }
-    return result;
+    return result2;
   }
   function Schema2(definition) {
     return this.extend(definition);
@@ -12337,13 +12337,13 @@ function requireSchema() {
         throw new YAMLException2("Specified list of YAML types (or a single Type object) contains a non-Type object.");
       }
     });
-    const result = Object.create(Schema2.prototype);
-    result.implicit = (this.implicit || []).concat(implicit);
-    result.explicit = (this.explicit || []).concat(explicit);
-    result.compiledImplicit = compileList(result, "implicit");
-    result.compiledExplicit = compileList(result, "explicit");
-    result.compiledTypeMap = compileMap(result.compiledImplicit, result.compiledExplicit);
-    return result;
+    const result2 = Object.create(Schema2.prototype);
+    result2.implicit = (this.implicit || []).concat(implicit);
+    result2.explicit = (this.explicit || []).concat(explicit);
+    result2.compiledImplicit = compileList(result2, "implicit");
+    result2.compiledExplicit = compileList(result2, "explicit");
+    result2.compiledTypeMap = compileMap(result2.compiledImplicit, result2.compiledExplicit);
+    return result2;
   };
   schema = Schema2;
   return schema;
@@ -12811,60 +12811,60 @@ function requireBinary() {
     const max = input.length;
     const map2 = BASE64_MAP;
     let bits = 0;
-    const result = [];
+    const result2 = [];
     for (let idx = 0; idx < max; idx++) {
       if (idx % 4 === 0 && idx) {
-        result.push(bits >> 16 & 255);
-        result.push(bits >> 8 & 255);
-        result.push(bits & 255);
+        result2.push(bits >> 16 & 255);
+        result2.push(bits >> 8 & 255);
+        result2.push(bits & 255);
       }
       bits = bits << 6 | map2.indexOf(input.charAt(idx));
     }
     const tailbits = max % 4 * 6;
     if (tailbits === 0) {
-      result.push(bits >> 16 & 255);
-      result.push(bits >> 8 & 255);
-      result.push(bits & 255);
+      result2.push(bits >> 16 & 255);
+      result2.push(bits >> 8 & 255);
+      result2.push(bits & 255);
     } else if (tailbits === 18) {
-      result.push(bits >> 10 & 255);
-      result.push(bits >> 2 & 255);
+      result2.push(bits >> 10 & 255);
+      result2.push(bits >> 2 & 255);
     } else if (tailbits === 12) {
-      result.push(bits >> 4 & 255);
+      result2.push(bits >> 4 & 255);
     }
-    return new Uint8Array(result);
+    return new Uint8Array(result2);
   }
   function representYamlBinary(object) {
-    let result = "";
+    let result2 = "";
     let bits = 0;
     const max = object.length;
     const map2 = BASE64_MAP;
     for (let idx = 0; idx < max; idx++) {
       if (idx % 3 === 0 && idx) {
-        result += map2[bits >> 18 & 63];
-        result += map2[bits >> 12 & 63];
-        result += map2[bits >> 6 & 63];
-        result += map2[bits & 63];
+        result2 += map2[bits >> 18 & 63];
+        result2 += map2[bits >> 12 & 63];
+        result2 += map2[bits >> 6 & 63];
+        result2 += map2[bits & 63];
       }
       bits = (bits << 8) + object[idx];
     }
     const tail = max % 3;
     if (tail === 0) {
-      result += map2[bits >> 18 & 63];
-      result += map2[bits >> 12 & 63];
-      result += map2[bits >> 6 & 63];
-      result += map2[bits & 63];
+      result2 += map2[bits >> 18 & 63];
+      result2 += map2[bits >> 12 & 63];
+      result2 += map2[bits >> 6 & 63];
+      result2 += map2[bits & 63];
     } else if (tail === 2) {
-      result += map2[bits >> 10 & 63];
-      result += map2[bits >> 4 & 63];
-      result += map2[bits << 2 & 63];
-      result += map2[64];
+      result2 += map2[bits >> 10 & 63];
+      result2 += map2[bits >> 4 & 63];
+      result2 += map2[bits << 2 & 63];
+      result2 += map2[64];
     } else if (tail === 1) {
-      result += map2[bits >> 2 & 63];
-      result += map2[bits << 4 & 63];
-      result += map2[64];
-      result += map2[64];
+      result2 += map2[bits >> 2 & 63];
+      result2 += map2[bits << 4 & 63];
+      result2 += map2[64];
+      result2 += map2[64];
     }
-    return result;
+    return result2;
   }
   function isBinary(obj) {
     return Object.prototype.toString.call(obj) === "[object Uint8Array]";
@@ -12927,26 +12927,26 @@ function requirePairs() {
   function resolveYamlPairs(data) {
     if (data === null) return true;
     const object = data;
-    const result = new Array(object.length);
+    const result2 = new Array(object.length);
     for (let index = 0, length = object.length; index < length; index += 1) {
       const pair = object[index];
       if (_toString.call(pair) !== "[object Object]") return false;
       const keys = Object.keys(pair);
       if (keys.length !== 1) return false;
-      result[index] = [keys[0], pair[keys[0]]];
+      result2[index] = [keys[0], pair[keys[0]]];
     }
     return true;
   }
   function constructYamlPairs(data) {
     if (data === null) return [];
     const object = data;
-    const result = new Array(object.length);
+    const result2 = new Array(object.length);
     for (let index = 0, length = object.length; index < length; index += 1) {
       const pair = object[index];
       const keys = Object.keys(pair);
-      result[index] = [keys[0], pair[keys[0]]];
+      result2[index] = [keys[0], pair[keys[0]]];
     }
-    return result;
+    return result2;
   }
   pairs = new Type2("tag:yaml.org,2002:pairs", {
     kind: "sequence",
@@ -14444,7 +14444,7 @@ function requireDumper() {
   const DEPRECATED_BASE60_SYNTAX = /^[-+]?[0-9_]+(?::[0-9_]+)+(?:\.[0-9_]*)?$/;
   function compileStyleMap(schema2, map2) {
     if (map2 === null) return {};
-    const result = {};
+    const result2 = {};
     const keys = Object.keys(map2);
     for (let index = 0, length = keys.length; index < length; index += 1) {
       let tag = keys[index];
@@ -14456,9 +14456,9 @@ function requireDumper() {
       if (type2 && _hasOwnProperty.call(type2.styleAliases, style)) {
         style = type2.styleAliases[style];
       }
-      result[tag] = style;
+      result2[tag] = style;
     }
-    return result;
+    return result2;
   }
   function encodeHex(character) {
     let handle;
@@ -14505,7 +14505,7 @@ function requireDumper() {
   function indentString(string, spaces) {
     const ind = common2.repeat(" ", spaces);
     let position = 0;
-    let result = "";
+    let result2 = "";
     const length = string.length;
     while (position < length) {
       let line;
@@ -14517,10 +14517,10 @@ function requireDumper() {
         line = string.slice(position, next + 1);
         position = next + 1;
       }
-      if (line.length && line !== "\n") result += ind;
-      result += line;
+      if (line.length && line !== "\n") result2 += ind;
+      result2 += line;
     }
-    return result;
+    return result2;
   }
   function generateNextLine(state, level) {
     return "\n" + common2.repeat(" ", state.indent * level);
@@ -14692,7 +14692,7 @@ function requireDumper() {
   }
   function foldString(string, width) {
     const lineRe = /(\n+)([^\n]*)/g;
-    let result = function() {
+    let result2 = function() {
       let nextLF = string.indexOf("\n");
       nextLF = nextLF !== -1 ? nextLF : string.length;
       lineRe.lastIndex = nextLF;
@@ -14705,10 +14705,10 @@ function requireDumper() {
       const prefix = match2[1];
       const line = match2[2];
       moreIndented = line[0] === " ";
-      result += prefix + (!prevMoreIndented && !moreIndented && line !== "" ? "\n" : "") + foldLine(line, width);
+      result2 += prefix + (!prevMoreIndented && !moreIndented && line !== "" ? "\n" : "") + foldLine(line, width);
       prevMoreIndented = moreIndented;
     }
-    return result;
+    return result2;
   }
   function foldLine(line, width) {
     if (line === "" || line[0] === " ") return line;
@@ -14718,38 +14718,38 @@ function requireDumper() {
     let end;
     let curr = 0;
     let next = 0;
-    let result = "";
+    let result2 = "";
     while (match2 = breakRe.exec(line)) {
       next = match2.index;
       if (next - start > width) {
         end = curr > start ? curr : next;
-        result += "\n" + line.slice(start, end);
+        result2 += "\n" + line.slice(start, end);
         start = end + 1;
       }
       curr = next;
     }
-    result += "\n";
+    result2 += "\n";
     if (line.length - start > width && curr > start) {
-      result += line.slice(start, curr) + "\n" + line.slice(curr + 1);
+      result2 += line.slice(start, curr) + "\n" + line.slice(curr + 1);
     } else {
-      result += line.slice(start);
+      result2 += line.slice(start);
     }
-    return result.slice(1);
+    return result2.slice(1);
   }
   function escapeString(string) {
-    let result = "";
+    let result2 = "";
     let char = 0;
     for (let i2 = 0; i2 < string.length; char >= 65536 ? i2 += 2 : i2++) {
       char = codePointAt(string, i2);
       const escapeSeq = ESCAPE_SEQUENCES[char];
       if (!escapeSeq && isPrintable(char)) {
-        result += string[i2];
-        if (char >= 65536) result += string[i2 + 1];
+        result2 += string[i2];
+        if (char >= 65536) result2 += string[i2 + 1];
       } else {
-        result += escapeSeq || encodeHex(char);
+        result2 += escapeSeq || encodeHex(char);
       }
     }
-    return result;
+    return result2;
   }
   function writeFlowSequence(state, level, object) {
     let _result = "";
@@ -15097,13 +15097,13 @@ function shouldLog(level) {
   return LEVELS[level] >= LEVELS[CURRENT_LEVEL];
 }
 function formatMessage(level, message, metadata) {
-  const timestamp2 = (/* @__PURE__ */ new Date()).toISOString();
+  const timestamp3 = (/* @__PURE__ */ new Date()).toISOString();
   const levelStr = level.toUpperCase().padEnd(5);
   if (metadata && Object.keys(metadata).length > 0) {
     const metaStr = JSON.stringify(metadata);
-    return `[${timestamp2}] ${levelStr} ${message} ${metaStr}`;
+    return `[${timestamp3}] ${levelStr} ${message} ${metaStr}`;
   }
-  return `[${timestamp2}] ${levelStr} ${message}`;
+  return `[${timestamp3}] ${levelStr} ${message}`;
 }
 var logger = {
   debug(message, ...args) {
@@ -15786,8 +15786,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path25, errorMaps, issueData } = params;
-  const fullPath = [...path25, ...issueData.path || []];
+  const { data, path: path28, errorMaps, issueData } = params;
+  const fullPath = [...path28, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -15903,11 +15903,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path25, key) {
+  constructor(parent, value, path28, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path25;
+    this._path = path28;
     this._key = key;
   }
   get path() {
@@ -15921,9 +15921,9 @@ var ParseInputLazyPath = class {
     return this._cachedPath;
   }
 };
-var handleResult = (ctx, result) => {
-  if (isValid(result)) {
-    return { success: true, data: result.value };
+var handleResult = (ctx, result2) => {
+  if (isValid(result2)) {
+    return { success: true, data: result2.value };
   } else {
     if (!ctx.common.issues.length) {
       throw new Error("Validation failed but no issues detected.");
@@ -15994,21 +15994,21 @@ var ZodType = class {
     };
   }
   _parseSync(input) {
-    const result = this._parse(input);
-    if (isAsync(result)) {
+    const result2 = this._parse(input);
+    if (isAsync(result2)) {
       throw new Error("Synchronous parse encountered promise.");
     }
-    return result;
+    return result2;
   }
   _parseAsync(input) {
-    const result = this._parse(input);
-    return Promise.resolve(result);
+    const result2 = this._parse(input);
+    return Promise.resolve(result2);
   }
   parse(data, params) {
-    const result = this.safeParse(data, params);
-    if (result.success)
-      return result.data;
-    throw result.error;
+    const result2 = this.safeParse(data, params);
+    if (result2.success)
+      return result2.data;
+    throw result2.error;
   }
   safeParse(data, params) {
     const ctx = {
@@ -16023,8 +16023,8 @@ var ZodType = class {
       data,
       parsedType: getParsedType(data)
     };
-    const result = this._parseSync({ data, path: ctx.path, parent: ctx });
-    return handleResult(ctx, result);
+    const result2 = this._parseSync({ data, path: ctx.path, parent: ctx });
+    return handleResult(ctx, result2);
   }
   "~validate"(data) {
     const ctx = {
@@ -16040,9 +16040,9 @@ var ZodType = class {
     };
     if (!this["~standard"].async) {
       try {
-        const result = this._parseSync({ data, path: [], parent: ctx });
-        return isValid(result) ? {
-          value: result.value
+        const result2 = this._parseSync({ data, path: [], parent: ctx });
+        return isValid(result2) ? {
+          value: result2.value
         } : {
           issues: ctx.common.issues
         };
@@ -16056,17 +16056,17 @@ var ZodType = class {
         };
       }
     }
-    return this._parseAsync({ data, path: [], parent: ctx }).then((result) => isValid(result) ? {
-      value: result.value
+    return this._parseAsync({ data, path: [], parent: ctx }).then((result2) => isValid(result2) ? {
+      value: result2.value
     } : {
       issues: ctx.common.issues
     });
   }
   async parseAsync(data, params) {
-    const result = await this.safeParseAsync(data, params);
-    if (result.success)
-      return result.data;
-    throw result.error;
+    const result2 = await this.safeParseAsync(data, params);
+    if (result2.success)
+      return result2.data;
+    throw result2.error;
   }
   async safeParseAsync(data, params) {
     const ctx = {
@@ -16082,8 +16082,8 @@ var ZodType = class {
       parsedType: getParsedType(data)
     };
     const maybeAsyncResult = this._parse({ data, path: ctx.path, parent: ctx });
-    const result = await (isAsync(maybeAsyncResult) ? maybeAsyncResult : Promise.resolve(maybeAsyncResult));
-    return handleResult(ctx, result);
+    const result2 = await (isAsync(maybeAsyncResult) ? maybeAsyncResult : Promise.resolve(maybeAsyncResult));
+    return handleResult(ctx, result2);
   }
   refine(check, message) {
     const getIssueProperties = (val) => {
@@ -16096,13 +16096,13 @@ var ZodType = class {
       }
     };
     return this._refinement((val, ctx) => {
-      const result = check(val);
+      const result2 = check(val);
       const setError = () => ctx.addIssue({
         code: ZodIssueCode.custom,
         ...getIssueProperties(val)
       });
-      if (typeof Promise !== "undefined" && result instanceof Promise) {
-        return result.then((data) => {
+      if (typeof Promise !== "undefined" && result2 instanceof Promise) {
+        return result2.then((data) => {
           if (!data) {
             setError();
             return false;
@@ -16111,7 +16111,7 @@ var ZodType = class {
           }
         });
       }
-      if (!result) {
+      if (!result2) {
         setError();
         return false;
       } else {
@@ -17606,14 +17606,14 @@ var ZodArray = class _ZodArray extends ZodType {
     if (ctx.common.async) {
       return Promise.all([...ctx.data].map((item, i2) => {
         return def.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i2));
-      })).then((result2) => {
-        return ParseStatus.mergeArray(status, result2);
+      })).then((result3) => {
+        return ParseStatus.mergeArray(status, result3);
       });
     }
-    const result = [...ctx.data].map((item, i2) => {
+    const result2 = [...ctx.data].map((item, i2) => {
       return def.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i2));
     });
-    return ParseStatus.mergeArray(status, result);
+    return ParseStatus.mergeArray(status, result2);
   }
   get element() {
     return this._def.type;
@@ -18019,18 +18019,18 @@ var ZodUnion = class extends ZodType {
     const { ctx } = this._processInputParams(input);
     const options = this._def.options;
     function handleResults(results) {
-      for (const result of results) {
-        if (result.result.status === "valid") {
-          return result.result;
+      for (const result2 of results) {
+        if (result2.result.status === "valid") {
+          return result2.result;
         }
       }
-      for (const result of results) {
-        if (result.result.status === "dirty") {
-          ctx.common.issues.push(...result.ctx.common.issues);
-          return result.result;
+      for (const result2 of results) {
+        if (result2.result.status === "dirty") {
+          ctx.common.issues.push(...result2.ctx.common.issues);
+          return result2.result;
         }
       }
-      const unionErrors = results.map((result) => new ZodError(result.ctx.common.issues));
+      const unionErrors = results.map((result2) => new ZodError(result2.ctx.common.issues));
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_union,
         unionErrors
@@ -18068,15 +18068,15 @@ var ZodUnion = class extends ZodType {
           },
           parent: null
         };
-        const result = option._parseSync({
+        const result2 = option._parseSync({
           data: ctx.data,
           path: ctx.path,
           parent: childCtx
         });
-        if (result.status === "valid") {
-          return result;
-        } else if (result.status === "dirty" && !dirty) {
-          dirty = { result, ctx: childCtx };
+        if (result2.status === "valid") {
+          return result2;
+        } else if (result2.status === "dirty" && !dirty) {
+          dirty = { result: result2, ctx: childCtx };
         }
         if (childCtx.common.issues.length) {
           issues.push(childCtx.common.issues);
@@ -18621,9 +18621,9 @@ var ZodFunction = class _ZodFunction extends ZodType {
           error2.addIssue(makeArgsIssue(args, e));
           throw error2;
         });
-        const result = await Reflect.apply(fn, this, parsedArgs);
-        const parsedReturns = await me2._def.returns._def.type.parseAsync(result, params).catch((e) => {
-          error2.addIssue(makeReturnsIssue(result, e));
+        const result2 = await Reflect.apply(fn, this, parsedArgs);
+        const parsedReturns = await me2._def.returns._def.type.parseAsync(result2, params).catch((e) => {
+          error2.addIssue(makeReturnsIssue(result2, e));
           throw error2;
         });
         return parsedReturns;
@@ -18635,10 +18635,10 @@ var ZodFunction = class _ZodFunction extends ZodType {
         if (!parsedArgs.success) {
           throw new ZodError([makeArgsIssue(args, parsedArgs.error)]);
         }
-        const result = Reflect.apply(fn, this, parsedArgs.data);
-        const parsedReturns = me2._def.returns.safeParse(result, params);
+        const result2 = Reflect.apply(fn, this, parsedArgs.data);
+        const parsedReturns = me2._def.returns.safeParse(result2, params);
         if (!parsedReturns.success) {
-          throw new ZodError([makeReturnsIssue(result, parsedReturns.error)]);
+          throw new ZodError([makeReturnsIssue(result2, parsedReturns.error)]);
         }
         return parsedReturns.data;
       });
@@ -18890,43 +18890,43 @@ var ZodEffects = class extends ZodType {
         return Promise.resolve(processed).then(async (processed2) => {
           if (status.value === "aborted")
             return INVALID;
-          const result = await this._def.schema._parseAsync({
+          const result2 = await this._def.schema._parseAsync({
             data: processed2,
             path: ctx.path,
             parent: ctx
           });
-          if (result.status === "aborted")
+          if (result2.status === "aborted")
             return INVALID;
-          if (result.status === "dirty")
-            return DIRTY(result.value);
+          if (result2.status === "dirty")
+            return DIRTY(result2.value);
           if (status.value === "dirty")
-            return DIRTY(result.value);
-          return result;
+            return DIRTY(result2.value);
+          return result2;
         });
       } else {
         if (status.value === "aborted")
           return INVALID;
-        const result = this._def.schema._parseSync({
+        const result2 = this._def.schema._parseSync({
           data: processed,
           path: ctx.path,
           parent: ctx
         });
-        if (result.status === "aborted")
+        if (result2.status === "aborted")
           return INVALID;
-        if (result.status === "dirty")
-          return DIRTY(result.value);
+        if (result2.status === "dirty")
+          return DIRTY(result2.value);
         if (status.value === "dirty")
-          return DIRTY(result.value);
-        return result;
+          return DIRTY(result2.value);
+        return result2;
       }
     }
     if (effect.type === "refinement") {
       const executeRefinement = (acc) => {
-        const result = effect.refinement(acc, checkCtx);
+        const result2 = effect.refinement(acc, checkCtx);
         if (ctx.common.async) {
-          return Promise.resolve(result);
+          return Promise.resolve(result2);
         }
-        if (result instanceof Promise) {
+        if (result2 instanceof Promise) {
           throw new Error("Async refinement encountered during synchronous parse operation. Use .parseAsync instead.");
         }
         return acc;
@@ -18964,18 +18964,18 @@ var ZodEffects = class extends ZodType {
         });
         if (!isValid(base))
           return INVALID;
-        const result = effect.transform(base.value, checkCtx);
-        if (result instanceof Promise) {
+        const result2 = effect.transform(base.value, checkCtx);
+        if (result2 instanceof Promise) {
           throw new Error(`Asynchronous transform encountered during synchronous parse operation. Use .parseAsync instead.`);
         }
-        return { status: status.value, value: result };
+        return { status: status.value, value: result2 };
       } else {
         return this._def.schema._parseAsync({ data: ctx.data, path: ctx.path, parent: ctx }).then((base) => {
           if (!isValid(base))
             return INVALID;
-          return Promise.resolve(effect.transform(base.value, checkCtx)).then((result) => ({
+          return Promise.resolve(effect.transform(base.value, checkCtx)).then((result2) => ({
             status: status.value,
-            value: result
+            value: result2
           }));
         });
       }
@@ -19072,18 +19072,18 @@ var ZodCatch = class extends ZodType {
         issues: []
       }
     };
-    const result = this._def.innerType._parse({
+    const result2 = this._def.innerType._parse({
       data: newCtx.data,
       path: newCtx.path,
       parent: {
         ...newCtx
       }
     });
-    if (isAsync(result)) {
-      return result.then((result2) => {
+    if (isAsync(result2)) {
+      return result2.then((result3) => {
         return {
           status: "valid",
-          value: result2.status === "valid" ? result2.value : this._def.catchValue({
+          value: result3.status === "valid" ? result3.value : this._def.catchValue({
             get error() {
               return new ZodError(newCtx.common.issues);
             },
@@ -19094,7 +19094,7 @@ var ZodCatch = class extends ZodType {
     } else {
       return {
         status: "valid",
-        value: result.status === "valid" ? result.value : this._def.catchValue({
+        value: result2.status === "valid" ? result2.value : this._def.catchValue({
           get error() {
             return new ZodError(newCtx.common.issues);
           },
@@ -19208,14 +19208,14 @@ var ZodPipeline = class _ZodPipeline extends ZodType {
 };
 var ZodReadonly = class extends ZodType {
   _parse(input) {
-    const result = this._def.innerType._parse(input);
+    const result2 = this._def.innerType._parse(input);
     const freeze = (data) => {
       if (isValid(data)) {
         data.value = Object.freeze(data.value);
       }
       return data;
     };
-    return isAsync(result) ? result.then((data) => freeze(data)) : freeze(result);
+    return isAsync(result2) ? result2.then((data) => freeze(data)) : freeze(result2);
   }
   unwrap() {
     return this._def.innerType;
@@ -20046,7 +20046,7 @@ var ConfigLoader = class {
       if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
         throw new Error("Overrides must be a JSON object");
       }
-      const result = {};
+      const result2 = {};
       for (const [key, val] of Object.entries(parsed)) {
         const num = Number(val);
         if (!Number.isFinite(num)) continue;
@@ -20063,9 +20063,9 @@ var ConfigLoader = class {
             `Clamping PROVIDER_BATCH_OVERRIDES entry for "${key}" from ${intVal} to maximum 200`
           );
         }
-        result[key] = clamped;
+        result2[key] = clamped;
       }
-      return result;
+      return result2;
     } catch (error2) {
       const message = `Failed to parse PROVIDER_BATCH_OVERRIDES: ${error2.message}`;
       logger.warn(message);
@@ -20152,7 +20152,7 @@ var ConfigLoader = class {
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error("expected a JSON object");
       }
-      const result = {};
+      const result2 = {};
       for (const key of ["critical", "major", "minor", "unknown"]) {
         if (parsed[key] === void 0) continue;
         const num = Number(parsed[key]);
@@ -20162,9 +20162,9 @@ var ConfigLoader = class {
           );
           continue;
         }
-        result[key] = num;
+        result2[key] = num;
       }
-      return result;
+      return result2;
     } catch (error2) {
       logger.warn(
         `Failed to parse REVIEW_THREAD_LIFECYCLE_RESOLVE_CONFIDENCE: ${error2.message}`
@@ -21168,12 +21168,12 @@ function formatSummaryOnlyChunk(chunk, file) {
 function shellQuote(value) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
-function unquoteGitPath(path25) {
-  if (path25.startsWith('"') && path25.endsWith('"')) {
-    path25 = path25.slice(1, -1);
+function unquoteGitPath(path28) {
+  if (path28.startsWith('"') && path28.endsWith('"')) {
+    path28 = path28.slice(1, -1);
   }
   try {
-    path25 = path25.replace(/\\([\\"tnr])/g, (_m, ch) => {
+    path28 = path28.replace(/\\([\\"tnr])/g, (_m, ch) => {
       switch (ch) {
         case "\\":
           return "\\";
@@ -21191,7 +21191,7 @@ function unquoteGitPath(path25) {
     });
   } catch {
   }
-  return path25;
+  return path28;
 }
 
 // src/utils/token-estimation.ts
@@ -21397,12 +21397,12 @@ var ClaudeCodeProvider = class extends Provider {
   async review(prompt, timeoutMs) {
     const oauthToken = this.readClaudeCodeOAuthToken();
     const invocation = await this.prepareInvocation(prompt, timeoutMs);
-    const result = await this.executePreparedInvocation(invocation, {
+    const result2 = await this.executePreparedInvocation(invocation, {
       bearerToken: oauthToken
     });
     return {
-      ...result,
-      usage: this.estimateUsage(prompt, result.content)
+      ...result2,
+      usage: this.estimateUsage(prompt, result2.content)
     };
   }
   async prepareInvocation(prompt, timeoutMs) {
@@ -22013,13 +22013,13 @@ var CodexProvider = class _CodexProvider extends Provider {
         timeoutPromise
       ]);
       clearTimeout(timeoutId);
-      const result = await this.runCliWithStdin(
+      const result2 = await this.runCliWithStdin(
         binary2,
         "Respond with exactly: codex-health-ok",
         timeoutMs,
         { healthCheck: true }
       );
-      const output = result.lastMessage || result.stdout;
+      const output = result2.lastMessage || result2.stdout;
       if (!output.includes("codex-health-ok")) {
         logger.warn(
           `Codex health check returned unexpected output for ${this.name}`
@@ -23103,7 +23103,7 @@ var CodexProvider = class _CodexProvider extends Provider {
     );
   }
   runGitForDependency(args, cwd) {
-    const result = (0, import_child_process4.spawnSync)("git", args, {
+    const result2 = (0, import_child_process4.spawnSync)("git", args, {
       cwd,
       encoding: "utf8",
       timeout: 2e4,
@@ -23116,9 +23116,9 @@ var CodexProvider = class _CodexProvider extends Provider {
         GIT_CONFIG_NOSYSTEM: "1"
       }
     });
-    if (result.status !== 0) {
+    if (result2.status !== 0) {
       throw new Error(
-        `git ${args[0]} failed: ${(result.stderr || result.stdout || "").slice(0, 200)}`
+        `git ${args[0]} failed: ${(result2.stderr || result2.stdout || "").slice(0, 200)}`
       );
     }
   }
@@ -24604,13 +24604,13 @@ var ProviderRegistry = class {
   }
   dedupeProviders(providers) {
     const seen = /* @__PURE__ */ new Set();
-    const result = [];
+    const result2 = [];
     for (const p2 of providers) {
       if (seen.has(p2.name)) continue;
       seen.add(p2.name);
-      result.push(p2);
+      result2.push(p2);
     }
-    return result;
+    return result2;
   }
   /**
    * Avoid selecting multiple variants of the same underlying model family.
@@ -24732,7 +24732,7 @@ var ProviderRegistry = class {
 };
 
 // src/analysis/llm/prompt-builder.ts
-var import_crypto = require("crypto");
+var import_crypto2 = require("crypto");
 
 // src/analysis/context/validation-detector.ts
 var ValidationDetector = class {
@@ -25404,8 +25404,8 @@ var TrivialDetector = class {
    * Filter out trivial files from a file list
    */
   filterNonTrivial(files) {
-    const result = this.detect(files);
-    return files.filter((f2) => result.nonTrivialFiles.includes(f2.filename));
+    const result2 = this.detect(files);
+    return files.filter((f2) => result2.nonTrivialFiles.includes(f2.filename));
   }
 };
 function createConfiguredTrivialDetector(config) {
@@ -25432,6 +25432,1197 @@ var PreparedPromptPathCoverageKind = /* @__PURE__ */ ((PreparedPromptPathCoverag
   PreparedPromptPathCoverageKind2["Unavailable"] = "unavailable";
   return PreparedPromptPathCoverageKind2;
 })(PreparedPromptPathCoverageKind || {});
+
+// src/review-investigation/domain/canonical-json.ts
+var import_crypto = require("crypto");
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") {
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error("canonical_json_number_invalid");
+    }
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  }
+  const record = value;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+}
+function sha256(value) {
+  return (0, import_crypto.createHash)("sha256").update(value, "utf8").digest("hex");
+}
+
+// src/review-investigation/domain/semantic-risk-policy.ts
+var REVIEW_INVESTIGATION_CRITIC_POLICY_V1 = "review-investigation-critic.v1";
+var REVIEW_INVESTIGATION_RISK_PRIORITY = Object.freeze({
+  StandardChangedPath: 5e5,
+  HighRiskChangedPath: 9e5,
+  InventoryWitness: 1e6
+});
+var REVIEW_INVESTIGATION_INDEPENDENT_CRITIC_RISK_PRIORITY_V1 = 8e5;
+var HIGH_RISK_PATH_TOKENS = /* @__PURE__ */ new Set([
+  "acl",
+  "api",
+  "atomic",
+  "auth",
+  "authentication",
+  "authorization",
+  "backup",
+  "backups",
+  "billing",
+  "cache",
+  "caches",
+  "caching",
+  "concurrency",
+  "concurrent",
+  "controller",
+  "controllers",
+  "credential",
+  "credentials",
+  "database",
+  "databases",
+  "db",
+  "delete",
+  "deletion",
+  "destructive",
+  "drizzle",
+  "drop",
+  "endpoint",
+  "endpoints",
+  "graphql",
+  "invoice",
+  "invoices",
+  "kafka",
+  "knex",
+  "lock",
+  "locking",
+  "locks",
+  "login",
+  "memcached",
+  "migration",
+  "migrations",
+  "mutex",
+  "oauth",
+  "oidc",
+  "openapi",
+  "payment",
+  "payments",
+  "permission",
+  "permissions",
+  "persistence",
+  "pipeline",
+  "pipelines",
+  "prisma",
+  "pubsub",
+  "purge",
+  "queue",
+  "queued",
+  "queues",
+  "rabbitmq",
+  "rbac",
+  "realtime",
+  "recovery",
+  "redis",
+  "reset",
+  "restore",
+  "retention",
+  "rollback",
+  "route",
+  "routes",
+  "rpc",
+  "schema",
+  "schemas",
+  "secret",
+  "secrets",
+  "semaphore",
+  "sequelize",
+  "session",
+  "socket",
+  "sockets",
+  "sql",
+  "subscription",
+  "subscriptions",
+  "swagger",
+  "transaction",
+  "transactions",
+  "truncate",
+  "webhook",
+  "webhooks",
+  "websocket",
+  "websockets",
+  "workflow",
+  "workflows"
+]);
+function changedPathSemanticRiskPriority(path28) {
+  const normalized = path28.trim().replaceAll("\\", "/").replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+  if (normalized.length === 0) {
+    throw new Error("review_investigation_changed_path_missing");
+  }
+  const tokens = normalized.split(/[^a-z0-9]+/u).filter(Boolean);
+  const highRisk = normalized.startsWith(".github/workflows/") || tokens.some((token) => HIGH_RISK_PATH_TOKENS.has(token)) || tokens.includes("data") && tokens.includes("loss");
+  return highRisk ? REVIEW_INVESTIGATION_RISK_PRIORITY.HighRiskChangedPath : REVIEW_INVESTIGATION_RISK_PRIORITY.StandardChangedPath;
+}
+
+// src/review-investigation/domain/turn-observation.ts
+var REVIEW_TURN_OUTPUT_VERSION = 2;
+var REVIEW_TURN_OBSERVATION_VERSION = 2;
+var MAX_COLLECTION_ITEMS = 256;
+var REVIEW_TURN_MAX_OBLIGATION_PROPOSALS = 128;
+var MAX_CANONICAL_SUBJECT_LENGTH = 4096;
+var MAX_CANONICAL_REQUIREMENT_LENGTH = 64e3;
+var MAX_RISK_PRIORITY = 1e6;
+var MAX_PROPOSAL_PATH_LENGTH = 2e3;
+var COMPLETE_FILE_REQUIREMENT_VERSION = 1;
+var COMPLETE_FILE_REQUIREMENT_KIND = "complete_file";
+var FILE_READ_SUBJECT_KIND = "file_read";
+var FILE_READ_SUBJECT_VERSION = 1;
+var ReviewTurnPurpose = /* @__PURE__ */ ((ReviewTurnPurpose2) => {
+  ReviewTurnPurpose2["Discovery"] = "discovery";
+  ReviewTurnPurpose2["Critic"] = "critic";
+  return ReviewTurnPurpose2;
+})(ReviewTurnPurpose || {});
+var ReviewTurnFindingSeverity = /* @__PURE__ */ ((ReviewTurnFindingSeverity2) => {
+  ReviewTurnFindingSeverity2["Critical"] = "critical";
+  ReviewTurnFindingSeverity2["Major"] = "major";
+  ReviewTurnFindingSeverity2["Minor"] = "minor";
+  return ReviewTurnFindingSeverity2;
+})(ReviewTurnFindingSeverity || {});
+var ReviewTurnObligationKind = /* @__PURE__ */ ((ReviewTurnObligationKind2) => {
+  ReviewTurnObligationKind2["InventoryWitness"] = "inventory_witness";
+  ReviewTurnObligationKind2["ChangedContent"] = "changed_content";
+  ReviewTurnObligationKind2["BaseContent"] = "base_content";
+  ReviewTurnObligationKind2["RelatedManifest"] = "related_manifest";
+  ReviewTurnObligationKind2["DirectReferenceSearch"] = "direct_reference_search";
+  ReviewTurnObligationKind2["DirectCaller"] = "direct_caller";
+  ReviewTurnObligationKind2["DirectCallee"] = "direct_callee";
+  ReviewTurnObligationKind2["TestEvidence"] = "test_evidence";
+  ReviewTurnObligationKind2["SchemaContract"] = "schema_contract";
+  ReviewTurnObligationKind2["ConfigurationContract"] = "configuration_contract";
+  ReviewTurnObligationKind2["MigrationContract"] = "migration_contract";
+  ReviewTurnObligationKind2["GeneratedSource"] = "generated_source";
+  ReviewTurnObligationKind2["DependencyContract"] = "dependency_contract";
+  ReviewTurnObligationKind2["SideEffectParity"] = "side_effect_parity";
+  ReviewTurnObligationKind2["ExternalContract"] = "external_contract";
+  ReviewTurnObligationKind2["BinaryArtifact"] = "binary_artifact";
+  ReviewTurnObligationKind2["ContextCritic"] = "context_critic";
+  return ReviewTurnObligationKind2;
+})(ReviewTurnObligationKind || {});
+var REVIEW_TURN_PROVIDER_PROPOSABLE_OBLIGATION_KINDS = Object.freeze([
+  "base_content" /* BaseContent */,
+  "related_manifest" /* RelatedManifest */,
+  "direct_caller" /* DirectCaller */,
+  "direct_callee" /* DirectCallee */,
+  "test_evidence" /* TestEvidence */,
+  "schema_contract" /* SchemaContract */,
+  "configuration_contract" /* ConfigurationContract */,
+  "migration_contract" /* MigrationContract */,
+  "generated_source" /* GeneratedSource */,
+  "dependency_contract" /* DependencyContract */,
+  "side_effect_parity" /* SideEffectParity */,
+  "external_contract" /* ExternalContract */
+]);
+var ReviewTurnProposalRevision = /* @__PURE__ */ ((ReviewTurnProposalRevision2) => {
+  ReviewTurnProposalRevision2["Head"] = "head";
+  ReviewTurnProposalRevision2["MergeBase"] = "merge_base";
+  return ReviewTurnProposalRevision2;
+})(ReviewTurnProposalRevision || {});
+var ReviewTurnCriticDecision = /* @__PURE__ */ ((ReviewTurnCriticDecision2) => {
+  ReviewTurnCriticDecision2["Accept"] = "accept";
+  ReviewTurnCriticDecision2["Veto"] = "veto";
+  ReviewTurnCriticDecision2["Abstain"] = "abstain";
+  return ReviewTurnCriticDecision2;
+})(ReviewTurnCriticDecision || {});
+function buildReviewAgentTurnOutputSchema() {
+  const receiptIds = {
+    type: "array",
+    maxItems: MAX_COLLECTION_ITEMS,
+    uniqueItems: true,
+    items: { type: "string", pattern: "^[a-f0-9]{64}$" }
+  };
+  return Object.freeze({
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "outputVersion",
+      "findings",
+      "obligationProposals",
+      "closureClaims",
+      "operationBackedDiscoveryClaims",
+      "unresolvableClaims",
+      "criticDecision"
+    ],
+    properties: {
+      outputVersion: { const: REVIEW_TURN_OUTPUT_VERSION },
+      findings: {
+        type: "array",
+        maxItems: MAX_COLLECTION_ITEMS,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "severity",
+            "title",
+            "body",
+            "path",
+            "line",
+            "evidenceOperationReceiptIds"
+          ],
+          properties: {
+            severity: { enum: Object.values(ReviewTurnFindingSeverity) },
+            title: { type: "string", minLength: 1, maxLength: 240 },
+            body: { type: "string", minLength: 1, maxLength: 16e3 },
+            path: { type: "string", minLength: 1, maxLength: 2e3 },
+            line: { type: ["integer", "null"], minimum: 1 },
+            evidenceOperationReceiptIds: receiptIds
+          }
+        }
+      },
+      obligationProposals: {
+        type: "array",
+        maxItems: REVIEW_TURN_MAX_OBLIGATION_PROPOSALS,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "kind",
+            "canonicalSubject",
+            "canonicalRequirement",
+            "riskPriority"
+          ],
+          properties: {
+            kind: {
+              enum: REVIEW_TURN_PROVIDER_PROPOSABLE_OBLIGATION_KINDS
+            },
+            canonicalSubject: {
+              type: "string",
+              minLength: 1,
+              maxLength: MAX_CANONICAL_SUBJECT_LENGTH,
+              description: "Canonical JSON file_read subject derived from canonicalRequirement pathHash and revision."
+            },
+            canonicalRequirement: {
+              type: "string",
+              minLength: 1,
+              maxLength: MAX_CANONICAL_REQUIREMENT_LENGTH,
+              description: "Canonical JSON complete_file requirement. pathHash must be SHA-256 of the UTF-8 path."
+            },
+            riskPriority: {
+              type: "integer",
+              minimum: 0,
+              maximum: MAX_RISK_PRIORITY,
+              description: "Advisory semantic risk only; the control plane normalizes authoritative risk."
+            }
+          }
+        }
+      },
+      closureClaims: {
+        type: "array",
+        maxItems: MAX_COLLECTION_ITEMS,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["obligationId", "operationReceiptIds"],
+          properties: {
+            obligationId: { type: "string", pattern: "^[a-f0-9]{64}$" },
+            operationReceiptIds: { ...receiptIds, minItems: 1 }
+          }
+        }
+      },
+      operationBackedDiscoveryClaims: {
+        type: "array",
+        maxItems: MAX_COLLECTION_ITEMS,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["sourceObligationId", "query", "operationReceiptIds"],
+          properties: {
+            sourceObligationId: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            query: { type: "string", minLength: 1, maxLength: 1024 },
+            operationReceiptIds: { ...receiptIds, minItems: 1 }
+          }
+        }
+      },
+      unresolvableClaims: {
+        type: "array",
+        maxItems: MAX_COLLECTION_ITEMS,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["obligationId", "reason", "evidenceOperationReceiptIds"],
+          properties: {
+            obligationId: { type: "string", pattern: "^[a-f0-9]{64}$" },
+            reason: { type: "string", minLength: 1, maxLength: 2e3 },
+            evidenceOperationReceiptIds: receiptIds
+          }
+        }
+      },
+      criticDecision: {
+        anyOf: [
+          { type: "null" },
+          { enum: Object.values(ReviewTurnCriticDecision) }
+        ]
+      }
+    }
+  });
+}
+function parseReviewAgentTurnOutput(value) {
+  const root = requireRecord(value, "turn_output");
+  requireExactKeys(root, [
+    "outputVersion",
+    "findings",
+    "obligationProposals",
+    "closureClaims",
+    "operationBackedDiscoveryClaims",
+    "unresolvableClaims",
+    "criticDecision"
+  ]);
+  if (root.outputVersion !== REVIEW_TURN_OUTPUT_VERSION) {
+    throw new Error("review_agent_output_version_invalid");
+  }
+  return Object.freeze({
+    outputVersion: REVIEW_TURN_OUTPUT_VERSION,
+    findings: requireArray(root.findings, "findings").map((item) => {
+      const record = requireRecord(item, "finding");
+      requireExactKeys(record, [
+        "severity",
+        "title",
+        "body",
+        "path",
+        "line",
+        "evidenceOperationReceiptIds"
+      ]);
+      return Object.freeze({
+        severity: requireEnum(
+          record.severity,
+          ReviewTurnFindingSeverity,
+          "finding_severity"
+        ),
+        title: requireString(record.title, "finding_title", 240),
+        body: requireString(record.body, "finding_body", 16e3),
+        path: requireString(record.path, "finding_path", 2e3),
+        line: requireNullablePositiveInteger(record.line, "finding_line"),
+        evidenceOperationReceiptIds: requireDigestArray(
+          record.evidenceOperationReceiptIds,
+          "finding_receipts"
+        )
+      });
+    }),
+    obligationProposals: parseReviewTurnObligationProposals(
+      root.obligationProposals
+    ),
+    closureClaims: requireArray(root.closureClaims, "closure_claims").map(
+      (item) => {
+        const record = requireRecord(item, "closure_claim");
+        requireExactKeys(record, ["obligationId", "operationReceiptIds"]);
+        const operationReceiptIds = requireDigestArray(
+          record.operationReceiptIds,
+          "closure_receipts"
+        );
+        if (operationReceiptIds.length === 0) {
+          throw new Error("review_agent_closure_receipts_required");
+        }
+        return Object.freeze({
+          obligationId: requireDigest(record.obligationId, "obligation_id"),
+          operationReceiptIds
+        });
+      }
+    ),
+    operationBackedDiscoveryClaims: requireArray(
+      root.operationBackedDiscoveryClaims,
+      "operation_backed_discovery_claims"
+    ).map((item) => {
+      const record = requireRecord(item, "operation_backed_discovery_claim");
+      requireExactKeys(record, [
+        "sourceObligationId",
+        "query",
+        "operationReceiptIds"
+      ]);
+      const operationReceiptIds = requireDigestArray(
+        record.operationReceiptIds,
+        "operation_backed_discovery_receipts"
+      );
+      if (operationReceiptIds.length === 0) {
+        throw new Error(
+          "review_agent_operation_backed_discovery_receipts_required"
+        );
+      }
+      return Object.freeze({
+        sourceObligationId: requireDigest(
+          record.sourceObligationId,
+          "source_obligation_id"
+        ),
+        query: requireStrictString(
+          record.query,
+          "operation_backed_discovery_query",
+          1024
+        ),
+        operationReceiptIds
+      });
+    }),
+    unresolvableClaims: requireArray(
+      root.unresolvableClaims,
+      "unresolvable_claims"
+    ).map((item) => {
+      const record = requireRecord(item, "unresolvable_claim");
+      requireExactKeys(record, [
+        "obligationId",
+        "reason",
+        "evidenceOperationReceiptIds"
+      ]);
+      return Object.freeze({
+        obligationId: requireDigest(record.obligationId, "obligation_id"),
+        reason: requireString(record.reason, "unresolvable_reason", 2e3),
+        evidenceOperationReceiptIds: requireDigestArray(
+          record.evidenceOperationReceiptIds,
+          "unresolvable_receipts"
+        )
+      });
+    }),
+    criticDecision: root.criticDecision === null ? null : requireEnum(
+      root.criticDecision,
+      ReviewTurnCriticDecision,
+      "critic_decision"
+    )
+  });
+}
+function parseReviewTurnObligationProposals(value) {
+  const identities = /* @__PURE__ */ new Set();
+  const proposals = requireArray(
+    value,
+    "obligation_proposals",
+    REVIEW_TURN_MAX_OBLIGATION_PROPOSALS
+  ).map((item) => {
+    const proposal = parseReviewTurnObligationProposal(item);
+    const identity = canonicalJson({
+      kind: proposal.kind,
+      canonicalSubject: proposal.canonicalSubject,
+      canonicalRequirement: proposal.canonicalRequirement
+    });
+    if (identities.has(identity)) {
+      throw new Error("review_agent_obligation_proposal_duplicate");
+    }
+    identities.add(identity);
+    return proposal;
+  });
+  return Object.freeze(proposals);
+}
+function parseReviewTurnObligationProposal(value) {
+  const record = requireRecord(value, "obligation_proposal");
+  requireExactKeys(record, [
+    "kind",
+    "canonicalSubject",
+    "canonicalRequirement",
+    "riskPriority"
+  ]);
+  const kind = requireProviderProposableObligationKind(record.kind);
+  const canonicalRequirement = requireCanonicalText(
+    record.canonicalRequirement,
+    "obligation_requirement",
+    MAX_CANONICAL_REQUIREMENT_LENGTH
+  );
+  const requirement = parseCanonicalCompleteFileRequirement(canonicalRequirement);
+  const expectedSubject = canonicalJson({
+    kind: FILE_READ_SUBJECT_KIND,
+    pathHash: requirement.pathHash,
+    revision: requirement.revision,
+    subjectVersion: FILE_READ_SUBJECT_VERSION
+  });
+  const canonicalSubject = requireCanonicalText(
+    record.canonicalSubject,
+    "obligation_subject",
+    MAX_CANONICAL_SUBJECT_LENGTH
+  );
+  if (canonicalSubject !== expectedSubject) {
+    throw new Error("review_agent_obligation_subject_mismatch");
+  }
+  return Object.freeze({
+    kind,
+    canonicalSubject: expectedSubject,
+    canonicalRequirement,
+    riskPriority: requireBoundedInteger(
+      record.riskPriority,
+      "risk_priority",
+      0,
+      MAX_RISK_PRIORITY
+    )
+  });
+}
+function parseCanonicalCompleteFileRequirement(value) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("review_agent_obligation_requirement_invalid");
+  }
+  const requirement = requireRecord(parsed, "obligation_requirement");
+  requireExactKeysForField(
+    requirement,
+    ["kind", "path", "pathHash", "requirementVersion", "revision"],
+    "obligation_requirement"
+  );
+  if (requirement.kind !== COMPLETE_FILE_REQUIREMENT_KIND || requirement.requirementVersion !== COMPLETE_FILE_REQUIREMENT_VERSION) {
+    throw new Error("review_agent_obligation_requirement_unsupported");
+  }
+  const path28 = requireString(
+    requirement.path,
+    "obligation_requirement_path",
+    MAX_PROPOSAL_PATH_LENGTH
+  );
+  const pathHash = requireDigest(
+    requirement.pathHash,
+    "obligation_requirement_path_hash"
+  );
+  if (pathHash !== sha256(path28)) {
+    throw new Error("review_agent_obligation_requirement_path_hash_mismatch");
+  }
+  const revision = requireEnum(
+    requirement.revision,
+    ReviewTurnProposalRevision,
+    "obligation_requirement_revision"
+  );
+  const normalized = Object.freeze({
+    requirementVersion: COMPLETE_FILE_REQUIREMENT_VERSION,
+    kind: COMPLETE_FILE_REQUIREMENT_KIND,
+    path: path28,
+    pathHash,
+    revision
+  });
+  if (value !== canonicalJson(normalized)) {
+    throw new Error("review_agent_obligation_requirement_non_canonical");
+  }
+  return normalized;
+}
+function requireProviderProposableObligationKind(value) {
+  if (typeof value !== "string" || !REVIEW_TURN_PROVIDER_PROPOSABLE_OBLIGATION_KINDS.includes(
+    value
+  )) {
+    throw new Error("review_agent_obligation_kind_unsupported");
+  }
+  return value;
+}
+function requireRecord(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return value;
+}
+function requireExactKeys(record, keys) {
+  const actual = Object.keys(record).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error("review_agent_output_fields_invalid");
+  }
+}
+function requireExactKeysForField(record, keys, field) {
+  const actual = Object.keys(record).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+}
+function requireArray(value, field, maximumItems = MAX_COLLECTION_ITEMS) {
+  if (!Array.isArray(value) || value.length > maximumItems) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return value;
+}
+function requireString(value, field, maxLength) {
+  if (typeof value !== "string" || value.length < 1 || value.length > maxLength || value.includes("\0")) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return value;
+}
+function requireCanonicalText(value, field, maxLength) {
+  const parsed = requireString(value, field, maxLength);
+  if (parsed.trim() !== parsed || [...parsed].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== void 0 && (codePoint <= 31 || codePoint === 127);
+  })) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return parsed;
+}
+function requireStrictString(value, field, maxLength) {
+  const parsed = requireString(value, field, maxLength);
+  if (parsed.trim() !== parsed || parsed.includes("\0") || /[\r\n]/u.test(parsed)) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return parsed;
+}
+function requireDigest(value, field) {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return value;
+}
+function requireDigestArray(value, field) {
+  const values = requireArray(value, field).map(
+    (item) => requireDigest(item, field)
+  );
+  if (new Set(values).size !== values.length) {
+    throw new Error(`review_agent_${field}_duplicate`);
+  }
+  return Object.freeze(values);
+}
+function requireNullablePositiveInteger(value, field) {
+  if (value === null) return null;
+  return requireBoundedInteger(value, field, 1, Number.MAX_SAFE_INTEGER);
+}
+function requireBoundedInteger(value, field, minimum, maximum) {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return value;
+}
+function requireEnum(value, enumeration, field) {
+  if (typeof value !== "string" || !Object.values(enumeration).includes(value)) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return value;
+}
+
+// src/review-investigation/domain/deterministic-context-probe-plan.ts
+var REVIEW_INVESTIGATION_PROBE_PLAN_VERSION = "review-investigation-probe-plan.v1";
+var REVIEW_INVESTIGATION_PROBE_POLICY_VERSION = "review-investigation-probe-policy.v1";
+var REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION = "review-investigation-fixed-string-search.v1";
+var REVIEW_INVESTIGATION_PROBE_LIMITS = Object.freeze({
+  maxProbesPerFile: 48,
+  maxProbesOverall: 384
+});
+var REVIEW_INVESTIGATION_MIN_IDENTIFIER_PROBE_LENGTH = 4;
+var REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
+  "app",
+  "api",
+  "broadcast",
+  "cache",
+  "caches",
+  "channel",
+  "channels",
+  "commit",
+  "config",
+  "configuration",
+  "create",
+  "data",
+  "default",
+  "delete",
+  "dequeue",
+  "destroy",
+  "dispatch",
+  "emit",
+  "enqueue",
+  "endpoint",
+  "endpoints",
+  "error",
+  "event",
+  "events",
+  "evict",
+  "false",
+  "feature",
+  "features",
+  "fetch",
+  "flag",
+  "flags",
+  "get",
+  "handler",
+  "id",
+  "ids",
+  "index",
+  "insert",
+  "invalidate",
+  "item",
+  "items",
+  "key",
+  "keys",
+  "load",
+  "main",
+  "name",
+  "notify",
+  "null",
+  "options",
+  "patch",
+  "permission",
+  "permissions",
+  "publish",
+  "queue",
+  "queues",
+  "read",
+  "remove",
+  "request",
+  "required",
+  "response",
+  "result",
+  "rollback",
+  "route",
+  "routes",
+  "router",
+  "routers",
+  "save",
+  "scope",
+  "scopes",
+  "send",
+  "service",
+  "set",
+  "status",
+  "topic",
+  "topics",
+  "true",
+  "type",
+  "undefined",
+  "update",
+  "upsert",
+  "value",
+  "values",
+  "webhook",
+  "webhooks",
+  "write"
+]);
+var GENERIC_PROBE_QUERIES = new Set(
+  REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST
+);
+var PROBE_KIND_PRIORITY = Object.freeze({
+  ["side_effect_identifier" /* SideEffectIdentifier */]: 0,
+  ["runtime_contract_identifier" /* RuntimeContractIdentifier */]: 1,
+  ["structured_key" /* StructuredKey */]: 2,
+  ["declaration_identifier" /* DeclarationIdentifier */]: 3,
+  ["import_export_identifier" /* ImportExportIdentifier */]: 4,
+  ["module_path" /* ModulePath */]: 5,
+  ["previous_path" /* PreviousPath */]: 6,
+  ["basename_fallback" /* BasenameFallback */]: 7
+});
+var STRUCTURED_PATH_PATTERN = /(?:^|\/)(?:config|configs|configuration|schema|schemas|migration|migrations)(?:\/|$)|\.(?:json|ya?ml|toml|ini|graphql|gql|proto|prisma|sql)$/iu;
+var RUNTIME_CONTRACT_KEYWORD_PATTERN = /route|router|endpoint|event|topic|permission|role|scope|cache|feature|flag|queue|channel|webhook/iu;
+var RUNTIME_CONTRACT_IDENTIFIER_PATTERN = /route|endpoint|event|topic|permission|role|scope|cache|feature|flag|queue|channel|webhook/iu;
+var SIDE_EFFECT_NAME_PATTERN = /^(?:create|read|load|fetch|get|update|patch|delete|remove|destroy|insert|upsert|save|write|publish|emit|dispatch|broadcast|invalidate|evict|send|notify|enqueue|dequeue|commit|rollback)(?:$|[A-Z0-9_$-])/u;
+var ROUTE_CALL_PATTERN = /(?:\brouter\b|\broute\b|\bapp\b|\.(?:get|post|put|patch|delete|options|head)\s*\()/iu;
+function createReviewInvestigationProbePlan(input) {
+  const limits = normalizeLimits(
+    input.limits ?? REVIEW_INVESTIGATION_PROBE_LIMITS
+  );
+  const diffByPath = splitDiffByDestinationPath(input.fullDiff);
+  const files = [...input.files].sort(compareFileFacts);
+  assertUniquePaths(files);
+  const changedPaths = Object.freeze(
+    files.map(
+      (file) => Object.freeze({
+        path: file.path,
+        previousPath: file.previousPath,
+        status: file.status
+      })
+    )
+  );
+  const globalCandidates = /* @__PURE__ */ new Map();
+  for (const file of files) {
+    assertPath(file.path, "review_investigation_probe_path_invalid");
+    if (file.previousPath !== null) {
+      assertPath(
+        file.previousPath,
+        "review_investigation_probe_previous_path_invalid"
+      );
+    }
+    const fileCandidates = /* @__PURE__ */ new Map();
+    const add = (probeKind, query) => {
+      const normalized = normalizeQuery(query);
+      if (normalized === null || !isSpecificProbeQuery(probeKind, normalized)) {
+        return;
+      }
+      const candidate = Object.freeze({
+        probeKind,
+        query: normalized,
+        sourcePath: file.path,
+        riskPriority: candidateRiskPriority(probeKind, file.path)
+      });
+      upsertCandidate(fileCandidates, candidate);
+    };
+    add(
+      "basename_fallback" /* BasenameFallback */,
+      reviewInvestigationBasenameFallbackQuery(file.path)
+    );
+    if (file.status === "removed" /* Removed */ || file.status === "renamed" /* Renamed */) {
+      const previousPath = file.previousPath ?? file.path;
+      add("previous_path" /* PreviousPath */, previousPath);
+      add(
+        "basename_fallback" /* BasenameFallback */,
+        reviewInvestigationBasenameFallbackQuery(previousPath)
+      );
+    }
+    const patch = diffByPath.get(file.path) ?? file.patch ?? "";
+    for (const line of changedLines(patch)) {
+      extractDeclarationIdentifiers(line, add);
+      extractImportExportRelations(line, add);
+      extractStructuredRelations(file.path, line, add);
+      extractRuntimeContractRelations(line, add);
+      extractSideEffectRelations(line, add);
+      if (fileCandidates.size > limits.maxProbesPerFile) {
+        return incompletePlan({
+          changedPaths,
+          limits,
+          kind: "per_file" /* PerFile */,
+          maximum: limits.maxProbesPerFile,
+          observedCount: fileCandidates.size,
+          sourcePath: file.path
+        });
+      }
+    }
+    if (fileCandidates.size > limits.maxProbesPerFile) {
+      return incompletePlan({
+        changedPaths,
+        limits,
+        kind: "per_file" /* PerFile */,
+        maximum: limits.maxProbesPerFile,
+        observedCount: fileCandidates.size,
+        sourcePath: file.path
+      });
+    }
+    for (const candidate of fileCandidates.values()) {
+      upsertCandidate(globalCandidates, candidate);
+      if (globalCandidates.size > limits.maxProbesOverall) {
+        return incompletePlan({
+          changedPaths,
+          limits,
+          kind: "overall" /* Overall */,
+          maximum: limits.maxProbesOverall,
+          observedCount: globalCandidates.size,
+          sourcePath: null
+        });
+      }
+    }
+  }
+  const probes = Object.freeze(
+    [...globalCandidates.values()].map(createProbe).sort(compareProbes)
+  );
+  const payload = Object.freeze({
+    planVersion: REVIEW_INVESTIGATION_PROBE_PLAN_VERSION,
+    policyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
+    searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
+    status: "complete" /* Complete */,
+    limits,
+    changedPaths,
+    probes,
+    exceededLimit: null
+  });
+  return Object.freeze({
+    ...payload,
+    planHash: sha256(canonicalJson(payload))
+  });
+}
+function reviewInvestigationSearchOperationInputHash(query) {
+  const normalized = normalizeQuery(query);
+  if (normalized === null || normalized !== query) {
+    throw new Error("review_investigation_probe_query_invalid");
+  }
+  return sha256(
+    canonicalJson({
+      caseSensitive: true,
+      cursor: null,
+      pageSize: 500,
+      paths: ["."],
+      query: sha256(query),
+      revision: "head"
+    })
+  );
+}
+function reviewInvestigationBasenameFallbackQuery(path28) {
+  assertPath(path28, "review_investigation_probe_path_invalid");
+  const basename3 = basenameWithoutExtension(path28);
+  return isSpecificProbeQuery(
+    "basename_fallback" /* BasenameFallback */,
+    basename3
+  ) ? basename3 : path28;
+}
+function createProbe(candidate) {
+  const obligationKind = obligationKindFor(candidate);
+  const queryHash = sha256(candidate.query);
+  const sourcePathHash = sha256(candidate.sourcePath);
+  const initialOperationInputHash = reviewInvestigationSearchOperationInputHash(
+    candidate.query
+  );
+  const canonicalSubject = canonicalJson({
+    initialOperationInputHash,
+    kind: "text_search",
+    matchMode: "fixed_string",
+    obligationKind,
+    probeKind: candidate.probeKind,
+    queryHash,
+    subjectVersion: 1
+  });
+  const canonicalRequirement = canonicalJson({
+    initialOperationInputHash,
+    kind: "complete_page_chain",
+    matchMode: "fixed_string",
+    operationKind: "text_search",
+    pageSize: 500,
+    paths: ["."],
+    probeKind: candidate.probeKind,
+    query: candidate.query,
+    queryHash,
+    requirementVersion: 2,
+    revision: "head",
+    searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
+    sourcePathHash
+  });
+  return Object.freeze({
+    probeKind: candidate.probeKind,
+    obligationKind,
+    query: candidate.query,
+    queryHash,
+    sourcePath: candidate.sourcePath,
+    sourcePathHash,
+    initialOperationInputHash,
+    canonicalSubject,
+    canonicalRequirement,
+    riskPriority: candidate.riskPriority
+  });
+}
+function incompletePlan(input) {
+  const exceededLimit = Object.freeze({
+    kind: input.kind,
+    maximum: input.maximum,
+    observedCount: input.observedCount,
+    sourcePath: input.sourcePath,
+    sourcePathHash: input.sourcePath === null ? null : sha256(input.sourcePath)
+  });
+  const payload = Object.freeze({
+    planVersion: REVIEW_INVESTIGATION_PROBE_PLAN_VERSION,
+    policyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
+    searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
+    status: "limit_exceeded" /* LimitExceeded */,
+    limits: input.limits,
+    changedPaths: input.changedPaths,
+    probes: Object.freeze([]),
+    exceededLimit
+  });
+  return Object.freeze({
+    ...payload,
+    planHash: sha256(canonicalJson(payload))
+  });
+}
+function extractDeclarationIdentifiers(line, add) {
+  const declarations = [
+    /\b(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:async\s+)?(?:function|class|interface|type|enum|namespace|const|let|var|struct|trait|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gu,
+    /\b(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)/gu,
+    /\b(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/gu,
+    /\bfunc\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)/gu,
+    /\b(?:exports|module\.exports)\.([A-Za-z_$][A-Za-z0-9_$]*)/gu,
+    /\b(?:public|protected)\s+(?:(?:static|async|final|abstract|override|readonly)\s+)*(?:[A-Za-z_$][A-Za-z0-9_$<>,.?]*(?:\[\])?\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:<[^>\n]*>)?\s*\(/gu
+  ];
+  for (const pattern of declarations) {
+    for (const match2 of line.matchAll(pattern)) {
+      add("declaration_identifier" /* DeclarationIdentifier */, match2[1]);
+    }
+  }
+}
+function extractImportExportRelations(line, add) {
+  if (!/\b(?:import|export|require|include|use)\b/u.test(line)) return;
+  const modulePatterns = [
+    /\bfrom\s*["'`]([^"'`\r\n]+)["'`]/gu,
+    /\b(?:require|import)\s*\(\s*["'`]([^"'`\r\n]+)["'`]/gu,
+    /\b(?:import|include)\s*["'`]([^"'`\r\n]+)["'`]/gu,
+    /\buse\s+([A-Za-z_][A-Za-z0-9_:]*)/gu
+  ];
+  for (const pattern of modulePatterns) {
+    for (const match2 of line.matchAll(pattern)) {
+      add("module_path" /* ModulePath */, match2[1]);
+    }
+  }
+  for (const match2 of line.matchAll(/\{([^{}]+)\}/gu)) {
+    for (const item of match2[1].split(",")) {
+      const names = item.trim().replace(/^type\s+/u, "").split(/\s+as\s+/u).map((value) => value.trim());
+      for (const name of names) {
+        if (/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(name)) {
+          add("import_export_identifier" /* ImportExportIdentifier */, name);
+        }
+      }
+    }
+  }
+}
+function extractStructuredRelations(path28, line, add) {
+  const keyPatterns = [
+    /(?:^|[{,])\s*["']?([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*:/gu,
+    /^\s*-?\s*["']?([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*=/gu,
+    /\b(?:ADD|DROP|RENAME)\s+(?:COLUMN\s+)?["`]?([A-Za-z_][A-Za-z0-9_$]*)["`]?/giu,
+    /\b(?:CREATE|ALTER)\s+TABLE\s+["`]?([A-Za-z_][A-Za-z0-9_$]*)["`]?/giu,
+    /\bREFERENCES\s+["`]?([A-Za-z_][A-Za-z0-9_$]*)["`]?/giu
+  ];
+  for (const pattern of keyPatterns) {
+    for (const match2 of line.matchAll(pattern)) {
+      add("structured_key" /* StructuredKey */, match2[1]);
+    }
+  }
+  if (STRUCTURED_PATH_PATTERN.test(path28)) {
+    for (const literal of quotedLiterals(line)) {
+      if (isContractLiteral(literal)) {
+        add("structured_key" /* StructuredKey */, literal);
+      }
+    }
+  }
+}
+function extractRuntimeContractRelations(line, add) {
+  const isRuntimeLine = RUNTIME_CONTRACT_KEYWORD_PATTERN.test(line);
+  const isRouteCall = ROUTE_CALL_PATTERN.test(line);
+  if (!isRuntimeLine && !isRouteCall) return;
+  for (const match2 of line.matchAll(/[A-Za-z_$][A-Za-z0-9_$]*/gu)) {
+    if (RUNTIME_CONTRACT_IDENTIFIER_PATTERN.test(match2[0])) {
+      add("runtime_contract_identifier" /* RuntimeContractIdentifier */, match2[0]);
+    }
+  }
+  for (const literal of quotedLiterals(line)) {
+    if (isContractLiteral(literal) || isRouteCall && literal.startsWith("/")) {
+      add("runtime_contract_identifier" /* RuntimeContractIdentifier */, literal);
+    }
+  }
+}
+function extractSideEffectRelations(line, add) {
+  let found = false;
+  for (const match2 of line.matchAll(
+    /\b(?:[A-Za-z_$][A-Za-z0-9_$]*\.)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/gu
+  )) {
+    if (SIDE_EFFECT_NAME_PATTERN.test(match2[1])) {
+      found = true;
+      add("side_effect_identifier" /* SideEffectIdentifier */, match2[1]);
+    }
+  }
+  if (!found) return;
+  for (const literal of quotedLiterals(line)) {
+    if (isContractLiteral(literal)) {
+      add("side_effect_identifier" /* SideEffectIdentifier */, literal);
+    }
+  }
+}
+function obligationKindFor(candidate) {
+  switch (candidate.probeKind) {
+    case "structured_key" /* StructuredKey */:
+      return STRUCTURED_PATH_PATTERN.test(candidate.sourcePath) && /(?:^|\/)(?:config|configs|configuration)(?:\/|$)|\.(?:ya?ml|toml|ini)$/iu.test(
+        candidate.sourcePath
+      ) ? "configuration_contract" /* ConfigurationContract */ : "schema_contract" /* SchemaContract */;
+    case "runtime_contract_identifier" /* RuntimeContractIdentifier */:
+      return "configuration_contract" /* ConfigurationContract */;
+    case "side_effect_identifier" /* SideEffectIdentifier */:
+      return "side_effect_parity" /* SideEffectParity */;
+    case "declaration_identifier" /* DeclarationIdentifier */:
+    case "import_export_identifier" /* ImportExportIdentifier */:
+    case "module_path" /* ModulePath */:
+    case "previous_path" /* PreviousPath */:
+    case "basename_fallback" /* BasenameFallback */:
+      return "direct_reference_search" /* DirectReferenceSearch */;
+  }
+}
+function candidateRiskPriority(probeKind, sourcePath) {
+  switch (probeKind) {
+    case "structured_key" /* StructuredKey */:
+    case "runtime_contract_identifier" /* RuntimeContractIdentifier */:
+    case "side_effect_identifier" /* SideEffectIdentifier */:
+      return REVIEW_INVESTIGATION_RISK_PRIORITY.HighRiskChangedPath;
+    case "declaration_identifier" /* DeclarationIdentifier */:
+    case "import_export_identifier" /* ImportExportIdentifier */:
+    case "module_path" /* ModulePath */:
+    case "previous_path" /* PreviousPath */:
+    case "basename_fallback" /* BasenameFallback */:
+      return changedPathSemanticRiskPriority(sourcePath);
+  }
+}
+function quotedLiterals(line) {
+  return [...line.matchAll(/["'`]([^"'`\r\n]{1,256})["'`]/gu)].map(
+    (match2) => match2[1]
+  );
+}
+function isContractLiteral(value) {
+  return value.length <= 256 && /[\p{L}\p{N}]/u.test(value) && !/\s/u.test(value);
+}
+function changedLines(patch) {
+  return patch.split(/\r?\n/u).filter(
+    (line) => line.startsWith("+") && !line.startsWith("+++") || line.startsWith("-") && !line.startsWith("---")
+  ).map((line) => line.slice(1));
+}
+function splitDiffByDestinationPath(diff) {
+  const chunks = /* @__PURE__ */ new Map();
+  const matches = [...diff.matchAll(/^diff --git\s+a\/(.+?)\s+b\/(.+)$/gmu)];
+  for (let index = 0; index < matches.length; index += 1) {
+    const match2 = matches[index];
+    if (match2.index === void 0) continue;
+    const path28 = unquoteGitPath2(match2[2].trim());
+    const end = matches[index + 1]?.index ?? diff.length;
+    if (path28.length === 0 || chunks.has(path28)) continue;
+    chunks.set(path28, diff.slice(match2.index, end));
+  }
+  return chunks;
+}
+function unquoteGitPath2(value) {
+  const path28 = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+  return path28.replace(/\\([\\"tnr])/gu, (_match, char) => {
+    if (char === "t") return "	";
+    if (char === "n") return "\n";
+    if (char === "r") return "\r";
+    return char;
+  });
+}
+function basenameWithoutExtension(path28) {
+  const fileName = path28.split("/").at(-1) ?? path28;
+  const extension = fileName.lastIndexOf(".");
+  return extension > 0 ? fileName.slice(0, extension) : fileName;
+}
+function normalizeQuery(value) {
+  const query = value.trim();
+  if (query.length === 0 || query.length > 1024 || [...query].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== void 0 && (codePoint <= 31 || codePoint === 127);
+  })) {
+    return null;
+  }
+  return query;
+}
+function isSpecificProbeQuery(probeKind, query) {
+  if (GENERIC_PROBE_QUERIES.has(query.toLowerCase())) return false;
+  if (/^\d+$/u.test(query)) return query.length >= 8;
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(query)) {
+    return query.length >= 2;
+  }
+  if (probeKind === "previous_path" /* PreviousPath */ || probeKind === "basename_fallback" /* BasenameFallback */) {
+    return query.length >= REVIEW_INVESTIGATION_MIN_IDENTIFIER_PROBE_LENGTH;
+  }
+  return query.length >= REVIEW_INVESTIGATION_MIN_IDENTIFIER_PROBE_LENGTH || query.length >= 3 && /[A-Z]/u.test(query);
+}
+function upsertCandidate(candidates, candidate) {
+  const existing = candidates.get(candidate.query);
+  if (!existing || compareCandidates(candidate, existing) < 0) {
+    candidates.set(candidate.query, candidate);
+  }
+}
+function compareCandidates(left, right) {
+  return right.riskPriority - left.riskPriority || compareCodeUnits(left.sourcePath, right.sourcePath) || PROBE_KIND_PRIORITY[left.probeKind] - PROBE_KIND_PRIORITY[right.probeKind] || compareCodeUnits(left.query, right.query);
+}
+function compareProbes(left, right) {
+  return compareCodeUnits(left.query, right.query) || compareCodeUnits(left.obligationKind, right.obligationKind) || compareCodeUnits(left.probeKind, right.probeKind) || compareCodeUnits(left.sourcePath, right.sourcePath);
+}
+function compareFileFacts(left, right) {
+  return compareCodeUnits(left.path, right.path) || compareCodeUnits(left.previousPath ?? "", right.previousPath ?? "") || compareCodeUnits(left.status, right.status);
+}
+function compareCodeUnits(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+function normalizeLimits(limits) {
+  if (!Number.isSafeInteger(limits.maxProbesPerFile) || limits.maxProbesPerFile < 1 || !Number.isSafeInteger(limits.maxProbesOverall) || limits.maxProbesOverall < limits.maxProbesPerFile) {
+    throw new Error("review_investigation_probe_limits_invalid");
+  }
+  return Object.freeze({
+    maxProbesPerFile: limits.maxProbesPerFile,
+    maxProbesOverall: limits.maxProbesOverall
+  });
+}
+function assertUniquePaths(files) {
+  const paths = files.map((file) => file.path);
+  if (new Set(paths).size !== paths.length) {
+    throw new Error("review_investigation_probe_path_duplicate");
+  }
+}
+function assertPath(value, code) {
+  if (value.length === 0 || value.length > 1024 || value.includes("\0") || value.startsWith("/") || /(?:^|\/)\.\.(?:\/|$)/u.test(value)) {
+    throw new Error(code);
+  }
+}
 
 // src/analysis/llm/prompt-builder.ts
 var PromptBuilder = class {
@@ -25512,6 +26703,15 @@ var PromptBuilder = class {
     if (!Array.isArray(pr2.files)) {
       throw new Error("Invalid PR context: files must be an array");
     }
+    const investigationProbePlan = createReviewInvestigationProbePlan({
+      files: pr2.files.map((file) => ({
+        path: file.filename,
+        previousPath: file.previousFilename ?? null,
+        status: investigationChangedFileStatus(file.status),
+        patch: file.patch ?? null
+      })),
+      fullDiff: pr2.diff
+    });
     const compacted = compactDiffForPrompt(pr2.diff, pr2.files, {
       enabled: this.config.smartDiffCompaction ?? true,
       maxFullFileBytes: this.config.maxFullDiffFileBytes,
@@ -25736,7 +26936,8 @@ ${sanitizeLifecyclePromptField(target.diffHunk, 2e3)}` : "diffHunk: unavailable"
     return Object.freeze({
       version: "prepared_review_prompt.v2",
       prompt: instructions.join("\n"),
-      pathCoverage
+      pathCoverage,
+      investigationProbePlan
     });
   }
   /**
@@ -25832,6 +27033,18 @@ ${sanitizeLifecyclePromptField(target.diffHunk, 2e3)}` : "diffHunk: unavailable"
     return false;
   }
 };
+function investigationChangedFileStatus(status) {
+  switch (status) {
+    case "added":
+      return "added" /* Added */;
+    case "modified":
+      return "modified" /* Modified */;
+    case "removed":
+      return "removed" /* Removed */;
+    case "renamed":
+      return "renamed" /* Renamed */;
+  }
+}
 function normalizeReviewOutputLanguage(value) {
   if (!value) return null;
   const cleaned = value.split(/[\r\n]/)[0].replace(/[^\p{L}\p{M}\s()\-/]/gu, "").replace(/\s+/g, " ").trim().slice(0, 40);
@@ -25856,9 +27069,9 @@ function sanitizeLifecyclePromptField(value, maxLength) {
   );
 }
 function classifyPreparedPromptCoverage(input) {
-  const source = splitDiffByDestinationPath(input.sourceDiff);
-  const compacted = splitDiffByDestinationPath(input.compactedDiff);
-  const final = splitDiffByDestinationPath(input.finalDiff);
+  const source = splitDiffByDestinationPath2(input.sourceDiff);
+  const compacted = splitDiffByDestinationPath2(input.compactedDiff);
+  const final = splitDiffByDestinationPath2(input.finalDiff);
   return Object.freeze(
     input.files.map((file) => {
       const finalChunk = final.get(file.filename);
@@ -25866,14 +27079,14 @@ function classifyPreparedPromptCoverage(input) {
         return Object.freeze({
           path: file.filename,
           kind: "policy_excluded" /* PolicyExcluded */,
-          contentHash: finalChunk === void 0 ? null : sha256(finalChunk)
+          contentHash: finalChunk === void 0 ? null : sha2562(finalChunk)
         });
       }
       if (finalChunk !== void 0) {
         return Object.freeze({
           path: file.filename,
           kind: input.summaryOnlyPaths.has(file.filename) ? "summary_only" /* SummaryOnly */ : "full_patch" /* FullPatch */,
-          contentHash: sha256(finalChunk)
+          contentHash: sha2562(finalChunk)
         });
       }
       if (compacted.has(file.filename)) {
@@ -25898,22 +27111,22 @@ function classifyPreparedPromptCoverage(input) {
     }).sort((left, right) => compareCodePoints(left.path, right.path))
   );
 }
-function splitDiffByDestinationPath(diff) {
+function splitDiffByDestinationPath2(diff) {
   const chunks = /* @__PURE__ */ new Map();
   const matches = [...diff.matchAll(/^diff --git\s+a\/(.+?)\s+b\/(.+)$/gm)];
   for (let index = 0; index < matches.length; index += 1) {
     const match2 = matches[index];
     if (match2.index === void 0) continue;
-    const path25 = unquoteGitPath2(match2[2].trim());
+    const path28 = unquoteGitPath3(match2[2].trim());
     const end = matches[index + 1]?.index ?? diff.length;
-    if (!path25 || chunks.has(path25)) continue;
-    chunks.set(path25, diff.slice(match2.index, end).replace(/\n+$/, ""));
+    if (!path28 || chunks.has(path28)) continue;
+    chunks.set(path28, diff.slice(match2.index, end).replace(/\n+$/, ""));
   }
   return chunks;
 }
-function unquoteGitPath2(value) {
-  const path25 = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
-  return path25.replace(/\\([\\"tnr])/g, (_match, char) => {
+function unquoteGitPath3(value) {
+  const path28 = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+  return path28.replace(/\\([\\"tnr])/g, (_match, char) => {
     if (char === "t") return "	";
     if (char === "n") return "\n";
     if (char === "r") return "\r";
@@ -25925,8 +27138,8 @@ function compareCodePoints(left, right) {
   if (left > right) return 1;
   return 0;
 }
-function sha256(value) {
-  return (0, import_crypto.createHash)("sha256").update(value).digest("hex");
+function sha2562(value) {
+  return (0, import_crypto2.createHash)("sha256").update(value).digest("hex");
 }
 
 // node_modules/p-retry/index.js
@@ -26012,9 +27225,9 @@ async function pRetry(input, options) {
     };
     operation.attempt(async (attemptNumber) => {
       try {
-        const result = await input(attemptNumber);
+        const result2 = await input(attemptNumber);
         cleanUp();
-        resolve5(result);
+        resolve5(result2);
       } catch (error2) {
         try {
           if (!(error2 instanceof Error)) {
@@ -26342,7 +27555,7 @@ var LLMExecutor = class {
                 `\u2713 Provider ${provider.name} health check passed (${duration}ms)`
               );
             } else {
-              const result = {
+              const result2 = {
                 name: provider.name,
                 status: "timeout",
                 error: new Error(
@@ -26350,7 +27563,7 @@ var LLMExecutor = class {
                 ),
                 durationSeconds: duration / 1e3
               };
-              healthCheckResults.push(result);
+              healthCheckResults.push(result2);
               logger.warn(
                 `\u2717 Provider ${provider.name} health check timed out (${duration}ms)`
               );
@@ -26362,13 +27575,13 @@ var LLMExecutor = class {
             if (err.name === "TimeoutError" || err.message.toLowerCase().includes("timed out") || err.message.toLowerCase().includes("timeout") || err.code === "ETIMEDOUT" || err.code === "REVIEW_DEADLINE_REACHED") {
               status = "timeout";
             }
-            const result = {
+            const result2 = {
               name: provider.name,
               status,
               error: err,
               durationSeconds: duration / 1e3
             };
-            healthCheckResults.push(result);
+            healthCheckResults.push(result2);
             logger.warn(
               `\u2717 Provider ${provider.name} health check error (${duration}ms): ${err.message}`
             );
@@ -26430,7 +27643,7 @@ var LLMExecutor = class {
             );
           };
           try {
-            const result = await withRetry(runner, {
+            const result2 = await withRetry(runner, {
               retries: totalAttempts - 1,
               minTimeout: 0,
               maxTimeout: 0,
@@ -26442,7 +27655,7 @@ var LLMExecutor = class {
             results.push({
               name: provider.name,
               status: "success",
-              result,
+              result: result2,
               durationSeconds: (Date.now() - started) / 1e3
             });
           } catch (error2) {
@@ -27004,11 +28217,11 @@ function areASTsEquivalent(code1, code2, language) {
       reason: "Parser returned no root node"
     };
   }
-  const result = compareNodes(root1, root2);
+  const result2 = compareNodes(root1, root2);
   return {
-    equivalent: result.equivalent,
-    reason: result.reason,
-    comparisonDepth: result.maxDepth
+    equivalent: result2.equivalent,
+    reason: result2.reason,
+    comparisonDepth: result2.maxDepth
   };
 }
 function parseWithFreshParser(code, language) {
@@ -27256,8 +28469,8 @@ var ConsensusEngine = class {
     for (const s2 of suggestions) {
       let added = false;
       for (const group of groups) {
-        const result = areASTsEquivalent(group[0], s2.suggestion, language);
-        if (result.equivalent) {
+        const result2 = areASTsEquivalent(group[0], s2.suggestion, language);
+        if (result2.equivalent) {
           group.push(s2.suggestion);
           added = true;
           break;
@@ -28016,7 +29229,7 @@ var CacheStorage = class {
 };
 
 // src/cache/key-builder.ts
-var import_crypto2 = require("crypto");
+var import_crypto3 = require("crypto");
 
 // src/cache/version.ts
 var CACHE_VERSION = 8;
@@ -28053,7 +29266,7 @@ function unversionCache(cached, maxAge) {
 
 // src/cache/key-builder.ts
 function buildCacheKey(pr2, configHash) {
-  const hash = (0, import_crypto2.createHash)("sha1").update(`${pr2.baseSha}:${pr2.headSha}`).digest("hex").slice(0, 12);
+  const hash = (0, import_crypto3.createHash)("sha1").update(`${pr2.baseSha}:${pr2.headSha}`).digest("hex").slice(0, 12);
   const suffix = configHash ? `-${configHash}` : "";
   return `mpr-${hash}${suffix}`;
 }
@@ -28079,7 +29292,7 @@ function hashConfig(config) {
     pathDefaultIntensity: config.pathDefaultIntensity
   };
   const stableJson = JSON.stringify(sortObject(relevantConfig));
-  const hash = (0, import_crypto2.createHash)("sha256").update(stableJson).digest("hex");
+  const hash = (0, import_crypto3.createHash)("sha256").update(stableJson).digest("hex");
   return hash.slice(0, 16);
 }
 function hashIncrementalCompatibility(config, runtimeConfigVersion) {
@@ -28090,7 +29303,7 @@ function hashIncrementalCompatibility(config, runtimeConfigVersion) {
       runtimeConfigVersion: runtimeConfigVersion?.trim() || null
     })
   );
-  return (0, import_crypto2.createHash)("sha256").update(stableJson).digest("hex");
+  return (0, import_crypto3.createHash)("sha256").update(stableJson).digest("hex");
 }
 function sortObject(value) {
   if (Array.isArray(value)) return value.map(sortObject);
@@ -28267,17 +29480,17 @@ var IncrementalReviewer = class _IncrementalReviewer {
    */
   async saveReview(pr2, review) {
     const key = this.buildCacheKey(pr2.number);
-    const timestamp2 = Date.now();
+    const timestamp3 = Date.now();
     const data = {
       prNumber: pr2.number,
       lastReviewedCommit: pr2.headSha,
-      timestamp: timestamp2,
+      timestamp: timestamp3,
       findings: review.findings,
       reviewSummary: review.summary,
       schemaVersion: 1,
       baseSha: pr2.baseSha,
       ...this.config.compatibilityKey ? { compatibilityKey: this.config.compatibilityKey } : {},
-      expiresAt: timestamp2 + this.config.cacheTtlDays * _IncrementalReviewer.MS_PER_DAY
+      expiresAt: timestamp3 + this.config.cacheTtlDays * _IncrementalReviewer.MS_PER_DAY
     };
     await this.storage.write(key, JSON.stringify(data));
     logger.info(
@@ -29735,18 +30948,18 @@ function shouldPostSuggestion(finding, confidence, config) {
 }
 
 // src/github/comment-fingerprint.ts
-var import_crypto3 = require("crypto");
+var import_crypto4 = require("crypto");
 var INLINE_MARKER_RE = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/i;
 var INLINE_MARKER_RE_GLOBAL = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
 var FINDING_MARKER_RE = /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/i;
 var FINDING_MARKER_RE_GLOBAL = /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/gi;
 var MAX_NEARBY_LINE_DISTANCE = 12;
-function signatureFromInlineComment(path25, line, body) {
+function signatureFromInlineComment(path28, line, body) {
   const cleanBody = stripInlineFingerprintMarkers(body);
   const severity = extractSeverity(cleanBody);
   if (severity) {
     return [
-      (path25 || "unknown").toLowerCase(),
+      (path28 || "unknown").toLowerCase(),
       String(line ?? 0),
       severity
     ].join(":");
@@ -29754,13 +30967,13 @@ function signatureFromInlineComment(path25, line, body) {
   const titleMatch = cleanBody.match(/\*\*(.+?)\*\*/);
   const title = titleMatch ? titleMatch[1] : cleanBody.split("\n")[0] || "unknown";
   return [
-    (path25 || "unknown").toLowerCase(),
+    (path28 || "unknown").toLowerCase(),
     String(line ?? 0),
     normalizeForSignature(title)
   ].join(":");
 }
-function fingerprintFromInlineComment(path25, line, body) {
-  return (0, import_crypto3.createHash)("sha256").update(signatureFromInlineComment(path25, line, body)).digest("hex").slice(0, 16);
+function fingerprintFromInlineComment(path28, line, body) {
+  return (0, import_crypto4.createHash)("sha256").update(signatureFromInlineComment(path28, line, body)).digest("hex").slice(0, 16);
 }
 function inlineFingerprintMarker(fingerprint) {
   return `<!-- review-router-inline:${fingerprint} -->`;
@@ -29776,17 +30989,17 @@ function extractFindingFingerprint(body) {
   const match2 = body?.match(FINDING_MARKER_RE);
   return match2?.[1]?.toLowerCase() ?? null;
 }
-function appendInlineFingerprintMarker(body, path25, line) {
+function appendInlineFingerprintMarker(body, path28, line) {
   const parts = [body.trimEnd()];
   if (!extractInlineFingerprint(body)) {
     parts.push(
-      inlineFingerprintMarker(fingerprintFromInlineComment(path25, line, body))
+      inlineFingerprintMarker(fingerprintFromInlineComment(path28, line, body))
     );
   }
   if (!extractFindingFingerprint(body)) {
     parts.push(
       findingFingerprintMarker(
-        findingFingerprintFromInlineComment(path25, line, body)
+        findingFingerprintFromInlineComment(path28, line, body)
       )
     );
   }
@@ -29809,12 +31022,12 @@ function findingFingerprintFromFinding(finding) {
     message: finding.message
   });
 }
-function findingFingerprintFromInlineComment(path25, _line, body) {
+function findingFingerprintFromInlineComment(path28, _line, body) {
   const marker = extractFindingFingerprint(body);
   if (marker) return marker;
   const cleanBody = stripInlineFingerprintMarkers(body);
   return stableFindingFingerprint({
-    path: path25,
+    path: path28,
     severity: extractSeverity(cleanBody) || "unknown",
     title: extractNormalizedTitle(cleanBody),
     message: extractCoreMessage(cleanBody)
@@ -29884,7 +31097,7 @@ function stableFindingFingerprint(input) {
     normalizeForSignature(stripSeverityPrefix(input.title)),
     normalizeForSignature(input.message).slice(0, 800)
   ].join("\n");
-  return (0, import_crypto3.createHash)("sha256").update(canonical).digest("hex").slice(0, 32);
+  return (0, import_crypto4.createHash)("sha256").update(canonical).digest("hex").slice(0, 32);
 }
 function semanticText(body) {
   return body.replace(/```[\s\S]*?```/g, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/\*\*Severity:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, " ");
@@ -30443,10 +31656,10 @@ ${content.substring(0, 500)}...`
     }
     return { keys, comments: activeComments };
   }
-  hasInlineDuplicate(activeComments, path25, line, body) {
+  hasInlineDuplicate(activeComments, path28, line, body) {
     const marker = extractInlineFingerprint(body);
-    return activeComments.keys.has(signatureFromInlineComment(path25, line, body)) || activeComments.keys.has(fingerprintFromInlineComment(path25, line, body)) || (marker ? activeComments.keys.has(marker) : false) || activeComments.comments.some(
-      (comment) => isLikelySameInlineFinding(comment, { path: path25, line, body })
+    return activeComments.keys.has(signatureFromInlineComment(path28, line, body)) || activeComments.keys.has(fingerprintFromInlineComment(path28, line, body)) || (marker ? activeComments.keys.has(marker) : false) || activeComments.comments.some(
+      (comment) => isLikelySameInlineFinding(comment, { path: path28, line, body })
     );
   }
   /**
@@ -32087,7 +33300,7 @@ var ThreadLifecycleAggregator = class {
       )
     );
     const providerCurrentFindings = input.providerResults.flatMap(
-      (result2) => result2.result?.findings ?? []
+      (result3) => result3.result?.findings ?? []
     );
     const votes = this.collectVotes(input, thresholds);
     const assignmentByTarget = new Map(
@@ -32096,7 +33309,7 @@ var ThreadLifecycleAggregator = class {
     const commandDismissedTargetIds = new Set(
       (input.skipped ?? []).filter((record) => record.reasonCodes.includes("command_dismissed")).map((record) => record.target.targetId)
     );
-    const result = {
+    const result2 = {
       mode: input.mode,
       quorumMode,
       plannedProviders,
@@ -32114,9 +33327,9 @@ var ThreadLifecycleAggregator = class {
       inventoryFailed: input.inventoryFailed
     };
     if (input.inventoryFailed) {
-      result.warnings.push("review thread lifecycle inventory failed");
+      result2.warnings.push("review thread lifecycle inventory failed");
       for (const target of input.targets) {
-        result.previousUncertain.push({
+        result2.previousUncertain.push({
           target,
           reasonCodes: unique([
             ...target.reasonCodes ?? [],
@@ -32124,7 +33337,7 @@ var ThreadLifecycleAggregator = class {
           ])
         });
       }
-      return result;
+      return result2;
     }
     for (const target of input.targets) {
       const targetVotes = Array.from(
@@ -32142,19 +33355,19 @@ var ThreadLifecycleAggregator = class {
         const reasonCodes = [];
         if (target.hasHumanReply) reasonCodes.push("human_reply");
         if (!target.trustedAuthor) reasonCodes.push("untrusted_author");
-        result.manualAttention.push(record(reasonCodes));
+        result2.manualAttention.push(record(reasonCodes));
         continue;
       }
       if (currentFingerprints.has(target.fingerprint) || input.currentFindings.some(
         (finding) => currentFindingMatchesTarget(finding, target)
       )) {
-        result.previousStillValid.push(record(["current_finding_present"]));
+        result2.previousStillValid.push(record(["current_finding_present"]));
         continue;
       }
       if (providerCurrentFindings.some(
         (finding) => currentFindingMatchesTarget(finding, target)
       )) {
-        result.previousStillValid.push(
+        result2.previousStillValid.push(
           record(["provider_current_finding_present"])
         );
         continue;
@@ -32163,7 +33376,7 @@ var ThreadLifecycleAggregator = class {
       const assignedProviders = assignment?.assignedProviderIds ?? plannedProviders;
       const missingProviderReasons = plannedProviders.filter((provider) => !assignedProviders.includes(provider)).map(() => "outside_review_scope");
       if (assignment && (assignment.scopeStatus !== "in_scope" || assignedProviders.length === 0)) {
-        result.previousUncertain.push(
+        result2.previousUncertain.push(
           record(
             unique([
               ...missingProviderReasons,
@@ -32178,7 +33391,7 @@ var ThreadLifecycleAggregator = class {
         (vote) => vote.valid && vote.verdict === "still_valid"
       );
       if (stillValidVotes.length > 0) {
-        result.previousStillValid.push(record(["still_valid_vote"]));
+        result2.previousStillValid.push(record(["still_valid_vote"]));
         continue;
       }
       const expectedProviders = plannedProviders.filter(
@@ -32209,13 +33422,13 @@ var ThreadLifecycleAggregator = class {
       const hasResolvedQuorum = quorumMode === "single-provider" ? resolvedVotes.length === 1 && plannedProviders.length === 1 : resolvedVotes.length >= 2;
       if (hasResolvedQuorum) {
         if (input.mode === "report") {
-          result.mutationSkipped.push(record(["report_mode"]));
+          result2.mutationSkipped.push(record(["report_mode"]));
         } else {
-          result.resolvedCandidates.push(record([]));
+          result2.resolvedCandidates.push(record([]));
         }
         continue;
       }
-      result.previousUncertain.push(
+      result2.previousUncertain.push(
         record(
           unique([
             ...missingOrFailedReasons,
@@ -32226,7 +33439,7 @@ var ThreadLifecycleAggregator = class {
         )
       );
     }
-    return result;
+    return result2;
   }
   collectVotes(input, thresholds) {
     const targetIds = new Set(input.targets.map((target) => target.targetId));
@@ -32235,17 +33448,17 @@ var ThreadLifecycleAggregator = class {
     );
     const plannedProviders = new Set(input.plannedProviders);
     const votes = /* @__PURE__ */ new Map();
-    for (const result of input.providerResults) {
-      if (!plannedProviders.has(result.name)) continue;
-      if (result.status !== "success") continue;
-      const assignedTargetIds = result.lifecycleAssignedTargetIds ? new Set(result.lifecycleAssignedTargetIds) : null;
-      for (const raw of result.result?.revalidations ?? []) {
+    for (const result2 of input.providerResults) {
+      if (!plannedProviders.has(result2.name)) continue;
+      if (result2.status !== "success") continue;
+      const assignedTargetIds = result2.lifecycleAssignedTargetIds ? new Set(result2.lifecycleAssignedTargetIds) : null;
+      for (const raw of result2.result?.revalidations ?? []) {
         const rawTargetId = raw.targetId || "";
         if (assignedTargetIds && !assignedTargetIds.has(rawTargetId)) {
           continue;
         }
         const vote = this.normalizeVote(
-          result.name,
+          result2.name,
           raw,
           targetIds,
           targetsById,
@@ -32317,7 +33530,7 @@ var ThreadLifecycleAggregator = class {
   }
   providerFailures(results) {
     return new Set(
-      results.filter((result) => result.status !== "success").map((result) => result.name)
+      results.filter((result2) => result2.status !== "success").map((result2) => result2.name)
     );
   }
 };
@@ -33431,8 +34644,8 @@ var FeedbackFilter = class {
       (existing) => isLikelySameDismissedFinding(existing, comment)
     );
   }
-  signatureFromComment(path25, line, body) {
-    return signatureFromInlineComment(path25, line, body);
+  signatureFromComment(path28, line, body) {
+    return signatureFromInlineComment(path28, line, body);
   }
 };
 function skippedFindingBody(skip) {
@@ -33552,13 +34765,13 @@ var TOKEN_STOPWORDS = /* @__PURE__ */ new Set([
   "when",
   "with"
 ]);
-function locationKey(path25, line) {
-  if (!path25 || line == null) return null;
-  return `${path25.toLowerCase()}:${line}`;
+function locationKey(path28, line) {
+  if (!path28 || line == null) return null;
+  return `${path28.toLowerCase()}:${line}`;
 }
 
 // src/github/ledger.ts
-var import_crypto4 = require("crypto");
+var import_crypto5 = require("crypto");
 var LEDGER_MARKER = "reviewrouter-ledger:v1";
 var LEDGER_RE = /<!--\s*reviewrouter-ledger:v1\s+payload=([A-Za-z0-9_-]+)\s+signature=([a-f0-9]{64})\s*-->/;
 var MAX_LEDGER_ENTRIES = 200;
@@ -33725,7 +34938,7 @@ var ReviewLedger = class {
     }
   }
   render(payload) {
-    const payloadText = canonicalJson(payload);
+    const payloadText = canonicalJson2(payload);
     const encoded = Buffer.from(payloadText, "utf8").toString("base64url");
     const signature = this.sign(payload);
     const status = this.statusText(payload);
@@ -33746,7 +34959,7 @@ var ReviewLedger = class {
     ].join("\n");
   }
   sign(payload) {
-    return (0, import_crypto4.createHmac)("sha256", this.secret || "").update(canonicalJson(payload)).digest("hex");
+    return (0, import_crypto5.createHmac)("sha256", this.secret || "").update(canonicalJson2(payload)).digest("hex");
   }
   emptyPayload(prNumber) {
     return {
@@ -33766,15 +34979,15 @@ function shouldExpireSkipOnPush(currentHeadSha, entryHeadSha) {
   }
   return process.env.REVIEW_ROUTER_KEEP_SKIPS_ACROSS_PUSHES === "false";
 }
-function canonicalJson(value) {
+function canonicalJson2(value) {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+    return `[${value.map((item) => canonicalJson2(item)).join(",")}]`;
   }
   const record = value;
-  return `{${Object.keys(record).sort().filter((key) => record[key] !== void 0).map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  return `{${Object.keys(record).sort().filter((key) => record[key] !== void 0).map((key) => `${JSON.stringify(key)}:${canonicalJson2(record[key])}`).join(",")}}`;
 }
 function safeEqualHex(a2, b2) {
   if (!/^[a-f0-9]{64}$/i.test(a2) || !/^[a-f0-9]{64}$/i.test(b2)) {
@@ -33782,7 +34995,7 @@ function safeEqualHex(a2, b2) {
   }
   const aBuffer = Buffer.from(a2, "hex");
   const bBuffer = Buffer.from(b2, "hex");
-  return aBuffer.length === bBuffer.length && (0, import_crypto4.timingSafeEqual)(aBuffer, bBuffer);
+  return aBuffer.length === bBuffer.length && (0, import_crypto5.timingSafeEqual)(aBuffer, bBuffer);
 }
 
 // src/learning/feedback-tracker.ts
@@ -34232,8 +35445,8 @@ var CodeGraph = class _CodeGraph {
   /**
    * Normalize a file path for comparison (strips extensions, converts to posix)
    */
-  normalizePathForComparison(path25) {
-    let normalized = path25.replace(/\\/g, "/");
+  normalizePathForComparison(path28) {
+    let normalized = path28.replace(/\\/g, "/");
     normalized = normalized.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
     return normalized;
   }
@@ -35056,7 +36269,7 @@ var PromptGenerator = class {
 };
 
 // src/utils/sanitize.ts
-var import_crypto5 = require("crypto");
+var import_crypto6 = require("crypto");
 function encodeURIComponentSafe(value) {
   if (typeof value !== "string") {
     return "invalid";
@@ -35065,7 +36278,7 @@ function encodeURIComponentSafe(value) {
   const normalized = encoded.replace(/[+]/g, "_").replace(/%/g, "_").replace(/[<>:"|?*]/g, "_");
   const MAX_PREFIX = 120;
   const prefix = normalized.length > MAX_PREFIX ? normalized.slice(0, MAX_PREFIX) : normalized;
-  const hashSuffix = (0, import_crypto5.createHash)("sha256").update(value).digest("hex").slice(0, 16);
+  const hashSuffix = (0, import_crypto6.createHash)("sha256").update(value).digest("hex").slice(0, 16);
   return `${prefix}-${hashSuffix}`;
 }
 
@@ -35337,14 +36550,14 @@ var ReliabilityTracker = class _ReliabilityTracker {
   async recordResult(providerId, success, durationMs, error2) {
     const data = await this.loadData();
     const safeDurationMs = Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : void 0;
-    const result = {
+    const result2 = {
       providerId,
       success,
       timestamp: Date.now(),
       durationMs: safeDurationMs,
       error: error2
     };
-    data.results.push(result);
+    data.results.push(result2);
     if (data.results.length > _ReliabilityTracker.MAX_RESULTS_HISTORY) {
       const excess = data.results.length - _ReliabilityTracker.MAX_RESULTS_HISTORY;
       data.results.splice(0, excess);
@@ -35469,10 +36682,10 @@ var ReliabilityTracker = class _ReliabilityTracker {
     const reliabilityData = data || await this.loadData();
     logger.info("Aggregating provider reliability statistics");
     const providerGroups = /* @__PURE__ */ new Map();
-    for (const result of reliabilityData.results) {
-      const group = providerGroups.get(result.providerId) || [];
-      group.push(result);
-      providerGroups.set(result.providerId, group);
+    for (const result2 of reliabilityData.results) {
+      const group = providerGroups.get(result2.providerId) || [];
+      group.push(result2);
+      providerGroups.set(result2.providerId, group);
     }
     const fpGroups = /* @__PURE__ */ new Map();
     for (const fp of reliabilityData.falsePositives) {
@@ -36157,10 +37370,10 @@ var PluginLoader = class {
 };
 
 // src/core/batch-orchestrator.ts
-var import_crypto7 = require("crypto");
+var import_crypto8 = require("crypto");
 
 // src/review-orchestration/domain/content-defined-review-batches.ts
-var import_crypto6 = require("crypto");
+var import_crypto7 = require("crypto");
 var ROUTE_HASH_BITS = 256;
 function createContentDefinedReviewBatches(units, limits) {
   requirePositiveInteger(limits.maxFilesPerBatch, "max_files_per_batch");
@@ -36188,7 +37401,7 @@ function createContentDefinedReviewBatches(units, limits) {
     schedulingPriorities.add(unit.schedulingPriority);
     return Object.freeze({
       ...unit,
-      routeHash: sha2562(`rr.review-unit-route.v1\0${unit.routeKey}`)
+      routeHash: sha2563(`rr.review-unit-route.v1\0${unit.routeKey}`)
     });
   });
   const batches = splitBucket(routed, "", limits).sort(compareBatchSchedulingPriority).map(
@@ -36259,8 +37472,8 @@ function routeBit(hash, bitIndex) {
   const shift = 3 - bitIndex % 4;
   return nibble >> shift & 1;
 }
-function sha2562(value) {
-  return (0, import_crypto6.createHash)("sha256").update(value).digest("hex");
+function sha2563(value) {
+  return (0, import_crypto7.createHash)("sha256").update(value).digest("hex");
 }
 function compareCodePoints2(left, right) {
   if (left < right) return -1;
@@ -36396,7 +37609,7 @@ var BatchOrchestrator = class {
   }
 };
 function fileIdentity(file) {
-  return (0, import_crypto7.createHash)("sha256").update(
+  return (0, import_crypto8.createHash)("sha256").update(
     JSON.stringify({
       additions: file.additions,
       changes: file.changes,
@@ -36411,7 +37624,7 @@ function fileIdentity(file) {
 }
 
 // src/learning/suppression-tracker.ts
-var import_crypto8 = require("crypto");
+var import_crypto9 = require("crypto");
 var SuppressionTracker = class _SuppressionTracker {
   constructor(storage, repoKey) {
     this.storage = storage;
@@ -36432,16 +37645,16 @@ var SuppressionTracker = class _SuppressionTracker {
   async recordDismissal(finding, scope, prNumber) {
     const data = await this.loadData();
     const ttl = scope === "pr" ? _SuppressionTracker.PR_TTL_MS : _SuppressionTracker.REPO_TTL_MS;
-    const timestamp2 = Date.now();
+    const timestamp3 = Date.now();
     const pattern = {
-      id: (0, import_crypto8.randomUUID)(),
+      id: (0, import_crypto9.randomUUID)(),
       category: finding.category,
       file: finding.file,
       line: finding.line,
       scope,
       prNumber: scope === "pr" ? prNumber : void 0,
-      timestamp: timestamp2,
-      expiresAt: timestamp2 + ttl
+      timestamp: timestamp3,
+      expiresAt: timestamp3 + ttl
     };
     data.patterns.push(pattern);
     await this.saveData(data);
@@ -36903,7 +38116,7 @@ var AcceptanceDetector = class {
 };
 
 // src/github/review-thread-inventory.ts
-var import_crypto9 = require("crypto");
+var import_crypto10 = require("crypto");
 var DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS = ["review-router-ai[bot]"];
 var GITHUB_ACTIONS_BOT_AUTHOR = "github-actions[bot]";
 var RESOLUTION_REPLY_MARKER = "reviewrouter-lifecycle-resolution:v1";
@@ -37227,7 +38440,7 @@ function shouldTrustGitHubActionsBot(env) {
   return env.REVIEW_ROUTER_COMMENT_TOKEN_STATUS === "fallback";
 }
 function targetIdFor(threadId, parentCommentId, fingerprint) {
-  return `rrt_${(0, import_crypto9.createHash)("sha256").update(`${threadId}
+  return `rrt_${(0, import_crypto10.createHash)("sha256").update(`${threadId}
 ${parentCommentId}
 ${fingerprint}`).digest("hex").slice(0, 16)}`;
 }
@@ -37342,7 +38555,7 @@ var ReviewThreadResolver = class {
     this.backendResolver = backendResolver;
   }
   async resolveGuarded(prNumber, reviewedHeadSha, candidates) {
-    const result = {
+    const result2 = {
       resolved: [],
       skipped: [],
       manualAttention: [],
@@ -37350,15 +38563,15 @@ var ReviewThreadResolver = class {
       warnings: []
     };
     if (candidates.length === 0) {
-      return result;
+      return result2;
     }
     if (this.dryRun) {
-      result.skipped.push(
+      result2.skipped.push(
         ...candidates.map(
           (candidate) => this.withReason(candidate, ["dry_run"])
         )
       );
-      return result;
+      return result2;
     }
     let freshHeadSha;
     try {
@@ -37369,30 +38582,30 @@ var ReviewThreadResolver = class {
         error2
       );
       if (isRateLimitedError(error2)) {
-        result.skipped.push(
+        result2.skipped.push(
           ...candidates.map(
             (candidate) => this.withReason(candidate, ["mutation_rate_limited"])
           )
         );
-        result.warnings.push(
+        result2.warnings.push(
           "review thread lifecycle mutations stopped because GitHub rate limited the request"
         );
-        return result;
+        return result2;
       }
-      result.skipped.push(
+      result2.skipped.push(
         ...candidates.map(
           (candidate) => this.withReason(candidate, ["thread_changed_before_mutation"])
         )
       );
-      return result;
+      return result2;
     }
     if (!freshHeadSha || freshHeadSha !== reviewedHeadSha) {
-      result.skipped.push(
+      result2.skipped.push(
         ...candidates.map(
           (candidate) => this.withReason(candidate, ["head_sha_changed"])
         )
       );
-      return result;
+      return result2;
     }
     for (let index = 0; index < candidates.length; index++) {
       const candidate = candidates[index];
@@ -37401,37 +38614,37 @@ var ReviewThreadResolver = class {
         thread = await this.loadThread(candidate.target.threadId);
       } catch (error2) {
         if (isRateLimitedError(error2)) {
-          result.skipped.push(
+          result2.skipped.push(
             ...candidates.slice(index).map(
               (remaining) => this.withReason(remaining, ["mutation_rate_limited"])
             )
           );
-          result.warnings.push(
+          result2.warnings.push(
             "review thread lifecycle mutations stopped because GitHub rate limited the request"
           );
-          return result;
+          return result2;
         }
-        result.skipped.push(
+        result2.skipped.push(
           this.withReason(candidate, ["thread_changed_before_mutation"])
         );
         continue;
       }
       const guard = this.guardCandidate(candidate, thread);
       if (guard.kind === "resolved") {
-        result.resolved.push({
+        result2.resolved.push({
           ...this.withReason(candidate, guard.reasonCodes),
           resolvedBy: guard.resolvedBy
         });
         continue;
       }
       if (guard.kind === "manual") {
-        result.manualAttention.push(
+        result2.manualAttention.push(
           this.withReason(candidate, guard.reasonCodes)
         );
         continue;
       }
       if (guard.kind === "skipped") {
-        result.skipped.push(this.withReason(candidate, guard.reasonCodes));
+        result2.skipped.push(this.withReason(candidate, guard.reasonCodes));
         continue;
       }
       const mutationHeadFailure = await this.headMutationFailureReason(
@@ -37439,33 +38652,33 @@ var ReviewThreadResolver = class {
         reviewedHeadSha
       );
       if (mutationHeadFailure) {
-        result.skipped.push(
+        result2.skipped.push(
           ...candidates.slice(index).map(
             (remaining) => this.withReason(remaining, [mutationHeadFailure])
           )
         );
-        result.warnings.push(
+        result2.warnings.push(
           "review thread lifecycle mutations stopped because the analyzed PR head is no longer verifiably current"
         );
-        return result;
+        return result2;
       }
       try {
         await this.resolveThread(candidate.target.threadId);
-        result.resolved.push({
+        result2.resolved.push({
           ...this.withReason(candidate, []),
           resolvedBy: "review-router"
         });
       } catch (error2) {
         if (isRateLimitedError(error2)) {
-          result.skipped.push(
+          result2.skipped.push(
             ...candidates.slice(index).map(
               (remaining) => this.withReason(remaining, ["mutation_rate_limited"])
             )
           );
-          result.warnings.push(
+          result2.warnings.push(
             "review thread lifecycle mutations stopped because GitHub rate limited the request"
           );
-          return result;
+          return result2;
         }
         if (permissionDenied(error2) && this.backendResolver) {
           const backendHeadFailure = await this.headMutationFailureReason(
@@ -37473,12 +38686,12 @@ var ReviewThreadResolver = class {
             reviewedHeadSha
           );
           if (backendHeadFailure) {
-            result.skipped.push(
+            result2.skipped.push(
               ...candidates.slice(index).map(
                 (remaining) => this.withReason(remaining, [backendHeadFailure])
               )
             );
-            return result;
+            return result2;
           }
           const backendResult = await this.tryBackendResolve(
             prNumber,
@@ -37486,7 +38699,7 @@ var ReviewThreadResolver = class {
             candidate
           );
           if (backendResult?.status === "resolved") {
-            result.resolved.push({
+            result2.resolved.push({
               ...this.withReason(
                 candidate,
                 mapBackendReasonCodes(backendResult.reasonCodes)
@@ -37496,7 +38709,7 @@ var ReviewThreadResolver = class {
             continue;
           }
           if (backendResult?.status === "already_resolved") {
-            result.resolved.push({
+            result2.resolved.push({
               ...this.withReason(
                 candidate,
                 mapBackendReasonCodes(backendResult.reasonCodes, [
@@ -37508,7 +38721,7 @@ var ReviewThreadResolver = class {
             continue;
           }
           if (backendResult?.status === "manual_attention") {
-            result.manualAttention.push(
+            result2.manualAttention.push(
               this.withReason(
                 candidate,
                 mapBackendReasonCodes(backendResult.reasonCodes, [
@@ -37519,7 +38732,7 @@ var ReviewThreadResolver = class {
             continue;
           }
           if (backendResult?.status === "skipped") {
-            result.skipped.push(
+            result2.skipped.push(
               this.withReason(
                 candidate,
                 mapBackendReasonCodes(backendResult.reasonCodes, [
@@ -37532,12 +38745,12 @@ var ReviewThreadResolver = class {
         }
         const fallbackHeadFailure = permissionDenied(error2) ? await this.headMutationFailureReason(prNumber, reviewedHeadSha) : null;
         if (fallbackHeadFailure) {
-          result.skipped.push(
+          result2.skipped.push(
             ...candidates.slice(index).map(
               (remaining) => this.withReason(remaining, [fallbackHeadFailure])
             )
           );
-          return result;
+          return result2;
         }
         const fallbackCommentPosted = permissionDenied(error2) ? await this.tryPostResolutionFallbackComment(
           prNumber,
@@ -37545,7 +38758,7 @@ var ReviewThreadResolver = class {
           thread
         ) : false;
         const fallbackCommentFailed = permissionDenied(error2) && !fallbackCommentPosted;
-        result.failed.push({
+        result2.failed.push({
           ...this.withReason(candidate, [
             permissionDenied(error2) ? "mutation_permission_denied" : "mutation_failed",
             ...fallbackCommentPosted ? ["resolution_comment_posted"] : [],
@@ -37555,7 +38768,7 @@ var ReviewThreadResolver = class {
         });
       }
     }
-    return result;
+    return result2;
   }
   guardCandidate(candidate, thread) {
     if (!thread) {
@@ -37859,15 +39072,15 @@ async function readSafeErrorCode(response) {
   }
   return void 0;
 }
-function joinApiPath(apiUrl, path25) {
-  return `${apiUrl.replace(/\/+$/, "")}${path25}`;
+function joinApiPath(apiUrl, path28) {
+  return `${apiUrl.replace(/\/+$/, "")}${path28}`;
 }
 function safeReason(message) {
   return message.replace(/[^a-zA-Z0-9:_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 120);
 }
 
 // src/control-plane/memory.ts
-var import_crypto10 = require("crypto");
+var import_crypto11 = require("crypto");
 var ControlPlaneMemoryClient = class {
   constructor(runtimeConfig, env = process.env, fetchImpl = fetch, memoryLogger = logger) {
     this.runtimeConfig = runtimeConfig;
@@ -37938,13 +39151,13 @@ var ControlPlaneMemoryClient = class {
     }
     return results.map(parseMutationResponse);
   }
-  async postJson(path25, body) {
+  async postJson(path28, body) {
     if (!this.isAvailable()) {
       throw new Error("memory_runtime_unavailable");
     }
     const runtimeConfig = this.runtimeConfig;
     const response = await this.fetchImpl(
-      joinApiPath2(runtimeConfig.apiUrl, path25),
+      joinApiPath2(runtimeConfig.apiUrl, path28),
       {
         method: "POST",
         headers: {
@@ -37998,7 +39211,7 @@ function buildSafeMemoryRetrievalQuery(pr2) {
   return normalized.length > 0 ? normalized : null;
 }
 function memorySourceHash(value) {
-  return (0, import_crypto10.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto11.createHash)("sha256").update(value).digest("hex");
 }
 function parseActionMemoryBundle(value) {
   if (!value || typeof value !== "object") {
@@ -38066,14 +39279,14 @@ function endpointPath(value, fallback2) {
   const normalized = value?.trim();
   return normalized || fallback2;
 }
-function joinApiPath2(apiUrl, path25) {
-  return new URL(path25, ensureTrailingSlash(apiUrl)).toString();
+function joinApiPath2(apiUrl, path28) {
+  return new URL(path28, ensureTrailingSlash(apiUrl)).toString();
 }
 function ensureTrailingSlash(value) {
   return value.endsWith("/") ? value : `${value}/`;
 }
-function compactPathHint(path25) {
-  return path25.split("/").filter(Boolean).slice(-3).join("/");
+function compactPathHint(path28) {
+  return path28.split("/").filter(Boolean).slice(-3).join("/");
 }
 function compactWhitespace(value) {
   return value.replace(/\s+/g, " ").trim();
@@ -38159,7 +39372,7 @@ var ExecutionDeadline = class {
 
 // src/review-execution/infrastructure/http-review-checkpoint-client.ts
 var fs14 = __toESM(require("fs/promises"));
-var import_crypto11 = require("crypto");
+var import_crypto12 = require("crypto");
 
 // src/review-execution/domain/review-checkpoint.ts
 var REVIEW_CHECKPOINT_PROTOCOL_VERSION = 1;
@@ -38289,11 +39502,11 @@ function normalizeReviewCheckpointBatchPayload(input) {
     MAX_PROVIDER_RESULTS,
     "providerResults"
   );
-  const providerResults = rawProviderResults.map(normalizeProviderResult).map((result) => requireNormalized(result, "providerResult"));
+  const providerResults = rawProviderResults.map(normalizeProviderResult).map((result2) => requireNormalized(result2, "providerResult"));
   const rawFindings = Array.isArray(record?.findings) ? record.findings : rawProviderResults.flatMap((providerResult) => {
     const provider = asRecord(providerResult);
-    const result = asRecord(provider?.result);
-    return Array.isArray(result?.findings) ? result.findings : [];
+    const result2 = asRecord(provider?.result);
+    return Array.isArray(result2?.findings) ? result2.findings : [];
   });
   assertCollectionWithinLimit(rawFindings, MAX_FINDINGS, "findings");
   return reviewCheckpointBatchPayloadSchema.parse({
@@ -38323,10 +39536,10 @@ function normalizeFilePaths(record) {
   const seen = /* @__PURE__ */ new Set();
   for (const value of values) {
     if (typeof value !== "string") continue;
-    const path25 = normalizeText2(value, 4096);
-    if (!path25 || seen.has(path25)) continue;
-    seen.add(path25);
-    paths.push(path25);
+    const path28 = normalizeText2(value, 4096);
+    if (!path28 || seen.has(path28)) continue;
+    seen.add(path28);
+    paths.push(path28);
     if (paths.length > MAX_FILE_PATHS) {
       throw new Error("review_checkpoint_filePaths_limit_exceeded");
     }
@@ -38364,7 +39577,7 @@ function normalizeFinding2(value) {
 function normalizeProviderResult(value) {
   const provider = asRecord(value);
   if (!provider || typeof provider.name !== "string") return null;
-  const result = asRecord(provider.result);
+  const result2 = asRecord(provider.result);
   const errorMessage2 = messageFromUnknown(
     provider.errorMessage ?? provider.error
   );
@@ -38373,14 +39586,14 @@ function normalizeProviderResult(value) {
     status: normalizeProviderStatus(provider.status),
     durationMs: normalizeDurationMs(provider),
     ...errorMessage2 ? { errorMessage: normalizeText2(errorMessage2, 1e3) } : {},
-    ...typeof (provider.actualModel ?? result?.actualModel) === "string" ? {
+    ...typeof (provider.actualModel ?? result2?.actualModel) === "string" ? {
       actualModel: normalizeText2(
-        provider.actualModel ?? result?.actualModel,
+        provider.actualModel ?? result2?.actualModel,
         500
       )
     } : {},
-    ...isProbability(provider.aiLikelihood ?? result?.aiLikelihood) ? { aiLikelihood: provider.aiLikelihood ?? result?.aiLikelihood } : {},
-    ...normalizeProviderUsage(provider, result),
+    ...isProbability(provider.aiLikelihood ?? result2?.aiLikelihood) ? { aiLikelihood: provider.aiLikelihood ?? result2?.aiLikelihood } : {},
+    ...normalizeProviderUsage(provider, result2),
     ...Array.isArray(provider.lifecycleAssignedTargetIds) ? {
       lifecycleAssignedTargetIds: normalizeStringArray(
         provider.lifecycleAssignedTargetIds,
@@ -38388,12 +39601,12 @@ function normalizeProviderResult(value) {
         500
       )
     } : {},
-    ...normalizeProviderRevalidations(provider, result)
+    ...normalizeProviderRevalidations(provider, result2)
   });
   return parsed.success ? parsed.data : null;
 }
-function normalizeProviderUsage(provider, result) {
-  const usage = asRecord(provider.usage) ?? asRecord(result?.usage);
+function normalizeProviderUsage(provider, result2) {
+  const usage = asRecord(provider.usage) ?? asRecord(result2?.usage);
   if (!usage) return {};
   const parsed = external_exports.object({
     promptTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT),
@@ -38402,8 +39615,8 @@ function normalizeProviderUsage(provider, result) {
   }).strict().safeParse(usage);
   return parsed.success ? { usage: parsed.data } : {};
 }
-function normalizeProviderRevalidations(provider, result) {
-  const raw = Array.isArray(provider.lifecycleRevalidations) ? provider.lifecycleRevalidations : Array.isArray(result?.lifecycleRevalidations) ? result.lifecycleRevalidations : Array.isArray(result?.revalidations) ? result.revalidations : null;
+function normalizeProviderRevalidations(provider, result2) {
+  const raw = Array.isArray(provider.lifecycleRevalidations) ? provider.lifecycleRevalidations : Array.isArray(result2?.lifecycleRevalidations) ? result2.lifecycleRevalidations : Array.isArray(result2?.revalidations) ? result2.revalidations : null;
   if (!raw) return {};
   assertCollectionWithinLimit(raw, MAX_REVALIDATIONS, "lifecycleRevalidations");
   return {
@@ -38611,8 +39824,8 @@ var ReviewCheckpointSession = class _ReviewCheckpointSession {
       };
     }
     try {
-      let result = await this.sendBatchResult(workKey, payload);
-      if (result.status === "conflict" /* Conflict */) {
+      let result2 = await this.sendBatchResult(workKey, payload);
+      if (result2.status === "conflict" /* Conflict */) {
         const reconciled = await this.reconcileAfterConflict(workKey, payload);
         if (reconciled === "idempotent" /* Idempotent */) {
           return {
@@ -38624,24 +39837,24 @@ var ReviewCheckpointSession = class _ReviewCheckpointSession {
         if (reconciled === "disabled" /* Disabled */) {
           return disabledCommit();
         }
-        result = await this.sendBatchResult(workKey, payload);
+        result2 = await this.sendBatchResult(workKey, payload);
       }
-      if (result.status === "conflict" /* Conflict */) {
+      if (result2.status === "conflict" /* Conflict */) {
         this.disable("repeated_version_conflict");
         return disabledCommit();
       }
-      if (!this.isExactBatchAcknowledgement(result, workKey) || !isValidVersionAcknowledgement(
-        result.version,
+      if (!this.isExactBatchAcknowledgement(result2, workKey) || !isValidVersionAcknowledgement(
+        result2.version,
         this.expectedVersion,
-        result.status === "idempotent" /* Idempotent */
+        result2.status === "idempotent" /* Idempotent */
       )) {
         this.disable("mismatched_batch_acknowledgement");
         return disabledCommit();
       }
-      this.expectedVersion = result.version;
+      this.expectedVersion = result2.version;
       this.setAcceptedResult(workKey, payload);
       return {
-        status: result.status === "idempotent" /* Idempotent */ ? "idempotent" /* Idempotent */ : "accepted" /* Accepted */,
+        status: result2.status === "idempotent" /* Idempotent */ ? "idempotent" /* Idempotent */ : "accepted" /* Accepted */,
         expectedVersion: this.expectedVersion,
         payload
       };
@@ -38662,41 +39875,41 @@ var ReviewCheckpointSession = class _ReviewCheckpointSession {
       };
     }
     try {
-      let result = await this.client.finalize({
+      let result2 = await this.client.finalize({
         expectedVersion: this.expectedVersion,
         pullRequestNumber: this.plan.pullRequestNumber,
         headSha: this.plan.headSha,
         planHash: this.plan.planHash
       });
-      if (result.status === "conflict" /* Conflict */) {
+      if (result2.status === "conflict" /* Conflict */) {
         const reconciled = await this.reconcileFinalizationConflict();
         if (!reconciled) return disabledFinalize();
-        result = await this.client.finalize({
+        result2 = await this.client.finalize({
           expectedVersion: this.expectedVersion,
           pullRequestNumber: this.plan.pullRequestNumber,
           headSha: this.plan.headSha,
           planHash: this.plan.planHash
         });
       }
-      if (result.status === "conflict" /* Conflict */) {
+      if (result2.status === "conflict" /* Conflict */) {
         this.disable("repeated_finalize_version_conflict");
         return disabledFinalize();
       }
-      if (result.headSha.toLowerCase() !== this.plan.headSha || result.planHash.toLowerCase() !== this.plan.planHash || !isValidVersionAcknowledgement(
-        result.version,
+      if (result2.headSha.toLowerCase() !== this.plan.headSha || result2.planHash.toLowerCase() !== this.plan.planHash || !isValidVersionAcknowledgement(
+        result2.version,
         this.expectedVersion,
-        result.status === "idempotent" /* Idempotent */
+        result2.status === "idempotent" /* Idempotent */
       )) {
         this.disable("mismatched_finalize_acknowledgement");
         return disabledFinalize();
       }
-      this.expectedVersion = result.version;
+      this.expectedVersion = result2.version;
       this.finalized = true;
       const markerWritten = await this.writeFinalizationMarker(
         input.snapshotAdvancementRequired
       );
       return {
-        status: result.status === "idempotent" /* Idempotent */ ? "idempotent" /* Idempotent */ : "finalized" /* Finalized */,
+        status: result2.status === "idempotent" /* Idempotent */ ? "idempotent" /* Idempotent */ : "finalized" /* Finalized */,
         expectedVersion: this.expectedVersion,
         markerWritten
       };
@@ -38765,8 +39978,8 @@ var ReviewCheckpointSession = class _ReviewCheckpointSession {
     this.finalized = checkpoint.finalized;
     return true;
   }
-  isExactBatchAcknowledgement(result, workKey) {
-    return result.headSha.toLowerCase() === this.plan.headSha && result.planHash.toLowerCase() === this.plan.planHash && result.workKey.toLowerCase() === workKey;
+  isExactBatchAcknowledgement(result2, workKey) {
+    return result2.headSha.toLowerCase() === this.plan.headSha && result2.planHash.toLowerCase() === this.plan.planHash && result2.workKey.toLowerCase() === workKey;
   }
   setAcceptedResult(workKey, payload) {
     const results = new Map(this.acceptedResults);
@@ -38801,12 +40014,12 @@ var ReviewCheckpointSession = class _ReviewCheckpointSession {
     warnFailOpen(this.logger, reason);
   }
   enqueue(operation) {
-    const result = this.operationQueue.then(operation, operation);
-    this.operationQueue = result.then(
+    const result2 = this.operationQueue.then(operation, operation);
+    this.operationQueue = result2.then(
       () => void 0,
       () => void 0
     );
-    return result;
+    return result2;
   }
 };
 function isValidVersionAcknowledgement(acknowledgedVersion, expectedVersion, idempotent) {
@@ -39020,9 +40233,9 @@ var HttpReviewCheckpointClient = class _HttpReviewCheckpointClient {
             (key) => key.toLowerCase()
           )
         },
-        acceptedResults: response.checkpoint.acceptedResults.map((result) => ({
-          workKey: result.workKey.toLowerCase(),
-          payload: result.payload
+        acceptedResults: response.checkpoint.acceptedResults.map((result2) => ({
+          workKey: result2.workKey.toLowerCase(),
+          payload: result2.payload
         })),
         finalized: response.checkpoint.finalized
       }
@@ -39090,7 +40303,7 @@ var HttpReviewCheckpointClient = class _HttpReviewCheckpointClient {
       ...body
     };
   }
-  async post(path25, body, schema2) {
+  async post(path28, body, schema2) {
     const serialized = JSON.stringify(body);
     if (Buffer.byteLength(serialized, "utf8") > REVIEW_CHECKPOINT_MAX_REQUEST_BYTES) {
       throw new ReviewCheckpointHttpError(
@@ -39114,7 +40327,7 @@ var HttpReviewCheckpointClient = class _HttpReviewCheckpointClient {
       let response;
       try {
         response = await Promise.race([
-          this.fetchImpl(`${this.apiUrl}${CHECKPOINT_PATH}${path25}`, {
+          this.fetchImpl(`${this.apiUrl}${CHECKPOINT_PATH}${path28}`, {
             method: "POST",
             redirect: "error",
             headers: {
@@ -39231,19 +40444,19 @@ function isAllowedCheckpointApiUrl(input) {
   }
 }
 var FileReviewCheckpointFinalizationMarkerWriter = class _FileReviewCheckpointFinalizationMarkerWriter {
-  constructor(path25) {
-    this.path = path25;
+  constructor(path28) {
+    this.path = path28;
   }
   static fromEnvironment(env = process.env) {
-    const path25 = env[REVIEW_CHECKPOINT_FINALIZATION_PATH_ENV]?.trim();
-    return path25 ? new _FileReviewCheckpointFinalizationMarkerWriter(path25) : null;
+    const path28 = env[REVIEW_CHECKPOINT_FINALIZATION_PATH_ENV]?.trim();
+    return path28 ? new _FileReviewCheckpointFinalizationMarkerWriter(path28) : null;
   }
   static parse(input) {
     return parseReviewCheckpointFinalizationMarker(input);
   }
   async write(marker) {
     const validated = reviewCheckpointFinalizationMarkerSchema.parse(marker);
-    const temporaryPath = `${this.path}.tmp-${process.pid}-${(0, import_crypto11.randomUUID)()}`;
+    const temporaryPath = `${this.path}.tmp-${process.pid}-${(0, import_crypto12.randomUUID)()}`;
     try {
       await fs14.writeFile(temporaryPath, JSON.stringify(validated), {
         encoding: "utf8",
@@ -39562,9 +40775,9 @@ function validateSuggestionSanity(suggestion) {
 // src/analysis/llm/parser.ts
 function extractFindings(results) {
   const findings = [];
-  for (const result of results) {
-    if (result.status !== "success" || !result.result?.findings) continue;
-    for (const finding of result.result.findings) {
+  for (const result2 of results) {
+    if (result2.status !== "success" || !result2.result?.findings) continue;
+    for (const finding of result2.result.findings) {
       let suggestion = void 0;
       if (finding.suggestion !== void 0 && finding.suggestion !== null) {
         const validation = validateSuggestionSanity(finding.suggestion);
@@ -39580,16 +40793,16 @@ function extractFindings(results) {
         ...finding,
         suggestion,
         // Use validated suggestion (or undefined)
-        provider: result.name,
-        providers: finding.providers || [result.name],
-        actualModel: result.result.actualModel,
+        provider: result2.name,
+        providers: finding.providers || [result2.name],
+        actualModel: result2.result.actualModel,
         providerVoteKeys: [
-          normalizeProviderVoteKey(result.name, result.result.actualModel) || result.name
+          normalizeProviderVoteKey(result2.name, result2.result.actualModel) || result2.name
         ],
         providerModels: [
           {
-            provider: result.name,
-            actualModel: result.result.actualModel
+            provider: result2.name,
+            actualModel: result2.result.actualModel
           }
         ]
       });
@@ -39601,10 +40814,10 @@ function extractFindings(results) {
 // src/analysis/ai-detector.ts
 function summarizeAIDetection(results) {
   const estimates = {};
-  for (const result of results) {
-    const likelihood = result.result?.aiLikelihood;
-    if (result.status === "success" && typeof likelihood === "number") {
-      estimates[result.name] = likelihood;
+  for (const result2 of results) {
+    const likelihood = result2.result?.aiLikelihood;
+    if (result2.status === "success" && typeof likelihood === "number") {
+      estimates[result2.name] = likelihood;
     }
   }
   const providers = Object.keys(estimates);
@@ -40345,7 +41558,7 @@ var maybeMatch = (reg, str2) => {
   return m2 ? m2[0] : null;
 };
 var range = (a2, b2, str2) => {
-  let begs, beg, left, right = void 0, result;
+  let begs, beg, left, right = void 0, result2;
   let ai = str2.indexOf(a2);
   let bi = str2.indexOf(b2, ai + 1);
   let i2 = ai;
@@ -40355,14 +41568,14 @@ var range = (a2, b2, str2) => {
     }
     begs = [];
     left = str2.length;
-    while (i2 >= 0 && !result) {
+    while (i2 >= 0 && !result2) {
       if (i2 === ai) {
         begs.push(i2);
         ai = str2.indexOf(a2, i2 + 1);
       } else if (begs.length === 1) {
         const r2 = begs.pop();
         if (r2 !== void 0)
-          result = [r2, bi];
+          result2 = [r2, bi];
       } else {
         beg = begs.pop();
         if (beg !== void 0 && beg < left) {
@@ -40374,10 +41587,10 @@ var range = (a2, b2, str2) => {
       i2 = ai < bi && ai >= 0 ? ai : bi;
     }
     if (begs.length && right !== void 0) {
-      result = [left, right];
+      result2 = [left, right];
     }
   }
-  return result;
+  return result2;
 };
 
 // node_modules/minimatch/node_modules/brace-expansion/dist/esm/index.js
@@ -41791,38 +43004,38 @@ var Minimatch = class {
   partsMatch(a2, b2, emptyGSMatch = false) {
     let ai = 0;
     let bi = 0;
-    let result = [];
+    let result2 = [];
     let which = "";
     while (ai < a2.length && bi < b2.length) {
       if (a2[ai] === b2[bi]) {
-        result.push(which === "b" ? b2[bi] : a2[ai]);
+        result2.push(which === "b" ? b2[bi] : a2[ai]);
         ai++;
         bi++;
       } else if (emptyGSMatch && a2[ai] === "**" && b2[bi] === a2[ai + 1]) {
-        result.push(a2[ai]);
+        result2.push(a2[ai]);
         ai++;
       } else if (emptyGSMatch && b2[bi] === "**" && a2[ai] === b2[bi + 1]) {
-        result.push(b2[bi]);
+        result2.push(b2[bi]);
         bi++;
       } else if (a2[ai] === "*" && b2[bi] && (this.options.dot || !b2[bi].startsWith(".")) && b2[bi] !== "**") {
         if (which === "b")
           return false;
         which = "a";
-        result.push(a2[ai]);
+        result2.push(a2[ai]);
         ai++;
         bi++;
       } else if (b2[bi] === "*" && a2[ai] && (this.options.dot || !a2[ai].startsWith(".")) && a2[ai] !== "**") {
         if (which === "a")
           return false;
         which = "b";
-        result.push(b2[bi]);
+        result2.push(b2[bi]);
         ai++;
         bi++;
       } else {
         return false;
       }
     }
-    return a2.length === b2.length && result;
+    return a2.length === b2.length && result2;
   }
   parseNegate() {
     if (this.nonegate)
@@ -42086,10 +43299,10 @@ var Minimatch = class {
       }
       return filtered.join("/");
     }).join("|");
-    const [open3, close] = set2.length > 1 ? ["(?:", ")"] : ["", ""];
-    re2 = "^" + open3 + re2 + close + "$";
+    const [open4, close] = set2.length > 1 ? ["(?:", ")"] : ["", ""];
+    re2 = "^" + open4 + re2 + close + "$";
     if (this.partial) {
-      re2 = "^(?:\\/|" + open3 + re2.slice(1, -1) + close + ")$";
+      re2 = "^(?:\\/|" + open4 + re2.slice(1, -1) + close + ")$";
     }
     if (this.negate)
       re2 = "^(?!" + re2 + ").+$";
@@ -42425,7 +43638,7 @@ var PathMatcher = class {
       return cached;
     }
     try {
-      const result = minimatch(filePath, pattern, {
+      const result2 = minimatch(filePath, pattern, {
         dot: true,
         // Match dotfiles
         matchBase: false,
@@ -42437,8 +43650,8 @@ var PathMatcher = class {
         nocomment: true
         // Disable comment patterns (security)
       });
-      this.matchCache.set(cacheKey, result);
-      return result;
+      this.matchCache.set(cacheKey, result2);
+      return result2;
     } catch (error2) {
       logger.warn(
         `Invalid glob pattern "${pattern}": ${error2.message}`
@@ -42702,15 +43915,15 @@ function extractDiffDestinationPaths(diff) {
   const diffGitPattern = /^diff --git\s+a\/(.+?)\s+b\/(.+)$/gm;
   let match2;
   while ((match2 = diffGitPattern.exec(diff)) !== null) {
-    paths.add(unquoteGitPath3(match2[2].trim()));
+    paths.add(unquoteGitPath4(match2[2].trim()));
   }
   return paths;
 }
-function unquoteGitPath3(path25) {
-  if (path25.startsWith('"') && path25.endsWith('"')) {
-    path25 = path25.slice(1, -1);
+function unquoteGitPath4(path28) {
+  if (path28.startsWith('"') && path28.endsWith('"')) {
+    path28 = path28.slice(1, -1);
   }
-  return path25.replace(/\\([\\"tnr])/g, (_match, char) => {
+  return path28.replace(/\\([\\"tnr])/g, (_match, char) => {
     switch (char) {
       case "\\":
         return "\\";
@@ -42808,16 +44021,16 @@ function hasCapacityMessage(message) {
   if (STRUCTURED_OUTPUT_ERROR.test(message)) return false;
   return CAPACITY_MESSAGE.test(message);
 }
-function classifyOne(result) {
-  const status = typeof result.status === "string" ? result.status : void 0;
-  if (hasCapacityMessage(status) || hasCapacityMessage(messageFromError(result.error))) {
+function classifyOne(result2) {
+  const status = typeof result2.status === "string" ? result2.status : void 0;
+  if (hasCapacityMessage(status) || hasCapacityMessage(messageFromError(result2.error))) {
     return "capacity_pressure" /* CapacityPressure */;
   }
   if (status?.toLowerCase() === "success") return "healthy" /* Healthy */;
   return "neutral" /* Neutral */;
 }
-function classifyProviderCapacitySignal(result) {
-  const results = Array.isArray(result) ? result : [result];
+function classifyProviderCapacitySignal(result2) {
+  const results = Array.isArray(result2) ? result2 : [result2];
   if (results.length === 0) return "neutral" /* Neutral */;
   const signals = results.map(classifyOne);
   if (signals.includes("capacity_pressure" /* CapacityPressure */)) {
@@ -43722,7 +44935,7 @@ function prioritizeFilesByRisk(files) {
 }
 
 // src/review-execution/domain/review-batch-plan.ts
-var import_crypto12 = require("crypto");
+var import_crypto13 = require("crypto");
 function compareCodePoints3(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
@@ -43767,10 +44980,10 @@ function createReviewBatchPlan(input) {
     providerNames,
     batches: canonicalBatches
   };
-  const planHash = (0, import_crypto12.createHash)("sha256").update(JSON.stringify(payload)).digest("hex");
+  const planHash = (0, import_crypto13.createHash)("sha256").update(JSON.stringify(payload)).digest("hex");
   const batches = Object.freeze(
     input.batches.map((batch, index) => {
-      const id = (0, import_crypto12.createHash)("sha256").update(
+      const id = (0, import_crypto13.createHash)("sha256").update(
         JSON.stringify({
           version: "v1" /* V1 */,
           planHash,
@@ -43794,6 +45007,99 @@ function createReviewBatchPlan(input) {
     providerNames,
     batches
   });
+}
+
+// src/review-execution/domain/work-slot-provider-result.ts
+var EMPTY_USAGE = {
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0
+};
+function aggregateWorkSlotProviderResults(healthResults, workSlotResults) {
+  const healthByProvider = new Map(
+    [...healthResults].sort((left, right) => left.name.localeCompare(right.name)).map((result2) => [result2.name, result2])
+  );
+  const workByProvider = /* @__PURE__ */ new Map();
+  for (const scoped of [...workSlotResults].sort(compareScopedResults)) {
+    const provider = scoped.providerResult.name;
+    const existing = workByProvider.get(provider) ?? [];
+    existing.push(scoped);
+    workByProvider.set(provider, existing);
+  }
+  const providerNames = /* @__PURE__ */ new Set([
+    ...healthByProvider.keys(),
+    ...workByProvider.keys()
+  ]);
+  return [...providerNames].sort((left, right) => left.localeCompare(right)).map((provider) => {
+    const scoped = workByProvider.get(provider);
+    if (!scoped || scoped.length === 0) {
+      return healthByProvider.get(provider);
+    }
+    return aggregateProvider(provider, scoped);
+  });
+}
+function aggregateProvider(provider, scopedResults) {
+  const results = scopedResults.map((scoped) => scoped.providerResult);
+  const firstFailure = results.find((result2) => result2.status !== "success");
+  const successfulReviews = results.flatMap(
+    (result2) => result2.status === "success" && result2.result ? [result2.result] : []
+  );
+  const aggregateResult = aggregateSuccessfulReviews(successfulReviews);
+  return {
+    name: provider,
+    status: firstFailure?.status ?? "success",
+    durationSeconds: results.reduce(
+      (total, result2) => total + Math.max(0, result2.durationSeconds),
+      0
+    ),
+    ...aggregateResult ? { result: aggregateResult } : {},
+    ...firstFailure?.error ? { error: firstFailure.error } : {},
+    lifecycleAssignedTargetIds: [
+      ...new Set(
+        results.flatMap((result2) => result2.lifecycleAssignedTargetIds ?? [])
+      )
+    ].sort((left, right) => left.localeCompare(right))
+  };
+}
+function aggregateSuccessfulReviews(reviews) {
+  if (reviews.length === 0) return void 0;
+  const usage = reviews.reduce(
+    (total, review) => ({
+      promptTokens: total.promptTokens + (review.usage?.promptTokens ?? 0),
+      completionTokens: total.completionTokens + (review.usage?.completionTokens ?? 0),
+      totalTokens: total.totalTokens + (review.usage?.totalTokens ?? 0)
+    }),
+    EMPTY_USAGE
+  );
+  const likelihoods = reviews.flatMap(
+    (review) => typeof review.aiLikelihood === "number" ? [review.aiLikelihood] : []
+  );
+  const models = new Set(
+    reviews.flatMap(
+      (review) => review.actualModel ? [review.actualModel] : []
+    )
+  );
+  return {
+    content: reviews.map((review) => review.content).filter(Boolean).join("\n"),
+    findings: reviews.flatMap((review) => review.findings ?? []),
+    revalidations: reviews.flatMap((review) => review.revalidations ?? []),
+    usage,
+    durationSeconds: reviews.reduce(
+      (total, review) => total + Math.max(0, review.durationSeconds ?? 0),
+      0
+    ),
+    transportAttemptCount: reviews.reduce(
+      (total, review) => total + Math.max(0, review.transportAttemptCount ?? 0),
+      0
+    ),
+    ...likelihoods.length > 0 ? {
+      aiLikelihood: likelihoods.reduce((total, value) => total + value, 0) / likelihoods.length
+    } : {},
+    ...models.size === 1 ? { actualModel: [...models][0] } : {}
+  };
+}
+function compareScopedResults(left, right) {
+  return left.workSlotId.localeCompare(right.workSlotId) || left.providerResult.name.localeCompare(right.providerResult.name);
 }
 
 // src/review-execution/application/adaptive-batch-scheduler.ts
@@ -43854,13 +45160,13 @@ var AdaptiveBatchScheduler = class {
           const item = items[index];
           nextIndex += 1;
           activeCount += 1;
-          void Promise.resolve().then(() => execute(item, index)).then((result) => {
-            const signal = classifyCompletion(result);
+          void Promise.resolve().then(() => execute(item, index)).then((result2) => {
+            const signal = classifyCompletion(result2);
             completed.push({
               status: "fulfilled" /* Fulfilled */,
               index,
               item,
-              result
+              result: result2
             });
             adaptConcurrency(signal);
           }).catch((error2) => {
@@ -44046,9 +45352,9 @@ var ReviewOrchestrator = class {
               });
               const validPatterns = [];
               for (const item of parsed) {
-                const result = PathPatternSchema.safeParse(item);
-                if (result.success) {
-                  validPatterns.push(result.data);
+                const result2 = PathPatternSchema.safeParse(item);
+                if (result2.success) {
+                  validPatterns.push(result2.data);
                 } else {
                   logger.warn(
                     `Invalid path pattern object, skipping: ${JSON.stringify(item)}`
@@ -44483,6 +45789,7 @@ var ReviewOrchestrator = class {
           );
           logger.info(`Processing ${batches.length} batch(es)`);
           const batchResults = [];
+          const workSlotProviderResults = [];
           const restoredCheckpointResults = checkpointSession?.acceptedBatchResults ?? /* @__PURE__ */ new Map();
           if (Array.from(restoredCheckpointResults.values()).some(
             (payload) => !this.hasCompleteProviderCheckpointCoverage(
@@ -44512,6 +45819,12 @@ var ReviewOrchestrator = class {
               restoredResults
             );
             batchResults.push(...restoredResults);
+            workSlotProviderResults.push(
+              ...restoredResults.map((providerResult) => ({
+                workSlotId: plannedBatch.id,
+                providerResult
+              }))
+            );
             this.recordLifecycleBatchProviderFailures(
               lifecycleTargetsByBatch[plannedBatch.index] ?? [],
               restoredResults,
@@ -44557,8 +45870,8 @@ var ReviewOrchestrator = class {
                   prompt,
                   intensityTimeout
                 );
-                const scopedResults = results.map((result) => ({
-                  ...result,
+                const scopedResults = results.map((result2) => ({
+                  ...result2,
                   lifecycleAssignedTargetIds
                 })).sort((left, right) => left.name.localeCompare(right.name));
                 this.recordLifecycleBatchProviderFailures(
@@ -44581,7 +45894,7 @@ var ReviewOrchestrator = class {
                     providerResults: scopedResults
                   });
                 }
-                if (scopedResults.some((result) => result.status === "success")) {
+                if (scopedResults.some((result2) => result2.status === "success")) {
                   successfulReviewContexts.push(batchContext2);
                 }
                 await this.recordProviderUsage(
@@ -44615,26 +45928,32 @@ var ReviewOrchestrator = class {
           let batchFailures = 0;
           let batchSuccesses = acceptedCheckpointResults.size;
           const requiredProviderFailures = [];
-          for (const result of scheduled.completed) {
-            const batchIndex = result.item.index;
-            if (result.status === "fulfilled" /* Fulfilled */) {
-              batchResults.push(...result.result);
+          for (const result2 of scheduled.completed) {
+            const batchIndex = result2.item.index;
+            if (result2.status === "fulfilled" /* Fulfilled */) {
+              batchResults.push(...result2.result);
+              workSlotProviderResults.push(
+                ...result2.result.map((providerResult) => ({
+                  workSlotId: result2.item.id,
+                  providerResult
+                }))
+              );
               const requiredFailure = this.findRequiredProviderExecutionFailure(
                 requiredHealthyProviders,
-                result.result
+                result2.result
               );
               if (requiredFailure) {
                 requiredProviderFailures.push(requiredFailure);
               }
-              const successfulProviders = result.result.filter(
+              const successfulProviders = result2.result.filter(
                 (r2) => r2.status === "success"
               );
-              const degradedProviders = result.result.filter(
+              const degradedProviders = result2.result.filter(
                 (r2) => r2.status !== "success"
               );
               if (!this.hasCompleteProviderCheckpointCoverage(
                 healthy,
-                result.result
+                result2.result
               )) {
                 hasProviderCoverageGap = true;
               }
@@ -44673,16 +45992,22 @@ var ReviewOrchestrator = class {
                   "batch execution did not complete"
                 );
               }
-              logger.error("Batch promise rejected", result.error);
+              logger.error("Batch promise rejected", result2.error);
               const lifecycleAssignedTargetIds = (lifecycleTargetsByBatch[batchIndex] ?? []).map((target) => target.targetId);
               const failedBatchResults = healthy.map((provider) => ({
                 name: provider.name,
                 status: "error",
-                error: result.error,
+                error: result2.error,
                 durationSeconds: 0,
                 lifecycleAssignedTargetIds
               }));
               batchResults.push(...failedBatchResults);
+              workSlotProviderResults.push(
+                ...failedBatchResults.map((providerResult) => ({
+                  workSlotId: result2.item.id,
+                  providerResult
+                }))
+              );
               const requiredFailure = this.findRequiredProviderExecutionFailure(
                 requiredHealthyProviders,
                 failedBatchResults
@@ -44717,15 +46042,9 @@ var ReviewOrchestrator = class {
             lifecycleFailedProvidersByTarget
           );
           lifecycleProviderResults2 = batchResults;
-          const mergedMap = /* @__PURE__ */ new Map();
-          for (const result of allHealthResults) {
-            mergedMap.set(result.name, result);
-          }
-          for (const result of batchResults) {
-            mergedMap.set(result.name, result);
-          }
-          const mergedResults = Array.from(mergedMap.values()).sort(
-            (a2, b2) => a2.name.localeCompare(b2.name)
+          const mergedResults = aggregateWorkSlotProviderResults(
+            allHealthResults,
+            workSlotProviderResults
           );
           await this.recordReliability(mergedResults);
           if (requiredProviderFailures.length > 0) {
@@ -45397,17 +46716,17 @@ var ReviewOrchestrator = class {
     if (reviewCommentState.commandDismissed?.has(target.fingerprint)) {
       return true;
     }
-    const path25 = target.currentPath || target.originalPath;
+    const path28 = target.currentPath || target.originalPath;
     const line = target.currentLine ?? target.originalLine;
-    if (path25 && line != null && reviewCommentState.commandDismissedLocations?.has(
-      `${path25.toLowerCase()}:${line}`
+    if (path28 && line != null && reviewCommentState.commandDismissedLocations?.has(
+      `${path28.toLowerCase()}:${line}`
     )) {
       return true;
     }
     const severity = target.severity === "critical" || target.severity === "major" || target.severity === "minor" ? target.severity : "minor";
     return this.components.feedbackFilter.isInlineCommandDismissed(
       {
-        path: path25,
+        path: path28,
         line: line ?? 0,
         side: "RIGHT",
         body: target.message,
@@ -45469,7 +46788,7 @@ var ReviewOrchestrator = class {
   }
   recordLifecycleBatchProviderFailures(targets, results, failuresByTarget) {
     if (targets.length === 0) return;
-    const failedProviderIds = results.filter((result) => result.status !== "success").map((result) => result.name);
+    const failedProviderIds = results.filter((result2) => result2.status !== "success").map((result2) => result2.name);
     if (failedProviderIds.length === 0) return;
     for (const target of targets) {
       let failures = failuresByTarget.get(target.targetId);
@@ -45775,9 +47094,9 @@ var ReviewOrchestrator = class {
     }
   }
   formatProviderFailureSummary(results) {
-    const failures = results.filter((result) => result.status !== "success").map((result) => {
-      const reason = result.error?.message || result.status;
-      return `${result.name}: ${this.redactProviderFailureReason(reason)}`;
+    const failures = results.filter((result2) => result2.status !== "success").map((result2) => {
+      const reason = result2.error?.message || result2.status;
+      return `${result2.name}: ${this.redactProviderFailureReason(reason)}`;
     });
     if (failures.length === 0) {
       return "No provider error details were reported.";
@@ -45805,13 +47124,13 @@ var ReviewOrchestrator = class {
     if (requiredProviders.size === 0) return;
     const healthyNames = new Set(healthy.map((provider) => provider.name));
     const healthByName = new Map(
-      healthResults.map((result) => [result.name, result])
+      healthResults.map((result2) => [result2.name, result2])
     );
     for (const required of requiredProviders) {
       if (healthyNames.has(required)) continue;
-      const result = healthByName.get(required);
+      const result2 = healthByName.get(required);
       const reason = this.redactProviderFailureReason(
-        result?.error?.message || result?.status || "provider did not pass health check"
+        result2?.error?.message || result2?.status || "provider did not pass health check"
       );
       throw new Error(
         `Required healthy provider ${required} failed health check: ${reason}`
@@ -45821,24 +47140,24 @@ var ReviewOrchestrator = class {
   findRequiredProviderExecutionFailure(requiredProviders, results) {
     if (requiredProviders.size === 0) return void 0;
     const resultByName = new Map(
-      results.map((result) => [result.name, result])
+      results.map((result2) => [result2.name, result2])
     );
     for (const required of requiredProviders) {
-      const result = resultByName.get(required);
-      if (!result) {
+      const result2 = resultByName.get(required);
+      if (!result2) {
         return new Error(
           `Required healthy provider ${required} did not return a result.`
         );
       }
-      if (result.status !== "success") {
+      if (result2.status !== "success") {
         const reason = this.redactProviderFailureReason(
-          result.error?.message || result.status
+          result2.error?.message || result2.status
         );
         return new Error(
           `Required healthy provider ${required} failed during review: ${reason}`
         );
       }
-      if (!result.result) {
+      if (!result2.result) {
         return new Error(
           `Required healthy provider ${required} did not return a review result.`
         );
@@ -45849,12 +47168,12 @@ var ReviewOrchestrator = class {
   hasCompleteProviderCheckpointCoverage(plannedProviders, results) {
     if (results.length !== plannedProviders.length) return false;
     const resultByName = new Map(
-      results.map((result) => [result.name, result])
+      results.map((result2) => [result2.name, result2])
     );
     if (resultByName.size !== results.length) return false;
     return plannedProviders.every((provider) => {
-      const result = resultByName.get(provider.name);
-      return result?.status === "success" && result.result !== void 0;
+      const result2 = resultByName.get(provider.name);
+      return result2?.status === "success" && result2.result !== void 0;
     });
   }
   selectExecutionProviders(providers, requiredProviders, limit) {
@@ -45927,8 +47246,8 @@ var ReviewOrchestrator = class {
     if (!tracker || providers.length === 0) return providers;
     const available = [];
     for (const provider of providers) {
-      const open3 = await tracker.isCircuitOpen(provider.name);
-      if (open3) {
+      const open4 = await tracker.isCircuitOpen(provider.name);
+      if (open4) {
         logger.warn(`Skipping provider ${provider.name} (circuit open)`);
         continue;
       }
@@ -45948,12 +47267,12 @@ var ReviewOrchestrator = class {
   }
   async recordReliability(results) {
     if (!this.components.reliabilityTracker) return;
-    for (const result of results) {
+    for (const result2 of results) {
       await this.components.reliabilityTracker.recordResult(
-        result.name,
-        result.status === "success",
-        Number.isFinite(result.durationSeconds) ? Math.max(0, result.durationSeconds * 1e3) : void 0,
-        result.error?.message
+        result2.name,
+        result2.status === "success",
+        Number.isFinite(result2.durationSeconds) ? Math.max(0, result2.durationSeconds * 1e3) : void 0,
+        result2.error?.message
       );
     }
   }
@@ -46091,7 +47410,7 @@ ${markdown}`;
    */
   restoreCheckpointProviderResults(payload) {
     const providerNames = new Set(
-      payload.providerResults.map((result) => result.name)
+      payload.providerResults.map((result2) => result2.name)
     );
     const unattributedFindings = payload.findings.filter(
       (finding) => !(finding.provider && providerNames.has(finding.provider) || finding.providers?.some((provider) => providerNames.has(provider)))
@@ -46151,20 +47470,20 @@ ${markdown}`;
     }
   }
   async recordProviderUsage(results, budgetMaxUsd) {
-    for (const result of results) {
+    for (const result2 of results) {
       await this.components.costTracker.record(
-        result.name,
-        result.result?.usage,
+        result2.name,
+        result2.result?.usage,
         budgetMaxUsd
       );
     }
   }
   logProviderTokenTelemetry(scope, results) {
-    const providers = results.map((result) => ({
-      name: result.name,
-      status: result.status,
-      usage: result.result?.usage
-    })).filter((result) => result.usage);
+    const providers = results.map((result2) => ({
+      name: result2.name,
+      status: result2.status,
+      usage: result2.result?.usage
+    })).filter((result2) => result2.usage);
     this.tokenTelemetryTotals.totalProviderResults += results.length;
     if (providers.length === 0) {
       logger.info("ReviewRouter token telemetry", {
@@ -46245,8 +47564,8 @@ ${finding.message}`
         `Adjusted finding line for ${finding.file}: ${finding.line} -> ${correctedLine}`
       );
     }
-    const changedLines = mapAddedLines(file?.patch);
-    const hasDirectEvidence = changedLines.some(
+    const changedLines2 = mapAddedLines(file?.patch);
+    const hasDirectEvidence = changedLines2.some(
       (l2) => l2.line === normalizedFinding.line
     );
     const astConfirmed = Boolean(
@@ -46270,7 +47589,7 @@ ${finding.message}`
       providerPoolSize: providerCount,
       evidence,
       evidenceDetail: {
-        changedLines: changedLines.map((c2) => c2.line),
+        changedLines: changedLines2.map((c2) => c2.line),
         relatedSnippets,
         providerAgreement: providerCount > 0 ? getProviderVoteCount(finding) / providerCount : 0,
         astConfirmed,
@@ -47372,14 +48691,14 @@ ${this.ledger.statusText(loaded.payload, headSha)}` : `ReviewRouter override led
     }
   }
   matchesReviewWorkflowRun(candidate, workflowFile, prNumber, headSha) {
-    const path25 = String(candidate.path || "");
+    const path28 = String(candidate.path || "");
     const knownWorkflowFiles = [
       workflowFile,
       "reviewrouter.yml",
       "ai-robot-review.yml"
     ];
     const matchesWorkflow = knownWorkflowFiles.some(
-      (file) => path25.endsWith(`/${file}`) || path25 === file
+      (file) => path28.endsWith(`/${file}`) || path28 === file
     );
     const matchesSha = candidate.head_sha === headSha;
     const matchesPr = (candidate.pull_requests || []).some(
@@ -47460,36 +48779,36 @@ function buildMemoryCommentUrl(input) {
 }
 function renderMemoryNotice(results) {
   const lines = ["ReviewRouter memory update:"];
-  for (const result of results) {
-    lines.push(`- ${renderMemoryNoticeLine(result)}`);
+  for (const result2 of results) {
+    lines.push(`- ${renderMemoryNoticeLine(result2)}`);
   }
   return lines.join("\n");
 }
-function renderMemoryNoticeLine(result) {
-  if (result.status === "error") {
-    return `${result.label}: failed (${result.reason}).`;
+function renderMemoryNoticeLine(result2) {
+  if (result2.status === "error") {
+    return `${result2.label}: failed (${result2.reason}).`;
   }
-  const response = result.response;
+  const response = result2.response;
   if (!response) {
-    return `${result.label}: no response from memory service.`;
+    return `${result2.label}: no response from memory service.`;
   }
-  if (result.command) {
-    return renderMemoryCommandResult(result.command, response);
+  if (result2.command) {
+    return renderMemoryCommandResult(result2.command, response);
   }
-  return renderMemoryCandidateResult(result, response);
+  return renderMemoryCandidateResult(result2, response);
 }
-function renderMemoryCandidateResult(result, response) {
-  const body = result.candidateBody ? `: ${redactedMemoryExcerpt(result.candidateBody)}` : ".";
+function renderMemoryCandidateResult(result2, response) {
+  const body = result2.candidateBody ? `: ${redactedMemoryExcerpt(result2.candidateBody)}` : ".";
   if (response.status === "created" || response.status === "updated") {
     if (response.id?.startsWith("mem_suggestion_")) {
-      return `Created pending ${result.requestedScope} memory suggestion \`${response.id}\`${body} Confirm with \`/rr remember ${response.id}\`.`;
+      return `Created pending ${result2.requestedScope} memory suggestion \`${response.id}\`${body} Confirm with \`/rr remember ${response.id}\`.`;
     }
-    return `Saved ${result.requestedScope} memory \`${response.id || "mem"}\`${body}`;
+    return `Saved ${result2.requestedScope} memory \`${response.id || "mem"}\`${body}`;
   }
   if (response.status === "noop") {
-    return `No memory change for ${result.label}${response.id ? ` \`${response.id}\`` : ""}: ${safeNoticeText(response.reason || "noop")}.`;
+    return `No memory change for ${result2.label}${response.id ? ` \`${response.id}\`` : ""}: ${safeNoticeText(response.reason || "noop")}.`;
   }
-  return `Memory request rejected for ${result.label}: ${safeNoticeText(response.reason || "rejected")}.`;
+  return `Memory request rejected for ${result2.label}: ${safeNoticeText(response.reason || "rejected")}.`;
 }
 function renderMemoryCommandResult(command, response) {
   if (command.kind === "confirm_suggestion") {
@@ -47635,7 +48954,7 @@ function sanitizeNoticeError(error2) {
 }
 
 // src/github/discussion.ts
-var import_crypto13 = require("crypto");
+var import_crypto14 = require("crypto");
 var DISCUSSION_MARKER = "reviewrouter-discussion:v1";
 var DISCUSSION_MARKER_RE = /<!--\s*reviewrouter-discussion:v1\s+user_comment_id=(\d+)\s+body_sha=([a-f0-9]{64})\s*-->/;
 var ReviewDiscussionHandler = class {
@@ -47880,7 +49199,7 @@ function isBotUser(user) {
   return user?.type === "Bot" || login.endsWith("[bot]");
 }
 function bodyHash(body) {
-  return (0, import_crypto13.createHash)("sha256").update(body.trim()).digest("hex");
+  return (0, import_crypto14.createHash)("sha256").update(body.trim()).digest("hex");
 }
 function sanitizeError(error2) {
   const message = error2 instanceof Error ? error2.message : String(error2);
@@ -48348,8 +49667,8 @@ async function readSafeErrorCode2(response) {
   }
   return void 0;
 }
-function joinApiPath3(apiUrl, path25) {
-  return new URL(path25, ensureTrailingSlash3(apiUrl)).toString();
+function joinApiPath3(apiUrl, path28) {
+  return new URL(path28, ensureTrailingSlash3(apiUrl)).toString();
 }
 function ensureTrailingSlash3(value) {
   return value.endsWith("/") ? value : `${value}/`;
@@ -48379,19 +49698,19 @@ async function resolveGitHubCommentToken(input) {
     return fallback(input, "runtime_oidc_session_unavailable");
   }
   try {
-    const result = await fetchCommentToken({
+    const result2 = await fetchCommentToken({
       apiUrl: input.runtimeConfig.apiUrl,
       sessionToken: input.runtimeConfig.sessionToken,
       fetchImpl: input.fetchImpl ?? fetch
     });
     input.logger?.info(
-      `ReviewRouter App comment identity enabled for ${result.repository}; token expires at ${result.expiresAt}.`
+      `ReviewRouter App comment identity enabled for ${result2.repository}; token expires at ${result2.expiresAt}.`
     );
     return {
       status: "app",
-      token: result.token,
-      repository: result.repository,
-      expiresAt: result.expiresAt
+      token: result2.token,
+      repository: result2.repository,
+      expiresAt: result2.expiresAt
     };
   } catch (error2) {
     const message = error2 instanceof Error ? error2.message : "unknown_error";
@@ -48439,8 +49758,8 @@ function fallback(input, reason) {
   );
   return { status: "fallback", token: input.fallbackToken, reason };
 }
-function joinApiPath4(apiUrl, path25) {
-  return `${apiUrl.replace(/\/+$/, "")}${path25}`;
+function joinApiPath4(apiUrl, path28) {
+  return `${apiUrl.replace(/\/+$/, "")}${path28}`;
 }
 async function readSafeErrorCode3(response) {
   try {
@@ -48744,8 +50063,8 @@ function safeErrorSummaryForCategory(category) {
       return void 0;
   }
 }
-function joinApiPath5(apiUrl, path25) {
-  return new URL(path25, ensureTrailingSlash4(apiUrl)).toString();
+function joinApiPath5(apiUrl, path28) {
+  return new URL(path28, ensureTrailingSlash4(apiUrl)).toString();
 }
 function ensureTrailingSlash4(value) {
   return value.endsWith("/") ? value : `${value}/`;
@@ -48902,7 +50221,7 @@ function pluralize(word, count) {
 
 // src/codex-oauth/action.ts
 var fs20 = __toESM(require("fs"));
-var path24 = __toESM(require("path"));
+var path27 = __toESM(require("path"));
 
 // src/codex-oauth/control-plane.ts
 var CodexOAuthControlPlaneClient = class {
@@ -48977,8 +50296,8 @@ var CodexOAuthControlPlaneClient = class {
       isActionCommentTokenResponse
     );
   }
-  async postJson(path25, body, guard) {
-    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path25), {
+  async postJson(path28, body, guard) {
+    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path28), {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -48998,8 +50317,8 @@ var CodexOAuthControlPlaneClient = class {
     }
     return payload;
   }
-  async postJsonWithAuthorization(path25, bearerToken, body, guard) {
-    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path25), {
+  async postJsonWithAuthorization(path28, bearerToken, body, guard) {
+    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path28), {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -49092,11 +50411,11 @@ function parseTrustedApiUrl(apiUrl) {
   }
   throw new Error("codex_oauth_api_url_invalid");
 }
-function resolveApiPath(apiUrl, path25) {
-  if (!path25.startsWith("/") || path25.startsWith("//") || path25.includes("\\") || path25.includes("?") || path25.includes("#") || path25.includes("..") || /%2e|%2f|%5c/i.test(path25)) {
+function resolveApiPath(apiUrl, path28) {
+  if (!path28.startsWith("/") || path28.startsWith("//") || path28.includes("\\") || path28.includes("?") || path28.includes("#") || path28.includes("..") || /%2e|%2f|%5c/i.test(path28)) {
     throw new Error("codex_oauth_api_path_invalid");
   }
-  const resolved = new URL(path25, apiUrl);
+  const resolved = new URL(path28, apiUrl);
   if (resolved.origin !== apiUrl.origin) {
     throw new Error("codex_oauth_api_path_invalid");
   }
@@ -49496,7 +50815,7 @@ function safeOidcErrorCode(payload) {
 }
 
 // src/codex-oauth/crypto.ts
-var import_crypto14 = require("crypto");
+var import_crypto15 = require("crypto");
 
 // node_modules/libsodium/dist/modules-esm/libsodium.mjs
 var import_meta = {};
@@ -52950,7 +54269,7 @@ function compactCodexAuthJsonBytes(input) {
   return {
     compactAuthJsonBytes,
     byteLength: compactByteLength,
-    exactBytesSha256: (0, import_crypto14.createHash)("sha256").update(input.authJsonBytes, "utf8").digest("hex")
+    exactBytesSha256: (0, import_crypto15.createHash)("sha256").update(input.authJsonBytes, "utf8").digest("hex")
   };
 }
 function computeCodexAuthGenerationHash(input) {
@@ -52958,7 +54277,7 @@ function computeCodexAuthGenerationHash(input) {
   if (salt.length < 16) {
     throw new Error("generation_hash_salt_too_short");
   }
-  return (0, import_crypto14.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
+  return (0, import_crypto15.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
 }
 async function encryptCodexAuthForGitHubSecret(input) {
   const compact = compactCodexAuthJsonBytes({
@@ -52996,7 +54315,7 @@ function buildCodexRotatingWritebackRequest(input) {
     latestGenerationHash: input.latestGenerationHash,
     encryptedValue: input.encryptedValue,
     keyId: input.keyId,
-    idempotencyKey: input.idempotencyKey ?? `wrb:${(0, import_crypto14.randomUUID)()}`
+    idempotencyKey: input.idempotencyKey ?? `wrb:${(0, import_crypto15.randomUUID)()}`
   };
 }
 function assertCodexChatGptAuth(value) {
@@ -53603,7 +54922,7 @@ function safeGitError(value) {
 }
 
 // src/control-plane/review-action-v2-contract.ts
-var import_crypto16 = require("crypto");
+var import_crypto17 = require("crypto");
 var import_fs = require("fs");
 var import_path2 = __toESM(require("path"));
 
@@ -53611,9 +54930,9 @@ var import_path2 = __toESM(require("path"));
 var manifest_default = {
   contractSourceVersion: 1,
   protocolVersion: "2",
-  schemaDigest: "47f75e597fcdfb3e4bb81cb1dc0ca542fcaf2afaa2583cd298c5baa08c292672",
-  goldenFixtureDigest: "350be1cfd3931cb85df896ed6f04b565ce436ff11d4ad0eca9ff074d6fc6c8ee",
-  canonicalizerDigest: "bddff10721f69d688eadf21c54d689ae657d53c498e8eb4478ff3d566def74a1",
+  schemaDigest: "996f7192c860f290a1db8f8c6133ab1d6a36bf946d825077e10f0b7c36daba27",
+  goldenFixtureDigest: "d9c4f405ae00c0632e7afde8db4846b406c8367d2079c1283af36d95723ecaec",
+  canonicalizerDigest: "865b2cd347d1e5bade8aa921c3384b0c7cd388d275f535919ffb403286d66271",
   canonicalizerGoldenFixtureDigest: "9f638db73ec3696da7f3aa842ed10b7cf7c466986dfbd45b1a602e3b08d75c57",
   negotiationBridge: {
     operationId: "review_run_authorize",
@@ -54239,6 +55558,650 @@ var manifest_default = {
       ]
     },
     {
+      operationId: "review_investigation_open",
+      boundedContext: "review_investigations",
+      method: "POST",
+      path: "/api/action/v2/review-investigations/open",
+      callerAuthority: "run_authorization",
+      mutability: "command",
+      naturalIdempotencyPreimage: [
+        "execution_id",
+        "work_slot_id",
+        "review_revision_hash",
+        "stable_review_unit_key",
+        "provider_vote_lane_id",
+        "coverage_contract_hash",
+        "runtime_profile_version"
+      ],
+      semanticRetryClass: "same_request",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 1e4,
+      bodyLimitBytes: 524288,
+      successStatuses: [200, 201],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "idempotency_conflict",
+          retryClass: "never",
+          httpStatus: 409
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "invariant_violation",
+          retryClass: "never",
+          httpStatus: 422
+        },
+        {
+          errorCode: "capacity_limited",
+          retryClass: "same_request",
+          httpStatus: 429
+        },
+        {
+          errorCode: "ambiguous_outcome",
+          retryClass: "same_request",
+          httpStatus: 500
+        }
+      ]
+    },
+    {
+      operationId: "review_investigation_restore",
+      boundedContext: "review_investigations",
+      method: "POST",
+      path: "/api/action/v2/review-investigations/restore",
+      callerAuthority: "run_authorization",
+      mutability: "read",
+      naturalIdempotencyPreimage: [
+        "authorization_id",
+        "investigation_id",
+        "review_revision_hash"
+      ],
+      semanticRetryClass: "read_only",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 5e3,
+      bodyLimitBytes: 32768,
+      successStatuses: [200],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "capacity_limited",
+          retryClass: "same_request",
+          httpStatus: 429
+        },
+        {
+          errorCode: "service_unavailable",
+          retryClass: "read_only",
+          httpStatus: 503
+        }
+      ]
+    },
+    {
+      operationId: "review_investigation_turn_plan",
+      boundedContext: "review_investigations",
+      method: "POST",
+      path: "/api/action/v2/review-investigations/turns/plan",
+      callerAuthority: "run_authorization",
+      mutability: "command",
+      naturalIdempotencyPreimage: [
+        "investigation_id",
+        "expected_version",
+        "dossier_digest",
+        "turn_budget_hash"
+      ],
+      semanticRetryClass: "same_request",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 1e4,
+      bodyLimitBytes: 65536,
+      successStatuses: [200, 201, 202],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "idempotency_conflict",
+          retryClass: "never",
+          httpStatus: 409
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "invariant_violation",
+          retryClass: "never",
+          httpStatus: 422
+        },
+        {
+          errorCode: "capacity_limited",
+          retryClass: "same_request",
+          httpStatus: 429
+        },
+        {
+          errorCode: "ambiguous_outcome",
+          retryClass: "same_request",
+          httpStatus: 500
+        }
+      ]
+    },
+    {
+      operationId: "review_investigation_turn_commit",
+      boundedContext: "review_investigations",
+      method: "POST",
+      path: "/api/action/v2/review-investigations/turns/commit",
+      callerAuthority: "run_authorization_and_lease_capability",
+      mutability: "command",
+      naturalIdempotencyPreimage: [
+        "investigation_id",
+        "expected_version",
+        "turn_id",
+        "source_lease_id",
+        "fencing_token",
+        "turn_observation_hash",
+        "accepted_attestation_hash"
+      ],
+      semanticRetryClass: "same_request",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 15e3,
+      bodyLimitBytes: 2097152,
+      successStatuses: [200, 201, 202],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "idempotency_conflict",
+          retryClass: "never",
+          httpStatus: 409
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "invariant_violation",
+          retryClass: "never",
+          httpStatus: 422
+        },
+        {
+          errorCode: "capacity_limited",
+          retryClass: "same_request",
+          httpStatus: 429
+        },
+        {
+          errorCode: "ambiguous_outcome",
+          retryClass: "same_request",
+          httpStatus: 500
+        }
+      ]
+    },
+    {
+      operationId: "review_investigation_turn_abort",
+      boundedContext: "review_investigations",
+      method: "POST",
+      path: "/api/action/v2/review-investigations/turns/abort",
+      callerAuthority: "run_authorization_and_lease_capability",
+      mutability: "command",
+      naturalIdempotencyPreimage: [
+        "investigation_id",
+        "expected_version",
+        "turn_id",
+        "source_lease_id",
+        "fencing_token",
+        "abort_reason"
+      ],
+      semanticRetryClass: "same_request",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 1e4,
+      bodyLimitBytes: 65536,
+      successStatuses: [200, 202],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "idempotency_conflict",
+          retryClass: "never",
+          httpStatus: 409
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "invariant_violation",
+          retryClass: "never",
+          httpStatus: 422
+        },
+        {
+          errorCode: "capacity_limited",
+          retryClass: "same_request",
+          httpStatus: 429
+        },
+        {
+          errorCode: "ambiguous_outcome",
+          retryClass: "same_request",
+          httpStatus: 500
+        }
+      ]
+    },
+    {
+      operationId: "review_investigation_replay_prepare",
+      boundedContext: "review_investigations",
+      method: "POST",
+      path: "/api/action/v2/review-investigations/replay/prepare",
+      callerAuthority: "run_authorization",
+      mutability: "read",
+      naturalIdempotencyPreimage: [
+        "target_execution_id",
+        "target_work_slot_id",
+        "target_review_revision_hash",
+        "stable_review_unit_key",
+        "provider_vote_lane_id",
+        "provider_manifest_hash"
+      ],
+      semanticRetryClass: "read_only",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 1e4,
+      bodyLimitBytes: 262144,
+      successStatuses: [200],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "capacity_limited",
+          retryClass: "same_request",
+          httpStatus: 429
+        },
+        {
+          errorCode: "service_unavailable",
+          retryClass: "read_only",
+          httpStatus: 503
+        }
+      ]
+    },
+    {
+      operationId: "review_investigation_replay",
+      boundedContext: "review_investigations",
+      method: "POST",
+      path: "/api/action/v2/review-investigations/replay",
+      callerAuthority: "run_authorization",
+      mutability: "command",
+      naturalIdempotencyPreimage: [
+        "source_investigation_id",
+        "source_certificate_hash",
+        "target_execution_id",
+        "target_work_slot_id",
+        "target_revision_hash",
+        "provider_strategy_id",
+        "coverage_contract_hash",
+        "investigation_policy_hash",
+        "seed_obligations_hash",
+        "initial_receipts_hash",
+        "replay_proofs_hash"
+      ],
+      semanticRetryClass: "same_request",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 15e3,
+      bodyLimitBytes: 524288,
+      successStatuses: [200, 201],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "idempotency_conflict",
+          retryClass: "never",
+          httpStatus: 409
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "invariant_violation",
+          retryClass: "never",
+          httpStatus: 422
+        },
+        {
+          errorCode: "capacity_limited",
+          retryClass: "same_request",
+          httpStatus: 429
+        },
+        {
+          errorCode: "ambiguous_outcome",
+          retryClass: "same_request",
+          httpStatus: 500
+        }
+      ]
+    },
+    {
+      operationId: "review_investigation_conclude",
+      boundedContext: "review_investigations",
+      method: "POST",
+      path: "/api/action/v2/review-investigations/conclude",
+      callerAuthority: "run_authorization",
+      mutability: "command",
+      naturalIdempotencyPreimage: [
+        "investigation_id",
+        "expected_version",
+        "dossier_digest",
+        "certificate_ttl_ms"
+      ],
+      semanticRetryClass: "same_request",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 1e4,
+      bodyLimitBytes: 65536,
+      successStatuses: [200, 201],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "idempotency_conflict",
+          retryClass: "never",
+          httpStatus: 409
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "invariant_violation",
+          retryClass: "never",
+          httpStatus: 422
+        },
+        {
+          errorCode: "capacity_limited",
+          retryClass: "same_request",
+          httpStatus: 429
+        },
+        {
+          errorCode: "ambiguous_outcome",
+          retryClass: "same_request",
+          httpStatus: 500
+        }
+      ]
+    },
+    {
       operationId: "review_invocation_lease_acquire",
       boundedContext: "review_executions",
       method: "POST",
@@ -54715,6 +56678,84 @@ var manifest_default = {
       ]
     },
     {
+      operationId: "review_context_receipt_replay_commit",
+      boundedContext: "review_context_attestation",
+      method: "POST",
+      path: "/api/action/v2/review-context/receipt-replay/commit",
+      callerAuthority: "run_authorization",
+      mutability: "command",
+      naturalIdempotencyPreimage: [
+        "execution_id",
+        "work_slot_id",
+        "attestation_id",
+        "source_operation_receipt_ids_hash",
+        "target_review_revision_hash",
+        "replay_result_hash"
+      ],
+      semanticRetryClass: "same_request",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 15e3,
+      bodyLimitBytes: 4194304,
+      successStatuses: [200, 201],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "idempotency_conflict",
+          retryClass: "never",
+          httpStatus: 409
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "invariant_violation",
+          retryClass: "never",
+          httpStatus: 422
+        },
+        {
+          errorCode: "ambiguous_outcome",
+          retryClass: "same_request",
+          httpStatus: 500
+        }
+      ]
+    },
+    {
       operationId: "review_context_replay_commit",
       boundedContext: "review_context_attestation",
       method: "POST",
@@ -55077,13 +57118,38 @@ var manifest_default = {
         }
       ]
     }
+  ],
+  publishedContracts: [
+    {
+      exportName: "reviewInvestigationRolloutAuthorizationV2Contract",
+      value: {
+        authorizationDescriptorVersion: 2,
+        capability: "review_investigation_v1",
+        capabilities: [
+          "context_critic",
+          "cross_revision_replay",
+          "production_effects",
+          "recording",
+          "shadow",
+          "verified_clean"
+        ],
+        dependencies: {
+          context_critic: ["shadow"],
+          cross_revision_replay: ["shadow"],
+          production_effects: ["context_critic", "shadow"],
+          recording: [],
+          shadow: ["recording"],
+          verified_clean: ["context_critic", "production_effects"]
+        }
+      }
+    }
   ]
 };
 
 // src/control-plane/generated/review-action-v2/review-action-v2.ts
 var reviewActionV2PublishedProtocolVersion = "2";
-var reviewActionV2PublishedSchemaDigest = "47f75e597fcdfb3e4bb81cb1dc0ca542fcaf2afaa2583cd298c5baa08c292672";
-var reviewActionV2CanonicalizerDigest = "bddff10721f69d688eadf21c54d689ae657d53c498e8eb4478ff3d566def74a1";
+var reviewActionV2PublishedSchemaDigest = "996f7192c860f290a1db8f8c6133ab1d6a36bf946d825077e10f0b7c36daba27";
+var reviewActionV2CanonicalizerDigest = "865b2cd347d1e5bade8aa921c3384b0c7cd388d275f535919ffb403286d66271";
 var ReviewActionV2OperationId = /* @__PURE__ */ ((ReviewActionV2OperationId2) => {
   ReviewActionV2OperationId2["ReviewRunAuthorize"] = "review_run_authorize";
   ReviewActionV2OperationId2["ReviewRunRenew"] = "review_run_renew";
@@ -55093,12 +57159,21 @@ var ReviewActionV2OperationId = /* @__PURE__ */ ((ReviewActionV2OperationId2) =>
   ReviewActionV2OperationId2["ReviewExecutionObservationAttach"] = "review_execution_observation_attach";
   ReviewActionV2OperationId2["ReviewExecutionObservationAdopt"] = "review_execution_observation_adopt";
   ReviewActionV2OperationId2["ReviewExecutionFinalize"] = "review_execution_finalize";
+  ReviewActionV2OperationId2["ReviewInvestigationOpen"] = "review_investigation_open";
+  ReviewActionV2OperationId2["ReviewInvestigationRestore"] = "review_investigation_restore";
+  ReviewActionV2OperationId2["ReviewInvestigationTurnPlan"] = "review_investigation_turn_plan";
+  ReviewActionV2OperationId2["ReviewInvestigationTurnCommit"] = "review_investigation_turn_commit";
+  ReviewActionV2OperationId2["ReviewInvestigationTurnAbort"] = "review_investigation_turn_abort";
+  ReviewActionV2OperationId2["ReviewInvestigationReplayPrepare"] = "review_investigation_replay_prepare";
+  ReviewActionV2OperationId2["ReviewInvestigationReplay"] = "review_investigation_replay";
+  ReviewActionV2OperationId2["ReviewInvestigationConclude"] = "review_investigation_conclude";
   ReviewActionV2OperationId2["ReviewInvocationLeaseAcquire"] = "review_invocation_lease_acquire";
   ReviewActionV2OperationId2["ReviewInvocationLeaseRenew"] = "review_invocation_lease_renew";
   ReviewActionV2OperationId2["ReviewInvocationLeaseRelease"] = "review_invocation_lease_release";
   ReviewActionV2OperationId2["ReviewContextGatewayOpen"] = "review_context_gateway_open";
   ReviewActionV2OperationId2["ReviewContextGatewaySeal"] = "review_context_gateway_seal";
   ReviewActionV2OperationId2["ReviewEvidenceLookup"] = "review_evidence_lookup";
+  ReviewActionV2OperationId2["ReviewContextReceiptReplayCommit"] = "review_context_receipt_replay_commit";
   ReviewActionV2OperationId2["ReviewContextReplayCommit"] = "review_context_replay_commit";
   ReviewActionV2OperationId2["ReviewEvidenceCommit"] = "review_evidence_commit";
   ReviewActionV2OperationId2["ReviewSnapshotRestore"] = "review_snapshot_restore";
@@ -55106,6 +57181,38 @@ var ReviewActionV2OperationId = /* @__PURE__ */ ((ReviewActionV2OperationId2) =>
   ReviewActionV2OperationId2["ReviewPublicationStatus"] = "review_publication_status";
   return ReviewActionV2OperationId2;
 })(ReviewActionV2OperationId || {});
+var ReviewInvestigationPublishedAbortReason = /* @__PURE__ */ ((ReviewInvestigationPublishedAbortReason2) => {
+  ReviewInvestigationPublishedAbortReason2["CapacityUnavailable"] = "capacity_unavailable";
+  ReviewInvestigationPublishedAbortReason2["AuthenticationUnavailable"] = "authentication_unavailable";
+  ReviewInvestigationPublishedAbortReason2["RetryableInfrastructureFailure"] = "retryable_infrastructure_failure";
+  ReviewInvestigationPublishedAbortReason2["Timeout"] = "timeout";
+  ReviewInvestigationPublishedAbortReason2["Cancelled"] = "cancelled";
+  ReviewInvestigationPublishedAbortReason2["ConfinementViolation"] = "confinement_violation";
+  ReviewInvestigationPublishedAbortReason2["SchemaInvalidOutput"] = "schema_invalid_output";
+  ReviewInvestigationPublishedAbortReason2["StaleExecution"] = "stale_execution";
+  ReviewInvestigationPublishedAbortReason2["SupersededExecution"] = "superseded_execution";
+  return ReviewInvestigationPublishedAbortReason2;
+})(ReviewInvestigationPublishedAbortReason || {});
+var reviewInvestigationRolloutAuthorizationV2Contract = {
+  authorizationDescriptorVersion: 2,
+  capability: "review_investigation_v1",
+  capabilities: [
+    "context_critic",
+    "cross_revision_replay",
+    "production_effects",
+    "recording",
+    "shadow",
+    "verified_clean"
+  ],
+  dependencies: {
+    context_critic: ["shadow"],
+    cross_revision_replay: ["shadow"],
+    production_effects: ["context_critic", "shadow"],
+    recording: [],
+    shadow: ["recording"],
+    verified_clean: ["context_critic", "production_effects"]
+  }
+};
 var reviewActionV2Operations = [
   {
     operationId: "review_run_authorize",
@@ -55614,6 +57721,697 @@ var reviewActionV2Operations = [
     resultStatuses: ["applied", "restored", "rejected", "conflict", "missing"]
   },
   {
+    operationId: "review_investigation_open",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/open",
+    callerAuthority: "run_authorization" /* RunAuthorization */,
+    mutability: "command",
+    naturalIdempotencyPreimage: [
+      "execution_id",
+      "work_slot_id",
+      "review_revision_hash",
+      "stable_review_unit_key",
+      "provider_vote_lane_id",
+      "coverage_contract_hash",
+      "runtime_profile_version"
+    ],
+    semanticRetryClass: "same_request",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 1e4,
+    bodyLimitBytes: 524288,
+    successStatuses: [200, 201],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "idempotency_conflict",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "invariant_violation",
+      "capacity_limited",
+      "ambiguous_outcome"
+    ],
+    requestFields: [
+      {
+        name: "authorizationId",
+        type: "identifier"
+      },
+      {
+        name: "executionId",
+        type: "identifier"
+      },
+      {
+        name: "workSlotId",
+        type: "identifier"
+      },
+      {
+        name: "reviewRevisionHash",
+        type: "hash"
+      },
+      {
+        name: "stableReviewUnitKey",
+        type: "identifier"
+      },
+      {
+        name: "providerVoteLaneId",
+        type: "identifier"
+      },
+      {
+        name: "providerStrategyId",
+        type: "identifier"
+      },
+      {
+        name: "runtimeProfile",
+        type: "enum",
+        enumTypeName: "ReviewInvestigationPublishedRuntimeProfile",
+        enumValues: [
+          "gateway_attested_agent_v1",
+          "orchestrated_tool_loop_v1",
+          "preassembled_context_v1",
+          "prompt_only_v1",
+          "agentic_unbounded_v1"
+        ]
+      },
+      {
+        name: "coverageContractCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "coverageContractHash",
+        type: "hash"
+      },
+      {
+        name: "investigationPolicyCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "investigationPolicyHash",
+        type: "hash"
+      },
+      {
+        name: "seedObligationsCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "seedObligationsHash",
+        type: "hash"
+      },
+      {
+        name: "initialReceiptsCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "initialReceiptsHash",
+        type: "hash"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: ["opened", "restored", "rejected", "conflict"]
+  },
+  {
+    operationId: "review_investigation_restore",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/restore",
+    callerAuthority: "run_authorization" /* RunAuthorization */,
+    mutability: "read",
+    naturalIdempotencyPreimage: [
+      "authorization_id",
+      "investigation_id",
+      "review_revision_hash"
+    ],
+    semanticRetryClass: "read_only",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 5e3,
+    bodyLimitBytes: 32768,
+    successStatuses: [200],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "capacity_limited",
+      "service_unavailable"
+    ],
+    requestFields: [
+      {
+        name: "authorizationId",
+        type: "identifier"
+      },
+      {
+        name: "investigationId",
+        type: "identifier"
+      },
+      {
+        name: "reviewRevisionHash",
+        type: "hash"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: ["found", "missing", "not_restorable"]
+  },
+  {
+    operationId: "review_investigation_turn_plan",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/turns/plan",
+    callerAuthority: "run_authorization" /* RunAuthorization */,
+    mutability: "command",
+    naturalIdempotencyPreimage: [
+      "investigation_id",
+      "expected_version",
+      "dossier_digest",
+      "turn_budget_hash"
+    ],
+    semanticRetryClass: "same_request",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 1e4,
+    bodyLimitBytes: 65536,
+    successStatuses: [200, 201, 202],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "idempotency_conflict",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "invariant_violation",
+      "capacity_limited",
+      "ambiguous_outcome"
+    ],
+    requestFields: [
+      {
+        name: "investigationId",
+        type: "identifier"
+      },
+      {
+        name: "expectedVersion",
+        type: "decimal"
+      },
+      {
+        name: "dossierDigest",
+        type: "hash"
+      },
+      {
+        name: "leaseDurationMs",
+        type: "positive_integer"
+      },
+      {
+        name: "maxObligationsForTurn",
+        type: "positive_integer"
+      },
+      {
+        name: "turnBudgetHash",
+        type: "hash"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: [
+      "applied",
+      "restored",
+      "parked",
+      "rejected",
+      "conflict",
+      "missing"
+    ]
+  },
+  {
+    operationId: "review_investigation_turn_commit",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/turns/commit",
+    callerAuthority: "run_authorization_and_lease_capability" /* RunAuthorizationAndLeaseCapability */,
+    mutability: "command",
+    naturalIdempotencyPreimage: [
+      "investigation_id",
+      "expected_version",
+      "turn_id",
+      "source_lease_id",
+      "fencing_token",
+      "turn_observation_hash",
+      "accepted_attestation_hash"
+    ],
+    semanticRetryClass: "same_request",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 15e3,
+    bodyLimitBytes: 2097152,
+    successStatuses: [200, 201, 202],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "idempotency_conflict",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "invariant_violation",
+      "capacity_limited",
+      "ambiguous_outcome"
+    ],
+    requestFields: [
+      {
+        name: "investigationId",
+        type: "identifier"
+      },
+      {
+        name: "expectedVersion",
+        type: "decimal"
+      },
+      {
+        name: "turnId",
+        type: "identifier"
+      },
+      {
+        name: "turnCapability",
+        type: "token"
+      },
+      {
+        name: "sourceLeaseId",
+        type: "identifier"
+      },
+      {
+        name: "fencingToken",
+        type: "decimal"
+      },
+      {
+        name: "acceptedAttestationId",
+        type: "identifier"
+      },
+      {
+        name: "acceptedAttestationHash",
+        type: "hash"
+      },
+      {
+        name: "turnObservationCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "turnObservationHash",
+        type: "hash"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: [
+      "applied",
+      "restored",
+      "parked",
+      "rejected",
+      "conflict",
+      "missing"
+    ]
+  },
+  {
+    operationId: "review_investigation_turn_abort",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/turns/abort",
+    callerAuthority: "run_authorization_and_lease_capability" /* RunAuthorizationAndLeaseCapability */,
+    mutability: "command",
+    naturalIdempotencyPreimage: [
+      "investigation_id",
+      "expected_version",
+      "turn_id",
+      "source_lease_id",
+      "fencing_token",
+      "abort_reason"
+    ],
+    semanticRetryClass: "same_request",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 1e4,
+    bodyLimitBytes: 65536,
+    successStatuses: [200, 202],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "idempotency_conflict",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "invariant_violation",
+      "capacity_limited",
+      "ambiguous_outcome"
+    ],
+    requestFields: [
+      {
+        name: "investigationId",
+        type: "identifier"
+      },
+      {
+        name: "expectedVersion",
+        type: "decimal"
+      },
+      {
+        name: "turnId",
+        type: "identifier"
+      },
+      {
+        name: "turnCapability",
+        type: "token"
+      },
+      {
+        name: "sourceLeaseId",
+        type: "identifier"
+      },
+      {
+        name: "fencingToken",
+        type: "decimal"
+      },
+      {
+        name: "abortReason",
+        type: "enum",
+        enumTypeName: "ReviewInvestigationPublishedAbortReason",
+        enumValues: [
+          "capacity_unavailable",
+          "authentication_unavailable",
+          "retryable_infrastructure_failure",
+          "timeout",
+          "cancelled",
+          "confinement_violation",
+          "schema_invalid_output",
+          "stale_execution",
+          "superseded_execution"
+        ]
+      },
+      {
+        name: "nextEligibleAt",
+        type: "nullable_timestamp"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: [
+      "applied",
+      "restored",
+      "parked",
+      "rejected",
+      "conflict",
+      "missing"
+    ]
+  },
+  {
+    operationId: "review_investigation_replay_prepare",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/replay/prepare",
+    callerAuthority: "run_authorization" /* RunAuthorization */,
+    mutability: "read",
+    naturalIdempotencyPreimage: [
+      "target_execution_id",
+      "target_work_slot_id",
+      "target_review_revision_hash",
+      "stable_review_unit_key",
+      "provider_vote_lane_id",
+      "provider_manifest_hash"
+    ],
+    semanticRetryClass: "read_only",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 1e4,
+    bodyLimitBytes: 262144,
+    successStatuses: [200],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "capacity_limited",
+      "service_unavailable"
+    ],
+    requestFields: [
+      {
+        name: "authorizationId",
+        type: "identifier"
+      },
+      {
+        name: "targetExecutionId",
+        type: "identifier"
+      },
+      {
+        name: "targetWorkSlotId",
+        type: "identifier"
+      },
+      {
+        name: "targetReviewRevisionHash",
+        type: "hash"
+      },
+      {
+        name: "stableReviewUnitKey",
+        type: "identifier"
+      },
+      {
+        name: "providerVoteLaneId",
+        type: "identifier"
+      },
+      {
+        name: "providerManifestCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "providerManifestHash",
+        type: "hash"
+      },
+      {
+        name: "coverageContractCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "coverageContractHash",
+        type: "hash"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: ["prepared", "missing", "rejected"]
+  },
+  {
+    operationId: "review_investigation_replay",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/replay",
+    callerAuthority: "run_authorization" /* RunAuthorization */,
+    mutability: "command",
+    naturalIdempotencyPreimage: [
+      "source_investigation_id",
+      "source_certificate_hash",
+      "target_execution_id",
+      "target_work_slot_id",
+      "target_revision_hash",
+      "provider_strategy_id",
+      "coverage_contract_hash",
+      "investigation_policy_hash",
+      "seed_obligations_hash",
+      "initial_receipts_hash",
+      "replay_proofs_hash"
+    ],
+    semanticRetryClass: "same_request",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 15e3,
+    bodyLimitBytes: 524288,
+    successStatuses: [200, 201],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "idempotency_conflict",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "invariant_violation",
+      "capacity_limited",
+      "ambiguous_outcome"
+    ],
+    requestFields: [
+      {
+        name: "authorizationId",
+        type: "identifier"
+      },
+      {
+        name: "sourceInvestigationId",
+        type: "identifier"
+      },
+      {
+        name: "sourceCertificateHash",
+        type: "hash"
+      },
+      {
+        name: "targetExecutionId",
+        type: "identifier"
+      },
+      {
+        name: "targetWorkSlotId",
+        type: "identifier"
+      },
+      {
+        name: "stableReviewUnitKey",
+        type: "identifier"
+      },
+      {
+        name: "providerVoteLaneId",
+        type: "identifier"
+      },
+      {
+        name: "providerStrategyId",
+        type: "identifier"
+      },
+      {
+        name: "runtimeProfile",
+        type: "enum",
+        enumTypeName: "ReviewInvestigationPublishedRuntimeProfile",
+        enumValues: [
+          "gateway_attested_agent_v1",
+          "orchestrated_tool_loop_v1",
+          "preassembled_context_v1",
+          "prompt_only_v1",
+          "agentic_unbounded_v1"
+        ]
+      },
+      {
+        name: "coverageContractCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "coverageContractHash",
+        type: "hash"
+      },
+      {
+        name: "investigationPolicyCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "investigationPolicyHash",
+        type: "hash"
+      },
+      {
+        name: "seedObligationsCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "seedObligationsHash",
+        type: "hash"
+      },
+      {
+        name: "initialReceiptsCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "initialReceiptsHash",
+        type: "hash"
+      },
+      {
+        name: "targetScopeCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "targetScopeHash",
+        type: "hash"
+      },
+      {
+        name: "targetRevisionCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "targetRevisionHash",
+        type: "hash"
+      },
+      {
+        name: "replayProofsCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "replayProofsHash",
+        type: "hash"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: [
+      "applied",
+      "restored",
+      "parked",
+      "rejected",
+      "conflict",
+      "missing"
+    ]
+  },
+  {
+    operationId: "review_investigation_conclude",
+    boundedContext: "review_investigations",
+    method: "POST",
+    path: "/api/action/v2/review-investigations/conclude",
+    callerAuthority: "run_authorization" /* RunAuthorization */,
+    mutability: "command",
+    naturalIdempotencyPreimage: [
+      "investigation_id",
+      "expected_version",
+      "dossier_digest",
+      "certificate_ttl_ms"
+    ],
+    semanticRetryClass: "same_request",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 1e4,
+    bodyLimitBytes: 65536,
+    successStatuses: [200, 201],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "idempotency_conflict",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "invariant_violation",
+      "capacity_limited",
+      "ambiguous_outcome"
+    ],
+    requestFields: [
+      {
+        name: "investigationId",
+        type: "identifier"
+      },
+      {
+        name: "expectedVersion",
+        type: "decimal"
+      },
+      {
+        name: "dossierDigest",
+        type: "hash"
+      },
+      {
+        name: "certificateTtlMs",
+        type: "positive_integer"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: [
+      "applied",
+      "restored",
+      "parked",
+      "rejected",
+      "conflict",
+      "missing"
+    ]
+  },
+  {
     operationId: "review_invocation_lease_acquire",
     boundedContext: "review_executions",
     method: "POST",
@@ -56057,6 +58855,80 @@ var reviewActionV2Operations = [
     resultStatuses: ["hit", "shadow", "miss", "replay_required"]
   },
   {
+    operationId: "review_context_receipt_replay_commit",
+    boundedContext: "review_context_attestation",
+    method: "POST",
+    path: "/api/action/v2/review-context/receipt-replay/commit",
+    callerAuthority: "run_authorization" /* RunAuthorization */,
+    mutability: "command",
+    naturalIdempotencyPreimage: [
+      "execution_id",
+      "work_slot_id",
+      "attestation_id",
+      "source_operation_receipt_ids_hash",
+      "target_review_revision_hash",
+      "replay_result_hash"
+    ],
+    semanticRetryClass: "same_request",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 15e3,
+    bodyLimitBytes: 4194304,
+    successStatuses: [200, 201],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "idempotency_conflict",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "invariant_violation",
+      "ambiguous_outcome"
+    ],
+    requestFields: [
+      {
+        name: "executionId",
+        type: "identifier"
+      },
+      {
+        name: "workSlotId",
+        type: "identifier"
+      },
+      {
+        name: "attestationId",
+        type: "identifier"
+      },
+      {
+        name: "attestationHash",
+        type: "hash"
+      },
+      {
+        name: "targetReviewRevisionHash",
+        type: "hash"
+      },
+      {
+        name: "targetCheckoutTreeOid",
+        type: "git_oid"
+      },
+      {
+        name: "replayCapability",
+        type: "token"
+      },
+      {
+        name: "replayResultCanonicalJson",
+        type: "canonical_json"
+      },
+      {
+        name: "replayResultHash",
+        type: "hash"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: ["accepted", "idempotent", "denied", "conflict"]
+  },
+  {
     operationId: "review_context_replay_commit",
     boundedContext: "review_context_attestation",
     method: "POST",
@@ -56200,6 +59072,14 @@ var reviewActionV2Operations = [
         type: "nullable_hash"
       },
       {
+        name: "investigationCertificateId",
+        type: "nullable_identifier"
+      },
+      {
+        name: "investigationCertificateHash",
+        type: "nullable_hash"
+      },
+      {
         name: "payloadCanonicalJson",
         type: "canonical_json"
       },
@@ -56217,7 +59097,8 @@ var reviewActionV2Operations = [
       }
     ],
     allOrNoneRequestFieldGroups: [
-      ["contextDependencyAttestationId", "contextDependencyAttestationHash"]
+      ["contextDependencyAttestationId", "contextDependencyAttestationHash"],
+      ["investigationCertificateId", "investigationCertificateHash"]
     ],
     resultStatuses: ["accepted", "idempotent", "rejected", "conflict"]
   },
@@ -56347,25 +59228,25 @@ var reviewContextReplayHandleDomain = "rr.context-replay-handle.v1";
 var reviewContextReplayChainSeedDomain = "rr.context-replay-chain-seed.v1";
 var reviewContextReplayEventDomain = "rr.context-replay-event.v1";
 function canonicalizeReviewContextConfinementEvidence(input) {
-  return canonicalJson2({ evidenceVersion: 1, ...input });
+  return canonicalJson3({ evidenceVersion: 1, ...input });
 }
 function canonicalizeReviewContextGatewayEvent(input) {
-  return canonicalJson2({ domain: reviewContextGatewayEventDomain, ...input });
+  return canonicalJson3({ domain: reviewContextGatewayEventDomain, ...input });
 }
 function canonicalizeReviewContextSearchQuery(query) {
-  return canonicalJson2({ domain: reviewContextSearchQueryDomain, query });
+  return canonicalJson3({ domain: reviewContextSearchQueryDomain, query });
 }
 function canonicalizeReviewContextReplayHandle(input) {
-  return canonicalJson2({ domain: reviewContextReplayHandleDomain, ...input });
+  return canonicalJson3({ domain: reviewContextReplayHandleDomain, ...input });
 }
 function canonicalizeReviewContextReplayChainSeed(input) {
-  return canonicalJson2({
+  return canonicalJson3({
     domain: reviewContextReplayChainSeedDomain,
     ...input
   });
 }
 function canonicalizeReviewContextReplayEvent(input) {
-  return canonicalJson2({ domain: reviewContextReplayEventDomain, ...input });
+  return canonicalJson3({ domain: reviewContextReplayEventDomain, ...input });
 }
 function parseReviewActionV2Request(operationId, input) {
   const descriptor = reviewActionV2Operations.find(
@@ -56409,7 +59290,13 @@ function parseReviewActionV2Request(operationId, input) {
     validateProtocolOffers(input.supportedProtocols, issues);
   }
   for (const field of descriptor.requestFields)
-    validateField(field.name, field.type, input[field.name], issues);
+    validateField(
+      field.name,
+      field.type,
+      input[field.name],
+      issues,
+      "enumValues" in field ? field.enumValues : void 0
+    );
   for (const group of descriptor.allOrNoneRequestFieldGroups) {
     const nullCount = group.filter((field) => input[field] === null).length;
     if (nullCount !== 0 && nullCount !== group.length) {
@@ -56441,14 +59328,14 @@ function canonicalizeReviewActionV2Request(operationId, request) {
       request[field.name]
     ])
   );
-  return canonicalJson2(body);
+  return canonicalJson3(body);
 }
 var digestPattern = /^[a-f0-9]{64}$/;
 var gitOidPattern = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 var decimalPattern = /^(0|[1-9][0-9]*)$/;
 var identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 var requestIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-function validateField(name, type2, value, issues) {
+function validateField(name, type2, value, issues, enumValues) {
   const nullable = type2.startsWith("nullable_");
   if (nullable && value === null) return;
   const base = nullable ? type2.slice("nullable_".length) : type2;
@@ -56460,6 +59347,8 @@ function validateField(name, type2, value, issues) {
     valid = typeof value === "string" && gitOidPattern.test(value);
   else if (base === "decimal")
     valid = typeof value === "string" && decimalPattern.test(value);
+  else if (base === "enum")
+    valid = typeof value === "string" && Array.isArray(enumValues) && enumValues.includes(value);
   else if (base === "identifier")
     valid = typeof value === "string" && identifierPattern.test(value);
   else if (base === "positive_integer")
@@ -56519,15 +59408,15 @@ function readRequestId(value) {
 }
 function isCanonicalJson(value) {
   try {
-    return canonicalJson2(JSON.parse(value)) === value;
+    return canonicalJson3(JSON.parse(value)) === value;
   } catch {
     return false;
   }
 }
-function canonicalJson2(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson2).join(",")}]`;
+function canonicalJson3(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson3).join(",")}]`;
   if (isRecord2(value))
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson2(value[key])}`).join(",")}}`;
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson3(value[key])}`).join(",")}}`;
   return JSON.stringify(value);
 }
 function isRecord2(value) {
@@ -56591,7 +59480,7 @@ function verifyReviewActionV2Handoff(generatedRoot) {
   }
   for (const file of actualFiles) {
     const expectedDigest = value.generatedFileDigests[file];
-    if (typeof expectedDigest !== "string" || !DIGEST_PATTERN.test(expectedDigest) || sha2563((0, import_fs.readFileSync)(import_path2.default.join(generatedRoot, ...file.split("/")))) !== expectedDigest) {
+    if (typeof expectedDigest !== "string" || !DIGEST_PATTERN.test(expectedDigest) || sha2564((0, import_fs.readFileSync)(import_path2.default.join(generatedRoot, ...file.split("/")))) !== expectedDigest) {
       throw new Error("review_action_v2_handoff_file_digest_mismatch");
     }
   }
@@ -56638,12 +59527,12 @@ function parseCanonicalObject(raw) {
   } catch (error2) {
     throw new Error("review_action_v2_handoff_json_invalid", { cause: error2 });
   }
-  if (!isRecord3(value) || canonicalJson3(value) !== raw) {
+  if (!isRecord3(value) || canonicalJson4(value) !== raw) {
     throw new Error("review_action_v2_handoff_not_canonical");
   }
   return value;
 }
-function canonicalJson3(value) {
+function canonicalJson4(value) {
   return `${JSON.stringify(canonicalize2(value), null, 2)}
 `;
 }
@@ -56666,21 +59555,21 @@ function assertExactKeys(value, expected) {
     throw new Error("review_action_v2_handoff_fields_invalid");
   }
 }
-function sha2563(value) {
-  return (0, import_crypto16.createHash)("sha256").update(value).digest("hex");
+function sha2564(value) {
+  return (0, import_crypto17.createHash)("sha256").update(value).digest("hex");
 }
 function isRecord3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // src/review-orchestration/infrastructure/production-t0-review-runner.ts
-var import_crypto32 = require("crypto");
-var import_child_process15 = require("child_process");
-var path23 = __toESM(require("path"));
-var import_util9 = require("util");
+var import_crypto36 = require("crypto");
+var import_child_process18 = require("child_process");
+var path26 = __toESM(require("path"));
+var import_util13 = require("util");
 
 // src/control-plane/review-action-v2-client.ts
-var import_crypto17 = require("crypto");
+var import_crypto18 = require("crypto");
 var import__ = __toESM(require__());
 var import_ajv_formats = __toESM(require_dist());
 
@@ -58443,6 +61332,816 @@ var review_context_gateway_seal_schema_default = {
   ]
 };
 
+// src/control-plane/generated/review-action-v2/schemas/review_context_receipt_replay_commit.schema.json
+var review_context_receipt_replay_commit_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_context_receipt_replay_commit",
+  title: "review_context_receipt_replay_commit request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "idempotencyKey",
+        "requestBodyHash",
+        "executionId",
+        "workSlotId",
+        "attestationId",
+        "attestationHash",
+        "targetReviewRevisionHash",
+        "targetCheckoutTreeOid",
+        "replayCapability",
+        "replayResultCanonicalJson",
+        "replayResultHash"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        idempotencyKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        requestBodyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        executionId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        workSlotId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        attestationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        attestationHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        targetReviewRevisionHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        targetCheckoutTreeOid: {
+          type: "string",
+          pattern: "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        },
+        replayCapability: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        replayResultCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        replayResultHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: ["accepted", "idempotent", "denied", "conflict"]
+                },
+                replayProofId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                replayProofHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "idempotency_conflict"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invariant_violation"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "ambiguous_outcome"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
 // src/control-plane/generated/review-action-v2/schemas/review_context_replay_commit.schema.json
 var review_context_replay_commit_schema_default = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -59293,6 +62992,8 @@ var review_evidence_commit_schema_default = {
         "actualModel",
         "contextDependencyAttestationId",
         "contextDependencyAttestationHash",
+        "investigationCertificateId",
+        "investigationCertificateHash",
         "payloadCanonicalJson",
         "payloadHash",
         "qualityFlags",
@@ -59395,6 +63096,30 @@ var review_evidence_commit_schema_default = {
             }
           ]
         },
+        investigationCertificateId: {
+          anyOf: [
+            {
+              type: "string",
+              minLength: 1,
+              maxLength: 256,
+              pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+            },
+            {
+              type: "null"
+            }
+          ]
+        },
+        investigationCertificateHash: {
+          anyOf: [
+            {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            {
+              type: "null"
+            }
+          ]
+        },
         payloadCanonicalJson: {
           type: "string",
           minLength: 2
@@ -59450,6 +63175,42 @@ var review_evidence_commit_schema_default = {
                   type: "null"
                 },
                 contextDependencyAttestationHash: {
+                  type: "null"
+                }
+              }
+            }
+          ]
+        },
+        {
+          oneOf: [
+            {
+              required: [
+                "investigationCertificateId",
+                "investigationCertificateHash"
+              ],
+              properties: {
+                investigationCertificateId: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: 256,
+                  pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                },
+                investigationCertificateHash: {
+                  type: "string",
+                  pattern: "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            {
+              required: [
+                "investigationCertificateId",
+                "investigationCertificateHash"
+              ],
+              properties: {
+                investigationCertificateId: {
+                  type: "null"
+                },
+                investigationCertificateHash: {
                   type: "null"
                 }
               }
@@ -65720,6 +69481,7853 @@ var review_execution_supersede_schema_default = {
                       type: "null"
                     }
                   ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "idempotency_conflict"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invariant_violation"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capacity_limited"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "ambiguous_outcome"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
+// src/control-plane/generated/review-action-v2/schemas/review_investigation_conclude.schema.json
+var review_investigation_conclude_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_conclude",
+  title: "review_investigation_conclude request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "idempotencyKey",
+        "requestBodyHash",
+        "investigationId",
+        "expectedVersion",
+        "dossierDigest",
+        "certificateTtlMs"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        idempotencyKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        requestBodyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        investigationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        expectedVersion: {
+          type: "string",
+          pattern: "^(0|[1-9][0-9]*)$"
+        },
+        dossierDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        certificateTtlMs: {
+          type: "integer",
+          minimum: 1
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: [
+                    "applied",
+                    "restored",
+                    "parked",
+                    "rejected",
+                    "conflict",
+                    "missing"
+                  ]
+                },
+                investigationId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationVersion: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^(0|[1-9][0-9]*)$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationState: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "provisional",
+                        "awaiting_turn",
+                        "turn_leased",
+                        "awaiting_critic",
+                        "ready_to_conclude",
+                        "concluded",
+                        "inconclusive",
+                        "superseded",
+                        "expired"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                dossierDigest: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                nextAction: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "run_turn",
+                        "run_critic",
+                        "await_capacity",
+                        "conclude",
+                        "terminal"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalProviderKind: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalActualModel: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalObservationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalOutcomeHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationConclusion: {
+                  anyOf: [
+                    {
+                      enum: ["verified_clean", "findings", "inconclusive"]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "idempotency_conflict"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invariant_violation"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capacity_limited"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "ambiguous_outcome"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
+// src/control-plane/generated/review-action-v2/schemas/review_investigation_open.schema.json
+var review_investigation_open_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_open",
+  title: "review_investigation_open request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "idempotencyKey",
+        "requestBodyHash",
+        "authorizationId",
+        "executionId",
+        "workSlotId",
+        "reviewRevisionHash",
+        "stableReviewUnitKey",
+        "providerVoteLaneId",
+        "providerStrategyId",
+        "runtimeProfile",
+        "coverageContractCanonicalJson",
+        "coverageContractHash",
+        "investigationPolicyCanonicalJson",
+        "investigationPolicyHash",
+        "seedObligationsCanonicalJson",
+        "seedObligationsHash",
+        "initialReceiptsCanonicalJson",
+        "initialReceiptsHash"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        idempotencyKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        requestBodyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        authorizationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        executionId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        workSlotId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        reviewRevisionHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        stableReviewUnitKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        providerVoteLaneId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        providerStrategyId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        runtimeProfile: {
+          enum: [
+            "gateway_attested_agent_v1",
+            "orchestrated_tool_loop_v1",
+            "preassembled_context_v1",
+            "prompt_only_v1",
+            "agentic_unbounded_v1"
+          ]
+        },
+        coverageContractCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        coverageContractHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        investigationPolicyCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        investigationPolicyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        seedObligationsCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        seedObligationsHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        initialReceiptsCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        initialReceiptsHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: ["opened", "restored", "rejected", "conflict"]
+                },
+                investigationId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationVersion: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^(0|[1-9][0-9]*)$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationState: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "provisional",
+                        "awaiting_turn",
+                        "turn_leased",
+                        "awaiting_critic",
+                        "ready_to_conclude",
+                        "concluded",
+                        "inconclusive",
+                        "superseded",
+                        "expired"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                dossierDigest: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                nextAction: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "run_turn",
+                        "run_critic",
+                        "await_capacity",
+                        "conclude",
+                        "terminal"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalProviderKind: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalActualModel: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalObservationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalOutcomeHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationConclusion: {
+                  anyOf: [
+                    {
+                      enum: ["verified_clean", "findings", "inconclusive"]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "idempotency_conflict"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invariant_violation"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capacity_limited"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "ambiguous_outcome"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
+// src/control-plane/generated/review-action-v2/schemas/review_investigation_replay.schema.json
+var review_investigation_replay_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_replay",
+  title: "review_investigation_replay request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "idempotencyKey",
+        "requestBodyHash",
+        "authorizationId",
+        "sourceInvestigationId",
+        "sourceCertificateHash",
+        "targetExecutionId",
+        "targetWorkSlotId",
+        "stableReviewUnitKey",
+        "providerVoteLaneId",
+        "providerStrategyId",
+        "runtimeProfile",
+        "coverageContractCanonicalJson",
+        "coverageContractHash",
+        "investigationPolicyCanonicalJson",
+        "investigationPolicyHash",
+        "seedObligationsCanonicalJson",
+        "seedObligationsHash",
+        "initialReceiptsCanonicalJson",
+        "initialReceiptsHash",
+        "targetScopeCanonicalJson",
+        "targetScopeHash",
+        "targetRevisionCanonicalJson",
+        "targetRevisionHash",
+        "replayProofsCanonicalJson",
+        "replayProofsHash"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        idempotencyKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        requestBodyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        authorizationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        sourceInvestigationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        sourceCertificateHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        targetExecutionId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        targetWorkSlotId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        stableReviewUnitKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        providerVoteLaneId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        providerStrategyId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        runtimeProfile: {
+          enum: [
+            "gateway_attested_agent_v1",
+            "orchestrated_tool_loop_v1",
+            "preassembled_context_v1",
+            "prompt_only_v1",
+            "agentic_unbounded_v1"
+          ]
+        },
+        coverageContractCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        coverageContractHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        investigationPolicyCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        investigationPolicyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        seedObligationsCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        seedObligationsHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        initialReceiptsCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        initialReceiptsHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        targetScopeCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        targetScopeHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        targetRevisionCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        targetRevisionHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        replayProofsCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        replayProofsHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: [
+                    "applied",
+                    "restored",
+                    "parked",
+                    "rejected",
+                    "conflict",
+                    "missing"
+                  ]
+                },
+                investigationId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationVersion: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^(0|[1-9][0-9]*)$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationState: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "provisional",
+                        "awaiting_turn",
+                        "turn_leased",
+                        "awaiting_critic",
+                        "ready_to_conclude",
+                        "concluded",
+                        "inconclusive",
+                        "superseded",
+                        "expired"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                dossierDigest: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                nextAction: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "run_turn",
+                        "run_critic",
+                        "await_capacity",
+                        "conclude",
+                        "terminal"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalProviderKind: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalActualModel: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalObservationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalOutcomeHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationConclusion: {
+                  anyOf: [
+                    {
+                      enum: ["verified_clean", "findings", "inconclusive"]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "idempotency_conflict"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invariant_violation"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capacity_limited"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "ambiguous_outcome"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
+// src/control-plane/generated/review-action-v2/schemas/review_investigation_replay_prepare.schema.json
+var review_investigation_replay_prepare_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_replay_prepare",
+  title: "review_investigation_replay_prepare request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "authorizationId",
+        "targetExecutionId",
+        "targetWorkSlotId",
+        "targetReviewRevisionHash",
+        "stableReviewUnitKey",
+        "providerVoteLaneId",
+        "providerManifestCanonicalJson",
+        "providerManifestHash",
+        "coverageContractCanonicalJson",
+        "coverageContractHash"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        authorizationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        targetExecutionId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        targetWorkSlotId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        targetReviewRevisionHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        stableReviewUnitKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        providerVoteLaneId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        providerManifestCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        providerManifestHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        coverageContractCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        coverageContractHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: ["prepared", "missing", "rejected"]
+                },
+                sourceInvestigationId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                sourceCertificateId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                sourceCertificateHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                replayPreparationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                replayPreparationHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capacity_limited"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "service_unavailable"
+                },
+                retryClass: {
+                  const: "read_only"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
+// src/control-plane/generated/review-action-v2/schemas/review_investigation_restore.schema.json
+var review_investigation_restore_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_restore",
+  title: "review_investigation_restore request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "authorizationId",
+        "investigationId",
+        "reviewRevisionHash"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        authorizationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        investigationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        reviewRevisionHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: ["found", "missing", "not_restorable"]
+                },
+                investigationId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationVersion: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^(0|[1-9][0-9]*)$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationState: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "provisional",
+                        "awaiting_turn",
+                        "turn_leased",
+                        "awaiting_critic",
+                        "ready_to_conclude",
+                        "concluded",
+                        "inconclusive",
+                        "superseded",
+                        "expired"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                dossierDigest: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                nextAction: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "run_turn",
+                        "run_critic",
+                        "await_capacity",
+                        "conclude",
+                        "terminal"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalProviderKind: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalActualModel: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalObservationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalOutcomeHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationConclusion: {
+                  anyOf: [
+                    {
+                      enum: ["verified_clean", "findings", "inconclusive"]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capacity_limited"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "service_unavailable"
+                },
+                retryClass: {
+                  const: "read_only"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
+// src/control-plane/generated/review-action-v2/schemas/review_investigation_turn_abort.schema.json
+var review_investigation_turn_abort_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_turn_abort",
+  title: "review_investigation_turn_abort request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "leaseCapability",
+        "idempotencyKey",
+        "requestBodyHash",
+        "investigationId",
+        "expectedVersion",
+        "turnId",
+        "turnCapability",
+        "sourceLeaseId",
+        "fencingToken",
+        "abortReason",
+        "nextEligibleAt"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        leaseCapability: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        idempotencyKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        requestBodyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        investigationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        expectedVersion: {
+          type: "string",
+          pattern: "^(0|[1-9][0-9]*)$"
+        },
+        turnId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        turnCapability: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        sourceLeaseId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        fencingToken: {
+          type: "string",
+          pattern: "^(0|[1-9][0-9]*)$"
+        },
+        abortReason: {
+          enum: [
+            "capacity_unavailable",
+            "authentication_unavailable",
+            "retryable_infrastructure_failure",
+            "timeout",
+            "cancelled",
+            "confinement_violation",
+            "schema_invalid_output",
+            "stale_execution",
+            "superseded_execution"
+          ]
+        },
+        nextEligibleAt: {
+          anyOf: [
+            {
+              type: "string",
+              format: "date-time"
+            },
+            {
+              type: "null"
+            }
+          ]
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: [
+                    "applied",
+                    "restored",
+                    "parked",
+                    "rejected",
+                    "conflict",
+                    "missing"
+                  ]
+                },
+                investigationId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationVersion: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^(0|[1-9][0-9]*)$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationState: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "provisional",
+                        "awaiting_turn",
+                        "turn_leased",
+                        "awaiting_critic",
+                        "ready_to_conclude",
+                        "concluded",
+                        "inconclusive",
+                        "superseded",
+                        "expired"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                dossierDigest: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                nextAction: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "run_turn",
+                        "run_critic",
+                        "await_capacity",
+                        "conclude",
+                        "terminal"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalProviderKind: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalActualModel: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalObservationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalOutcomeHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationConclusion: {
+                  anyOf: [
+                    {
+                      enum: ["verified_clean", "findings", "inconclusive"]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "idempotency_conflict"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invariant_violation"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capacity_limited"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "ambiguous_outcome"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
+// src/control-plane/generated/review-action-v2/schemas/review_investigation_turn_commit.schema.json
+var review_investigation_turn_commit_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_turn_commit",
+  title: "review_investigation_turn_commit request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "leaseCapability",
+        "idempotencyKey",
+        "requestBodyHash",
+        "investigationId",
+        "expectedVersion",
+        "turnId",
+        "turnCapability",
+        "sourceLeaseId",
+        "fencingToken",
+        "acceptedAttestationId",
+        "acceptedAttestationHash",
+        "turnObservationCanonicalJson",
+        "turnObservationHash"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        leaseCapability: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        idempotencyKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        requestBodyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        investigationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        expectedVersion: {
+          type: "string",
+          pattern: "^(0|[1-9][0-9]*)$"
+        },
+        turnId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        turnCapability: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        sourceLeaseId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        fencingToken: {
+          type: "string",
+          pattern: "^(0|[1-9][0-9]*)$"
+        },
+        acceptedAttestationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        acceptedAttestationHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        turnObservationCanonicalJson: {
+          type: "string",
+          minLength: 2
+        },
+        turnObservationHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: [
+                    "applied",
+                    "restored",
+                    "parked",
+                    "rejected",
+                    "conflict",
+                    "missing"
+                  ]
+                },
+                investigationId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationVersion: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^(0|[1-9][0-9]*)$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationState: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "provisional",
+                        "awaiting_turn",
+                        "turn_leased",
+                        "awaiting_critic",
+                        "ready_to_conclude",
+                        "concluded",
+                        "inconclusive",
+                        "superseded",
+                        "expired"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                dossierDigest: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                nextAction: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "run_turn",
+                        "run_critic",
+                        "await_capacity",
+                        "conclude",
+                        "terminal"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalProviderKind: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalActualModel: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalObservationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalOutcomeHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationConclusion: {
+                  anyOf: [
+                    {
+                      enum: ["verified_clean", "findings", "inconclusive"]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "idempotency_conflict"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invariant_violation"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capacity_limited"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "ambiguous_outcome"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
+// src/control-plane/generated/review-action-v2/schemas/review_investigation_turn_plan.schema.json
+var review_investigation_turn_plan_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_turn_plan",
+  title: "review_investigation_turn_plan request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "idempotencyKey",
+        "requestBodyHash",
+        "investigationId",
+        "expectedVersion",
+        "dossierDigest",
+        "leaseDurationMs",
+        "maxObligationsForTurn",
+        "turnBudgetHash"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        idempotencyKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        requestBodyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        investigationId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        expectedVersion: {
+          type: "string",
+          pattern: "^(0|[1-9][0-9]*)$"
+        },
+        dossierDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        leaseDurationMs: {
+          type: "integer",
+          minimum: 1
+        },
+        maxObligationsForTurn: {
+          type: "integer",
+          minimum: 1
+        },
+        turnBudgetHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: [
+                    "applied",
+                    "restored",
+                    "parked",
+                    "rejected",
+                    "conflict",
+                    "missing"
+                  ]
+                },
+                investigationId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationVersion: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^(0|[1-9][0-9]*)$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationState: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "provisional",
+                        "awaiting_turn",
+                        "turn_leased",
+                        "awaiting_critic",
+                        "ready_to_conclude",
+                        "concluded",
+                        "inconclusive",
+                        "superseded",
+                        "expired"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                dossierDigest: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                nextAction: {
+                  anyOf: [
+                    {
+                      enum: [
+                        "run_turn",
+                        "run_critic",
+                        "await_capacity",
+                        "conclude",
+                        "terminal"
+                      ]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                certificateHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalProviderKind: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalActualModel: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 1024
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalObservationCanonicalJson: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                terminalOutcomeHash: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^[a-f0-9]{64}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                investigationConclusion: {
+                  anyOf: [
+                    {
+                      enum: ["verified_clean", "findings", "inconclusive"]
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                turnId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                turnCapability: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 32768,
+                      pattern: "^\\S+$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                turnExpiresAt: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      format: "date-time"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                turnBriefCanonicalJson: {
+                  type: "string",
+                  minLength: 2
+                },
+                turnBriefHash: {
+                  type: "string",
+                  pattern: "^[a-f0-9]{64}$"
                 }
               }
             }
@@ -73000,12 +84608,21 @@ var responseSchemas = {
   ["review_execution_observation_attach" /* ReviewExecutionObservationAttach */]: review_execution_observation_attach_schema_default,
   ["review_execution_observation_adopt" /* ReviewExecutionObservationAdopt */]: review_execution_observation_adopt_schema_default,
   ["review_execution_finalize" /* ReviewExecutionFinalize */]: review_execution_finalize_schema_default,
+  ["review_investigation_open" /* ReviewInvestigationOpen */]: review_investigation_open_schema_default,
+  ["review_investigation_restore" /* ReviewInvestigationRestore */]: review_investigation_restore_schema_default,
+  ["review_investigation_turn_plan" /* ReviewInvestigationTurnPlan */]: review_investigation_turn_plan_schema_default,
+  ["review_investigation_turn_commit" /* ReviewInvestigationTurnCommit */]: review_investigation_turn_commit_schema_default,
+  ["review_investigation_turn_abort" /* ReviewInvestigationTurnAbort */]: review_investigation_turn_abort_schema_default,
+  ["review_investigation_conclude" /* ReviewInvestigationConclude */]: review_investigation_conclude_schema_default,
+  ["review_investigation_replay_prepare" /* ReviewInvestigationReplayPrepare */]: review_investigation_replay_prepare_schema_default,
+  ["review_investigation_replay" /* ReviewInvestigationReplay */]: review_investigation_replay_schema_default,
   ["review_invocation_lease_acquire" /* ReviewInvocationLeaseAcquire */]: review_invocation_lease_acquire_schema_default,
   ["review_invocation_lease_renew" /* ReviewInvocationLeaseRenew */]: review_invocation_lease_renew_schema_default,
   ["review_invocation_lease_release" /* ReviewInvocationLeaseRelease */]: review_invocation_lease_release_schema_default,
   ["review_context_gateway_open" /* ReviewContextGatewayOpen */]: review_context_gateway_open_schema_default,
   ["review_context_gateway_seal" /* ReviewContextGatewaySeal */]: review_context_gateway_seal_schema_default,
   ["review_evidence_lookup" /* ReviewEvidenceLookup */]: review_evidence_lookup_schema_default,
+  ["review_context_receipt_replay_commit" /* ReviewContextReceiptReplayCommit */]: review_context_receipt_replay_commit_schema_default,
   ["review_context_replay_commit" /* ReviewContextReplayCommit */]: review_context_replay_commit_schema_default,
   ["review_evidence_commit" /* ReviewEvidenceCommit */]: review_evidence_commit_schema_default,
   ["review_snapshot_restore" /* ReviewSnapshotRestore */]: review_snapshot_restore_schema_default,
@@ -73035,7 +84652,7 @@ var ReviewActionV2Client = class {
   constructor(options) {
     this.apiUrl = parseApiUrl(options.apiUrl, options.allowInsecureLocalhost);
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.requestIdFactory = options.requestIdFactory ?? (() => `rr:${(0, import_crypto17.randomUUID)()}`);
+    this.requestIdFactory = options.requestIdFactory ?? (() => `rr:${(0, import_crypto18.randomUUID)()}`);
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve5) => setTimeout(resolve5, delayMs)));
     this.maxAttempts = clampInteger(options.maxAttempts ?? 2, 1, 3);
     this.maxResponseBytes = clampInteger(
@@ -73088,7 +84705,7 @@ var ReviewActionV2Client = class {
     };
     const request = descriptor.mutability === "read" || operationId === "review_run_authorize" /* ReviewRunAuthorize */ ? base : {
       ...base,
-      requestBodyHash: sha2564(
+      requestBodyHash: sha2565(
         canonicalizeReviewActionV2Request(operationId, {
           ...base,
           requestBodyHash: "0".repeat(64)
@@ -73319,14 +84936,313 @@ function readRetryAfterMs(response) {
   if (!Number.isFinite(at2)) return void 0;
   return Math.min(Math.max(0, at2 - Date.now()), 3e4);
 }
-function sha2564(value) {
-  return (0, import_crypto17.createHash)("sha256").update(value).digest("hex");
+function sha2565(value) {
+  return (0, import_crypto18.createHash)("sha256").update(value).digest("hex");
 }
 function clampInteger(value, minimum, maximum) {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new Error("review_action_v2_client_limit_invalid");
   }
   return value;
+}
+
+// src/context-gateway/context-gateway-v4-contract.ts
+var import_crypto20 = require("crypto");
+
+// src/context-gateway/context-gateway-contract.ts
+var import_crypto19 = require("crypto");
+var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v3";
+var CONTEXT_GATEWAY_MAX_OPERATIONS = 2e3;
+var CONTEXT_GIT_DIFF_POLICY_VERSION = "git-diff-stat-v2";
+function contextGitFactOperandsHash(input) {
+  switch (input.fact) {
+    case "changed_paths":
+      return sha2566(
+        canonicalJson5({
+          mergeBaseTreeOid: requireGitOid(
+            input.mergeBaseTreeOid,
+            "merge_base_tree_oid"
+          ),
+          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
+        })
+      );
+    case "diff_stat":
+      return sha2566(
+        canonicalJson5({
+          diffPolicyHash: requireSha256(
+            input.diffPolicyHash,
+            "diff_policy_hash"
+          ),
+          mergeBaseTreeOid: requireGitOid(
+            input.mergeBaseTreeOid,
+            "merge_base_tree_oid"
+          ),
+          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
+        })
+      );
+    case "merge_base":
+      return sha2566(
+        canonicalJson5({
+          mergeBaseSha: requireGitOid(input.mergeBaseSha, "merge_base_sha")
+        })
+      );
+  }
+}
+function contextGitDiffPolicyHash(infoAttributesHash) {
+  return sha2566(
+    canonicalJson5({
+      infoAttributesHash: infoAttributesHash === null ? null : requireSha256(infoAttributesHash, "info_attributes_hash"),
+      policyVersion: CONTEXT_GIT_DIFF_POLICY_VERSION
+    })
+  );
+}
+function changedPathsWitnessStatus(transcript, expectedOperandsHash) {
+  let foundCandidate = false;
+  for (const dependency of transcript.dependencies) {
+    const operation = dependency.operation;
+    if (operation.kind !== "git_fact" || operation.fact !== "changed_paths") {
+      continue;
+    }
+    foundCandidate = true;
+    const result2 = dependency.result;
+    if (hasExactKeys(operation, ["kind", "fact", "operandsHash"]) && hasExactKeys(result2, [
+      "kind",
+      "resultHash",
+      "itemCount",
+      "byteCount",
+      "complete",
+      "truncated"
+    ]) && operation.operandsHash === expectedOperandsHash && result2.kind === "git_fact" && isSha2562(result2.resultHash) && isNonNegativeSafeInteger2(result2.itemCount) && isNonNegativeSafeInteger2(result2.byteCount) && result2.complete === true && result2.truncated === false) {
+      return "present" /* Present */;
+    }
+  }
+  return foundCandidate ? "invalid" /* Invalid */ : "missing" /* Missing */;
+}
+function canonicalJson5(value) {
+  if (value === void 0) return '{"$undefined":true}';
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error("context_gateway_non_finite_number");
+    }
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson5).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const record = value;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson5(record[key])}`).join(",")}}`;
+  }
+  throw new Error("context_gateway_canonical_value_invalid");
+}
+function sha2566(value) {
+  return (0, import_crypto19.createHash)("sha256").update(value).digest("hex");
+}
+function keyedSha256(secret, value) {
+  return (0, import_crypto19.createHmac)("sha256", secret).update(value).digest("hex");
+}
+function requireSha256(value, field) {
+  if (!/^[a-f0-9]{64}$/u.test(value)) {
+    throw new Error(`${field}_invalid`);
+  }
+  return value;
+}
+function requireGitOid(value, field) {
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value)) {
+    throw new Error(`${field}_invalid`);
+  }
+  return value;
+}
+function hasExactKeys(value, expected) {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length && actual.every((key, index) => key === sortedExpected[index]);
+}
+function isSha2562(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}
+function isNonNegativeSafeInteger2(value) {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+// src/context-gateway/context-gateway-v4-contract.ts
+var CONTEXT_GATEWAY_V4_POLICY_VERSION = "context-gateway-v4";
+var CONTEXT_GATEWAY_V4_CURSOR_VERSION = 1;
+var CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS = 2e3;
+var CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS = 15 * 60 * 1e3;
+var ContextGatewayV4OperationKind = /* @__PURE__ */ ((ContextGatewayV4OperationKind3) => {
+  ContextGatewayV4OperationKind3["FileRead"] = "file_read";
+  ContextGatewayV4OperationKind3["DirectoryList"] = "directory_list";
+  ContextGatewayV4OperationKind3["TextSearch"] = "text_search";
+  ContextGatewayV4OperationKind3["CanonicalInventory"] = "canonical_inventory";
+  ContextGatewayV4OperationKind3["GitFact"] = "git_fact";
+  ContextGatewayV4OperationKind3["UnsupportedTool"] = "unsupported_tool";
+  return ContextGatewayV4OperationKind3;
+})(ContextGatewayV4OperationKind || {});
+function encodeContextGatewayV4Cursor(input) {
+  assertSecret(input.secret);
+  assertCursorPayload(input.payload);
+  const encoded = Buffer.from(canonicalJson5(input.payload), "utf8").toString(
+    "base64url"
+  );
+  return `${encoded}.${keyedSha256(input.secret, encoded)}`;
+}
+function decodeContextGatewayV4Cursor(input) {
+  assertSecret(input.secret);
+  if (typeof input.cursor !== "string" || input.cursor.length < 80 || input.cursor.length > 2048) {
+    throw new Error("context_gateway_cursor_invalid");
+  }
+  const [encoded, signature, extra] = input.cursor.split(".");
+  if (!encoded || !signature || extra !== void 0 || !isSha2563(signature)) {
+    throw new Error("context_gateway_cursor_invalid");
+  }
+  const expectedSignature = keyedSha256(input.secret, encoded);
+  if (!(0, import_crypto20.timingSafeEqual)(
+    Buffer.from(signature, "hex"),
+    Buffer.from(expectedSignature, "hex")
+  )) {
+    throw new Error("context_gateway_cursor_tampered");
+  }
+  let parsed;
+  try {
+    const decoded = Buffer.from(encoded, "base64url").toString("utf8");
+    parsed = JSON.parse(decoded);
+    if (canonicalJson5(parsed) !== decoded) {
+      throw new Error("non_canonical");
+    }
+  } catch {
+    throw new Error("context_gateway_cursor_invalid");
+  }
+  const payload = parsed;
+  assertCursorPayload(payload);
+  if (payload.sessionId !== input.expected.sessionId || payload.operationKind !== input.expected.operationKind || payload.treeOid !== input.expected.treeOid || payload.policyVersion !== input.expected.policyVersion || payload.queryDigest !== input.expected.queryDigest || payload.pageSize !== input.expected.pageSize) {
+    throw new Error("context_gateway_cursor_scope_mismatch");
+  }
+  if (payload.expiresAtMs <= input.nowMs) {
+    throw new Error("context_gateway_cursor_expired");
+  }
+  return Object.freeze({ ...payload });
+}
+function createContextGatewayV4PageReceipt(input) {
+  assertSecret(input.secret);
+  requireGitOid(input.treeOid, "context_gateway_page_tree_oid");
+  requireSha256(input.queryDigest, "context_gateway_page_query_digest");
+  assertPageSize(input.pageSize);
+  if (!Number.isSafeInteger(input.offset) || input.offset < 0) {
+    throw new Error("context_gateway_page_offset_invalid");
+  }
+  if (input.cursorInputHash !== null && !/^[a-f0-9]{64}$/u.test(input.cursorInputHash)) {
+    throw new Error("context_gateway_page_cursor_hash_invalid");
+  }
+  const allItemPathHashes = [...new Set(input.allItemPathHashes)].sort();
+  if (allItemPathHashes.length > 25e4 || allItemPathHashes.length > input.allItems.length || allItemPathHashes.some((value) => !/^[a-f0-9]{64}$/u.test(value))) {
+    throw new Error("context_gateway_page_path_hashes_invalid");
+  }
+  const page = input.allItems.slice(
+    input.offset,
+    input.offset + input.pageSize
+  );
+  const nextOffset = input.offset + page.length;
+  const complete = nextOffset >= input.allItems.length;
+  const pageOrdinal = Math.floor(input.offset / input.pageSize);
+  const aggregateItems = input.allItems.slice(0, nextOffset);
+  const pagePathHashes = allItemPathHashes.slice(
+    input.offset,
+    input.offset + input.pageSize
+  );
+  const aggregatePathHashes = allItemPathHashes.slice(0, nextOffset);
+  const receiptIdentity = {
+    sessionId: input.sessionId,
+    operationKind: input.operationKind,
+    queryDigest: input.queryDigest,
+    treeOid: input.treeOid,
+    pageSize: input.pageSize,
+    pageOrdinal,
+    cursorInputHash: input.cursorInputHash,
+    pageItemCount: page.length,
+    pageItemsHash: sha2566(canonicalJson5(page)),
+    pagePathHashes,
+    aggregatePathCount: aggregatePathHashes.length,
+    aggregatePathSetHash: sha2566(canonicalJson5(aggregatePathHashes)),
+    aggregateItemCount: aggregateItems.length,
+    aggregateHash: sha2566(canonicalJson5(aggregateItems)),
+    complete
+  };
+  return Object.freeze({
+    operationReceiptId: keyedSha256(
+      input.secret,
+      canonicalJson5(receiptIdentity)
+    ),
+    operationKind: input.operationKind,
+    cursorInputHash: input.cursorInputHash,
+    pageOrdinal,
+    pageItemCount: page.length,
+    pageItemsHash: receiptIdentity.pageItemsHash,
+    pagePathHashes: Object.freeze(pagePathHashes),
+    aggregatePathCount: receiptIdentity.aggregatePathCount,
+    aggregatePathSetHash: receiptIdentity.aggregatePathSetHash,
+    aggregateItemCount: aggregateItems.length,
+    aggregateHash: receiptIdentity.aggregateHash,
+    complete,
+    nextCursor: complete ? null : encodeContextGatewayV4Cursor({
+      secret: input.secret,
+      payload: {
+        cursorVersion: CONTEXT_GATEWAY_V4_CURSOR_VERSION,
+        sessionId: input.sessionId,
+        operationKind: input.operationKind,
+        treeOid: input.treeOid,
+        policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+        queryDigest: input.queryDigest,
+        pageSize: input.pageSize,
+        nextOffset,
+        expiresAtMs: input.nowMs + CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS
+      }
+    })
+  });
+}
+function classifyContextGatewayV4Failure(error2) {
+  const message = error2 instanceof Error ? error2.message : String(error2);
+  if (/(?:path_invalid|cursor_(?:tampered|scope_mismatch)|tool_unknown|unauthorized|escape)/u.test(
+    message
+  )) {
+    return "confinement_violation" /* ConfinementViolation */;
+  }
+  if (/(?:limit_exceeded|budget|too_large)/u.test(message)) {
+    return "budget_exceeded" /* BudgetExceeded */;
+  }
+  if (/(?:truncated|incomplete|cursor_expired)/u.test(message)) {
+    return "incomplete_result" /* IncompleteResult */;
+  }
+  if (/(?:invalid|missing|not_in_.*tree)/u.test(message)) {
+    return "recoverable_request" /* RecoverableRequest */;
+  }
+  return "infrastructure_failure" /* InfrastructureFailure */;
+}
+function assertCursorPayload(payload) {
+  if (payload.cursorVersion !== CONTEXT_GATEWAY_V4_CURSOR_VERSION || payload.policyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION || typeof payload.sessionId !== "string" || payload.sessionId.length < 1 || payload.sessionId.length > 255 || !Object.values(ContextGatewayV4OperationKind).includes(
+    payload.operationKind
+  ) || !Number.isSafeInteger(payload.nextOffset) || payload.nextOffset < 0 || !Number.isSafeInteger(payload.expiresAtMs) || payload.expiresAtMs < 0) {
+    throw new Error("context_gateway_cursor_payload_invalid");
+  }
+  requireGitOid(payload.treeOid, "context_gateway_cursor_tree_oid");
+  requireSha256(payload.queryDigest, "context_gateway_cursor_query_digest");
+  assertPageSize(payload.pageSize);
+}
+function assertSecret(secret) {
+  if (!Buffer.isBuffer(secret) || secret.byteLength < 32) {
+    throw new Error("context_gateway_cursor_secret_invalid");
+  }
+}
+function assertPageSize(value) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS) {
+    throw new Error("context_gateway_page_size_invalid");
+  }
+}
+function isSha2563(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }
 
 // src/review-orchestration/application/review-orchestration-ports.ts
@@ -73376,7 +85292,7 @@ var RetryableReviewContextInspectionFailure = class extends ReviewContextInspect
 };
 
 // src/review-orchestration/application/run-t0-review-orchestration.ts
-var import_crypto20 = require("crypto");
+var import_crypto23 = require("crypto");
 
 // src/review-orchestration/domain/review-orchestration-state.ts
 function createReviewOrchestrationState(workSlotIds) {
@@ -73510,7 +85426,7 @@ function requireIdentity(value) {
 }
 
 // src/review-orchestration/domain/review-prompt-coverage.ts
-var import_crypto18 = require("crypto");
+var import_crypto21 = require("crypto");
 function createReviewPromptCoverageManifest(input) {
   if (!input.workSlotId || !/^[a-f0-9]{64}$/.test(input.reviewRevisionHash)) {
     throw new Error("review_prompt_coverage_scope_invalid");
@@ -73529,11 +85445,11 @@ function createReviewPromptCoverageManifest(input) {
     }
     byPath.set(fact.path, fact);
   }
-  if (byPath.size !== assigned.length || assigned.some((path25) => !byPath.has(path25))) {
+  if (byPath.size !== assigned.length || assigned.some((path28) => !byPath.has(path28))) {
     throw new Error("review_prompt_coverage_path_set_mismatch");
   }
-  const paths = Object.freeze(assigned.map((path25) => byPath.get(path25)));
-  const canonicalFacts = canonicalJson4({
+  const paths = Object.freeze(assigned.map((path28) => byPath.get(path28)));
+  const canonicalFacts = canonicalJson6({
     paths,
     reviewRevisionHash: input.reviewRevisionHash,
     version: "review_prompt_coverage.v2",
@@ -73544,12 +85460,12 @@ function createReviewPromptCoverageManifest(input) {
     workSlotId: input.workSlotId,
     reviewRevisionHash: input.reviewRevisionHash,
     paths,
-    coverageHash: sha2565(canonicalFacts)
+    coverageHash: sha2567(canonicalFacts)
   });
 }
 function isReviewPromptCoverageComplete(manifest) {
   return manifest.paths.length > 0 && manifest.paths.every(
-    (path25) => path25.kind === "full_patch" /* FullPatch */ || path25.kind === "policy_excluded" /* PolicyExcluded */
+    (path28) => path28.kind === "full_patch" /* FullPatch */ || path28.kind === "policy_excluded" /* PolicyExcluded */
   );
 }
 function createProviderVisibleReviewCoverage(manifest) {
@@ -73557,8 +85473,8 @@ function createProviderVisibleReviewCoverage(manifest) {
   return Object.freeze({
     version: "provider_visible_review_coverage.v1",
     paths,
-    coverageHash: sha2565(
-      canonicalJson4({
+    coverageHash: sha2567(
+      canonicalJson6({
         paths,
         version: "provider_visible_review_coverage.v1"
       })
@@ -73566,7 +85482,7 @@ function createProviderVisibleReviewCoverage(manifest) {
   });
 }
 function serializeProviderVisibleReviewCoverage(coverage) {
-  const canonical = canonicalJson4({
+  const canonical = canonicalJson6({
     coverageHash: coverage.coverageHash,
     paths: coverage.paths,
     version: coverage.version
@@ -73588,21 +85504,21 @@ function compareCodePoints4(left, right) {
   if (left > right) return 1;
   return 0;
 }
-function canonicalJson4(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson4).join(",")}]`;
+function canonicalJson6(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson6).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.keys(value).sort(compareCodePoints4).map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson4(value[key])}`
+      (key) => `${JSON.stringify(key)}:${canonicalJson6(value[key])}`
     ).join(",")}}`;
   }
   return JSON.stringify(value);
 }
-function sha2565(value) {
-  return (0, import_crypto18.createHash)("sha256").update(value).digest("hex");
+function sha2567(value) {
+  return (0, import_crypto21.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/domain/stable-review-work-plan.ts
-var import_crypto19 = require("crypto");
+var import_crypto22 = require("crypto");
 function createStableReviewBatchId(input) {
   if (!Object.values(ReviewTaskKind).includes(input.taskKind)) {
     throw new Error("review_batch_task_kind_invalid");
@@ -73621,18 +85537,18 @@ function createStableReviewBatchId(input) {
     previousFilename: member.previousFilename ?? null,
     status: member.status
   })).sort(
-    (left, right) => compareCodePoints5(left.filename, right.filename) || compareCodePoints5(canonicalJson5(left), canonicalJson5(right))
+    (left, right) => compareCodePoints5(left.filename, right.filename) || compareCodePoints5(canonicalJson7(left), canonicalJson7(right))
   );
-  return sha2566(
-    `rr.review-batch.v2\0${canonicalJson5({
+  return sha2568(
+    `rr.review-batch.v2\0${canonicalJson7({
       members,
       taskKind: input.taskKind
     })}`
   );
 }
 function createStableReviewWorkPlan(input) {
-  requireDigest(input.reviewRevisionHash, "review_revision_hash");
-  requireDigest(input.compatibilityKey, "compatibility_key");
+  requireDigest2(input.reviewRevisionHash, "review_revision_hash");
+  requireDigest2(input.compatibilityKey, "compatibility_key");
   requirePositiveInteger2(input.maxWorkSlots, "max_work_slots");
   requirePositiveInteger2(input.maxAttemptsPerSlot, "max_attempts_per_slot");
   if (input.providers.length === 0 || input.batches.length === 0) {
@@ -73678,15 +85594,15 @@ function createStableReviewWorkPlan(input) {
       )) {
         throw new Error("provider_kind_invalid");
       }
-      requireDigest(
+      requireDigest2(
         provider.providerVoteIdentityHash,
         "provider_vote_identity_hash"
       );
       if (!Number.isSafeInteger(provider.attemptBudget) || provider.attemptBudget < 1 || provider.attemptBudget > input.maxAttemptsPerSlot) {
         throw new Error("review_work_plan_attempt_limit_exceeded");
       }
-      const workSlotId = sha2566(
-        `rr.review-work-slot.v1\0${canonicalJson5({
+      const workSlotId = sha2568(
+        `rr.review-work-slot.v1\0${canonicalJson7({
           batchId: batch.batchId,
           compatibilityKey: input.compatibilityKey,
           providerName: provider.providerName,
@@ -73722,11 +85638,11 @@ function createStableReviewWorkPlan(input) {
   const canonicalAssignments = [...assignments].sort(
     (left, right) => compareCodePoints5(left.workSlot.workSlotId, right.workSlot.workSlotId)
   );
-  const workSlotsCanonicalJson = canonicalJson5(
+  const workSlotsCanonicalJson = canonicalJson7(
     canonicalAssignments.map((assignment) => assignment.workSlot)
   );
-  const planHash = sha2566(
-    `rr.review-work-plan.v1\0${canonicalJson5({
+  const planHash = sha2568(
+    `rr.review-work-plan.v1\0${canonicalJson7({
       compatibilityKey: input.compatibilityKey,
       reviewRevisionHash: input.reviewRevisionHash,
       workSlots: canonicalAssignments.map((assignment) => ({
@@ -73749,11 +85665,11 @@ function createStableReviewWorkPlan(input) {
     )
   });
 }
-function canonicalJson5(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson5).join(",")}]`;
+function canonicalJson7(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson7).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.keys(value).sort(compareCodePoints5).map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson5(value[key])}`
+      (key) => `${JSON.stringify(key)}:${canonicalJson7(value[key])}`
     ).join(",")}}`;
   }
   return JSON.stringify(value);
@@ -73763,10 +85679,10 @@ function compareCodePoints5(left, right) {
   if (left > right) return 1;
   return 0;
 }
-function sha2566(value) {
-  return (0, import_crypto19.createHash)("sha256").update(value).digest("hex");
+function sha2568(value) {
+  return (0, import_crypto22.createHash)("sha256").update(value).digest("hex");
 }
-function requireDigest(value, field) {
+function requireDigest2(value, field) {
   if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`${field}_invalid`);
 }
 function requireIdentity2(value, field) {
@@ -73786,6 +85702,573 @@ function requireNonNegativeInteger2(value, field) {
 }
 function assertUnique(values, errorCode2) {
   if (new Set(values).size !== values.length) throw new Error(errorCode2);
+}
+
+// src/review-investigation/domain/investigation-state.ts
+var ReviewInvestigationState = /* @__PURE__ */ ((ReviewInvestigationState2) => {
+  ReviewInvestigationState2["Provisional"] = "provisional";
+  ReviewInvestigationState2["AwaitingTurn"] = "awaiting_turn";
+  ReviewInvestigationState2["TurnLeased"] = "turn_leased";
+  ReviewInvestigationState2["AwaitingCritic"] = "awaiting_critic";
+  ReviewInvestigationState2["ReadyToConclude"] = "ready_to_conclude";
+  ReviewInvestigationState2["Concluded"] = "concluded";
+  ReviewInvestigationState2["Inconclusive"] = "inconclusive";
+  ReviewInvestigationState2["Superseded"] = "superseded";
+  ReviewInvestigationState2["Expired"] = "expired";
+  return ReviewInvestigationState2;
+})(ReviewInvestigationState || {});
+var ReviewInvestigationNextAction = /* @__PURE__ */ ((ReviewInvestigationNextAction2) => {
+  ReviewInvestigationNextAction2["RunTurn"] = "run_turn";
+  ReviewInvestigationNextAction2["RunCritic"] = "run_critic";
+  ReviewInvestigationNextAction2["AwaitCapacity"] = "await_capacity";
+  ReviewInvestigationNextAction2["Conclude"] = "conclude";
+  ReviewInvestigationNextAction2["Terminal"] = "terminal";
+  return ReviewInvestigationNextAction2;
+})(ReviewInvestigationNextAction || {});
+var ReviewInvestigationConclusion = /* @__PURE__ */ ((ReviewInvestigationConclusion2) => {
+  ReviewInvestigationConclusion2["VerifiedClean"] = "verified_clean";
+  ReviewInvestigationConclusion2["Findings"] = "findings";
+  ReviewInvestigationConclusion2["Inconclusive"] = "inconclusive";
+  return ReviewInvestigationConclusion2;
+})(ReviewInvestigationConclusion || {});
+var ReviewInvestigationObligationOrigin = /* @__PURE__ */ ((ReviewInvestigationObligationOrigin2) => {
+  ReviewInvestigationObligationOrigin2["CoverageContract"] = "coverage_contract";
+  ReviewInvestigationObligationOrigin2["DeterministicExpansion"] = "deterministic_expansion";
+  ReviewInvestigationObligationOrigin2["AgentProposal"] = "agent_proposal";
+  ReviewInvestigationObligationOrigin2["CriticProposal"] = "critic_proposal";
+  return ReviewInvestigationObligationOrigin2;
+})(ReviewInvestigationObligationOrigin || {});
+
+// src/review-investigation/application/investigation-control-plane-port.ts
+var ReviewInvestigationControlPlaneError = class extends Error {
+  constructor(failureClass, message) {
+    super(message);
+    this.failureClass = failureClass;
+    this.name = "ReviewInvestigationControlPlaneError";
+  }
+};
+
+// src/review-investigation/application/review-agent-port.ts
+var REVIEW_INVESTIGATION_GATEWAY_TOOLS = Object.freeze([
+  "review_read_file",
+  "review_list_directory",
+  "review_search_text",
+  "review_canonical_inventory",
+  "review_git_fact"
+]);
+var ReviewAgentExecutionError = class extends Error {
+  constructor(failureClass, retryAfterMs, message) {
+    super(message);
+    this.failureClass = failureClass;
+    this.retryAfterMs = retryAfterMs;
+    this.name = "ReviewAgentExecutionError";
+  }
+};
+
+// src/review-investigation/domain/runtime-profile.ts
+var ReviewAgentProviderKind = /* @__PURE__ */ ((ReviewAgentProviderKind2) => {
+  ReviewAgentProviderKind2["Codex"] = "codex";
+  ReviewAgentProviderKind2["ClaudeCode"] = "claude_code";
+  return ReviewAgentProviderKind2;
+})(ReviewAgentProviderKind || {});
+function createGatewayAttestedRuntimeProfile(input) {
+  assertPositive(input.maxPromptBytes, "max_prompt_bytes");
+  assertPositive(input.maxOutputBytes ?? 4 * 1024 * 1024, "max_output_bytes");
+  assertPositive(input.maxToolCalls ?? 256, "max_tool_calls");
+  assertPositive(input.maxTurns ?? 12, "max_turns");
+  return Object.freeze({
+    profileVersion: 1,
+    providerKind: input.providerKind,
+    executionProfile: "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */,
+    toolTransport: "mcp_stdio" /* McpStdio */,
+    structuredOutput: "json_schema" /* JsonSchema */,
+    eventStream: input.eventStream,
+    continuation: "durable_dossier" /* DurableDossier */,
+    confinement: "gateway_only" /* GatewayOnly */,
+    actualModelAttribution: "observed" /* Observed */,
+    usageAttribution: "observed" /* Observed */,
+    cancellation: "process_group_fenced" /* ProcessGroupFenced */,
+    maxPromptBytes: input.maxPromptBytes,
+    maxOutputBytes: input.maxOutputBytes ?? 4 * 1024 * 1024,
+    maxToolCalls: input.maxToolCalls ?? 256,
+    maxTurns: input.maxTurns ?? 12
+  });
+}
+function assertRuntimeProfileSatisfies(profile, requirements) {
+  if (profile.providerKind !== requirements.providerKind || profile.executionProfile !== requirements.executionProfile || profile.confinement !== requirements.minimumConfinement || requirements.requireActualModelAttribution && profile.actualModelAttribution !== "observed" /* Observed */ || requirements.requireUsageAttribution && profile.usageAttribution !== "observed" /* Observed */ || requirements.requireFencedCancellation && profile.cancellation !== "process_group_fenced" /* ProcessGroupFenced */ || profile.maxTurns < requirements.minimumMaxTurns) {
+    throw new Error("review_agent_capability_requirements_unsatisfied");
+  }
+}
+function assertPositive(value, field) {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+}
+
+// src/review-investigation/application/run-investigation-turn.ts
+var MAX_SAFE_RETRY_AFTER_MS = 7 * 24 * 60 * 60 * 1e3;
+var RunInvestigationTurn = class {
+  constructor(dependencies) {
+    this.dependencies = dependencies;
+  }
+  async execute(input) {
+    const turn = requireActiveTurn(input.snapshot);
+    let selection;
+    try {
+      selection = this.dependencies.agents.resolve({
+        primaryProviderKind: input.providerKind,
+        primaryRequestedModel: input.requestedModel,
+        executionAuthority: this.dependencies.gateway.executionAuthority,
+        purpose: turn.purpose,
+        maximumSemanticRiskPriority: maximumSemanticRiskPriority(turn.brief)
+      });
+      requireAuthorizedSelection(
+        selection,
+        this.dependencies.gateway.executionAuthority,
+        turn.purpose
+      );
+      await selection.agent.negotiate({
+        providerKind: selection.providerKind,
+        executionProfile: "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */,
+        minimumConfinement: "gateway_only" /* GatewayOnly */,
+        requireActualModelAttribution: true,
+        requireUsageAttribution: true,
+        requireFencedCancellation: true,
+        minimumMaxTurns: input.maxTurns
+      });
+    } catch (error2) {
+      return this.abortProviderFailure(input, error2);
+    }
+    const invocationId = `${input.snapshot.investigationId}:${turn.turnId}:${input.lease.attemptId}`;
+    const current = await this.dependencies.currency.check(input);
+    if (current !== "current" /* Current */) {
+      return this.abortSuperseded(input, invocationId);
+    }
+    let session;
+    try {
+      session = await this.dependencies.gateway.open({
+        executionId: input.executionId,
+        workSlotId: input.workSlotId,
+        reviewRevisionHash: input.reviewRevisionHash,
+        investigationId: input.snapshot.investigationId,
+        turnId: turn.turnId,
+        lease: input.lease
+      });
+    } catch (error2) {
+      const failure = await this.recordOperationalFailure(
+        input,
+        error2,
+        "gateway_open" /* GatewayOpen */
+      );
+      return this.abortProviderFailure(input, failure);
+    }
+    try {
+      let observation;
+      try {
+        observation = await selection.agent.executeTurn({
+          invocationId,
+          fencingToken: input.lease.fencingToken,
+          turnId: turn.turnId,
+          dossierVersion: input.snapshot.version,
+          dossierDigest: input.snapshot.dossierDigest,
+          purpose: turn.purpose,
+          prompt: input.prompt,
+          workspaceRoot: input.workingDirectory,
+          requestedModel: selection.requestedModel,
+          timeoutMs: input.timeoutMs,
+          maxTurns: input.maxTurns,
+          executionSession: session.agentSession,
+          ...input.signal === void 0 ? {} : { signal: input.signal }
+        });
+      } catch (error2) {
+        return this.abortProviderFailure(input, error2);
+      }
+      if (await this.dependencies.currency.check(input) !== "current" /* Current */) {
+        await cancelPreservingSemanticOutcome(
+          selection,
+          invocationId,
+          input.lease.fencingToken,
+          (error2) => this.recordOperationalFailure(
+            input,
+            error2,
+            "agent_cancel" /* AgentCancel */
+          )
+        );
+        return this.abortSuperseded(input, invocationId);
+      }
+      const terminalOutcomeHash = hashObservation(observation);
+      let accepted;
+      try {
+        accepted = await session.seal({
+          actualModel: observation.actualModel,
+          terminalOutcomeHash
+        });
+      } catch (error2) {
+        const failure = await this.recordOperationalFailure(
+          input,
+          error2,
+          "gateway_seal" /* GatewaySeal */
+        );
+        return this.abortProviderFailure(input, failure);
+      }
+      observation = Object.freeze({
+        ...observation,
+        contextAttestationReference: accepted.attestationId
+      });
+      try {
+        const snapshot = await this.dependencies.controlPlane.commitTurn({
+          authorizationToken: input.authorizationToken,
+          snapshot: input.snapshot,
+          lease: input.lease,
+          attestationId: accepted.attestationId,
+          attestationHash: accepted.attestationHash,
+          observation
+        });
+        return { status: "committed" /* Committed */, snapshot };
+      } catch (error2) {
+        return this.reconcileAmbiguous(input, error2);
+      }
+    } finally {
+      await disposePreservingSemanticOutcome(
+        session,
+        (error2) => this.recordOperationalFailure(
+          input,
+          error2,
+          "gateway_cleanup" /* GatewayCleanup */
+        )
+      );
+    }
+  }
+  async recordOperationalFailure(input, error2, phase) {
+    const failure = operationalFailure(error2, phase);
+    try {
+      await this.dependencies.diagnostics?.record({
+        investigationId: input.snapshot.investigationId,
+        turnId: input.snapshot.turn?.turnId ?? "turn-unavailable",
+        phase,
+        failureClass: failure.failureClass,
+        code: failure.message,
+        retryAfterMs: boundedRetryAfterMs(failure.retryAfterMs)
+      });
+    } catch {
+    }
+    return failure;
+  }
+  async abortProviderFailure(input, error2) {
+    const failure = error2 instanceof ReviewAgentExecutionError ? new ReviewAgentExecutionError(
+      error2.failureClass,
+      boundedRetryAfterMs(error2.retryAfterMs),
+      "review_agent_typed_failure"
+    ) : new ReviewAgentExecutionError(
+      "process_failure" /* ProcessFailure */,
+      null,
+      "review_agent_unclassified_failure"
+    );
+    const reason = abortReason(failure.failureClass);
+    const delay = failure.retryAfterMs === null && !requiresBoundedParking(failure.failureClass) ? null : Math.max(
+      failure.retryAfterMs ?? input.minimumCapacityParkMs,
+      input.minimumCapacityParkMs
+    );
+    const nextEligibleAt = delay === null ? null : new Date(this.dependencies.now().getTime() + delay).toISOString();
+    return this.abort(
+      input,
+      reason,
+      nextEligibleAt,
+      isNonRetryableProviderOutputFailure(failure.failureClass) ? "recovery_required" /* RecoveryRequired */ : "aborted" /* Aborted */
+    );
+  }
+  async abortSuperseded(input, _invocationId) {
+    return this.abort(
+      input,
+      "superseded_execution" /* SupersededExecution */,
+      null,
+      "superseded" /* Superseded */
+    );
+  }
+  async abort(input, reason, nextEligibleAt, status = "aborted" /* Aborted */) {
+    try {
+      const snapshot = await this.dependencies.controlPlane.abortTurn({
+        authorizationToken: input.authorizationToken,
+        snapshot: input.snapshot,
+        lease: input.lease,
+        reason,
+        nextEligibleAt
+      });
+      return { status, snapshot };
+    } catch (error2) {
+      return this.reconcileAmbiguous(input, error2);
+    }
+  }
+  async reconcileAmbiguous(input, error2) {
+    if (!(error2 instanceof ReviewInvestigationControlPlaneError)) {
+      throw error2;
+    }
+    if (error2.failureClass !== "ambiguous_outcome" /* AmbiguousOutcome */ && error2.failureClass !== "rejected" /* Rejected */) {
+      throw error2;
+    }
+    const restored = await this.dependencies.controlPlane.restore({
+      authorizationToken: input.authorizationToken,
+      authorizationId: input.authorizationId,
+      investigationId: input.snapshot.investigationId,
+      reviewRevisionHash: input.reviewRevisionHash
+    });
+    if (restored === null) throw error2;
+    const accepted = restored.version > input.snapshot.version && restored.turn?.turnId !== input.snapshot.turn?.turnId;
+    return {
+      status: accepted ? "committed" /* Committed */ : "recovery_required" /* RecoveryRequired */,
+      snapshot: restored
+    };
+  }
+};
+var operationalFailureCodes = Object.freeze({
+  ["agent_cancel" /* AgentCancel */]: Object.freeze({
+    default: "review_investigation_agent_cancel_failure",
+    confinement: "review_investigation_agent_cancel_confinement_failure"
+  }),
+  ["gateway_cleanup" /* GatewayCleanup */]: Object.freeze({
+    default: "review_investigation_gateway_cleanup_failure",
+    confinement: "review_investigation_gateway_cleanup_confinement_failure"
+  }),
+  ["gateway_open" /* GatewayOpen */]: Object.freeze({
+    default: "review_investigation_gateway_open_failure",
+    confinement: "review_investigation_gateway_open_confinement_failure"
+  }),
+  ["gateway_seal" /* GatewaySeal */]: Object.freeze({
+    default: "review_investigation_gateway_seal_failure",
+    confinement: "review_investigation_gateway_seal_confinement_failure"
+  })
+});
+function operationalFailure(error2, phase) {
+  const typed = error2 instanceof ReviewAgentExecutionError ? error2 : null;
+  const failureClass = typed?.failureClass ?? "process_failure" /* ProcessFailure */;
+  const code = operationalFailureCodes[phase];
+  return new ReviewAgentExecutionError(
+    failureClass,
+    typed?.retryAfterMs ?? null,
+    failureClass === "confinement_violation" /* ConfinementViolation */ ? code.confinement : code.default
+  );
+}
+async function cancelPreservingSemanticOutcome(selection, invocationId, fencingToken, onFailure) {
+  try {
+    await selection.agent.cancel(invocationId, fencingToken);
+  } catch (error2) {
+    await onFailure(error2);
+  }
+}
+async function disposePreservingSemanticOutcome(session, onFailure) {
+  try {
+    await session.dispose();
+  } catch (error2) {
+    await onFailure(error2);
+  }
+}
+function maximumSemanticRiskPriority(brief) {
+  if (brief === null) {
+    throw new ReviewAgentExecutionError(
+      "capability_unavailable" /* CapabilityUnavailable */,
+      null,
+      "review_investigation_turn_brief_missing"
+    );
+  }
+  return brief.maximumSemanticRiskPriority;
+}
+function requireAuthorizedSelection(selection, authority, purpose) {
+  if (selection.providerKind === authority.providerKind && selection.requestedModel === authority.requestedModel) {
+    return;
+  }
+  throw new ReviewAgentExecutionError(
+    "confinement_violation" /* ConfinementViolation */,
+    null,
+    purpose === "critic" /* Critic */ ? "review_agent_critic_execution_authority_unavailable" : "review_agent_execution_authority_mismatch"
+  );
+}
+function requireActiveTurn(snapshot) {
+  if (snapshot.turn === null) throw new Error("investigation_turn_missing");
+  return snapshot.turn;
+}
+function hashObservation(observation) {
+  return sha256(
+    canonicalJson({
+      ...observation,
+      contextAttestationReference: null
+    })
+  );
+}
+function abortReason(failure) {
+  switch (failure) {
+    case "authentication_unavailable" /* AuthenticationUnavailable */:
+      return "authentication_unavailable" /* AuthenticationUnavailable */;
+    case "quota_unavailable" /* QuotaUnavailable */:
+    case "capacity_unavailable" /* CapacityUnavailable */:
+      return "capacity_unavailable" /* CapacityUnavailable */;
+    case "timeout" /* Timeout */:
+      return "timeout" /* Timeout */;
+    case "cancelled" /* Cancelled */:
+      return "cancelled" /* Cancelled */;
+    case "confinement_violation" /* ConfinementViolation */:
+      return "confinement_violation" /* ConfinementViolation */;
+    case "schema_invalid_output" /* SchemaInvalidOutput */:
+    case "stream_incomplete" /* StreamIncomplete */:
+    case "model_attribution_missing" /* ModelAttributionMissing */:
+    case "usage_attribution_missing" /* UsageAttributionMissing */:
+      return "schema_invalid_output" /* SchemaInvalidOutput */;
+    case "capability_unavailable" /* CapabilityUnavailable */:
+    case "startup_failure" /* StartupFailure */:
+    case "process_failure" /* ProcessFailure */:
+      return "retryable_infrastructure_failure" /* RetryableInfrastructureFailure */;
+  }
+}
+function requiresBoundedParking(failure) {
+  return [
+    "quota_unavailable" /* QuotaUnavailable */,
+    "capacity_unavailable" /* CapacityUnavailable */,
+    "capability_unavailable" /* CapabilityUnavailable */
+  ].includes(failure);
+}
+function isNonRetryableProviderOutputFailure(failure) {
+  return [
+    "schema_invalid_output" /* SchemaInvalidOutput */,
+    "stream_incomplete" /* StreamIncomplete */,
+    "model_attribution_missing" /* ModelAttributionMissing */,
+    "usage_attribution_missing" /* UsageAttributionMissing */
+  ].includes(failure);
+}
+function boundedRetryAfterMs(value) {
+  if (value === null || !Number.isSafeInteger(value) || value < 0 || value > MAX_SAFE_RETRY_AFTER_MS) {
+    return null;
+  }
+  return value;
+}
+
+// src/review-investigation/application/run-investigation-work-slot.ts
+var ReviewInvestigationLegacyFallbackSignal = class extends Error {
+  constructor() {
+    super("review_investigation_capability_disabled_before_open");
+    this.name = "ReviewInvestigationLegacyFallbackSignal";
+  }
+};
+var RunInvestigationWorkSlot = class {
+  constructor(dependencies) {
+    this.dependencies = dependencies;
+  }
+  async execute(input) {
+    let replayed = null;
+    if (this.dependencies.replay) {
+      if (!input.targetRevision || !input.targetScope || !input.providerManifestCanonicalJson || !input.providerManifestHash) {
+        throw new Error("review_investigation_replay_input_missing");
+      }
+      replayed = await this.dependencies.replay.execute({
+        open: input,
+        scope: input.targetScope,
+        revision: input.targetRevision,
+        providerManifestCanonicalJson: input.providerManifestCanonicalJson,
+        providerManifestHash: input.providerManifestHash
+      });
+    }
+    let snapshot;
+    if (replayed !== null) {
+      snapshot = replayed;
+    } else {
+      try {
+        snapshot = await this.dependencies.controlPlane.open(input);
+      } catch (error2) {
+        if (error2 instanceof ReviewInvestigationControlPlaneError && error2.failureClass === "capability_disabled" /* CapabilityDisabled */) {
+          throw new ReviewInvestigationLegacyFallbackSignal();
+        }
+        throw error2;
+      }
+    }
+    for (let transition = 0; transition < input.maxStateTransitions; transition += 1) {
+      if (isSuperseded(snapshot)) {
+        return { status: "superseded" /* Superseded */, snapshot };
+      }
+      if (snapshot.nextAction === "terminal" /* Terminal */ || isTerminal2(snapshot)) {
+        return { status: "completed" /* Completed */, snapshot };
+      }
+      if (snapshot.nextAction === "await_capacity" /* AwaitCapacity */) {
+        return { status: "parked" /* Parked */, snapshot };
+      }
+      if (snapshot.nextAction === "conclude" /* Conclude */) {
+        snapshot = await this.dependencies.controlPlane.conclude({
+          authorizationToken: input.authorizationToken,
+          snapshot,
+          certificateTtlMs: input.certificateTtlMs
+        });
+        continue;
+      }
+      if (snapshot.turn === null || snapshot.turn.turnCapability.length === 0) {
+        snapshot = await this.dependencies.controlPlane.planTurn({
+          authorizationToken: input.authorizationToken,
+          snapshot,
+          leaseDurationMs: input.leaseDurationMs,
+          maxObligationsForTurn: input.maxObligationsForTurn,
+          turnBudget: input.turnBudget
+        });
+        continue;
+      }
+      const turn = snapshot.turn;
+      const managedLease = input.managedLease?.();
+      const acquired = managedLease ? null : await this.dependencies.leases.acquire({
+        investigationId: snapshot.investigationId,
+        turnId: turn.turnId,
+        providerStrategyId: input.providerStrategyId
+      });
+      if (acquired !== null && acquired.status !== "acquired" /* Acquired */) {
+        return { status: "parked" /* Parked */, snapshot };
+      }
+      const lease = managedLease ?? acquired.lease;
+      try {
+        const result2 = await this.dependencies.turnRunner.execute({
+          authorizationToken: input.authorizationToken,
+          authorizationId: input.authorizationId,
+          executionId: input.executionId,
+          workSlotId: input.workSlotId,
+          reviewRevisionHash: input.reviewRevisionHash,
+          requestedModel: input.requestedModel,
+          providerKind: input.providerKind,
+          prompt: input.promptFor(snapshot),
+          workingDirectory: input.workingDirectory,
+          timeoutMs: input.providerTimeoutMs,
+          maxTurns: input.providerMaxTurns,
+          minimumCapacityParkMs: input.minimumCapacityParkMs,
+          snapshot,
+          lease,
+          ...input.signal === void 0 ? {} : { signal: input.signal }
+        });
+        snapshot = result2.snapshot;
+        if (result2.status === "recovery_required" /* RecoveryRequired */) {
+          return {
+            status: "recovery_required" /* RecoveryRequired */,
+            snapshot
+          };
+        }
+        if (result2.status === "superseded" /* Superseded */) {
+          return { status: "superseded" /* Superseded */, snapshot };
+        }
+      } finally {
+        if (acquired !== null) {
+          await this.dependencies.leases.release({
+            investigationId: snapshot.investigationId,
+            turnId: turn.turnId,
+            lease
+          });
+        }
+      }
+    }
+    return {
+      status: "transition_budget_exhausted" /* TransitionBudgetExhausted */,
+      snapshot
+    };
+  }
+};
+function isTerminal2(snapshot) {
+  return [
+    "concluded" /* Concluded */,
+    "expired" /* Expired */
+  ].includes(snapshot.state);
+}
+function isSuperseded(snapshot) {
+  return snapshot.state === "superseded" /* Superseded */;
 }
 
 // src/review-orchestration/application/run-t0-review-orchestration.ts
@@ -74117,7 +86600,7 @@ var RunT0ReviewOrchestration = class {
             targetRevisionHash: error2.currentRevisionHash
           });
         }
-        if (!isTerminal2(state.phase)) {
+        if (!isTerminal3(state.phase)) {
           state = evolveReviewOrchestration(state, {
             type: "superseded" /* Superseded */
           });
@@ -74128,7 +86611,7 @@ var RunT0ReviewOrchestration = class {
           ...execution ? { executionId: execution.executionId } : {}
         };
       }
-      if (!isTerminal2(state.phase)) {
+      if (!isTerminal3(state.phase)) {
         state = evolveReviewOrchestration(state, {
           type: "failed" /* Failed */
         });
@@ -74277,10 +86760,14 @@ var RunT0ReviewOrchestration = class {
             lease = await this.renewLease(lease, input.ownerIdHash);
             return lease;
           },
-          operation: (signal) => this.executeInvocationWithRevisionWatch({
+          operation: (signal, currentLease) => this.executeInvocationWithRevisionWatch({
+            authorization: input.authorization,
+            execution: input.execution,
+            workSlot: input.workSlot,
+            ownerIdHash: input.ownerIdHash,
             invocation,
             manifest,
-            lease,
+            currentLease,
             sourceExecutionId: input.execution.executionId,
             signal,
             revision: input.revision
@@ -74537,7 +87024,11 @@ var RunT0ReviewOrchestration = class {
     if (input.signal.aborted) relayLeaseAbort();
     else
       input.signal.addEventListener("abort", relayLeaseAbort, { once: true });
-    const drainOnSupersession = input.invocation.manifestFacts.executionProfile === "context_gateway_v1";
+    const investigate = this.dependencies.investigationRecording?.supports({
+      workSlot: input.workSlot,
+      invocation: input.invocation
+    }) ?? false;
+    const drainOnSupersession = !investigate && input.invocation.manifestFacts.executionProfile === "context_gateway_v1";
     const monitor = async () => {
       if (drainOnSupersession) return;
       while (!stopped && !abort.signal.aborted) {
@@ -74555,10 +87046,47 @@ var RunT0ReviewOrchestration = class {
     };
     void monitor();
     try {
+      if (investigate) {
+        let investigationObservation;
+        try {
+          investigationObservation = await this.dependencies.investigationRecording.execute({
+            authorization: input.authorization,
+            execution: input.execution,
+            workSlot: input.workSlot,
+            invocation: input.invocation,
+            manifest: input.manifest,
+            currentLease: input.currentLease,
+            ownerIdHash: input.ownerIdHash,
+            sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+            signal: abort.signal
+          });
+        } catch (error2) {
+          if (!(error2 instanceof ReviewInvestigationLegacyFallbackSignal)) {
+            throw error2;
+          }
+          return this.dependencies.invocations.execute({
+            invocation: input.invocation,
+            manifest: input.manifest,
+            lease: input.currentLease(),
+            sourceExecutionId: input.sourceExecutionId,
+            sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+            signal: abort.signal
+          });
+        }
+        if (this.dependencies.investigationRecording.mode === "authoritative" /* Authoritative */) {
+          const verifiedClean = investigationObservation.qualityFlags.includes(
+            "investigation_verified_clean"
+          );
+          const findings = investigationObservation.findingCount > 0;
+          if (findings || verifiedClean && this.dependencies.investigationRecording.verifiedCleanEffectsEnabled === true) {
+            return investigationObservation;
+          }
+        }
+      }
       return await this.dependencies.invocations.execute({
         invocation: input.invocation,
         manifest: input.manifest,
-        lease: input.lease,
+        lease: input.currentLease(),
         sourceExecutionId: input.sourceExecutionId,
         sourceReviewRevisionHash: input.revision.reviewRevisionHash,
         signal: abort.signal
@@ -74729,7 +87257,7 @@ function sameRestoredWorkSlotPlan(current, admitted) {
   });
 }
 function observationRefId(executionId, workSlotId, observationId) {
-  return `obsref:${sha2567(
+  return `obsref:${sha2569(
     JSON.stringify(canonicalize3({ executionId, observationId, workSlotId }))
   )}`;
 }
@@ -74765,7 +87293,7 @@ function validatePlanAgainstLimits(workSlots, limits) {
   }
 }
 function validateObservationAgainstLimits(observation, limits) {
-  if (!isCanonicalJson2(observation.payloadCanonicalJson) || sha2567(observation.payloadCanonicalJson) !== observation.payloadHash || Buffer.byteLength(observation.payloadCanonicalJson, "utf8") !== observation.byteCount || observation.byteCount < 0 || observation.byteCount > limits.maxObservationBytes || observation.findingCount < 0 || observation.findingCount > limits.maxObservationFindings) {
+  if (!isCanonicalJson2(observation.payloadCanonicalJson) || sha2569(observation.payloadCanonicalJson) !== observation.payloadHash || Buffer.byteLength(observation.payloadCanonicalJson, "utf8") !== observation.byteCount || observation.byteCount < 0 || observation.byteCount > limits.maxObservationBytes || observation.findingCount < 0 || observation.findingCount > limits.maxObservationFindings) {
     throw new Error("review_orchestration_observation_limit_exceeded");
   }
 }
@@ -74806,14 +87334,14 @@ function canonicalize3(value) {
   }
   return value;
 }
-function sha2567(value) {
-  return (0, import_crypto20.createHash)("sha256").update(value).digest("hex");
+function sha2569(value) {
+  return (0, import_crypto23.createHash)("sha256").update(value).digest("hex");
 }
 function safeFailureCode(error2) {
   if (!(error2 instanceof Error)) return "unknown_failure";
   return /^[a-z0-9_:-]{1,120}$/.test(error2.message) ? error2.message : "review_orchestration_failed";
 }
-function isTerminal2(phase) {
+function isTerminal3(phase) {
   return phase === "completed" /* Completed */ || phase === "partial_completed" /* PartialCompleted */ || phase === "superseded" /* Superseded */ || phase === "failed" /* Failed */;
 }
 var ReviewExecutionSupersededSignal = class extends Error {
@@ -74829,7 +87357,7 @@ var ReviewProviderUnavailableSignal = class extends Error {
 };
 
 // src/review-orchestration/infrastructure/codex-review-invocation-adapter.ts
-var import_crypto22 = require("crypto");
+var import_crypto25 = require("crypto");
 
 // src/control-plane/generated/review-action-v2/provider-invocation-manifest-v1.ts
 var providerInvocationManifestV1CanonicalizerDescriptor = {
@@ -74976,7 +87504,8 @@ var providerInvocationManifestV1CanonicalizerDescriptor = {
       values: [
         "prompt_only_envelope_v1",
         "agentic_unbounded_v1",
-        "context_gateway_v1"
+        "context_gateway_v1",
+        "investigation_gateway_v1"
       ],
       unknownValue: "unknown",
       unknownErrorCode: "provider_execution_profile_unknown",
@@ -75044,12 +87573,12 @@ function canonicalizeProviderInvocationManifestV1(input) {
     (field) => manifest[field.name]
   );
   return new TextEncoder().encode(
-    providerInvocationManifestV1CanonicalizerDescriptor.canonicalPreimageDomain + canonicalJson6(values)
+    providerInvocationManifestV1CanonicalizerDescriptor.canonicalPreimageDomain + canonicalJson8(values)
   );
 }
 function serializeProviderInvocationManifestV1CanonicalWireJson(input) {
   const manifest = normalizeProviderInvocationManifestV1(input);
-  return canonicalJson6(
+  return canonicalJson8(
     Object.fromEntries(
       providerInvocationManifestV1CanonicalizerDescriptor.fields.map(
         (field) => [
@@ -75119,11 +87648,11 @@ function normalizeManifestField(field, value) {
   }
   return Object.freeze(normalized);
 }
-function canonicalJson6(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson6).join(",")}]`;
+function canonicalJson8(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson8).join(",")}]`;
   if (isRecord4(value)) {
     return `{${Object.keys(value).sort().map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson6(value[key])}`
+      (key) => `${JSON.stringify(key)}:${canonicalJson8(value[key])}`
     ).join(",")}}`;
   }
   return JSON.stringify(value);
@@ -75133,7 +87662,7 @@ function isRecord4(value) {
 }
 
 // src/review-orchestration/infrastructure/review-observation-normalizer.ts
-var import_crypto21 = require("crypto");
+var import_crypto24 = require("crypto");
 var reviewEvidencePayloadVersion = 2;
 function normalizeReviewObservation(input) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(input.workSlotId)) {
@@ -75154,7 +87683,7 @@ function normalizeReviewObservation(input) {
     payloadVersion: reviewEvidencePayloadVersion,
     safeUsage: normalizeUsage(input.result)
   };
-  const payloadCanonicalJson = canonicalJson7(payload);
+  const payloadCanonicalJson = canonicalJson9(payload);
   const qualityFlags = Object.freeze(
     [...input.qualityFlags ?? []].map((flag) => {
       if (!/^[a-z0-9][a-z0-9._-]{0,127}$/u.test(flag)) {
@@ -75171,7 +87700,7 @@ function normalizeReviewObservation(input) {
   }
   return Object.freeze({
     payloadCanonicalJson,
-    payloadHash: sha2568(payloadCanonicalJson),
+    payloadHash: sha25610(payloadCanonicalJson),
     byteCount: Buffer.byteLength(payloadCanonicalJson, "utf8"),
     findingCount: payload.normalizedFindings.length,
     actualModel: input.result.actualModel ?? input.requestedModel,
@@ -75198,8 +87727,8 @@ function normalizeFinding3(finding) {
     endLine,
     evidence,
     message,
-    normalizedFailureModeHash: sha2568(
-      canonicalJson7({
+    normalizedFailureModeHash: sha25610(
+      canonicalJson9({
         category: normalizeText3(category),
         message: normalizeText3(message),
         title: normalizeText3(title)
@@ -75232,10 +87761,10 @@ function normalizeRevalidation(item) {
     verdict: item.verdict
   };
 }
-function normalizeUsage(result) {
-  const inputTokens = finiteTokenCount(result.usage?.promptTokens);
-  const outputTokens = finiteTokenCount(result.usage?.completionTokens);
-  const reportedTotal = finiteTokenCount(result.usage?.totalTokens);
+function normalizeUsage(result2) {
+  const inputTokens = finiteTokenCount(result2.usage?.promptTokens);
+  const outputTokens = finiteTokenCount(result2.usage?.completionTokens);
+  const reportedTotal = finiteTokenCount(result2.usage?.totalTokens);
   const totalTokens = inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : reportedTotal;
   return { inputTokens, outputTokens, totalTokens };
 }
@@ -75251,17 +87780,17 @@ function finiteTokenCount(value) {
 function normalizeText3(value) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
-function canonicalJson7(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson7).join(",")}]`;
+function canonicalJson9(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson9).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.keys(value).sort().map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson7(value[key])}`
+      (key) => `${JSON.stringify(key)}:${canonicalJson9(value[key])}`
     ).join(",")}}`;
   }
   return JSON.stringify(value);
 }
-function sha2568(value) {
-  return (0, import_crypto21.createHash)("sha256").update(value).digest("hex");
+function sha25610(value) {
+  return (0, import_crypto24.createHash)("sha256").update(value).digest("hex");
 }
 function redactSensitiveText2(value) {
   return value.replace(
@@ -75276,14 +87805,565 @@ function redactSensitiveText2(value) {
   );
 }
 
+// src/review-investigation/domain/review-investigation-seed-envelope.ts
+var REVIEW_INVESTIGATION_SEED_ENVELOPE_CONTRACT = "review_investigation_seed_envelope.v1";
+var REVIEW_INVESTIGATION_SEED_MAX_OBLIGATIONS = 1024;
+function buildReviewInvestigationSeedEnvelope(input) {
+  if (input.probePlan.status !== "complete" /* Complete */) {
+    throw new Error("review_investigation_probe_plan_incomplete");
+  }
+  if (input.requestedModel.length === 0 || input.requestedModel.length > 256) {
+    throw new Error("review_investigation_requested_model_invalid");
+  }
+  requireSha2562(
+    input.coverageManifest.reviewRevisionHash,
+    "review_investigation_seed_review_revision_hash_invalid"
+  );
+  const maximumObligations = input.maximumObligations ?? REVIEW_INVESTIGATION_SEED_MAX_OBLIGATIONS;
+  if (!Number.isSafeInteger(maximumObligations) || maximumObligations < 1) {
+    throw new Error("review_investigation_seed_obligation_limit_invalid");
+  }
+  if (input.canonicalInventory === void 0) {
+    throw new Error("review_investigation_seed_inventory_missing");
+  }
+  const paths = [...input.coverageManifest.paths].map((item) => item.path).sort(compareCodeUnits2);
+  if (new Set(paths).size !== paths.length) {
+    throw new Error("review_investigation_seed_path_duplicate");
+  }
+  const changedPathFacts = new Map(
+    input.probePlan.changedPaths.map((fact) => [fact.path, fact])
+  );
+  if (changedPathFacts.size !== input.probePlan.changedPaths.length) {
+    throw new Error("review_investigation_seed_changed_path_duplicate");
+  }
+  if (changedPathFacts.size !== paths.length || paths.some((path28) => !changedPathFacts.has(path28))) {
+    throw new Error("review_investigation_seed_path_set_mismatch");
+  }
+  const inventory = prepareCanonicalInventory(input.canonicalInventory);
+  const inventoryIndex = indexInventoryEntries(inventory.entries);
+  const changedContentTargets = /* @__PURE__ */ new Map();
+  const matchedInventoryEntries = /* @__PURE__ */ new Set();
+  for (const fact of [...changedPathFacts.values()].sort(compareChangedPaths)) {
+    for (const entry of changedPathInventoryEntries(fact, inventoryIndex)) {
+      matchedInventoryEntries.add(entry);
+    }
+    for (const target of changedContentEvidenceTargets(fact)) {
+      changedContentTargets.set(
+        canonicalJson({ path: target.path, revision: target.revision }),
+        target
+      );
+    }
+  }
+  const binaryArtifactObligations = [...matchedInventoryEntries].flatMap(binaryArtifactBoundaryTargets).map(binaryArtifactBoundaryObligation).sort(compareObligations);
+  const obligations = Object.freeze([
+    Object.freeze({
+      kind: "inventory_witness" /* InventoryWitness */,
+      canonicalSubject: canonicalJson({
+        aggregateHash: inventory.aggregateHash,
+        aggregateItemCount: inventory.aggregateItemCount,
+        aggregatePathCount: inventory.aggregatePathCount,
+        aggregatePathSetHash: inventory.aggregatePathSetHash,
+        kind: "canonical_inventory",
+        reviewRevisionHash: input.coverageManifest.reviewRevisionHash,
+        subjectVersion: 2,
+        treeOid: inventory.treeOid
+      }),
+      canonicalRequirement: canonicalJson({
+        aggregateHash: inventory.aggregateHash,
+        aggregateItemCount: inventory.aggregateItemCount,
+        aggregatePathCount: inventory.aggregatePathCount,
+        aggregatePathSetHash: inventory.aggregatePathSetHash,
+        kind: "complete_inventory",
+        requirementVersion: 2,
+        reviewRevisionHash: input.coverageManifest.reviewRevisionHash,
+        treeOid: inventory.treeOid
+      }),
+      riskPriority: REVIEW_INVESTIGATION_RISK_PRIORITY.InventoryWitness
+    }),
+    ...[...changedContentTargets.values()].map((target) => {
+      const pathHash = sha256(target.path);
+      return Object.freeze({
+        kind: "changed_content" /* ChangedContent */,
+        canonicalSubject: canonicalJson({
+          kind: "file_read",
+          pathHash,
+          revision: target.revision,
+          subjectVersion: 1
+        }),
+        canonicalRequirement: canonicalJson({
+          kind: "complete_changed_file",
+          path: target.path,
+          pathHash,
+          requirementVersion: 2,
+          revision: target.revision
+        }),
+        riskPriority: changedPathSemanticRiskPriority(target.path)
+      });
+    }),
+    ...binaryArtifactObligations,
+    ...input.probePlan.probes.map(
+      (probe) => Object.freeze({
+        kind: probe.obligationKind,
+        canonicalSubject: probe.canonicalSubject,
+        canonicalRequirement: probe.canonicalRequirement,
+        riskPriority: probe.riskPriority
+      })
+    )
+  ]);
+  if (obligations.length > maximumObligations) {
+    throw new Error("review_investigation_seed_obligation_limit_exceeded");
+  }
+  const envelope = Object.freeze({
+    contract: REVIEW_INVESTIGATION_SEED_ENVELOPE_CONTRACT,
+    obligations,
+    probePlanHash: input.probePlan.planHash,
+    requestedModel: input.requestedModel,
+    reviewPromptHash: sha256(input.reviewPrompt)
+  });
+  const serialized = canonicalJson(envelope);
+  return Object.freeze({
+    envelope,
+    canonicalJson: serialized,
+    hash: sha256(serialized)
+  });
+}
+function prepareCanonicalInventory(inventory) {
+  if (inventory.inventoryVersion !== 2) {
+    throw new Error("review_investigation_seed_inventory_version_invalid");
+  }
+  const mergeBaseTreeOid = requireGitOid2(
+    inventory.mergeBaseTreeOid,
+    "review_investigation_seed_merge_base_tree_oid_invalid"
+  );
+  const headTreeOid = requireGitOid2(
+    inventory.headTreeOid,
+    "review_investigation_seed_head_tree_oid_invalid"
+  );
+  if (mergeBaseTreeOid.length !== headTreeOid.length) {
+    throw new Error("review_investigation_seed_inventory_oid_width_mismatch");
+  }
+  if (!Array.isArray(inventory.entries) || !Number.isSafeInteger(inventory.itemCount) || inventory.itemCount !== inventory.entries.length) {
+    throw new Error("review_investigation_seed_inventory_item_count_invalid");
+  }
+  const entries = Object.freeze(
+    inventory.entries.map(
+      (entry) => normalizeInventoryEntry(entry, headTreeOid.length)
+    )
+  );
+  const expectedInventoryHash = sha256(
+    canonicalJson({
+      inventoryVersion: 2,
+      mergeBaseTreeOid,
+      headTreeOid,
+      entries
+    })
+  );
+  if (inventory.inventoryHash !== expectedInventoryHash) {
+    throw new Error("review_investigation_seed_inventory_hash_mismatch");
+  }
+  const pathHashes = canonicalInventoryPathHashes(entries);
+  return Object.freeze({
+    entries,
+    treeOid: headTreeOid,
+    aggregateItemCount: entries.length,
+    aggregateHash: sha256(canonicalJson(entries)),
+    aggregatePathCount: pathHashes.length,
+    aggregatePathSetHash: sha256(canonicalJson(pathHashes))
+  });
+}
+function normalizeInventoryEntry(entry, oidWidth) {
+  if (!entry || typeof entry !== "object") {
+    throw new Error("review_investigation_seed_inventory_entry_invalid");
+  }
+  const expectedKeys = [
+    "afterByteCount",
+    "afterContentKind",
+    "afterLineCount",
+    "afterMode",
+    "afterOid",
+    "afterPath",
+    "beforeByteCount",
+    "beforeContentKind",
+    "beforeLineCount",
+    "beforeMode",
+    "beforeOid",
+    "beforePath",
+    "byteCount",
+    "contentKind",
+    "generated",
+    "generatedPolicySource",
+    "lineCount",
+    "status"
+  ];
+  const actualKeys = Object.keys(entry).sort(compareCodeUnits2);
+  if (actualKeys.length !== expectedKeys.length || actualKeys.some((key, index) => key !== expectedKeys[index])) {
+    throw new Error("review_investigation_seed_inventory_entry_invalid");
+  }
+  if (!["added", "deleted", "modified", "type_changed", "exact_rename"].includes(
+    entry.status
+  ) || !isCanonicalContentKind(entry.contentKind) || !/^[0-7]{6}$/u.test(entry.beforeMode) || !/^[0-7]{6}$/u.test(entry.afterMode) || typeof entry.generated !== "boolean" || entry.generatedPolicySource !== null && entry.generatedPolicySource !== "path_heuristic_v1" || !isOptionalCount(entry.byteCount) || !isOptionalCount(entry.lineCount)) {
+    throw new Error("review_investigation_seed_inventory_entry_invalid");
+  }
+  const beforeOid = requireGitOidOrZero(
+    entry.beforeOid,
+    oidWidth,
+    "review_investigation_seed_inventory_before_oid_invalid"
+  );
+  const afterOid = requireGitOidOrZero(
+    entry.afterOid,
+    oidWidth,
+    "review_investigation_seed_inventory_after_oid_invalid"
+  );
+  const beforePath = optionalPath(entry.beforePath);
+  const afterPath = optionalPath(entry.afterPath);
+  switch (entry.status) {
+    case "added":
+      requirePresentOid(afterOid);
+      if (beforePath !== null || afterPath === null || !isZeroOid(beforeOid)) {
+        throw new Error("review_investigation_seed_inventory_entry_invalid");
+      }
+      break;
+    case "deleted":
+      requirePresentOid(beforeOid);
+      if (beforePath === null || afterPath !== null || !isZeroOid(afterOid)) {
+        throw new Error("review_investigation_seed_inventory_entry_invalid");
+      }
+      break;
+    case "modified":
+    case "type_changed":
+      requirePresentOid(beforeOid);
+      requirePresentOid(afterOid);
+      if (beforePath === null || afterPath === null || beforePath !== afterPath) {
+        throw new Error("review_investigation_seed_inventory_entry_invalid");
+      }
+      break;
+    case "exact_rename":
+      requirePresentOid(beforeOid);
+      if (beforePath === null || afterPath === null || beforePath === afterPath || beforeOid !== afterOid) {
+        throw new Error("review_investigation_seed_inventory_entry_invalid");
+      }
+      break;
+  }
+  const beforeMetadata = normalizeObjectMetadata(
+    entry.beforeContentKind,
+    entry.beforeByteCount,
+    entry.beforeLineCount,
+    entry.beforeMode,
+    beforeOid
+  );
+  const afterMetadata = normalizeObjectMetadata(
+    entry.afterContentKind,
+    entry.afterByteCount,
+    entry.afterLineCount,
+    entry.afterMode,
+    afterOid
+  );
+  const activeMetadata = entry.status === "deleted" ? beforeMetadata : afterMetadata;
+  if (entry.contentKind !== activeMetadata.contentKind || entry.byteCount !== activeMetadata.byteCount || entry.lineCount !== activeMetadata.lineCount) {
+    throw new Error("review_investigation_seed_inventory_entry_invalid");
+  }
+  return Object.freeze({
+    status: entry.status,
+    beforePath,
+    afterPath,
+    beforeMode: entry.beforeMode,
+    afterMode: entry.afterMode,
+    beforeOid,
+    afterOid,
+    beforeContentKind: beforeMetadata.contentKind,
+    beforeByteCount: beforeMetadata.byteCount,
+    beforeLineCount: beforeMetadata.lineCount,
+    afterContentKind: afterMetadata.contentKind,
+    afterByteCount: afterMetadata.byteCount,
+    afterLineCount: afterMetadata.lineCount,
+    contentKind: entry.contentKind,
+    byteCount: entry.byteCount,
+    lineCount: entry.lineCount,
+    generated: entry.generated,
+    generatedPolicySource: entry.generatedPolicySource
+  });
+}
+function normalizeObjectMetadata(contentKind, byteCount, lineCount, mode, oid) {
+  if (!isCanonicalContentKind(contentKind) || !isOptionalCount(byteCount) || !isOptionalCount(lineCount)) {
+    throw new Error("review_investigation_seed_inventory_entry_invalid");
+  }
+  const absent = isZeroOid(oid);
+  const requiresByteCount = [
+    "text",
+    "binary",
+    "lfs_pointer",
+    "symlink",
+    "oversized"
+  ].includes(contentKind);
+  const requiresLineCount = ["text", "lfs_pointer"].includes(contentKind);
+  if (absent && (mode !== "000000" || contentKind !== "absent" || byteCount !== null || lineCount !== null) || !absent && contentKind === "absent" || mode === "160000" && (contentKind !== "gitlink" || byteCount !== null || lineCount !== null) || mode !== "160000" && contentKind === "gitlink" || requiresByteCount && byteCount === null || !requiresByteCount && byteCount !== null || requiresLineCount && lineCount === null || !requiresLineCount && lineCount !== null) {
+    throw new Error("review_investigation_seed_inventory_entry_invalid");
+  }
+  return Object.freeze({ contentKind, byteCount, lineCount });
+}
+function isCanonicalContentKind(value) {
+  return [
+    "text",
+    "binary",
+    "lfs_pointer",
+    "symlink",
+    "gitlink",
+    "oversized",
+    "absent"
+  ].includes(value);
+}
+function changedPathInventoryEntries(fact, inventoryIndex) {
+  switch (fact.status) {
+    case "added" /* Added */: {
+      if (fact.previousPath !== null) throw changedPathMismatch();
+      const entry = exactlyOne(
+        inventoryEntries(inventoryIndex, "added", null, fact.path)
+      );
+      requirePresentOid(entry.afterOid);
+      return [entry];
+    }
+    case "modified" /* Modified */: {
+      if (fact.previousPath !== null) throw changedPathMismatch();
+      const entry = exactlyOne([
+        ...inventoryEntries(inventoryIndex, "modified", fact.path, fact.path),
+        ...inventoryEntries(
+          inventoryIndex,
+          "type_changed",
+          fact.path,
+          fact.path
+        )
+      ]);
+      requirePresentOid(entry.beforeOid);
+      requirePresentOid(entry.afterOid);
+      return [entry];
+    }
+    case "removed" /* Removed */: {
+      if (fact.previousPath !== null) throw changedPathMismatch();
+      const entry = exactlyOne(
+        inventoryEntries(inventoryIndex, "deleted", fact.path, null)
+      );
+      requirePresentOid(entry.beforeOid);
+      return [entry];
+    }
+    case "renamed" /* Renamed */: {
+      if (fact.previousPath === null || fact.previousPath === fact.path) {
+        throw new Error(
+          "review_investigation_seed_rename_previous_path_missing"
+        );
+      }
+      const exactRenames = inventoryEntries(
+        inventoryIndex,
+        "exact_rename",
+        fact.previousPath,
+        fact.path
+      );
+      if (exactRenames.length === 1) {
+        requirePresentOid(exactRenames[0].beforeOid);
+        requirePresentOid(exactRenames[0].afterOid);
+        return [exactRenames[0]];
+      }
+      if (exactRenames.length > 1) throw changedPathMismatch();
+      const deleted = exactlyOne(
+        inventoryEntries(inventoryIndex, "deleted", fact.previousPath, null)
+      );
+      const added = exactlyOne(
+        inventoryEntries(inventoryIndex, "added", null, fact.path)
+      );
+      requirePresentOid(deleted.beforeOid);
+      requirePresentOid(added.afterOid);
+      return [deleted, added];
+    }
+  }
+}
+function binaryArtifactBoundaryTargets(entry) {
+  const targets = [];
+  if (entry.beforePath !== null && requiresBinaryArtifactBoundary(entry.beforeContentKind)) {
+    targets.push(
+      Object.freeze({
+        entry,
+        path: entry.beforePath,
+        revision: "merge_base",
+        objectOid: entry.beforeOid,
+        mode: entry.beforeMode,
+        metadata: Object.freeze({
+          contentKind: entry.beforeContentKind,
+          byteCount: entry.beforeByteCount,
+          lineCount: entry.beforeLineCount
+        })
+      })
+    );
+  }
+  if (entry.afterPath !== null && requiresBinaryArtifactBoundary(entry.afterContentKind)) {
+    targets.push(
+      Object.freeze({
+        entry,
+        path: entry.afterPath,
+        revision: "head",
+        objectOid: entry.afterOid,
+        mode: entry.afterMode,
+        metadata: Object.freeze({
+          contentKind: entry.afterContentKind,
+          byteCount: entry.afterByteCount,
+          lineCount: entry.afterLineCount
+        })
+      })
+    );
+  }
+  return Object.freeze(targets);
+}
+function binaryArtifactBoundaryObligation(target) {
+  requirePresentOid(target.objectOid);
+  const pathHash = sha256(target.path);
+  return Object.freeze({
+    kind: "binary_artifact" /* BinaryArtifact */,
+    canonicalSubject: canonicalJson({
+      contentKind: target.metadata.contentKind,
+      kind: "binary_artifact" /* BinaryArtifact */,
+      objectOid: target.objectOid,
+      pathHash,
+      revision: target.revision,
+      subjectVersion: 1
+    }),
+    canonicalRequirement: canonicalJson({
+      byteCount: target.metadata.byteCount,
+      contentKind: target.metadata.contentKind,
+      kind: "binary_artifact_boundary",
+      mode: target.mode,
+      objectOid: target.objectOid,
+      path: target.path,
+      pathHash,
+      requirementVersion: 1,
+      revision: target.revision,
+      status: target.entry.status
+    }),
+    riskPriority: changedPathSemanticRiskPriority(target.path)
+  });
+}
+function requiresBinaryArtifactBoundary(contentKind) {
+  switch (contentKind) {
+    case "binary":
+    case "lfs_pointer":
+    case "gitlink":
+    case "oversized":
+      return true;
+    case "text":
+    case "symlink":
+    case "absent":
+      return false;
+  }
+}
+function canonicalInventoryPathHashes(entries) {
+  const paths = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    if (entry.beforePath !== null) paths.add(entry.beforePath);
+    if (entry.afterPath !== null) paths.add(entry.afterPath);
+  }
+  return [...paths].map(sha256).sort(compareCodeUnits2);
+}
+function compareObligations(left, right) {
+  return compareCodeUnits2(left.canonicalSubject, right.canonicalSubject) || compareCodeUnits2(left.canonicalRequirement, right.canonicalRequirement);
+}
+function changedContentEvidenceTargets(fact) {
+  switch (fact.status) {
+    case "added" /* Added */:
+      return [Object.freeze({ path: fact.path, revision: "head" })];
+    case "modified" /* Modified */:
+      return [
+        Object.freeze({ path: fact.path, revision: "merge_base" }),
+        Object.freeze({ path: fact.path, revision: "head" })
+      ];
+    case "removed" /* Removed */:
+      return [Object.freeze({ path: fact.path, revision: "merge_base" })];
+    case "renamed" /* Renamed */:
+      if (fact.previousPath === null) {
+        throw new Error(
+          "review_investigation_seed_rename_previous_path_missing"
+        );
+      }
+      return [
+        Object.freeze({ path: fact.previousPath, revision: "merge_base" }),
+        Object.freeze({ path: fact.path, revision: "head" })
+      ];
+  }
+}
+function indexInventoryEntries(entries) {
+  const index = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    const key = inventoryPathKey(
+      entry.status,
+      entry.beforePath,
+      entry.afterPath
+    );
+    const matches = index.get(key) ?? [];
+    matches.push(entry);
+    index.set(key, matches);
+  }
+  return index;
+}
+function inventoryEntries(index, status, beforePath, afterPath) {
+  return index.get(inventoryPathKey(status, beforePath, afterPath)) ?? [];
+}
+function inventoryPathKey(status, beforePath, afterPath) {
+  return canonicalJson({ status, beforePath, afterPath });
+}
+function exactlyOne(matches) {
+  if (matches.length !== 1) throw changedPathMismatch();
+  return matches[0];
+}
+function changedPathMismatch() {
+  return new Error("review_investigation_seed_inventory_changed_path_mismatch");
+}
+function requirePresentOid(value) {
+  if (isZeroOid(value)) {
+    throw new Error("review_investigation_seed_required_object_missing");
+  }
+}
+function requireGitOid2(value, errorCode2) {
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value) || isZeroOid(value)) {
+    throw new Error(errorCode2);
+  }
+  return value;
+}
+function requireGitOidOrZero(value, oidWidth, errorCode2) {
+  if (typeof value !== "string" || value.length !== oidWidth || !/^[a-f0-9]+$/u.test(value)) {
+    throw new Error(errorCode2);
+  }
+  return value;
+}
+function requireSha2562(value, errorCode2) {
+  if (!/^[a-f0-9]{64}$/u.test(value)) throw new Error(errorCode2);
+}
+function optionalPath(value) {
+  if (value === null) return null;
+  if (value.length === 0 || value.length > 2e3 || value.includes("\0")) {
+    throw new Error("review_investigation_seed_inventory_path_invalid");
+  }
+  return value;
+}
+function isOptionalCount(value) {
+  return value === null || typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function isZeroOid(value) {
+  return /^0+$/u.test(value);
+}
+function compareChangedPaths(left, right) {
+  return compareCodeUnits2(left.path, right.path) || compareCodeUnits2(left.previousPath ?? "", right.previousPath ?? "") || compareCodeUnits2(left.status, right.status);
+}
+function compareCodeUnits2(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 // src/review-orchestration/infrastructure/codex-review-invocation-adapter.ts
 var CodexReviewInvocationAdapter = class {
-  constructor(provider, promptBuilder, assignments, timeoutMs, agenticContext, contextGateway) {
+  constructor(provider, promptBuilder, assignments, timeoutMs, agenticContext, contextGateway, investigationManifestBindingEnabled = false) {
     this.provider = provider;
     this.promptBuilder = promptBuilder;
     this.timeoutMs = timeoutMs;
     this.agenticContext = agenticContext;
     this.contextGateway = contextGateway;
+    this.investigationManifestBindingEnabled = investigationManifestBindingEnabled;
     for (const assignment of assignments) {
       if (this.assignments.has(assignment.workSlot.workSlotId)) {
         throw new Error("review_action_v2_assignment_duplicate");
@@ -75319,11 +88399,16 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
       coverageCanonicalJson,
       "utf8"
     ).toString("base64url")}`;
-    const gatewayPlanningConfig = this.contextGateway ? await this.contextGateway.planningConfig({
+    const revision = Object.freeze({
       baseSha: assignment.context.baseSha,
       mergeBaseSha: assignment.mergeBaseSha,
       headSha: assignment.context.headSha
-    }) : void 0;
+    });
+    const shouldPrepareInvestigationSeed = this.investigationManifestBindingEnabled && preparedPrompt.investigationProbePlan.status === "complete" /* Complete */ && assignment.lifecycleTargets.length === 0;
+    const [gatewayPlanningConfig, canonicalInventory] = this.contextGateway ? await Promise.all([
+      this.contextGateway.planningConfig(revision),
+      shouldPrepareInvestigationSeed ? this.contextGateway.canonicalInventory(revision) : Promise.resolve(void 0)
+    ]) : [void 0, void 0];
     const prepared = await this.provider.prepareInvocation(
       prompt,
       this.timeoutMs,
@@ -75343,32 +88428,64 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
         ])
       ).sort()
     );
+    const probePlanComplete = preparedPrompt.investigationProbePlan.status === "complete" /* Complete */;
+    const investigationEligible = this.investigationManifestBindingEnabled && gatewayPlanningConfig !== void 0 && probePlanComplete && !taskKindSet.includes("lifecycle_revalidation" /* LifecycleRevalidation */);
+    const investigationContract = investigationEligible ? canonicalJson10({
+      adapterVersion: "review-investigation-codex.v2",
+      actualModelAttribution: "observed",
+      confinement: "gateway_only",
+      continuation: "durable_dossier",
+      gatewayBinaryHash: gatewayPlanningConfig.gatewayBinaryHash,
+      gatewayPolicyVersion: gatewayPlanningConfig.gatewayPolicyVersion,
+      enabledTools: [...gatewayPlanningConfig.enabledTools].sort(),
+      probeLimits: preparedPrompt.investigationProbePlan.limits,
+      probePolicyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
+      reasoningEffort: "xhigh",
+      requestedModel: prepared.requestedModel,
+      searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION
+    }) : null;
+    const investigationSeedEnvelope = investigationEligible ? buildReviewInvestigationSeedEnvelope({
+      coverageManifest,
+      canonicalInventory,
+      probePlan: preparedPrompt.investigationProbePlan,
+      reviewPrompt: prompt,
+      requestedModel: prepared.requestedModel
+    }) : null;
     return Object.freeze({
       workSlotId: input.workSlot.workSlotId,
       attemptOrdinal: input.attemptOrdinal,
       provider: prepared.providerName,
       requestedModel: prepared.requestedModel,
+      reviewPrompt: prompt,
       immutableRequest: prepared,
       coverageManifest,
+      investigationProbePlan: preparedPrompt.investigationProbePlan,
+      investigationSeedEnvelope,
       manifestFacts: Object.freeze({
         taskKindSet,
         providerKind: "codex" /* Codex */,
-        providerCapabilityHash: sha2569(
-          canonicalJson8({
+        providerCapabilityHash: sha25611(
+          investigationContract ?? canonicalJson10({
             agenticContext: this.agenticContext,
             contextGateway: gatewayPlanningConfig ? {
               gatewayBinaryHash: gatewayPlanningConfig.gatewayBinaryHash,
               gatewayPolicyVersion: gatewayPlanningConfig.gatewayPolicyVersion,
-              enabledTools: [...gatewayPlanningConfig.enabledTools].sort()
+              enabledTools: [
+                ...gatewayPlanningConfig.enabledTools
+              ].sort()
             } : null,
             preparedInvocationContract: PROVIDER_EXECUTION_CONTRACT_VERSION,
             providerKind: prepared.providerKind
           })
         ),
-        providerRequestEnvelopeHash: sha2569(prepared.observableInputPreimage),
-        outputSchemaHash: sha2569(canonicalJson8(request.outputSchema ?? null)),
-        filePatchManifestHash: sha2569(
-          canonicalJson8(
+        providerRequestEnvelopeHash: investigationSeedEnvelope ? investigationSeedEnvelope.hash : sha25611(prepared.observableInputPreimage),
+        outputSchemaHash: sha25611(
+          canonicalJson10(
+            investigationEligible ? buildReviewAgentTurnOutputSchema() : request.outputSchema ?? null
+          )
+        ),
+        filePatchManifestHash: sha25611(
+          canonicalJson10(
             assignment.context.files.map((file) => ({
               additions: file.additions,
               changes: file.changes,
@@ -75380,29 +88497,31 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             }))
           )
         ),
-        contextManifestHash: sha2569(
-          canonicalJson8({
+        contextManifestHash: sha25611(
+          canonicalJson10({
             author: assignment.context.author,
             body: assignment.context.body,
             coverageHash: providerVisibleCoverage.coverageHash,
             lifecycleTargetIds: assignment.lifecycleTargets.map((target) => target.targetId).sort(),
+            investigationProbePlanHash: preparedPrompt.investigationProbePlan.planHash,
+            investigationProbePlanStatus: preparedPrompt.investigationProbePlan.status,
             number: assignment.context.number,
             title: assignment.context.title
           })
         ),
-        lifecycleTargetSetHash: assignment.lifecycleTargets.length > 0 ? sha2569(
-          canonicalJson8(
+        lifecycleTargetSetHash: assignment.lifecycleTargets.length > 0 ? sha25611(
+          canonicalJson10(
             assignment.lifecycleTargets.map((target) => ({
               fingerprint: target.fingerprint,
               targetId: target.targetId
             })).sort(
-              (left, right) => compareCodeUnits(left.targetId, right.targetId)
+              (left, right) => compareCodeUnits3(left.targetId, right.targetId)
             )
           )
         ) : null,
         liveLifecycleStateHash: assignment.lifecycleTargets.length > 0 ? assignment.liveLifecycleStateHash : null,
-        toolPolicyHash: sha2569(
-          canonicalJson8(
+        toolPolicyHash: sha25611(
+          canonicalJson10(
             gatewayPlanningConfig ? {
               sandbox: "read-only",
               network: false,
@@ -75411,6 +88530,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
               mcpTransport: "stdio",
               gatewayBinaryHash: gatewayPlanningConfig.gatewayBinaryHash,
               gatewayPolicyVersion: gatewayPlanningConfig.gatewayPolicyVersion,
+              textSearchMatchMode: "fixed_string",
               enabledTools: [...gatewayPlanningConfig.enabledTools].sort()
             } : {
               sandbox: "read-only",
@@ -75419,12 +88539,21 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             }
           )
         ),
-        executionProfile: gatewayPlanningConfig ? "context_gateway_v1" : this.agenticContext ? "agentic_unbounded_v1" : "prompt_only_envelope_v1",
-        baseTreeHash: gatewayPlanningConfig ? sha2569(
+        executionProfile: gatewayPlanningConfig ? investigationEligible ? "investigation_gateway_v1" : "context_gateway_v1" : this.agenticContext ? "agentic_unbounded_v1" : "prompt_only_envelope_v1",
+        baseTreeHash: gatewayPlanningConfig ? sha25611(
           gatewayPlanningConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID
         ) : null,
-        environmentContractHash: sha2569(
-          canonicalJson8(
+        environmentContractHash: sha25611(
+          investigationEligible ? canonicalJson10({
+            credentialKeys: [
+              "CODEX_HOME",
+              "OPENAI_API_KEY",
+              "OPENROUTER_API_KEY"
+            ],
+            gitConfigGlobal: "/dev/null",
+            gitConfigNoSystem: "1",
+            userConfig: "ignored"
+          }) : canonicalJson10(
             this.provider.describePreparedEnvironmentContract(prepared)
           )
         )
@@ -75438,7 +88567,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
     }
     const preparedFacts = this.prepared.get(prepared);
     if (!this.contextGateway) {
-      const result = await this.provider.executePreparedInvocation(
+      const result2 = await this.provider.executePreparedInvocation(
         prepared,
         void 0,
         input.signal
@@ -75448,7 +88577,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
         attemptOrdinal: input.invocation.attemptOrdinal,
         providerName: input.invocation.provider,
         requestedModel: input.invocation.requestedModel,
-        result
+        result: result2
       });
     }
     const session = await this.contextGateway.open({
@@ -75479,23 +88608,23 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           "review_action_v2_context_gateway_materialization_drift"
         );
       }
-      const result = await this.provider.executePreparedInvocation(
+      const result2 = await this.provider.executePreparedInvocation(
         runtimePrepared,
         session.credentialLease,
         input.signal
       );
       logger.info(
-        `Codex execution model: requested=${input.invocation.requestedModel}, actual=${result.actualModel ?? "unreported"}`
+        `Codex execution model: requested=${input.invocation.requestedModel}, actual=${result2.actualModel ?? "unreported"}`
       );
       const initial = normalizeReviewObservation({
         workSlotId: input.invocation.workSlotId,
         attemptOrdinal: input.invocation.attemptOrdinal,
         providerName: input.invocation.provider,
         requestedModel: input.invocation.requestedModel,
-        result,
-        qualityFlags: result.actualModel ? [] : ["provider_warning"]
+        result: result2,
+        qualityFlags: result2.actualModel ? [] : ["provider_warning"]
       });
-      const actualModel = result.actualModel;
+      const actualModel = result2.actualModel;
       if (!actualModel) {
         logger.warn(
           "Codex actual model unavailable; preserving fresh review as non-reusable"
@@ -75505,7 +88634,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           attemptOrdinal: input.invocation.attemptOrdinal,
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
-          result,
+          result: result2,
           qualityFlags: [
             "provider_warning",
             "context_attestation_unavailable",
@@ -75528,7 +88657,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           attemptOrdinal: input.invocation.attemptOrdinal,
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
-          result,
+          result: result2,
           qualityFlags: attestation ? [] : [
             "context_attestation_unavailable",
             "cross_revision_reuse_disabled"
@@ -75542,7 +88671,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             attemptOrdinal: input.invocation.attemptOrdinal,
             providerName: input.invocation.provider,
             requestedModel: input.invocation.requestedModel,
-            result,
+            result: result2,
             qualityFlags: [
               "context_inspection_incomplete",
               "cross_revision_reuse_disabled"
@@ -75564,7 +88693,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           attemptOrdinal: input.invocation.attemptOrdinal,
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
-          result,
+          result: result2,
           qualityFlags: [
             "context_attestation_unavailable",
             "cross_revision_reuse_disabled"
@@ -75580,15 +88709,15 @@ var GeneratedProviderInvocationManifestAssembler = class {
   constructor(authorization, reviewConfig, runtimeCompatibilityKey) {
     this.authorization = authorization;
     this.runtimeCompatibilityKey = runtimeCompatibilityKey;
-    this.scopeHash = sha2569(
-      canonicalJson8({
+    this.scopeHash = sha25611(
+      canonicalJson10({
         pullRequestNumber: authorization.facts.pullRequestNumber,
         repositoryConnectionId: authorization.facts.repositoryConnectionId,
         scmRepositoryIdentityId: authorization.facts.scmRepositoryIdentityId,
         workspaceId: authorization.facts.workspaceId
       })
     );
-    this.reviewConfigHash = sha2569(canonicalJson8(reviewConfig));
+    this.reviewConfigHash = sha25611(canonicalJson10(reviewConfig));
   }
   scopeHash;
   reviewConfigHash;
@@ -75660,7 +88789,7 @@ var DeterministicReviewOrchestrationIdentity = class {
     if (!/^[a-z0-9-]{1,80}$/.test(namespace)) {
       throw new Error("review_action_v2_identity_namespace_invalid");
     }
-    return `rr:${namespace}:${sha2569(canonicalJson8(parts)).slice(0, 40)}`;
+    return `rr:${namespace}:${sha25611(canonicalJson10(parts)).slice(0, 40)}`;
   }
 };
 var CooperativeReviewLeaseSupervisor = class {
@@ -75713,7 +88842,9 @@ var CooperativeReviewLeaseSupervisor = class {
     })();
     try {
       return await Promise.race([
-        Promise.resolve().then(() => input.operation(abort.signal)),
+        Promise.resolve().then(
+          () => input.operation(abort.signal, () => currentLease)
+        ),
         leaseFailure
       ]);
     } finally {
@@ -75728,12 +88859,12 @@ var SystemReviewOrchestrationDelay = class {
     await new Promise((resolve5) => setTimeout(resolve5, delayMs));
   }
 };
-function canonicalJson8(value) {
+function canonicalJson10(value) {
   if (value === void 0) return "null";
-  if (Array.isArray(value)) return `[${value.map(canonicalJson8).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(canonicalJson10).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.keys(value).sort().map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson8(value[key])}`
+      (key) => `${JSON.stringify(key)}:${canonicalJson10(value[key])}`
     ).join(",")}}`;
   }
   return JSON.stringify(value);
@@ -75764,158 +88895,706 @@ function isSafeReviewActionV2Diagnostic(message) {
   }
   return false;
 }
-function sha2569(value) {
-  return (0, import_crypto22.createHash)("sha256").update(value).digest("hex");
+function sha25611(value) {
+  return (0, import_crypto25.createHash)("sha256").update(value).digest("hex");
 }
 function sha256Bytes(value) {
-  return (0, import_crypto22.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto25.createHash)("sha256").update(value).digest("hex");
 }
-function compareCodeUnits(left, right) {
+function compareCodeUnits3(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
 }
 
 // src/review-orchestration/infrastructure/context-gateway-invocation-session.ts
-var import_child_process12 = require("child_process");
-var import_crypto24 = require("crypto");
-var import_promises = require("fs/promises");
+var import_child_process13 = require("child_process");
+var import_crypto28 = require("crypto");
+var import_promises2 = require("fs/promises");
 var os9 = __toESM(require("os"));
-var path19 = __toESM(require("path"));
-var import_util6 = require("util");
+var path20 = __toESM(require("path"));
+var import_util8 = require("util");
 
-// src/context-gateway/context-gateway-contract.ts
-var import_crypto23 = require("crypto");
-var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v3";
-var CONTEXT_GATEWAY_MAX_OPERATIONS = 2e3;
-var CONTEXT_GIT_DIFF_POLICY_VERSION = "git-diff-stat-v2";
-function contextGitFactOperandsHash(input) {
-  switch (input.fact) {
-    case "changed_paths":
-      return sha25610(
-        canonicalJson9({
-          mergeBaseTreeOid: requireGitOid(
-            input.mergeBaseTreeOid,
-            "merge_base_tree_oid"
-          ),
-          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
-        })
-      );
-    case "diff_stat":
-      return sha25610(
-        canonicalJson9({
-          diffPolicyHash: requireSha256(
-            input.diffPolicyHash,
-            "diff_policy_hash"
-          ),
-          mergeBaseTreeOid: requireGitOid(
-            input.mergeBaseTreeOid,
-            "merge_base_tree_oid"
-          ),
-          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
-        })
-      );
-    case "merge_base":
-      return sha25610(
-        canonicalJson9({
-          mergeBaseSha: requireGitOid(input.mergeBaseSha, "merge_base_sha")
-        })
-      );
+// src/context-gateway/canonical-git-inventory.ts
+var import_child_process12 = require("child_process");
+var import_util7 = require("util");
+
+// src/context-gateway/utf8-content.ts
+var import_util6 = require("util");
+var fatalUtf8Decoder = new import_util6.TextDecoder("utf-8", {
+  fatal: true,
+  ignoreBOM: true
+});
+function classifyUtf8Content(value) {
+  if (value.includes(0)) {
+    return Object.freeze({ kind: "binary", text: null, lineCount: null });
+  }
+  try {
+    const text = fatalUtf8Decoder.decode(value);
+    return Object.freeze({ kind: "text", text, lineCount: countLines(text) });
+  } catch {
+    return Object.freeze({ kind: "binary", text: null, lineCount: null });
   }
 }
-function contextGitDiffPolicyHash(infoAttributesHash) {
-  return sha25610(
-    canonicalJson9({
-      infoAttributesHash: infoAttributesHash === null ? null : requireSha256(infoAttributesHash, "info_attributes_hash"),
-      policyVersion: CONTEXT_GIT_DIFF_POLICY_VERSION
+function countLines(value) {
+  if (value.length === 0) return 0;
+  return value.split("\n").length - (value.endsWith("\n") ? 1 : 0);
+}
+
+// src/context-gateway/canonical-git-inventory.ts
+var execFileAsync2 = (0, import_util7.promisify)(import_child_process12.execFile);
+var RAW_RECORD = /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])$/u;
+var MAX_CLASSIFIED_BLOB_BYTES = 2 * 1024 * 1024;
+var MAX_INVENTORY_ENTRIES = 25e4;
+async function buildCanonicalGitInventory(input) {
+  requireGitOid(input.mergeBaseSha, "canonical_inventory_merge_base_sha");
+  requireGitOid(input.headSha, "canonical_inventory_head_sha");
+  const [raw, mergeBaseTreeOid, headTreeOid] = await Promise.all([
+    gitBuffer(input.root, [
+      "diff-tree",
+      "-r",
+      "--raw",
+      "-z",
+      "--no-commit-id",
+      "--no-abbrev",
+      "--no-renames",
+      input.mergeBaseSha,
+      input.headSha
+    ]),
+    gitText(input.root, ["rev-parse", `${input.mergeBaseSha}^{tree}`]),
+    gitText(input.root, ["rev-parse", `${input.headSha}^{tree}`])
+  ]);
+  const rawEntries = parseRawInventory(raw);
+  if (rawEntries.length > MAX_INVENTORY_ENTRIES) {
+    throw new Error("canonical_inventory_entry_limit_exceeded");
+  }
+  const paired = pairExactRenames(rawEntries);
+  const metadata = /* @__PURE__ */ new Map();
+  const entries = await Promise.all(
+    paired.map((entry) => materializeEntry(input.root, entry, metadata))
+  );
+  entries.sort(compareInventoryEntries);
+  const normalizedMergeBaseTreeOid = requireGitOid(
+    mergeBaseTreeOid.trim().toLowerCase(),
+    "canonical_inventory_merge_base_tree_oid"
+  );
+  const normalizedHeadTreeOid = requireGitOid(
+    headTreeOid.trim().toLowerCase(),
+    "canonical_inventory_head_tree_oid"
+  );
+  const inventoryHash = sha2566(
+    canonicalJson5({
+      inventoryVersion: 2,
+      mergeBaseTreeOid: normalizedMergeBaseTreeOid,
+      headTreeOid: normalizedHeadTreeOid,
+      entries
     })
   );
+  return Object.freeze({
+    inventoryVersion: 2,
+    mergeBaseTreeOid: normalizedMergeBaseTreeOid,
+    headTreeOid: normalizedHeadTreeOid,
+    entries: Object.freeze(entries),
+    itemCount: entries.length,
+    inventoryHash
+  });
 }
-function changedPathsWitnessStatus(transcript, expectedOperandsHash) {
-  let foundCandidate = false;
-  for (const dependency of transcript.dependencies) {
-    const operation = dependency.operation;
-    if (operation.kind !== "git_fact" || operation.fact !== "changed_paths") {
-      continue;
+function parseRawInventory(raw) {
+  const tokens = splitNulTerminated(raw);
+  if (tokens.length % 2 !== 0) {
+    throw new Error("canonical_inventory_raw_shape_invalid");
+  }
+  const entries = [];
+  for (let index = 0; index < tokens.length; index += 2) {
+    const record = decodeUtf8(
+      tokens[index],
+      "canonical_inventory_raw_record_encoding_invalid"
+    );
+    const path28 = decodeUtf8(
+      tokens[index + 1],
+      "canonical_inventory_path_encoding_invalid"
+    );
+    const match2 = RAW_RECORD.exec(record);
+    if (!match2 || !path28 || path28.includes("\0")) {
+      throw new Error("canonical_inventory_raw_record_invalid");
     }
-    foundCandidate = true;
-    const result = dependency.result;
-    if (hasExactKeys(operation, ["kind", "fact", "operandsHash"]) && hasExactKeys(result, [
-      "kind",
-      "resultHash",
-      "itemCount",
-      "byteCount",
-      "complete",
-      "truncated"
-    ]) && operation.operandsHash === expectedOperandsHash && result.kind === "git_fact" && isSha2562(result.resultHash) && isNonNegativeSafeInteger2(result.itemCount) && isNonNegativeSafeInteger2(result.byteCount) && result.complete === true && result.truncated === false) {
-      return "present" /* Present */;
+    entries.push(
+      Object.freeze({
+        status: rawStatus(match2[5]),
+        path: path28,
+        beforeMode: match2[1],
+        afterMode: match2[2],
+        beforeOid: requireGitOidOrZero2(match2[3]),
+        afterOid: requireGitOidOrZero2(match2[4])
+      })
+    );
+  }
+  return entries;
+}
+function splitNulTerminated(raw) {
+  if (raw.length === 0) return [];
+  if (raw.at(-1) !== 0) {
+    throw new Error("canonical_inventory_raw_shape_invalid");
+  }
+  const tokens = [];
+  let start = 0;
+  for (let index = 0; index < raw.length; index += 1) {
+    if (raw[index] !== 0) continue;
+    tokens.push(raw.subarray(start, index));
+    start = index + 1;
+  }
+  return tokens;
+}
+function decodeUtf8(value, errorCode2) {
+  try {
+    return new import_util7.TextDecoder("utf-8", {
+      fatal: true,
+      ignoreBOM: true
+    }).decode(value);
+  } catch {
+    throw new Error(errorCode2);
+  }
+}
+function pairExactRenames(entries) {
+  const deletesByOid = groupRenameCandidates(
+    entries.filter(
+      (entry) => entry.status === "deleted" /* Deleted */
+    ),
+    (entry) => entry.beforeOid
+  );
+  const addsByOid = groupRenameCandidates(
+    entries.filter((entry) => entry.status === "added" /* Added */),
+    (entry) => entry.afterOid
+  );
+  const consumed = /* @__PURE__ */ new Set();
+  const renamed = [];
+  for (const oid of [...deletesByOid.keys()].sort()) {
+    const deleted = deletesByOid.get(oid) ?? [];
+    const added = addsByOid.get(oid) ?? [];
+    const pairs2 = Math.min(deleted.length, added.length);
+    for (let index = 0; index < pairs2; index += 1) {
+      const before = deleted[index];
+      const after = added[index];
+      consumed.add(before);
+      consumed.add(after);
+      renamed.push({
+        status: "exact_rename" /* ExactRename */,
+        beforePath: before.path,
+        afterPath: after.path,
+        beforeMode: before.beforeMode,
+        afterMode: after.afterMode,
+        beforeOid: before.beforeOid,
+        afterOid: after.afterOid
+      });
     }
   }
-  return foundCandidate ? "invalid" /* Invalid */ : "missing" /* Missing */;
+  return [...entries.filter((entry) => !consumed.has(entry)), ...renamed];
 }
-function canonicalJson9(value) {
-  if (value === void 0) return '{"$undefined":true}';
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
-    return JSON.stringify(value);
+function groupRenameCandidates(entries, oid) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    const candidateOid = oid(entry);
+    const mode = entry.status === "deleted" /* Deleted */ ? entry.beforeMode : entry.afterMode;
+    if (/^0+$/u.test(candidateOid) || mode === "160000") continue;
+    const group = groups.get(candidateOid) ?? [];
+    group.push(entry);
+    groups.set(candidateOid, group);
   }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new Error("context_gateway_non_finite_number");
+  for (const group of groups.values()) {
+    group.sort((left, right) => compareCodeUnits4(left.path, right.path));
+  }
+  return groups;
+}
+async function materializeEntry(root, entry, metadata) {
+  const deleted = entry.status === "deleted" /* Deleted */;
+  const beforePath = entry.status === "exact_rename" /* ExactRename */ ? entry.beforePath : entry.status === "added" /* Added */ ? null : entry.path;
+  const afterPath = entry.status === "exact_rename" /* ExactRename */ ? entry.afterPath : deleted ? null : entry.path;
+  const [beforeMetadata, afterMetadata] = await Promise.all([
+    classifyObjectCached(root, entry.beforeMode, entry.beforeOid, metadata),
+    classifyObjectCached(root, entry.afterMode, entry.afterOid, metadata)
+  ]);
+  const activeMetadata = deleted ? beforeMetadata : afterMetadata;
+  const generatedPath = afterPath ?? beforePath ?? "";
+  const generated = isGeneratedPath2(generatedPath);
+  return Object.freeze({
+    status: entry.status,
+    beforePath,
+    afterPath,
+    beforeMode: entry.beforeMode,
+    afterMode: entry.afterMode,
+    beforeOid: entry.beforeOid,
+    afterOid: entry.afterOid,
+    beforeContentKind: beforeMetadata.contentKind,
+    beforeByteCount: beforeMetadata.byteCount,
+    beforeLineCount: beforeMetadata.lineCount,
+    afterContentKind: afterMetadata.contentKind,
+    afterByteCount: afterMetadata.byteCount,
+    afterLineCount: afterMetadata.lineCount,
+    ...activeMetadata,
+    generated,
+    generatedPolicySource: generated ? "path_heuristic_v1" : null
+  });
+}
+function classifyObjectCached(root, mode, oid, cache) {
+  const key = `${mode}\0${oid}`;
+  const existing = cache.get(key);
+  if (existing) return existing;
+  const classified = classifyObject(root, mode, oid);
+  cache.set(key, classified);
+  return classified;
+}
+async function classifyObject(root, mode, oid) {
+  if (/^0+$/u.test(oid)) {
+    return {
+      contentKind: "absent" /* Absent */,
+      byteCount: null,
+      lineCount: null
+    };
+  }
+  if (mode === "160000") {
+    return {
+      contentKind: "gitlink" /* Gitlink */,
+      byteCount: null,
+      lineCount: null
+    };
+  }
+  const size = Number.parseInt(
+    (await gitText(root, ["cat-file", "-s", oid])).trim(),
+    10
+  );
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error("canonical_inventory_blob_size_invalid");
+  }
+  if (size > MAX_CLASSIFIED_BLOB_BYTES) {
+    return {
+      contentKind: "oversized" /* Oversized */,
+      byteCount: size,
+      lineCount: null
+    };
+  }
+  const content = await gitBuffer(
+    root,
+    ["cat-file", "blob", oid],
+    MAX_CLASSIFIED_BLOB_BYTES + 1
+  );
+  if (mode === "120000") {
+    return {
+      contentKind: "symlink" /* Symlink */,
+      byteCount: content.byteLength,
+      lineCount: null
+    };
+  }
+  const classified = classifyUtf8Content(content);
+  if (classified.kind === "binary") {
+    return {
+      contentKind: "binary" /* Binary */,
+      byteCount: content.byteLength,
+      lineCount: null
+    };
+  }
+  const text = classified.text;
+  if (text.startsWith("version https://git-lfs.github.com/spec/v1\n")) {
+    return {
+      contentKind: "lfs_pointer" /* LfsPointer */,
+      byteCount: content.byteLength,
+      lineCount: classified.lineCount
+    };
+  }
+  return {
+    contentKind: "text" /* Text */,
+    byteCount: content.byteLength,
+    lineCount: classified.lineCount
+  };
+}
+function rawStatus(value) {
+  switch (value) {
+    case "A":
+      return "added" /* Added */;
+    case "D":
+      return "deleted" /* Deleted */;
+    case "M":
+      return "modified" /* Modified */;
+    case "T":
+      return "type_changed" /* TypeChanged */;
+    case "U":
+      return "unmerged" /* Unmerged */;
+    default:
+      throw new Error("canonical_inventory_status_invalid");
+  }
+}
+function requireGitOidOrZero2(value) {
+  if (/^0{40}$|^0{64}$/u.test(value)) return value;
+  return requireGitOid(value.toLowerCase(), "canonical_inventory_object_oid");
+}
+function compareInventoryEntries(left, right) {
+  return compareCodeUnits4(
+    `${left.afterPath ?? left.beforePath}\0${left.status}\0${left.beforePath ?? ""}`,
+    `${right.afterPath ?? right.beforePath}\0${right.status}\0${right.beforePath ?? ""}`
+  );
+}
+function compareCodeUnits4(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+function isGeneratedPath2(value) {
+  return /(?:^|\/)(?:generated|gen|dist|vendor)\/|(?:\.generated\.|\.g\.|\.pb\.)/u.test(
+    value
+  );
+}
+async function gitText(root, args) {
+  return (await execFileAsync2("git", args, gitOptions(root, "utf8"))).stdout;
+}
+async function gitBuffer(root, args, maxBuffer = 32 * 1024 * 1024) {
+  return (await execFileAsync2("git", args, {
+    ...gitOptions(root, "buffer"),
+    maxBuffer
+  })).stdout;
+}
+function gitOptions(root, encoding) {
+  return {
+    cwd: root,
+    encoding,
+    maxBuffer: 32 * 1024 * 1024,
+    timeout: 3e4,
+    env: {
+      PATH: process.env.PATH,
+      GIT_ATTR_NOSYSTEM: "1",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_TERMINAL_PROMPT: "0"
     }
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson9).join(",")}]`;
-  }
-  if (typeof value === "object") {
-    const record = value;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson9(record[key])}`).join(",")}}`;
-  }
-  throw new Error("context_gateway_canonical_value_invalid");
+  };
 }
-function sha25610(value) {
-  return (0, import_crypto23.createHash)("sha256").update(value).digest("hex");
+
+// src/context-gateway/context-gateway-v4-replay-material.ts
+var import_crypto26 = require("crypto");
+var MAX_STATE_BYTES = 2 * 1024 * 1024;
+var MAX_ENCRYPTED_STATE_BYTES = Math.ceil(MAX_STATE_BYTES * 4 / 3) + 4096;
+var REPLAY_ENCRYPTION_VERSION = 1;
+var REPLAY_ENCRYPTION_ALGORITHM = "aes-256-gcm";
+function decryptContextGatewayV4ReplayMaterial(input) {
+  assertReplaySecret(input.secret);
+  if (Buffer.byteLength(input.encryptedCanonicalJson, "utf8") > MAX_ENCRYPTED_STATE_BYTES) {
+    throw new Error("context_gateway_v4_replay_size_invalid");
+  }
+  let envelope;
+  try {
+    envelope = JSON.parse(input.encryptedCanonicalJson);
+  } catch {
+    throw new Error("context_gateway_v4_replay_envelope_invalid");
+  }
+  if (canonicalJson5(envelope) !== input.encryptedCanonicalJson || !isRecord5(envelope) || Object.keys(envelope).sort().join(",") !== "algorithm,authTag,ciphertext,encryptionVersion,nonce,sessionId" || envelope.encryptionVersion !== REPLAY_ENCRYPTION_VERSION || envelope.algorithm !== REPLAY_ENCRYPTION_ALGORITHM || envelope.sessionId !== input.sessionId || typeof envelope.nonce !== "string" || typeof envelope.authTag !== "string" || typeof envelope.ciphertext !== "string") {
+    throw new Error("context_gateway_v4_replay_envelope_invalid");
+  }
+  try {
+    const nonce = Buffer.from(envelope.nonce, "base64url");
+    const authTag = Buffer.from(envelope.authTag, "base64url");
+    const ciphertext = Buffer.from(envelope.ciphertext, "base64url");
+    if (nonce.byteLength !== 12 || authTag.byteLength !== 16) {
+      throw new Error("invalid_envelope");
+    }
+    const decipher = (0, import_crypto26.createDecipheriv)(
+      REPLAY_ENCRYPTION_ALGORITHM,
+      replayEncryptionKey(input.secret, input.sessionId),
+      nonce
+    );
+    decipher.setAAD(replayAssociatedData(input.sessionId));
+    decipher.setAuthTag(authTag);
+    const plaintext = Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final()
+    ]).toString("utf8");
+    if (Buffer.byteLength(plaintext, "utf8") > MAX_STATE_BYTES || canonicalJson5(JSON.parse(plaintext)) !== plaintext) {
+      throw new Error("invalid_plaintext");
+    }
+    return plaintext;
+  } catch {
+    throw new Error("context_gateway_v4_replay_decryption_invalid");
+  }
 }
-function keyedSha256(secret, value) {
-  return (0, import_crypto23.createHmac)("sha256", secret).update(value).digest("hex");
+function replayEncryptionKey(secret, sessionId) {
+  return (0, import_crypto26.createHmac)("sha256", secret).update("reviewrouter.context-gateway-v4.replay-material.v1\0", "utf8").update(sessionId, "utf8").digest();
 }
-function requireSha256(value, field) {
-  if (!/^[a-f0-9]{64}$/u.test(value)) {
-    throw new Error(`${field}_invalid`);
+function replayAssociatedData(sessionId) {
+  return Buffer.from(
+    canonicalJson5({
+      encryptionVersion: REPLAY_ENCRYPTION_VERSION,
+      algorithm: REPLAY_ENCRYPTION_ALGORITHM,
+      sessionId
+    }),
+    "utf8"
+  );
+}
+function assertReplaySecret(secret) {
+  if (!Buffer.isBuffer(secret) || secret.byteLength < 32) {
+    throw new Error("context_gateway_v4_replay_secret_invalid");
+  }
+}
+function isRecord5(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// src/context-gateway/context-gateway-v4-recorder.ts
+var import_crypto27 = require("crypto");
+var import_promises = require("fs/promises");
+var import_path3 = __toESM(require("path"));
+var MAX_EVENTS = 2e3;
+var MAX_STATE_BYTES2 = 4 * 1024 * 1024;
+var ContextGatewayV4Recorder = class {
+  constructor(config) {
+    this.config = config;
+    requireSha256(config.gatewayBinaryHash, "gateway_binary_hash");
+    requireGitOid(config.checkoutTreeOid, "checkout_tree_oid");
+    requireSha256(config.eventChainSeedHash, "event_chain_seed_hash");
+    if (!Buffer.isBuffer(config.secret) || config.secret.byteLength < 32) {
+      throw new Error("context_gateway_v4_recorder_secret_invalid");
+    }
+    this.now = config.now ?? Date.now;
+  }
+  events = [];
+  mutationTail = Promise.resolve();
+  confinementTainted = false;
+  terminalFailureClass = null;
+  now;
+  async initialize() {
+    await (0, import_promises.mkdir)(import_path3.default.dirname(this.config.transcriptPath), {
+      recursive: true,
+      mode: 448
+    });
+    try {
+      await (0, import_promises.writeFile)(this.config.transcriptPath, "", {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 384
+      });
+    } catch {
+      throw new Error("context_gateway_v4_recorder_already_initialized");
+    }
+    await this.flush();
+  }
+  async resume() {
+    if (this.events.length > 0) {
+      throw new Error("context_gateway_v4_recorder_already_active");
+    }
+    const raw = await (0, import_promises.readFile)(this.config.transcriptPath, "utf8");
+    if (raw.length < 2 || Buffer.byteLength(raw, "utf8") > MAX_STATE_BYTES2) {
+      throw new Error("context_gateway_v4_recorder_state_size_invalid");
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error("context_gateway_v4_recorder_json_invalid");
+    }
+    if (canonicalJson5(parsed) !== raw) {
+      throw new Error("context_gateway_v4_recorder_canonical_invalid");
+    }
+    this.restore(parsed);
+  }
+  recordSucceeded(input) {
+    requireSha256(input.operationReceiptId, "operation_receipt_id");
+    return this.serializeMutation(async () => {
+      const existing = this.events.find(
+        (event) => event.operationReceiptId === input.operationReceiptId
+      );
+      if (existing) {
+        if (existing.outcome !== "succeeded" /* Succeeded */ || existing.failureClass !== null || canonicalJson5(existing.operation) !== canonicalJson5(input.operation) || canonicalJson5(existing.result) !== canonicalJson5(input.result)) {
+          throw new Error("context_gateway_v4_operation_receipt_collision");
+        }
+        return existing;
+      }
+      return this.append({
+        outcome: "succeeded" /* Succeeded */,
+        failureClass: null,
+        operation: input.operation,
+        result: input.result,
+        operationReceiptId: input.operationReceiptId,
+        sanitizedReason: null
+      });
+    });
+  }
+  recordRejected(input) {
+    return this.serializeMutation(
+      () => this.append({
+        outcome: "rejected" /* Rejected */,
+        failureClass: input.failureClass,
+        operation: input.operation,
+        result: null,
+        operationReceiptId: null,
+        sanitizedReason: sanitizeReason(input.sanitizedReason)
+      })
+    );
+  }
+  recordFailed(input) {
+    return this.serializeMutation(
+      () => this.append({
+        outcome: "failed" /* Failed */,
+        failureClass: "infrastructure_failure" /* InfrastructureFailure */,
+        operation: input.operation,
+        result: null,
+        operationReceiptId: null,
+        sanitizedReason: sanitizeReason(input.sanitizedReason)
+      })
+    );
+  }
+  snapshot() {
+    return this.toTranscript();
+  }
+  async append(input) {
+    if (this.events.length >= MAX_EVENTS) {
+      this.terminalFailureClass = "budget_exceeded" /* BudgetExceeded */;
+      await this.flush();
+      throw new Error("context_gateway_v4_operation_limit_exceeded");
+    }
+    if (this.confinementTainted) {
+      throw new Error("context_gateway_v4_session_tainted");
+    }
+    if (this.terminalFailureClass === "infrastructure_failure" /* InfrastructureFailure */) {
+      throw new Error("context_gateway_v4_session_terminal");
+    }
+    const sequence = this.events.length + 1;
+    const previousEventHash = this.events.at(-1)?.eventHash ?? this.config.eventChainSeedHash;
+    const operationKey = sha2566(canonicalJson5(input.operation));
+    const eventIdentity = {
+      sessionId: this.config.sessionId,
+      sequence,
+      previousEventHash,
+      operationKey,
+      outcome: input.outcome,
+      failureClass: input.failureClass,
+      operation: input.operation,
+      result: input.result,
+      operationReceiptId: input.operationReceiptId,
+      sanitizedReason: input.sanitizedReason
+    };
+    const event = Object.freeze({
+      sequence,
+      previousEventHash,
+      eventHash: keyedSha256(this.config.secret, canonicalJson5(eventIdentity)),
+      operationKey,
+      operationKind: input.operation.kind,
+      outcome: input.outcome,
+      failureClass: input.failureClass,
+      operation: Object.freeze({ ...input.operation }),
+      result: input.result ? Object.freeze({ ...input.result }) : null,
+      operationReceiptId: input.operationReceiptId,
+      sanitizedReason: input.sanitizedReason
+    });
+    this.events.push(event);
+    if (input.failureClass === "confinement_violation" /* ConfinementViolation */) {
+      this.confinementTainted = true;
+    }
+    if (input.failureClass === "infrastructure_failure" /* InfrastructureFailure */) {
+      this.terminalFailureClass = input.failureClass;
+    }
+    await this.flush();
+    return event;
+  }
+  restore(transcript) {
+    if (transcript.transcriptVersion !== 2 || transcript.sessionId !== this.config.sessionId || transcript.gatewayPolicyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION || transcript.gatewayBinaryHash !== this.config.gatewayBinaryHash || transcript.checkoutTreeOid !== this.config.checkoutTreeOid || transcript.eventChainSeedHash !== this.config.eventChainSeedHash || !Array.isArray(transcript.events) || transcript.events.length > MAX_EVENTS) {
+      throw new Error("context_gateway_v4_recorder_identity_invalid");
+    }
+    let previousEventHash = this.config.eventChainSeedHash;
+    let confinementTainted = false;
+    let terminalFailureClass = null;
+    for (let index = 0; index < transcript.events.length; index += 1) {
+      const event = transcript.events[index];
+      const eventIdentity = {
+        sessionId: this.config.sessionId,
+        sequence: event.sequence,
+        previousEventHash: event.previousEventHash,
+        operationKey: event.operationKey,
+        outcome: event.outcome,
+        failureClass: event.failureClass,
+        operation: event.operation,
+        result: event.result,
+        operationReceiptId: event.operationReceiptId,
+        sanitizedReason: event.sanitizedReason
+      };
+      if (event.sequence !== index + 1 || event.previousEventHash !== previousEventHash || event.operationKind !== event.operation.kind || event.operationKey !== sha2566(canonicalJson5(event.operation)) || event.eventHash !== keyedSha256(this.config.secret, canonicalJson5(eventIdentity))) {
+        throw new Error("context_gateway_v4_recorder_chain_invalid");
+      }
+      if (event.failureClass === "confinement_violation" /* ConfinementViolation */) {
+        confinementTainted = true;
+      }
+      if (event.failureClass === "infrastructure_failure" /* InfrastructureFailure */) {
+        terminalFailureClass = event.failureClass;
+      }
+      this.events.push(Object.freeze(event));
+      previousEventHash = event.eventHash;
+    }
+    if (transcript.authenticatedChainHash !== previousEventHash || transcript.confinementTainted !== confinementTainted || transcript.terminalFailureClass !== terminalFailureClass) {
+      throw new Error("context_gateway_v4_recorder_state_invalid");
+    }
+    this.confinementTainted = confinementTainted;
+    this.terminalFailureClass = terminalFailureClass;
+  }
+  serializeMutation(operation) {
+    const mutation = this.mutationTail.then(operation);
+    this.mutationTail = mutation.then(
+      () => void 0,
+      () => void 0
+    );
+    return mutation;
+  }
+  toTranscript() {
+    return Object.freeze({
+      transcriptVersion: 2,
+      sessionId: this.config.sessionId,
+      gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+      gatewayBinaryHash: this.config.gatewayBinaryHash,
+      checkoutTreeOid: this.config.checkoutTreeOid,
+      eventChainSeedHash: this.config.eventChainSeedHash,
+      authenticatedChainHash: this.events.at(-1)?.eventHash ?? this.config.eventChainSeedHash,
+      events: Object.freeze([...this.events]),
+      confinementTainted: this.confinementTainted,
+      terminalFailureClass: this.terminalFailureClass,
+      updatedAtMs: this.now()
+    });
+  }
+  async flush() {
+    await atomicPrivateWrite(
+      this.config.transcriptPath,
+      canonicalJson5(this.toTranscript())
+    );
+  }
+};
+function sanitizeReason(value) {
+  if (!/^[a-z0-9_]{1,160}$/u.test(value)) {
+    return "operation_failed";
   }
   return value;
 }
-function requireGitOid(value, field) {
-  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value)) {
-    throw new Error(`${field}_invalid`);
-  }
-  return value;
-}
-function hasExactKeys(value, expected) {
-  const actual = Object.keys(value).sort();
-  const sortedExpected = [...expected].sort();
-  return actual.length === sortedExpected.length && actual.every((key, index) => key === sortedExpected[index]);
-}
-function isSha2562(value) {
-  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
-}
-function isNonNegativeSafeInteger2(value) {
-  return Number.isSafeInteger(value) && Number(value) >= 0;
+async function atomicPrivateWrite(target, content) {
+  await (0, import_promises.mkdir)(import_path3.default.dirname(target), { recursive: true, mode: 448 });
+  const temporary = `${target}.${process.pid}.${(0, import_crypto27.randomBytes)(6).toString("hex")}.tmp`;
+  await (0, import_promises.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
+  await (0, import_promises.rename)(temporary, target);
 }
 
 // src/review-orchestration/infrastructure/context-gateway-invocation-session.ts
-var execFileAsync2 = (0, import_util6.promisify)(import_child_process12.execFile);
+var execFileAsync3 = (0, import_util8.promisify)(import_child_process13.execFile);
 var MAX_TRANSCRIPT_BYTES = 2 * 1024 * 1024;
 var MAX_REPLAY_MATERIAL_BYTES = 2 * 1024 * 1024;
+var MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES = Math.ceil(MAX_REPLAY_MATERIAL_BYTES * 4 / 3) + 4096;
 var ENABLED_TOOLS = Object.freeze([
   "review_read_file",
   "review_list_directory",
   "review_search_text",
   "review_git_fact"
 ]);
+var V4_ENABLED_TOOLS = Object.freeze([
+  "review_read_file",
+  "review_list_directory",
+  "review_search_text",
+  "review_canonical_inventory",
+  "review_git_fact"
+]);
 var SubprocessRequiredContextWitnessRunner = class {
   async capture(input) {
-    await execFileAsync2(
+    await execFileAsync3(
       process.execPath,
       [input.gatewayBundlePath, "--preflight"],
       {
@@ -75938,7 +89617,7 @@ var ContextGatewayInvocationSessionFactory = class {
     this.attestations = attestations;
     this.options = options;
     this.requiredWitnessRunner = requiredWitnessRunner;
-    if (!path19.isAbsolute(options.checkoutRoot) || !path19.isAbsolute(options.gatewayBundlePath)) {
+    if (!path20.isAbsolute(options.checkoutRoot) || !path20.isAbsolute(options.gatewayBundlePath)) {
       throw new Error("context_gateway_factory_path_invalid");
     }
   }
@@ -75948,41 +89627,51 @@ var ContextGatewayInvocationSessionFactory = class {
       this.gatewayBundleSnapshot(),
       this.revisionTreeOids(revision)
     ]);
-    const gatewayBinaryHash = sha25611(gatewayBundleSnapshot);
+    const gatewayBinaryHash = sha25612(gatewayBundleSnapshot);
     return this.providerConfig({
       revision,
       sessionId: "planning-session",
       eventChainSeedHash: "0".repeat(64),
       gatewayBinaryHash,
       ...revisionTreeOids,
-      transcriptPath: path19.join(os9.tmpdir(), "planning-transcript.json"),
-      replayMaterialPath: path19.join(os9.tmpdir(), "planning-replay.json"),
+      transcriptPath: path20.join(os9.tmpdir(), "planning-transcript.json"),
+      replayMaterialPath: path20.join(os9.tmpdir(), "planning-replay.json"),
       gatewayBundlePath: this.options.gatewayBundlePath
     });
   }
+  canonicalInventory(revision) {
+    return buildCanonicalGitInventory({
+      root: this.options.checkoutRoot,
+      mergeBaseSha: revision.mergeBaseSha,
+      headSha: revision.headSha
+    });
+  }
   async open(input) {
+    const providerKind = requireProviderKind(input.providerKind);
+    const executionProfile = requireExecutionProfile(input.executionProfile);
     const [gatewayBundleSnapshot, revisionTreeOids] = await Promise.all([
       this.gatewayBundleSnapshot(),
       this.revisionTreeOids(input.revision)
     ]);
     const { checkoutTreeOid } = revisionTreeOids;
-    const gatewayBinaryHash = sha25611(gatewayBundleSnapshot);
-    const directory = await (0, import_promises.mkdtemp)(
-      path19.join(os9.tmpdir(), "reviewrouter-context-gateway-")
+    const gatewayBinaryHash = sha25612(gatewayBundleSnapshot);
+    const gatewayPolicyVersion = this.policyVersion();
+    const directory = await (0, import_promises2.mkdtemp)(
+      path20.join(os9.tmpdir(), "reviewrouter-context-gateway-")
     );
-    const gatewayBundlePath = path19.join(directory, "context-gateway.cjs");
-    const transcriptPath = path19.join(directory, "transcript.json");
-    const replayMaterialPath = path19.join(directory, "replay-material.json");
+    const gatewayBundlePath = path20.join(directory, "context-gateway.cjs");
+    const transcriptPath = path20.join(directory, "transcript.json");
+    const replayMaterialPath = path20.join(directory, "replay-material.json");
     try {
-      await (0, import_promises.writeFile)(gatewayBundlePath, gatewayBundleSnapshot, {
+      await (0, import_promises2.writeFile)(gatewayBundlePath, gatewayBundleSnapshot, {
         flag: "wx",
         mode: 448
       });
     } catch (error2) {
-      await (0, import_promises.rm)(directory, { recursive: true, force: true });
+      await (0, import_promises2.rm)(directory, { recursive: true, force: true });
       throw error2;
     }
-    const confinementEvidenceHash = sha25611(
+    const confinementEvidenceHash = sha25612(
       canonicalizeReviewContextConfinementEvidence({
         attemptId: input.invocationLease.attemptId,
         sourceLeaseId: input.invocationLease.leaseId,
@@ -75991,12 +89680,12 @@ var ContextGatewayInvocationSessionFactory = class {
         sourceWorkSlotId: input.sourceWorkSlotId,
         sourceReviewRevisionHash: input.sourceReviewRevisionHash,
         checkoutTreeOid,
-        providerKind: input.providerKind,
+        providerKind,
         requestedModel: input.requestedModel,
-        executionProfile: input.executionProfile,
+        executionProfile,
         providerInvocationKey: input.providerInvocationKey,
         toolPolicyHash: input.toolPolicyHash,
-        gatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
+        gatewayPolicyVersion,
         gatewayBinaryHash
       })
     );
@@ -76008,17 +89697,20 @@ var ContextGatewayInvocationSessionFactory = class {
         sourceWorkSlotId: input.sourceWorkSlotId,
         sourceReviewRevisionHash: input.sourceReviewRevisionHash,
         checkoutTreeOid,
-        gatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
+        gatewayPolicyVersion,
         gatewayBinaryHash,
-        confinementEvidenceHash
+        confinementEvidenceHash,
+        ...input.openingIntentDiscriminator === void 0 ? {} : {
+          openingIntentDiscriminator: input.openingIntentDiscriminator
+        }
       });
     } catch (error2) {
-      await (0, import_promises.rm)(directory, { recursive: true, force: true });
+      await (0, import_promises2.rm)(directory, { recursive: true, force: true });
       throw error2;
     }
     const secret = Buffer.from(serverSession.gatewaySessionSecret, "base64url");
     if (secret.byteLength < 32) {
-      await (0, import_promises.rm)(directory, { recursive: true, force: true });
+      await (0, import_promises2.rm)(directory, { recursive: true, force: true });
       throw new Error("context_gateway_session_secret_invalid");
     }
     const providerConfig = this.providerConfig({
@@ -76040,7 +89732,7 @@ var ContextGatewayInvocationSessionFactory = class {
       });
     } catch (error2) {
       secret.fill(0);
-      await (0, import_promises.rm)(directory, { recursive: true, force: true });
+      await (0, import_promises2.rm)(directory, { recursive: true, force: true });
       throw error2;
     }
     return new ContextGatewayInvocationSession(
@@ -76055,14 +89747,16 @@ var ContextGatewayInvocationSessionFactory = class {
     );
   }
   providerConfig(input) {
+    const policyVersion = this.policyVersion();
     return Object.freeze({
       command: process.execPath,
       args: Object.freeze([input.gatewayBundlePath]),
       cwd: this.options.checkoutRoot,
       gatewayBinaryHash: input.gatewayBinaryHash,
-      gatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
-      enabledTools: ENABLED_TOOLS,
+      gatewayPolicyVersion: policyVersion,
+      enabledTools: policyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION ? V4_ENABLED_TOOLS : ENABLED_TOOLS,
       runtimeEnvironment: Object.freeze({
+        REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: policyVersion,
         REVIEWROUTER_CONTEXT_SESSION_ID: input.sessionId,
         REVIEWROUTER_CONTEXT_ROOT: this.options.checkoutRoot,
         REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH: input.transcriptPath,
@@ -76077,8 +89771,11 @@ var ContextGatewayInvocationSessionFactory = class {
       })
     });
   }
+  policyVersion() {
+    return this.options.policyVersion ?? CONTEXT_GATEWAY_POLICY_VERSION;
+  }
   async gatewayBundleSnapshot() {
-    this.gatewayBundleSnapshotPromise ??= (0, import_promises.readFile)(
+    this.gatewayBundleSnapshotPromise ??= (0, import_promises2.readFile)(
       this.options.gatewayBundlePath
     );
     return Buffer.from(await this.gatewayBundleSnapshotPromise);
@@ -76103,7 +89800,7 @@ var ContextGatewayInvocationSessionFactory = class {
     return Object.freeze({ checkoutTreeOid, mergeBaseTreeOid });
   }
   async revisionTreeOid(revision, field) {
-    const { stdout } = await execFileAsync2(
+    const { stdout } = await execFileAsync3(
       "git",
       ["rev-parse", `${revision}^{tree}`],
       {
@@ -76137,6 +89834,9 @@ var ContextGatewayInvocationSession = class {
   }
   credentialLease;
   async seal(input) {
+    if (this.providerConfig.gatewayPolicyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION) {
+      return this.sealV4(input);
+    }
     let rawTranscriptCanonicalJson;
     let rawReplayMaterialCanonicalJson;
     try {
@@ -76195,6 +89895,7 @@ var ContextGatewayInvocationSession = class {
       );
     }
     const { transcriptCanonicalJson, replayMaterialCanonicalJson } = createWireSealPayload(transcript, replayMaterial);
+    await (0, import_promises2.rm)(this.replayMaterialPath);
     return this.attestations.sealGatewaySession({
       invocationLease: this.invocationLease,
       session: this.serverSession,
@@ -76204,23 +89905,79 @@ var ContextGatewayInvocationSession = class {
       actualModel: input.actualModel,
       terminalOutcomeHash: input.terminalOutcomeHash,
       transcriptCanonicalJson,
-      transcriptHash: sha25611(transcriptCanonicalJson),
+      transcriptHash: sha25612(transcriptCanonicalJson),
       replayMaterialCanonicalJson,
-      replayMaterialHash: sha25611(replayMaterialCanonicalJson)
+      replayMaterialHash: sha25612(replayMaterialCanonicalJson)
     });
+  }
+  async sealV4(input) {
+    try {
+      const recorder = new ContextGatewayV4Recorder({
+        sessionId: this.serverSession.sessionId,
+        transcriptPath: this.transcriptPath,
+        secret: this.secret,
+        gatewayBinaryHash: this.providerConfig.gatewayBinaryHash,
+        checkoutTreeOid: this.providerConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID,
+        eventChainSeedHash: this.serverSession.eventChainSeedHash
+      });
+      await recorder.resume();
+      const transcript = recorder.snapshot();
+      const transcriptCanonicalJson = createV4WireSealPayload(transcript);
+      const encryptedReplayMaterialCanonicalJson = await readBoundedText(
+        this.replayMaterialPath,
+        MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES
+      );
+      const replayMaterialCanonicalJson = decryptContextGatewayV4ReplayMaterial(
+        {
+          encryptedCanonicalJson: encryptedReplayMaterialCanonicalJson,
+          secret: this.secret,
+          sessionId: this.serverSession.sessionId
+        }
+      );
+      await (0, import_promises2.rm)(this.replayMaterialPath);
+      return this.attestations.sealGatewaySession({
+        invocationLease: this.invocationLease,
+        session: this.serverSession,
+        providerSucceeded: true,
+        schemaValidated: true,
+        fullyConsumed: true,
+        actualModel: input.actualModel,
+        terminalOutcomeHash: input.terminalOutcomeHash,
+        transcriptCanonicalJson,
+        transcriptHash: sha25612(transcriptCanonicalJson),
+        replayMaterialCanonicalJson,
+        replayMaterialHash: sha25612(replayMaterialCanonicalJson)
+      });
+    } catch (error2) {
+      if (error2 instanceof ReviewContextInspectionFailure) throw error2;
+      throw new ReviewContextInspectionFailure(
+        "gateway_output_unavailable" /* GatewayOutputUnavailable */
+      );
+    }
   }
   async dispose() {
     this.secret.fill(0);
-    await (0, import_promises.rm)(this.directory, { recursive: true, force: true });
+    await (0, import_promises2.rm)(this.directory, { recursive: true, force: true });
   }
 };
 async function readBoundedCanonicalJson(file, maximumBytes) {
-  const metadata = await (0, import_promises.stat)(file);
+  const metadata = await (0, import_promises2.stat)(file);
   if (!metadata.isFile() || metadata.size < 2 || metadata.size > maximumBytes) {
     throw new Error("context_gateway_output_size_invalid");
   }
-  const parsed = JSON.parse(await (0, import_promises.readFile)(file, "utf8"));
-  return canonicalJson9(parsed);
+  const parsed = JSON.parse(await (0, import_promises2.readFile)(file, "utf8"));
+  return canonicalJson5(parsed);
+}
+async function readBoundedText(file, maximumBytes) {
+  const metadata = await (0, import_promises2.stat)(file);
+  if (!metadata.isFile() || metadata.size < 2 || metadata.size > maximumBytes) {
+    throw new Error("context_gateway_output_size_invalid");
+  }
+  const value = await (0, import_promises2.readFile)(file, "utf8");
+  if (Buffer.byteLength(value, "utf8") !== metadata.size) {
+    throw new Error("context_gateway_output_size_invalid");
+  }
+  return value;
 }
 function verifyTranscript(input) {
   const transcript = input.transcript;
@@ -76230,7 +89987,7 @@ function verifyTranscript(input) {
   let previousEventHash = input.eventChainSeedHash;
   for (let index = 0; index < transcript.dependencies.length; index += 1) {
     const entry = transcript.dependencies[index];
-    if (entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha25611(canonicalJson9(entry.operation))) {
+    if (entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha25612(canonicalJson5(entry.operation))) {
       throw new Error("context_gateway_transcript_chain_invalid");
     }
     const eventHash = keyedSha2562(
@@ -76269,7 +90026,7 @@ function verifyTranscript(input) {
     throw new Error("context_gateway_replay_material_count_invalid");
   }
   for (const entry of input.replayMaterial.entries) {
-    const replayHandleHash = sha25611(entry.replayHandle);
+    const replayHandleHash = sha25612(entry.replayHandle);
     const expected = replayableSearches.get(replayHandleHash);
     if (!expected || expected.operationKey !== entry.operationKey || replayHandleHash !== expected.replayHandleHash || expected.queryDigest !== keyedSha2562(
       input.secret,
@@ -76292,7 +90049,7 @@ function createWireSealPayload(transcript, replayMaterial) {
   const replayQueriesByOperationKey = new Map(
     replayMaterial.entries.map((entry) => [entry.operationKey, entry.query])
   );
-  const transcriptCanonicalJson = canonicalJson9({
+  const transcriptCanonicalJson = canonicalJson5({
     manifestVersion: 2,
     gatewayPolicyVersion: transcript.gatewayPolicyVersion,
     gatewayBinaryHash: transcript.gatewayBinaryHash,
@@ -76301,7 +90058,7 @@ function createWireSealPayload(transcript, replayMaterial) {
     complete: !transcript.hadFailure,
     dependencies: transcript.dependencies
   });
-  const replayMaterialCanonicalJson = canonicalJson9({
+  const replayMaterialCanonicalJson = canonicalJson5({
     materialVersion: 1,
     sourceDependencies: transcript.dependencies.map((dependency) => ({
       sequence: dependency.sequence,
@@ -76314,25 +90071,67 @@ function createWireSealPayload(transcript, replayMaterial) {
     replayMaterialCanonicalJson
   });
 }
-function keyedSha2562(secret, value) {
-  return (0, import_crypto24.createHmac)("sha256", secret).update(value).digest("hex");
+function createV4WireSealPayload(transcript) {
+  return canonicalJson5({
+    manifestVersion: 3,
+    gatewayPolicyVersion: transcript.gatewayPolicyVersion,
+    gatewayBinaryHash: transcript.gatewayBinaryHash,
+    checkoutTreeOid: transcript.checkoutTreeOid,
+    eventChainSeedHash: transcript.eventChainSeedHash,
+    authenticatedChainHash: transcript.authenticatedChainHash,
+    complete: true,
+    confinementTainted: transcript.confinementTainted,
+    terminalFailureClass: transcript.terminalFailureClass,
+    events: transcript.events
+  });
 }
-function sha25611(value) {
-  return (0, import_crypto24.createHash)("sha256").update(value).digest("hex");
+function keyedSha2562(secret, value) {
+  return (0, import_crypto28.createHmac)("sha256", secret).update(value).digest("hex");
+}
+function requireProviderKind(value) {
+  switch (value) {
+    case "codex" /* Codex */:
+      return "codex" /* Codex */;
+    case "claude_code" /* ClaudeCode */:
+      return "claude_code" /* ClaudeCode */;
+    case "openrouter" /* OpenRouter */:
+      return "openrouter" /* OpenRouter */;
+    default:
+      throw new Error("context_gateway_provider_kind_invalid");
+  }
+}
+function requireExecutionProfile(value) {
+  switch (value) {
+    case "prompt_only_envelope_v1" /* PromptOnlyEnvelopeV1 */:
+      return "prompt_only_envelope_v1" /* PromptOnlyEnvelopeV1 */;
+    case "agentic_unbounded_v1" /* AgenticUnboundedV1 */:
+      return "agentic_unbounded_v1" /* AgenticUnboundedV1 */;
+    case "context_gateway_v1" /* ContextGatewayV1 */:
+      return "context_gateway_v1" /* ContextGatewayV1 */;
+    case "investigation_gateway_v1" /* InvestigationGatewayV1 */:
+      return "investigation_gateway_v1" /* InvestigationGatewayV1 */;
+    case "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */:
+      return "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */;
+    default:
+      throw new Error("context_gateway_execution_profile_invalid");
+  }
+}
+function sha25612(value) {
+  return (0, import_crypto28.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/infrastructure/context-attestation-replay-runner.ts
-var import_child_process14 = require("child_process");
-var import_crypto26 = require("crypto");
-var import_promises4 = require("fs/promises");
+var import_child_process16 = require("child_process");
+var import_crypto30 = require("crypto");
+var import_promises6 = require("fs/promises");
 var os10 = __toESM(require("os"));
-var path22 = __toESM(require("path"));
-var import_util8 = require("util");
+var path24 = __toESM(require("path"));
+var import_util11 = require("util");
 
 // src/context-gateway/context-gateway-recorder.ts
-var import_crypto25 = require("crypto");
-var import_promises2 = require("fs/promises");
-var path20 = __toESM(require("path"));
+var import_crypto29 = require("crypto");
+var import_promises3 = require("fs/promises");
+var path21 = __toESM(require("path"));
 var MAX_RECORDER_STATE_BYTES = 2 * 1024 * 1024;
 var ContextGatewayRecorder = class {
   constructor(config) {
@@ -76347,22 +90146,22 @@ var ContextGatewayRecorder = class {
   hadFailure = false;
   async initialize() {
     await Promise.all([
-      (0, import_promises2.mkdir)(path20.dirname(this.config.transcriptPath), {
+      (0, import_promises3.mkdir)(path21.dirname(this.config.transcriptPath), {
         recursive: true,
         mode: 448
       }),
-      (0, import_promises2.mkdir)(path20.dirname(this.config.replayMaterialPath), {
+      (0, import_promises3.mkdir)(path21.dirname(this.config.replayMaterialPath), {
         recursive: true,
         mode: 448
       })
     ]);
     try {
-      await (0, import_promises2.writeFile)(this.config.transcriptPath, "", {
+      await (0, import_promises3.writeFile)(this.config.transcriptPath, "", {
         encoding: "utf8",
         flag: "wx",
         mode: 384
       });
-      await (0, import_promises2.writeFile)(this.config.replayMaterialPath, "", {
+      await (0, import_promises3.writeFile)(this.config.replayMaterialPath, "", {
         encoding: "utf8",
         flag: "wx",
         mode: 384
@@ -76391,11 +90190,11 @@ var ContextGatewayRecorder = class {
     this.restoreTranscript(transcript);
     this.restoreReplayMaterial(replay);
   }
-  async record(operation, result) {
-    return this.serializeMutation(() => this.append(operation, result));
+  async record(operation, result2) {
+    return this.serializeMutation(() => this.append(operation, result2));
   }
-  async recordTextSearch(operation, result, query) {
-    return this.serializeMutation(() => this.append(operation, result, query));
+  async recordTextSearch(operation, result2, query) {
+    return this.serializeMutation(() => this.append(operation, result2, query));
   }
   async recordFailure() {
     return this.serializeMutation(async () => {
@@ -76403,7 +90202,7 @@ var ContextGatewayRecorder = class {
       await this.flush();
     });
   }
-  async append(operationInput, result, replayQuery) {
+  async append(operationInput, result2, replayQuery) {
     if (this.dependencies.length >= CONTEXT_GATEWAY_MAX_OPERATIONS) {
       this.hadFailure = true;
       await this.flush();
@@ -76428,10 +90227,10 @@ var ContextGatewayRecorder = class {
           this.config.secret,
           canonicalizeReviewContextSearchQuery(replayQuery)
         ),
-        replayHandleHash: sha25610(replayHandle)
+        replayHandleHash: sha2566(replayHandle)
       });
     }
-    const operationKey = sha25610(canonicalJson9(operation));
+    const operationKey = sha2566(canonicalJson5(operation));
     if (replayHandle !== void 0 && replayQuery !== void 0) {
       this.replayEntries.push(
         Object.freeze({
@@ -76447,7 +90246,7 @@ var ContextGatewayRecorder = class {
       previousEventHash,
       operationKey,
       operation,
-      result
+      result: result2
     };
     const eventHash = keyedSha256(
       this.config.secret,
@@ -76461,7 +90260,7 @@ var ContextGatewayRecorder = class {
       eventHash
     });
     this.dependencies.push(entry);
-    if (result.complete !== true || result.truncated !== false) {
+    if (result2.complete !== true || result2.truncated !== false) {
       this.hadFailure = true;
     }
     await this.flush();
@@ -76485,7 +90284,7 @@ var ContextGatewayRecorder = class {
     let previousEventHash = this.config.eventChainSeedHash;
     for (let index = 0; index < transcript.dependencies.length; index += 1) {
       const entry = transcript.dependencies[index];
-      if (!entry || entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha25610(canonicalJson9(entry.operation)) || entry.eventHash !== keyedSha256(
+      if (!entry || entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha2566(canonicalJson5(entry.operation)) || entry.eventHash !== keyedSha256(
         this.config.secret,
         canonicalizeReviewContextGatewayEvent({
           sessionId: this.config.sessionId,
@@ -76551,13 +90350,13 @@ var ContextGatewayRecorder = class {
       entries: Object.freeze([...this.replayEntries])
     });
     await Promise.all([
-      atomicPrivateWrite(this.config.transcriptPath, canonicalJson9(transcript)),
-      atomicPrivateWrite(this.config.replayMaterialPath, canonicalJson9(replay))
+      atomicPrivateWrite2(this.config.transcriptPath, canonicalJson5(transcript)),
+      atomicPrivateWrite2(this.config.replayMaterialPath, canonicalJson5(replay))
     ]);
   }
 };
 async function readBoundedState(file) {
-  const value = await (0, import_promises2.readFile)(file, "utf8");
+  const value = await (0, import_promises3.readFile)(file, "utf8");
   if (value.length < 2 || Buffer.byteLength(value, "utf8") > MAX_RECORDER_STATE_BYTES) {
     throw new Error("context_gateway_recorder_state_size_invalid");
   }
@@ -76570,25 +90369,25 @@ function parseCanonicalState(raw, kind) {
   } catch {
     throw new Error(`context_gateway_recorder_${kind}_json_invalid`);
   }
-  if (canonicalJson9(parsed) !== raw) {
+  if (canonicalJson5(parsed) !== raw) {
     throw new Error(`context_gateway_recorder_${kind}_canonical_invalid`);
   }
   return parsed;
 }
-async function atomicPrivateWrite(target, content) {
-  await (0, import_promises2.mkdir)(path20.dirname(target), { recursive: true, mode: 448 });
-  const temporary = `${target}.${process.pid}.${(0, import_crypto25.randomBytes)(6).toString("hex")}.tmp`;
-  await (0, import_promises2.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
-  await (0, import_promises2.rename)(temporary, target);
+async function atomicPrivateWrite2(target, content) {
+  await (0, import_promises3.mkdir)(path21.dirname(target), { recursive: true, mode: 448 });
+  const temporary = `${target}.${process.pid}.${(0, import_crypto29.randomBytes)(6).toString("hex")}.tmp`;
+  await (0, import_promises3.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
+  await (0, import_promises3.rename)(temporary, target);
 }
 
 // src/context-gateway/filesystem-context-gateway.ts
-var import_child_process13 = require("child_process");
-var import_promises3 = require("fs/promises");
+var import_child_process14 = require("child_process");
+var import_promises4 = require("fs/promises");
 var import_os = require("os");
-var path21 = __toESM(require("path"));
-var import_util7 = require("util");
-var execFileAsync3 = (0, import_util7.promisify)(import_child_process13.execFile);
+var path22 = __toESM(require("path"));
+var import_util9 = require("util");
+var execFileAsync4 = (0, import_util9.promisify)(import_child_process14.execFile);
 var MAX_FILE_BYTES = 2 * 1024 * 1024;
 var MAX_DIRECTORY_ENTRIES = 2e4;
 var MAX_SEARCH_RESULTS = 2e4;
@@ -76613,7 +90412,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
   }
   revisionTreeOidPromises = /* @__PURE__ */ new Map();
   static async create(input) {
-    const root = await (0, import_promises3.realpath)(input.root);
+    const root = await (0, import_promises4.realpath)(input.root);
     requireGitOid(input.checkoutTreeOid, "checkout_tree_oid");
     requireGitOid(input.baseSha, "base_sha");
     requireGitOid(input.mergeBaseSha, "merge_base_sha");
@@ -76664,7 +90463,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         const blob = await this.gitBuffer(["cat-file", "blob", treeEntry.oid]);
         content = blob.subarray(startByte, startByte + maxBytes);
         eof = startByte + content.byteLength >= blobSize;
-        if (fileKind === "symlink") symlinkTargetHash = sha25610(blob);
+        if (fileKind === "symlink") symlinkTargetHash = sha2566(blob);
       }
       const binary2 = content.includes(0);
       const operation = Object.freeze({
@@ -76673,19 +90472,19 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         startByte,
         maxBytes
       });
-      const result = Object.freeze({
+      const result2 = Object.freeze({
         kind: "file_read",
         fileKind,
         mode,
         blobOid: treeEntry.oid,
         symlinkTargetHash,
-        contentHash: sha25610(content),
+        contentHash: sha2566(content),
         byteCount: content.byteLength,
         eof,
         complete: true,
         truncated: false
       });
-      await this.recorder.record(operation, result);
+      await this.recorder.record(operation, result2);
       return Object.freeze({
         path: relativePath,
         content: binary2 ? content.toString("base64") : content.toString("utf8"),
@@ -76741,19 +90540,19 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         maxDepth,
         includeHidden,
         maxEntries,
-        ignorePolicyHash: sha25610("git-index-ignore-policy.v1"),
+        ignorePolicyHash: sha2566("git-index-ignore-policy.v1"),
         caseSensitive: true
       });
-      const result = Object.freeze({
+      const result2 = Object.freeze({
         kind: "directory_list",
         treeOid,
-        orderedEntriesHash: sha25610(canonicalJson9(entries)),
+        orderedEntriesHash: sha2566(canonicalJson5(entries)),
         itemCount: entries.length,
-        byteCount: Buffer.byteLength(canonicalJson9(entries), "utf8"),
+        byteCount: Buffer.byteLength(canonicalJson5(entries), "utf8"),
         complete: !truncated,
         truncated
       });
-      await this.recorder.record(operation, result);
+      await this.recorder.record(operation, result2);
       return Object.freeze({ path: relativePath, entries, truncated });
     } catch (error2) {
       await this.recorder.recordFailure();
@@ -76801,21 +90600,21 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         includeGlobs: [],
         excludeGlobs: [],
         maxResults,
-        ignorePolicyHash: sha25610("git-grep-ignore-policy.v1"),
+        ignorePolicyHash: sha2566("git-grep-ignore-policy.v1"),
         binaryPolicy: "exclude",
         caseSensitive,
         encoding: "utf8"
       });
-      const result = Object.freeze({
+      const result2 = Object.freeze({
         kind: "text_search",
-        orderedMatchesHash: sha25610(canonicalJson9(matches)),
+        orderedMatchesHash: sha2566(canonicalJson5(matches)),
         scannedTreeHash: await this.scannedTreeHash(paths),
         itemCount: matches.length,
-        byteCount: Buffer.byteLength(canonicalJson9(matches), "utf8"),
+        byteCount: Buffer.byteLength(canonicalJson5(matches), "utf8"),
         complete: !truncated,
         truncated
       });
-      await this.recorder.recordTextSearch(operation, result, input.query);
+      await this.recorder.recordTextSearch(operation, result2, input.query);
       return Object.freeze({ matches, truncated });
     } catch (error2) {
       await this.recorder.recordFailure();
@@ -76865,7 +90664,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
               }
             )).sort();
           } finally {
-            await (0, import_promises3.rm)(isolatedGit.gitDirectory, {
+            await (0, import_promises4.rm)(isolatedGit.gitDirectory, {
               recursive: true,
               force: true
             });
@@ -76899,15 +90698,15 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         fact: input.fact,
         operandsHash
       });
-      const result = Object.freeze({
+      const result2 = Object.freeze({
         kind: "git_fact",
-        resultHash: sha25610(canonicalJson9(values)),
+        resultHash: sha2566(canonicalJson5(values)),
         itemCount: values.length,
-        byteCount: Buffer.byteLength(canonicalJson9(values), "utf8"),
+        byteCount: Buffer.byteLength(canonicalJson5(values), "utf8"),
         complete: true,
         truncated: false
       });
-      await this.recorder.record(operation, result);
+      await this.recorder.record(operation, result2);
       return Object.freeze({ fact: input.fact, values });
     } catch (error2) {
       await this.recorder.recordFailure();
@@ -76942,7 +90741,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     const witnesses = await Promise.all(
       paths.map(async (entry) => [entry, await this.treeOrBlobOid(entry)])
     );
-    return sha25610(canonicalJson9(witnesses));
+    return sha2566(canonicalJson5(witnesses));
   }
   async treeOrBlobOid(relativePath) {
     const spec = relativePath === "." ? `${this.headSha}^{tree}` : `${this.headSha}:${relativePath}`;
@@ -76994,10 +90793,10 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     if (gitPath.length === 0) {
       throw new Error("context_gateway_git_info_attributes_path_invalid");
     }
-    const attributesPath = path21.isAbsolute(gitPath) ? gitPath : path21.resolve(this.root, gitPath);
+    const attributesPath = path22.isAbsolute(gitPath) ? gitPath : path22.resolve(this.root, gitPath);
     let infoAttributes;
     try {
-      infoAttributes = await (0, import_promises3.readFile)(attributesPath);
+      infoAttributes = await (0, import_promises4.readFile)(attributesPath);
     } catch (error2) {
       if (error2.code !== "ENOENT") throw error2;
       infoAttributes = null;
@@ -77007,7 +90806,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     }
     return Object.freeze({
       hash: contextGitDiffPolicyHash(
-        infoAttributes === null ? null : sha25610(infoAttributes)
+        infoAttributes === null ? null : sha2566(infoAttributes)
       ),
       infoAttributes
     });
@@ -77035,24 +90834,24 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     ]);
   }
   async createIsolatedGitDirectory(policy) {
-    const gitDirectory = await (0, import_promises3.mkdtemp)(
-      path21.join((0, import_os.tmpdir)(), "reviewrouter-context-git-")
+    const gitDirectory = await (0, import_promises4.mkdtemp)(
+      path22.join((0, import_os.tmpdir)(), "reviewrouter-context-git-")
     );
     try {
       const [objectsPathOutput, objectFormatOutput] = await Promise.all([
         this.gitText(["rev-parse", "--git-path", "objects"]),
         this.gitText(["rev-parse", "--show-object-format=storage"]),
-        (0, import_promises3.mkdir)(path21.join(gitDirectory, "objects", "info"), { recursive: true }),
-        (0, import_promises3.mkdir)(path21.join(gitDirectory, "refs", "heads"), { recursive: true }),
-        (0, import_promises3.mkdir)(path21.join(gitDirectory, "info"), { recursive: true }),
-        (0, import_promises3.mkdir)(path21.join(gitDirectory, "worktree"), { recursive: true })
+        (0, import_promises4.mkdir)(path22.join(gitDirectory, "objects", "info"), { recursive: true }),
+        (0, import_promises4.mkdir)(path22.join(gitDirectory, "refs", "heads"), { recursive: true }),
+        (0, import_promises4.mkdir)(path22.join(gitDirectory, "info"), { recursive: true }),
+        (0, import_promises4.mkdir)(path22.join(gitDirectory, "worktree"), { recursive: true })
       ]);
       const rawObjectsPath = objectsPathOutput.trim();
       if (rawObjectsPath.length === 0) {
         throw new Error("context_gateway_git_objects_path_invalid");
       }
-      const objectsPath = await (0, import_promises3.realpath)(
-        path21.isAbsolute(rawObjectsPath) ? rawObjectsPath : path21.resolve(this.root, rawObjectsPath)
+      const objectsPath = await (0, import_promises4.realpath)(
+        path22.isAbsolute(rawObjectsPath) ? rawObjectsPath : path22.resolve(this.root, rawObjectsPath)
       );
       if (objectsPath.includes("\0") || objectsPath.includes("\n")) {
         throw new Error("context_gateway_git_objects_path_invalid");
@@ -77063,20 +90862,20 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       }
       const config = objectFormat === "sha256" ? "[core]\n	repositoryformatversion = 1\n	bare = false\n[extensions]\n	objectformat = sha256\n" : "[core]\n	repositoryformatversion = 0\n	bare = false\n";
       await Promise.all([
-        (0, import_promises3.writeFile)(path21.join(gitDirectory, "HEAD"), "ref: refs/heads/unused\n"),
-        (0, import_promises3.writeFile)(path21.join(gitDirectory, "config"), config),
-        (0, import_promises3.writeFile)(
-          path21.join(gitDirectory, "objects", "info", "alternates"),
+        (0, import_promises4.writeFile)(path22.join(gitDirectory, "HEAD"), "ref: refs/heads/unused\n"),
+        (0, import_promises4.writeFile)(path22.join(gitDirectory, "config"), config),
+        (0, import_promises4.writeFile)(
+          path22.join(gitDirectory, "objects", "info", "alternates"),
           `${objectsPath}
 `
         ),
-        policy.infoAttributes === null ? Promise.resolve() : (0, import_promises3.writeFile)(
-          path21.join(gitDirectory, "info", "attributes"),
+        policy.infoAttributes === null ? Promise.resolve() : (0, import_promises4.writeFile)(
+          path22.join(gitDirectory, "info", "attributes"),
           policy.infoAttributes
         )
       ]);
-      const indexPath = path21.join(gitDirectory, "index");
-      const workTreePath = path21.join(gitDirectory, "worktree");
+      const indexPath = path22.join(gitDirectory, "index");
+      const workTreePath = path22.join(gitDirectory, "worktree");
       await this.gitText(["read-tree", "--reset", this.headSha], /* @__PURE__ */ new Set([0]), {
         GIT_DIR: gitDirectory,
         GIT_INDEX_FILE: indexPath,
@@ -77084,7 +90883,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       });
       return Object.freeze({ gitDirectory, indexPath, workTreePath });
     } catch (error2) {
-      await (0, import_promises3.rm)(gitDirectory, { recursive: true, force: true });
+      await (0, import_promises4.rm)(gitDirectory, { recursive: true, force: true });
       throw error2;
     }
   }
@@ -77107,7 +90906,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
   }
   async gitText(args, acceptedExitCodes = /* @__PURE__ */ new Set([0]), environment = {}) {
     try {
-      const result = await execFileAsync3("git", args, {
+      const result2 = await execFileAsync4("git", args, {
         cwd: this.root,
         encoding: "utf8",
         maxBuffer: 32 * 1024 * 1024,
@@ -77124,7 +90923,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
           ...environment
         }
       });
-      return result.stdout;
+      return result2.stdout;
     } catch (error2) {
       const code = error2.code;
       if (typeof code === "number" && acceptedExitCodes.has(code)) {
@@ -77136,7 +90935,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     }
   }
   async gitBuffer(args) {
-    const result = await execFileAsync3("git", args, {
+    const result2 = await execFileAsync4("git", args, {
       cwd: this.root,
       encoding: "buffer",
       maxBuffer: MAX_FILE_BYTES + 1,
@@ -77152,14 +90951,14 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         GIT_TERMINAL_PROMPT: "0"
       }
     });
-    return result.stdout;
+    return result2.stdout;
   }
 };
 function normalizeRelativePath(value) {
-  if (typeof value !== "string" || value.length === 0 || value.length > 1024 || value.includes("\0") || value.includes("\\") || path21.isAbsolute(value)) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 1024 || value.includes("\0") || value.includes("\\") || path22.isAbsolute(value)) {
     throw new Error("context_gateway_path_invalid");
   }
-  const normalized = path21.posix.normalize(value);
+  const normalized = path22.posix.normalize(value);
   if (normalized === ".." || normalized.startsWith("../") || normalized.split("/").some((segment) => segment === "..")) {
     throw new Error("context_gateway_path_invalid");
   }
@@ -77172,42 +90971,830 @@ function boundedInteger(value, minimum, maximum, field) {
   return value;
 }
 
+// src/context-gateway/filesystem-context-gateway-v4.ts
+var import_child_process15 = require("child_process");
+var import_promises5 = require("fs/promises");
+var import_path4 = __toESM(require("path"));
+var import_util10 = require("util");
+var execFileAsync5 = (0, import_util10.promisify)(import_child_process15.execFile);
+var MAX_FILE_RANGE_BYTES = 2 * 1024 * 1024;
+var MAX_FILE_TOTAL_BYTES = 32 * 1024 * 1024;
+var MAX_DIRECTORY_RESULTS = 25e4;
+var MAX_SEARCH_RESULTS2 = 1e5;
+var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
+  constructor(root, sessionId, mergeBaseSha, headSha, mergeBaseTreeOid, headTreeOid, secret, recorder, replayMaterial, now) {
+    this.root = root;
+    this.sessionId = sessionId;
+    this.mergeBaseSha = mergeBaseSha;
+    this.headSha = headSha;
+    this.mergeBaseTreeOid = mergeBaseTreeOid;
+    this.headTreeOid = headTreeOid;
+    this.secret = secret;
+    this.recorder = recorder;
+    this.replayMaterial = replayMaterial;
+    this.now = now;
+  }
+  inventoryPromise = null;
+  static async create(input) {
+    const root = await (0, import_promises5.realpath)(input.root);
+    requireGitOid(
+      input.checkoutTreeOid,
+      "context_gateway_v4_checkout_tree_oid"
+    );
+    requireGitOid(input.mergeBaseSha, "context_gateway_v4_merge_base_sha");
+    requireGitOid(input.headSha, "context_gateway_v4_head_sha");
+    if (!Buffer.isBuffer(input.secret) || input.secret.byteLength < 32) {
+      throw new Error("context_gateway_v4_secret_invalid");
+    }
+    const [mergeBaseTreeOid, headTreeOid] = await Promise.all([
+      gitText2(root, ["rev-parse", `${input.mergeBaseSha}^{tree}`]),
+      gitText2(root, ["rev-parse", `${input.headSha}^{tree}`])
+    ]);
+    const normalizedMergeBaseTreeOid = requireGitOid(
+      mergeBaseTreeOid.trim().toLowerCase(),
+      "context_gateway_v4_merge_base_tree_oid"
+    );
+    const normalizedHeadTreeOid = requireGitOid(
+      headTreeOid.trim().toLowerCase(),
+      "context_gateway_v4_head_tree_oid"
+    );
+    if (normalizedHeadTreeOid !== input.checkoutTreeOid) {
+      throw new Error("context_gateway_checkout_tree_mismatch");
+    }
+    return new _FilesystemContextGatewayV4(
+      root,
+      input.sessionId,
+      input.mergeBaseSha,
+      input.headSha,
+      normalizedMergeBaseTreeOid,
+      normalizedHeadTreeOid,
+      input.secret,
+      input.recorder,
+      input.replayMaterial ?? null,
+      input.now ?? Date.now
+    );
+  }
+  async readFile(input) {
+    const replayInput = normalizeFileReadInput(input);
+    const operation = this.operation("file_read" /* FileRead */, {
+      inputHash: sha2566(canonicalJson5(replayInput))
+    });
+    return this.execute(operation, replayInput, async () => {
+      const relativePath = normalizeRelativePath2(input.path);
+      const revision = input.revision ?? "head" /* Head */;
+      const revisionSha = this.revisionSha(revision);
+      const treeOid = this.revisionTreeOid(revision);
+      const startByte = boundedInteger2(
+        input.startByte ?? 0,
+        0,
+        Number.MAX_SAFE_INTEGER,
+        "file_read_start_byte"
+      );
+      const maxBytes = boundedInteger2(
+        input.maxBytes ?? 256 * 1024,
+        1,
+        MAX_FILE_RANGE_BYTES,
+        "file_read_max_bytes"
+      );
+      const entry = await gitTreeEntry(this.root, revisionSha, relativePath);
+      const fileKind = entry.mode === "160000" ? "gitlink" : entry.mode === "120000" ? "symlink" : "regular";
+      let content = Buffer.alloc(0);
+      let fullContent = Buffer.alloc(0);
+      let blobSize = 0;
+      if (fileKind !== "gitlink") {
+        blobSize = Number.parseInt(
+          (await gitText2(this.root, ["cat-file", "-s", entry.oid])).trim(),
+          10
+        );
+        if (!Number.isSafeInteger(blobSize) || blobSize < 0 || blobSize > MAX_FILE_TOTAL_BYTES) {
+          throw new Error("context_gateway_blob_size_invalid");
+        }
+        fullContent = await gitBuffer2(
+          this.root,
+          ["cat-file", "blob", entry.oid],
+          MAX_FILE_TOTAL_BYTES + 1
+        );
+        content = Buffer.from(
+          fullContent.subarray(startByte, startByte + maxBytes)
+        );
+      }
+      const classified = classifyUtf8Content(fullContent);
+      const responseClassified = classifyUtf8Content(content);
+      const eof = fileKind === "gitlink" || startByte + content.byteLength >= blobSize;
+      const receiptIdentity = {
+        sessionId: this.sessionId,
+        kind: "file_read" /* FileRead */,
+        revision,
+        treeOid,
+        path: relativePath,
+        mode: entry.mode,
+        blobOid: entry.oid,
+        startByte,
+        byteCount: content.byteLength,
+        contentHash: sha2566(content),
+        eof
+      };
+      const operationReceiptId = keyedSha256(
+        this.secret,
+        canonicalJson5(receiptIdentity)
+      );
+      return {
+        response: Object.freeze({
+          path: relativePath,
+          revision,
+          content: responseClassified.kind === "binary" ? content.toString("base64") : responseClassified.text,
+          encoding: responseClassified.kind === "binary" ? "base64" : "utf8",
+          byteCount: content.byteLength,
+          startByte,
+          eof,
+          fileKind,
+          blobOid: entry.oid,
+          operationReceiptId
+        }),
+        result: Object.freeze({
+          revision,
+          treeOid,
+          pathHash: sha2566(relativePath),
+          mode: entry.mode,
+          blobOid: entry.oid,
+          contentHash: sha2566(content),
+          contentKind: classified.kind,
+          lineCount: classified.lineCount,
+          byteCount: content.byteLength,
+          startByte,
+          eof,
+          complete: eof
+        }),
+        operationReceiptId
+      };
+    });
+  }
+  async listDirectory(input) {
+    const replayInput = normalizeDirectoryListInput(input);
+    const operation = this.operation(
+      "directory_list" /* DirectoryList */,
+      {
+        inputHash: sha2566(
+          canonicalJson5({
+            ...replayInput,
+            cursor: hashCursor(replayInput.cursor)
+          })
+        )
+      }
+    );
+    return this.execute(operation, replayInput, async () => {
+      const relativePath = normalizeRelativePath2(input.path);
+      const revision = input.revision ?? "head" /* Head */;
+      const revisionSha = this.revisionSha(revision);
+      const treeOid = this.revisionTreeOid(revision);
+      const maxDepth = boundedInteger2(
+        input.maxDepth ?? 4,
+        1,
+        32,
+        "directory_list_max_depth"
+      );
+      const includeHidden = input.includeHidden ?? false;
+      const pageSize = boundedInteger2(
+        input.pageSize ?? 500,
+        1,
+        2e3,
+        "directory_list_page_size"
+      );
+      const queryDigest = keyedSha256(
+        this.secret,
+        canonicalJson5({ relativePath, revision, maxDepth, includeHidden })
+      );
+      const offset = this.cursorOffset({
+        cursor: input.cursor,
+        operationKind: "directory_list" /* DirectoryList */,
+        treeOid,
+        queryDigest,
+        pageSize
+      });
+      const tracked = await gitNullSeparated(this.root, [
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "-z",
+        revisionSha,
+        "--",
+        relativePath
+      ]);
+      const prefix = relativePath === "." ? "" : `${relativePath}/`;
+      const entries = tracked.filter((entry) => {
+        const nested = prefix ? entry.slice(prefix.length) : entry;
+        if (nested === entry && prefix && entry !== relativePath)
+          return false;
+        return nested.split("/").length <= maxDepth && (includeHidden || !nested.split("/").some((segment) => segment.startsWith(".")));
+      }).sort();
+      if (entries.length > MAX_DIRECTORY_RESULTS) {
+        throw new Error("context_gateway_directory_limit_exceeded");
+      }
+      return this.pageResult({
+        operationKind: "directory_list" /* DirectoryList */,
+        treeOid,
+        queryDigest,
+        pageSize,
+        offset,
+        allItems: entries,
+        cursorInputHash: input.cursor ? sha2566(input.cursor) : null,
+        responseField: "entries",
+        operation
+      });
+    });
+  }
+  async searchText(input) {
+    const replayInput = normalizeTextSearchInput(input);
+    const operation = this.operation("text_search" /* TextSearch */, {
+      inputHash: sha2566(
+        canonicalJson5({
+          ...replayInput,
+          query: sha2566(String(replayInput.query)),
+          cursor: hashCursor(replayInput.cursor)
+        })
+      )
+    });
+    return this.execute(operation, replayInput, async () => {
+      if (typeof input.query !== "string" || input.query.length < 1 || input.query.length > 4096 || input.query.includes("\0")) {
+        throw new Error("text_search_query_invalid");
+      }
+      const revision = input.revision ?? "head" /* Head */;
+      const revisionSha = this.revisionSha(revision);
+      const treeOid = this.revisionTreeOid(revision);
+      const paths = (input.paths ?? ["."]).map(normalizeRelativePath2).sort();
+      if (paths.length > 128 || new Set(paths).size !== paths.length) {
+        throw new Error("text_search_paths_invalid");
+      }
+      const caseSensitive = input.caseSensitive ?? true;
+      const pageSize = boundedInteger2(
+        input.pageSize ?? 500,
+        1,
+        2e3,
+        "text_search_page_size"
+      );
+      const queryDigest = keyedSha256(
+        this.secret,
+        canonicalJson5({ query: input.query, paths, revision, caseSensitive })
+      );
+      const offset = this.cursorOffset({
+        cursor: input.cursor,
+        operationKind: "text_search" /* TextSearch */,
+        treeOid,
+        queryDigest,
+        pageSize
+      });
+      const output = (await gitText2(
+        this.root,
+        [
+          "grep",
+          "-n",
+          "-F",
+          "-I",
+          "--full-name",
+          ...caseSensitive ? [] : ["-i"],
+          "-e",
+          input.query,
+          revisionSha,
+          "--",
+          ...paths
+        ],
+        /* @__PURE__ */ new Set([0, 1])
+      )).replaceAll(`${revisionSha}:`, "");
+      const matches = output.split(/\r?\n/u).filter(Boolean).sort();
+      if (matches.length > MAX_SEARCH_RESULTS2) {
+        throw new Error("context_gateway_search_limit_exceeded");
+      }
+      const matchedPaths = (await gitNullSeparated(
+        this.root,
+        [
+          "grep",
+          "-l",
+          "-z",
+          "-F",
+          "-I",
+          "--full-name",
+          ...caseSensitive ? [] : ["-i"],
+          "-e",
+          input.query,
+          revisionSha,
+          "--",
+          ...paths
+        ],
+        /* @__PURE__ */ new Set([0, 1])
+      )).map(
+        (value) => value.startsWith(`${revisionSha}:`) ? value.slice(revisionSha.length + 1) : value
+      ).sort();
+      return this.pageResult({
+        operationKind: "text_search" /* TextSearch */,
+        treeOid,
+        queryDigest,
+        pageSize,
+        offset,
+        allItems: matches,
+        allPathHashes: matchedPaths.map((value) => sha2566(value)),
+        cursorInputHash: input.cursor ? sha2566(input.cursor) : null,
+        responseField: "matches",
+        operation
+      });
+    });
+  }
+  async canonicalInventory(input) {
+    const replayInput = normalizeCanonicalInventoryInput(input);
+    const operation = this.operation(
+      "canonical_inventory" /* CanonicalInventory */,
+      {
+        inputHash: sha2566(
+          canonicalJson5({
+            ...replayInput,
+            cursor: hashCursor(replayInput.cursor)
+          })
+        )
+      }
+    );
+    return this.execute(operation, replayInput, async () => {
+      const inventory = await this.inventory();
+      const requestedPageSize = boundedInteger2(
+        input.pageSize ?? 500,
+        1,
+        2e3,
+        "inventory_page_size"
+      );
+      const pageSize = canonicalInventoryPageSize(
+        inventory.entries,
+        requestedPageSize
+      );
+      const queryDigest = keyedSha256(
+        this.secret,
+        canonicalJson5({
+          inventoryVersion: inventory.inventoryVersion,
+          mergeBaseTreeOid: inventory.mergeBaseTreeOid,
+          headTreeOid: inventory.headTreeOid
+        })
+      );
+      const offset = this.cursorOffset({
+        cursor: input.cursor,
+        operationKind: "canonical_inventory" /* CanonicalInventory */,
+        treeOid: inventory.headTreeOid,
+        queryDigest,
+        pageSize
+      });
+      return this.pageResult({
+        operationKind: "canonical_inventory" /* CanonicalInventory */,
+        treeOid: inventory.headTreeOid,
+        queryDigest,
+        pageSize,
+        offset,
+        allItems: inventory.entries,
+        pathHashesThroughItem: (end) => canonicalInventoryPathHashes2(inventory.entries.slice(0, end)),
+        cursorInputHash: input.cursor ? sha2566(input.cursor) : null,
+        responseField: "entries",
+        operation,
+        extraResponse: {
+          inventoryVersion: inventory.inventoryVersion,
+          inventoryHash: inventory.inventoryHash,
+          mergeBaseTreeOid: inventory.mergeBaseTreeOid,
+          headTreeOid: inventory.headTreeOid
+        }
+      });
+    });
+  }
+  async gitFact(input) {
+    const replayInput = Object.freeze({ fact: input.fact });
+    const operation = this.operation("git_fact" /* GitFact */, {
+      fact: input.fact
+    });
+    return this.execute(operation, replayInput, async () => {
+      let values;
+      switch (input.fact) {
+        case "merge_base":
+          values = [this.mergeBaseSha];
+          break;
+        case "changed_paths": {
+          const inventory = await this.inventory();
+          values = inventory.entries.map(
+            (entry) => [entry.status, entry.beforePath ?? "", entry.afterPath ?? ""].join(
+              "	"
+            )
+          );
+          break;
+        }
+        case "diff_stat":
+          values = (await gitNullSeparated(this.root, [
+            "-c",
+            "core.attributesFile=/dev/null",
+            "diff",
+            "--no-renames",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--numstat",
+            "-z",
+            `${this.mergeBaseSha}..${this.headSha}`
+          ])).sort();
+          break;
+      }
+      const resultHash = sha2566(canonicalJson5(values));
+      const operationReceiptId = keyedSha256(
+        this.secret,
+        canonicalJson5({
+          sessionId: this.sessionId,
+          fact: input.fact,
+          resultHash
+        })
+      );
+      return {
+        response: Object.freeze({
+          fact: input.fact,
+          values,
+          operationReceiptId
+        }),
+        result: Object.freeze({
+          fact: input.fact,
+          resultHash,
+          itemCount: values.length,
+          complete: true
+        }),
+        operationReceiptId
+      };
+    });
+  }
+  async pageResult(input) {
+    const baseReceipt = createContextGatewayV4PageReceipt({
+      secret: this.secret,
+      sessionId: this.sessionId,
+      operationKind: input.operationKind,
+      queryDigest: input.queryDigest,
+      treeOid: input.treeOid,
+      pageSize: input.pageSize,
+      offset: input.offset,
+      allItems: input.allItems,
+      cursorInputHash: input.cursorInputHash,
+      allItemPathHashes: input.allPathHashes ?? [],
+      nowMs: this.now()
+    });
+    const receipt = input.pathHashesThroughItem ? withCanonicalPathWitness({
+      base: baseReceipt,
+      secret: this.secret,
+      sessionId: this.sessionId,
+      operationKind: input.operationKind,
+      queryDigest: input.queryDigest,
+      treeOid: input.treeOid,
+      pageSize: input.pageSize,
+      pathHashesThroughItem: input.pathHashesThroughItem
+    }) : baseReceipt;
+    const pageItems = input.allItems.slice(
+      input.offset,
+      input.offset + input.pageSize
+    );
+    return {
+      response: Object.freeze({
+        ...input.extraResponse ?? {},
+        [input.responseField]: pageItems,
+        complete: receipt.complete,
+        nextCursor: receipt.nextCursor,
+        operationReceiptId: receipt.operationReceiptId,
+        pageOrdinal: receipt.pageOrdinal,
+        aggregateItemCount: receipt.aggregateItemCount
+      }),
+      result: Object.freeze({
+        treeOid: input.treeOid,
+        queryDigest: input.queryDigest,
+        cursorInputHash: receipt.cursorInputHash,
+        pageOrdinal: receipt.pageOrdinal,
+        pageItemCount: receipt.pageItemCount,
+        pageItemsHash: receipt.pageItemsHash,
+        pagePathHashes: receipt.pagePathHashes,
+        aggregatePathCount: receipt.aggregatePathCount,
+        aggregatePathSetHash: receipt.aggregatePathSetHash,
+        aggregateItemCount: receipt.aggregateItemCount,
+        aggregateHash: receipt.aggregateHash,
+        complete: receipt.complete,
+        nextCursorHash: receipt.nextCursor ? sha2566(receipt.nextCursor) : null
+      }),
+      operationReceiptId: receipt.operationReceiptId
+    };
+  }
+  cursorOffset(input) {
+    if (!input.cursor) return 0;
+    return decodeContextGatewayV4Cursor({
+      secret: this.secret,
+      cursor: input.cursor,
+      expected: {
+        sessionId: this.sessionId,
+        operationKind: input.operationKind,
+        treeOid: input.treeOid,
+        policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+        queryDigest: input.queryDigest,
+        pageSize: input.pageSize
+      },
+      nowMs: this.now()
+    }).nextOffset;
+  }
+  operation(kind, facts) {
+    return Object.freeze({ kind, ...facts });
+  }
+  async execute(operation, replayInput, action) {
+    try {
+      const completed = await action();
+      const event = await this.recorder.recordSucceeded({
+        operation,
+        result: completed.result,
+        operationReceiptId: completed.operationReceiptId
+      });
+      await this.replayMaterial?.recordSucceeded({ event, replayInput });
+      return completed.response;
+    } catch (error2) {
+      const failureClass = classifyContextGatewayV4Failure(error2);
+      const reason = sanitizedReason(error2);
+      try {
+        if (failureClass === "infrastructure_failure" /* InfrastructureFailure */) {
+          await this.recorder.recordFailed({
+            operation,
+            sanitizedReason: reason
+          });
+        } else {
+          await this.recorder.recordRejected({
+            operation,
+            failureClass,
+            sanitizedReason: reason
+          });
+        }
+      } catch {
+      }
+      throw error2;
+    }
+  }
+  revisionSha(revision) {
+    switch (revision) {
+      case "head" /* Head */:
+        return this.headSha;
+      case "merge_base" /* MergeBase */:
+        return this.mergeBaseSha;
+    }
+  }
+  revisionTreeOid(revision) {
+    switch (revision) {
+      case "head" /* Head */:
+        return this.headTreeOid;
+      case "merge_base" /* MergeBase */:
+        return this.mergeBaseTreeOid;
+    }
+  }
+  inventory() {
+    if (this.inventoryPromise === null) {
+      this.inventoryPromise = buildCanonicalGitInventory({
+        root: this.root,
+        mergeBaseSha: this.mergeBaseSha,
+        headSha: this.headSha
+      });
+    }
+    return this.inventoryPromise;
+  }
+};
+function normalizeFileReadInput(input) {
+  return Object.freeze({
+    path: normalizePathForOperation(input.path),
+    revision: input.revision ?? "head" /* Head */,
+    startByte: input.startByte ?? 0,
+    maxBytes: input.maxBytes ?? 256 * 1024
+  });
+}
+function normalizeDirectoryListInput(input) {
+  return Object.freeze({
+    path: normalizePathForOperation(input.path),
+    revision: input.revision ?? "head" /* Head */,
+    maxDepth: input.maxDepth ?? 4,
+    includeHidden: input.includeHidden ?? false,
+    pageSize: input.pageSize ?? 500,
+    cursor: normalizeCursor(input.cursor)
+  });
+}
+function normalizeTextSearchInput(input) {
+  return Object.freeze({
+    query: input.query,
+    paths: Object.freeze(
+      (input.paths ?? ["."]).map(normalizePathForOperation).sort()
+    ),
+    revision: input.revision ?? "head" /* Head */,
+    caseSensitive: input.caseSensitive ?? true,
+    pageSize: input.pageSize ?? 500,
+    cursor: normalizeCursor(input.cursor)
+  });
+}
+function normalizeCanonicalInventoryInput(input) {
+  return Object.freeze({
+    pageSize: input.pageSize ?? 500,
+    cursor: normalizeCursor(input.cursor)
+  });
+}
+function normalizePathForOperation(value) {
+  try {
+    return normalizeRelativePath2(value);
+  } catch {
+    return value;
+  }
+}
+function normalizeCursor(value) {
+  return value ? value : null;
+}
+function hashCursor(value) {
+  return typeof value === "string" ? sha2566(value) : null;
+}
+function canonicalInventoryPageSize(entries, requestedPageSize) {
+  const includesTwoPathEntry = entries.some(
+    (entry) => entry.beforePath !== null && entry.afterPath !== null && entry.beforePath !== entry.afterPath
+  );
+  return includesTwoPathEntry ? Math.min(
+    requestedPageSize,
+    Math.floor(CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS / 2)
+  ) : requestedPageSize;
+}
+function canonicalInventoryPathHashes2(entries) {
+  const paths = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    if (entry.beforePath !== null) paths.add(entry.beforePath);
+    if (entry.afterPath !== null) paths.add(entry.afterPath);
+  }
+  return [...paths].map(sha2566).sort();
+}
+function withCanonicalPathWitness(input) {
+  const previousItemCount = input.base.aggregateItemCount - input.base.pageItemCount;
+  const previousPathHashes = new Set(
+    input.pathHashesThroughItem(previousItemCount)
+  );
+  const aggregatePathHashes = input.pathHashesThroughItem(
+    input.base.aggregateItemCount
+  );
+  const pagePathHashes = aggregatePathHashes.filter(
+    (pathHash) => !previousPathHashes.has(pathHash)
+  );
+  if (pagePathHashes.length > CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS || aggregatePathHashes.some((value) => !/^[a-f0-9]{64}$/u.test(value)) || new Set(aggregatePathHashes).size !== aggregatePathHashes.length) {
+    throw new Error("context_gateway_page_path_hashes_invalid");
+  }
+  const aggregatePathSetHash = sha2566(canonicalJson5(aggregatePathHashes));
+  const receiptIdentity = {
+    sessionId: input.sessionId,
+    operationKind: input.operationKind,
+    queryDigest: input.queryDigest,
+    treeOid: input.treeOid,
+    pageSize: input.pageSize,
+    pageOrdinal: input.base.pageOrdinal,
+    cursorInputHash: input.base.cursorInputHash,
+    pageItemCount: input.base.pageItemCount,
+    pageItemsHash: input.base.pageItemsHash,
+    pagePathHashes,
+    aggregatePathCount: aggregatePathHashes.length,
+    aggregatePathSetHash,
+    aggregateItemCount: input.base.aggregateItemCount,
+    aggregateHash: input.base.aggregateHash,
+    complete: input.base.complete
+  };
+  return Object.freeze({
+    ...input.base,
+    operationReceiptId: keyedSha256(
+      input.secret,
+      canonicalJson5(receiptIdentity)
+    ),
+    pagePathHashes: Object.freeze(pagePathHashes),
+    aggregatePathCount: aggregatePathHashes.length,
+    aggregatePathSetHash
+  });
+}
+async function gitTreeEntry(root, revision, relativePath) {
+  const records = (await gitText2(root, ["ls-tree", "-z", revision, "--", relativePath])).split("\0").filter(Boolean);
+  const match2 = records[0]?.match(
+    /^([0-7]{6}) (?:blob|commit) ([a-f0-9]{40,64})\t(.+)$/u
+  );
+  if (records.length !== 1 || !match2 || match2[3] !== relativePath) {
+    throw new Error("context_gateway_file_not_in_revision_tree");
+  }
+  return {
+    mode: match2[1],
+    oid: requireGitOid(match2[2], "context_gateway_file_oid")
+  };
+}
+function normalizeRelativePath2(value) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 1024 || value.includes("\0") || value.includes("\\") || import_path4.default.isAbsolute(value)) {
+    throw new Error("context_gateway_path_invalid");
+  }
+  const normalized = import_path4.default.posix.normalize(value);
+  if (normalized === ".." || normalized.startsWith("../") || normalized.split("/").some((segment) => segment === "..")) {
+    throw new Error("context_gateway_path_invalid");
+  }
+  return normalized === "" ? "." : normalized;
+}
+function boundedInteger2(value, minimum, maximum, field) {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${field}_invalid`);
+  }
+  return value;
+}
+function sanitizedReason(error2) {
+  const message = error2 instanceof Error ? error2.message : "operation_failed";
+  return /^[a-z0-9_]{1,160}$/u.test(message) ? message : "operation_failed";
+}
+async function gitNullSeparated(root, args, acceptedExitCodes = /* @__PURE__ */ new Set([0])) {
+  return (await gitText2(root, args, acceptedExitCodes)).split("\0").filter(Boolean);
+}
+async function gitText2(root, args, acceptedExitCodes = /* @__PURE__ */ new Set([0])) {
+  try {
+    return (await execFileAsync5("git", args, {
+      ...gitOptions2(root),
+      encoding: "utf8"
+    })).stdout;
+  } catch (error2) {
+    const code = error2.code;
+    if (typeof code === "number" && acceptedExitCodes.has(code)) {
+      return String(error2.stdout ?? "");
+    }
+    throw error2;
+  }
+}
+async function gitBuffer2(root, args, maxBuffer) {
+  return (await execFileAsync5("git", args, {
+    ...gitOptions2(root),
+    encoding: "buffer",
+    maxBuffer
+  })).stdout;
+}
+function gitOptions2(root) {
+  return {
+    cwd: root,
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 3e4,
+    env: {
+      PATH: process.env.PATH,
+      GIT_ATTR_NOSYSTEM: "1",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_TERMINAL_PROMPT: "0"
+    }
+  };
+}
+
 // src/review-orchestration/infrastructure/context-attestation-replay-runner.ts
-var execFileAsync4 = (0, import_util8.promisify)(import_child_process14.execFile);
+var execFileAsync6 = (0, import_util11.promisify)(import_child_process16.execFile);
 var MAX_REPLAY_PLAN_BYTES = 512 * 1024;
 var ContextAttestationReplayRunner = class {
   constructor(options) {
     this.options = options;
-    if (!path22.isAbsolute(options.checkoutRoot) || !path22.isAbsolute(options.gatewayBundlePath)) {
+    if (!path24.isAbsolute(options.checkoutRoot) || !path24.isAbsolute(options.gatewayBundlePath)) {
       throw new Error("context_replay_path_invalid");
     }
   }
   async replay(input) {
-    const plan = parseReplayPlan(input.candidate);
+    return this.replayCandidate(input.candidate, input.targetRevision);
+  }
+  async replayReceipt(input) {
+    return this.replayCandidate(
+      {
+        attestationId: input.prepared.contextAttestationId,
+        attestationHash: input.prepared.contextAttestationHash,
+        replayPlanCanonicalJson: input.prepared.replayPlanCanonicalJson,
+        replayPlanHash: input.prepared.replayPlanHash,
+        sourceOperationReceiptIdsHash: input.prepared.sourceOperationReceiptIdsHash
+      },
+      input.targetRevision
+    );
+  }
+  async replayCandidate(candidate, targetRevision) {
+    const plan = parseReplayPlan(candidate);
     const [targetCheckoutTreeOid, gatewayBinaryHash] = await Promise.all([
-      this.checkoutTreeOid(input.targetRevision.headSha),
-      (0, import_promises4.readFile)(this.options.gatewayBundlePath).then(sha25610)
+      this.checkoutTreeOid(targetRevision.headSha),
+      (0, import_promises6.readFile)(this.options.gatewayBundlePath).then(sha2566)
     ]);
-    if (plan.gatewayPolicyVersion !== CONTEXT_GATEWAY_POLICY_VERSION || plan.gatewayBinaryHash !== gatewayBinaryHash) {
+    if (plan.gatewayBinaryHash !== gatewayBinaryHash) {
       return null;
     }
-    const directory = await (0, import_promises4.mkdtemp)(
-      path22.join(os10.tmpdir(), "reviewrouter-context-replay-")
+    if (plan.planVersion === 2) {
+      return this.replayV4({
+        candidate,
+        plan,
+        targetRevision,
+        targetCheckoutTreeOid,
+        gatewayBinaryHash
+      });
+    }
+    if (plan.gatewayPolicyVersion !== CONTEXT_GATEWAY_POLICY_VERSION) {
+      return null;
+    }
+    const directory = await (0, import_promises6.mkdtemp)(
+      path24.join(os10.tmpdir(), "reviewrouter-context-replay-")
     );
-    const secret = (0, import_crypto26.randomBytes)(32);
+    const secret = (0, import_crypto30.randomBytes)(32);
     try {
-      const eventChainSeedHash = sha25610(
+      const eventChainSeedHash = sha2566(
         canonicalizeReviewContextReplayChainSeed({
-          planHash: input.candidate.replayPlanHash,
-          attestationId: input.candidate.attestationId,
-          targetReviewRevisionHash: input.targetRevision.reviewRevisionHash,
+          planHash: candidate.replayPlanHash,
+          attestationId: candidate.attestationId,
+          targetReviewRevisionHash: targetRevision.reviewRevisionHash,
           targetCheckoutTreeOid
         })
       );
       const recorder = new ContextGatewayRecorder({
         sessionId: `replay-${plan.attestationHash}`,
-        transcriptPath: path22.join(directory, "transcript.json"),
-        replayMaterialPath: path22.join(directory, "replay-material.json"),
+        transcriptPath: path24.join(directory, "transcript.json"),
+        replayMaterialPath: path24.join(directory, "replay-material.json"),
         secret,
         gatewayBinaryHash,
         checkoutTreeOid: targetCheckoutTreeOid,
@@ -77217,15 +91804,15 @@ var ContextAttestationReplayRunner = class {
         root: this.options.checkoutRoot,
         checkoutTreeOid: targetCheckoutTreeOid,
         baseSha: requireGitOid(
-          input.targetRevision.baseSha.toLowerCase(),
+          targetRevision.baseSha.toLowerCase(),
           "target_base_sha"
         ),
         mergeBaseSha: requireGitOid(
-          input.targetRevision.mergeBaseSha.toLowerCase(),
+          targetRevision.mergeBaseSha.toLowerCase(),
           "target_merge_base_sha"
         ),
         headSha: requireGitOid(
-          input.targetRevision.headSha.toLowerCase(),
+          targetRevision.headSha.toLowerCase(),
           "target_head_sha"
         ),
         recorder
@@ -77239,7 +91826,7 @@ var ContextAttestationReplayRunner = class {
           return null;
         }
         const operation = source.operation.kind === "git_fact" ? observed.operation : source.operation;
-        const operationKey = sha25610(canonicalJson9(operation));
+        const operationKey = sha2566(canonicalJson5(operation));
         const eventWithoutHash = {
           sequence: source.sequence,
           previousEventHash,
@@ -77247,13 +91834,13 @@ var ContextAttestationReplayRunner = class {
           operation,
           result: observed.result
         };
-        const eventHash = sha25610(
+        const eventHash = sha2566(
           canonicalizeReviewContextReplayEvent(eventWithoutHash)
         );
         dependencies.push(Object.freeze({ ...eventWithoutHash, eventHash }));
         previousEventHash = eventHash;
       }
-      const replayResultCanonicalJson = canonicalJson9({
+      const replayResultCanonicalJson = canonicalJson5({
         manifestVersion: 2,
         gatewayPolicyVersion: plan.gatewayPolicyVersion,
         gatewayBinaryHash,
@@ -77265,11 +91852,109 @@ var ContextAttestationReplayRunner = class {
       return Object.freeze({
         targetCheckoutTreeOid,
         replayResultCanonicalJson,
-        replayResultHash: sha25610(replayResultCanonicalJson)
+        replayResultHash: sha2566(replayResultCanonicalJson)
       });
     } finally {
       secret.fill(0);
-      await (0, import_promises4.rm)(directory, { recursive: true, force: true });
+      await (0, import_promises6.rm)(directory, { recursive: true, force: true });
+    }
+  }
+  async replayV4(input) {
+    const directory = await (0, import_promises6.mkdtemp)(
+      path24.join(os10.tmpdir(), "reviewrouter-context-replay-v4-")
+    );
+    const secret = (0, import_crypto30.randomBytes)(32);
+    try {
+      const eventChainSeedHash = sha2566(
+        canonicalizeReviewContextReplayChainSeed({
+          planHash: input.candidate.replayPlanHash,
+          attestationId: input.candidate.attestationId,
+          targetReviewRevisionHash: input.targetRevision.reviewRevisionHash,
+          targetCheckoutTreeOid: input.targetCheckoutTreeOid
+        })
+      );
+      const sessionId = `replay-v4-${input.candidate.attestationHash.slice(0, 32)}`;
+      const recorder = new ContextGatewayV4Recorder({
+        sessionId,
+        transcriptPath: path24.join(directory, "transcript.json"),
+        secret,
+        gatewayBinaryHash: input.gatewayBinaryHash,
+        checkoutTreeOid: input.targetCheckoutTreeOid,
+        eventChainSeedHash
+      });
+      await recorder.initialize();
+      const gateway = await FilesystemContextGatewayV4.create({
+        root: this.options.checkoutRoot,
+        sessionId,
+        checkoutTreeOid: input.targetCheckoutTreeOid,
+        mergeBaseSha: requireGitOid(
+          input.targetRevision.mergeBaseSha.toLowerCase(),
+          "target_merge_base_sha"
+        ),
+        headSha: requireGitOid(
+          input.targetRevision.headSha.toLowerCase(),
+          "target_head_sha"
+        ),
+        secret,
+        recorder
+      });
+      try {
+        for (const operation of input.plan.operations) {
+          await replayV4Operation(gateway, operation);
+        }
+      } catch {
+        return null;
+      }
+      const transcript = recorder.snapshot();
+      if (transcript.events.length === 0 || transcript.confinementTainted || transcript.terminalFailureClass !== null || transcript.events.some(
+        (event) => event.outcome !== "succeeded" /* Succeeded */ || event.result === null || event.operationReceiptId === null
+      )) {
+        return null;
+      }
+      let previousEventHash = eventChainSeedHash;
+      const events = transcript.events.map((event, index) => {
+        const identity = {
+          sequence: index + 1,
+          previousEventHash,
+          operationKey: event.operationKey,
+          operation: event.operation,
+          result: event.result
+        };
+        const eventHash = sha2566(
+          canonicalizeReviewContextReplayEvent(identity)
+        );
+        const synthetic = Object.freeze({
+          ...identity,
+          eventHash,
+          operationKind: event.operationKind,
+          outcome: "succeeded" /* Succeeded */,
+          failureClass: null,
+          operationReceiptId: event.operationReceiptId,
+          sanitizedReason: null
+        });
+        previousEventHash = eventHash;
+        return synthetic;
+      });
+      const replayResultCanonicalJson = canonicalJson5({
+        manifestVersion: 3,
+        gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+        gatewayBinaryHash: input.gatewayBinaryHash,
+        checkoutTreeOid: input.targetCheckoutTreeOid,
+        eventChainSeedHash,
+        authenticatedChainHash: previousEventHash,
+        complete: true,
+        confinementTainted: false,
+        terminalFailureClass: null,
+        events
+      });
+      return Object.freeze({
+        targetCheckoutTreeOid: input.targetCheckoutTreeOid,
+        replayResultCanonicalJson,
+        replayResultHash: sha2566(replayResultCanonicalJson)
+      });
+    } finally {
+      secret.fill(0);
+      await (0, import_promises6.rm)(directory, { recursive: true, force: true });
     }
   }
   async checkoutTreeOid(expectedHeadSha) {
@@ -77277,18 +91962,18 @@ var ContextAttestationReplayRunner = class {
       expectedHeadSha.toLowerCase(),
       "target_head_sha"
     );
-    const { stdout: headOutput } = await execFileAsync4(
+    const { stdout: headOutput } = await execFileAsync6(
       "git",
       ["rev-parse", "HEAD"],
-      gitOptions(this.options.checkoutRoot)
+      gitOptions3(this.options.checkoutRoot)
     );
     if (headOutput.trim().toLowerCase() !== expected) {
       throw new Error("context_replay_checkout_revision_mismatch");
     }
-    const { stdout } = await execFileAsync4(
+    const { stdout } = await execFileAsync6(
       "git",
       ["rev-parse", "HEAD^{tree}"],
-      gitOptions(this.options.checkoutRoot)
+      gitOptions3(this.options.checkoutRoot)
     );
     return requireGitOid(
       stdout.trim().toLowerCase(),
@@ -77310,7 +91995,7 @@ async function replayOperation(gateway, source) {
     case "directory_list":
       requireNoReplayQuery(source);
       requireExactReplayPolicy(operation, {
-        ignorePolicyHash: sha25610("git-index-ignore-policy.v1"),
+        ignorePolicyHash: sha2566("git-index-ignore-policy.v1"),
         caseSensitive: true
       });
       await gateway.listDirectory({
@@ -77328,7 +92013,7 @@ async function replayOperation(gateway, source) {
       requireExactReplayPolicy(operation, {
         includeGlobs: [],
         excludeGlobs: [],
-        ignorePolicyHash: sha25610("git-grep-ignore-policy.v1"),
+        ignorePolicyHash: sha2566("git-grep-ignore-policy.v1"),
         binaryPolicy: "exclude",
         encoding: "utf8"
       });
@@ -77354,13 +92039,136 @@ async function replayOperation(gateway, source) {
       throw new Error("context_replay_operation_kind_invalid");
   }
 }
+async function replayV4Operation(gateway, source) {
+  switch (source.operationKind) {
+    case "file_read" /* FileRead */:
+      await gateway.readFile(fileReadInput(source.replayInput));
+      return;
+    case "directory_list" /* DirectoryList */: {
+      const replayInput = directoryListInput(source.replayInput);
+      await replayAllPages(
+        (cursor) => gateway.listDirectory({
+          ...replayInput,
+          ...cursor === null ? {} : { cursor }
+        })
+      );
+      return;
+    }
+    case "text_search" /* TextSearch */: {
+      const replayInput = textSearchInput(source.replayInput);
+      await replayAllPages(
+        (cursor) => gateway.searchText({
+          ...replayInput,
+          ...cursor === null ? {} : { cursor }
+        })
+      );
+      return;
+    }
+    case "canonical_inventory" /* CanonicalInventory */: {
+      const replayInput = canonicalInventoryInput(source.replayInput);
+      await replayAllPages(
+        (cursor) => gateway.canonicalInventory({
+          ...replayInput,
+          ...cursor === null ? {} : { cursor }
+        })
+      );
+      return;
+    }
+    case "git_fact" /* GitFact */:
+      await gateway.gitFact(gitFactInput(source.replayInput));
+      return;
+    case "unsupported_tool" /* UnsupportedTool */:
+      throw new Error("context_replay_v4_operation_unsupported");
+  }
+}
+async function replayAllPages(call) {
+  let cursor = null;
+  for (let page = 0; page < CONTEXT_GATEWAY_MAX_OPERATIONS; page += 1) {
+    const response = await call(cursor);
+    if (!isRecord6(response)) {
+      throw new Error("context_replay_v4_page_invalid");
+    }
+    if (response.complete === true) {
+      if (response.nextCursor !== null) {
+        throw new Error("context_replay_v4_page_terminal_invalid");
+      }
+      return;
+    }
+    if (response.complete !== false || typeof response.nextCursor !== "string" || response.nextCursor.length === 0) {
+      throw new Error("context_replay_v4_page_incomplete");
+    }
+    cursor = response.nextCursor;
+  }
+  throw new Error("context_replay_v4_page_budget_exceeded");
+}
+function fileReadInput(input) {
+  requireAllowedKeys(input, ["path", "revision", "startByte", "maxBytes"]);
+  return Object.freeze({
+    path: stringField(input, "path"),
+    ...optionalRevision(input),
+    ...optionalInteger(input, "startByte", 0),
+    ...optionalInteger(input, "maxBytes", 1)
+  });
+}
+function directoryListInput(input) {
+  requireAllowedKeys(input, [
+    "path",
+    "revision",
+    "maxDepth",
+    "includeHidden",
+    "pageSize"
+  ]);
+  return Object.freeze({
+    path: stringField(input, "path"),
+    ...optionalRevision(input),
+    ...optionalInteger(input, "maxDepth", 1),
+    ...optionalBoolean(input, "includeHidden"),
+    ...optionalInteger(input, "pageSize", 1)
+  });
+}
+function textSearchInput(input) {
+  requireAllowedKeys(input, [
+    "query",
+    "paths",
+    "revision",
+    "caseSensitive",
+    "pageSize"
+  ]);
+  return Object.freeze({
+    query: stringField(input, "query"),
+    ...optionalStringArray(input, "paths"),
+    ...optionalRevision(input),
+    ...optionalBoolean(input, "caseSensitive"),
+    ...optionalInteger(input, "pageSize", 1)
+  });
+}
+function canonicalInventoryInput(input) {
+  requireAllowedKeys(input, ["pageSize"]);
+  return Object.freeze({ ...optionalInteger(input, "pageSize", 1) });
+}
+function gitFactInput(input) {
+  requireAllowedKeys(input, ["fact"]);
+  return Object.freeze({
+    fact: enumField(input, "fact", [
+      "merge_base",
+      "changed_paths",
+      "diff_stat"
+    ])
+  });
+}
 function parseReplayPlan(candidate) {
-  if (Buffer.byteLength(candidate.replayPlanCanonicalJson, "utf8") > MAX_REPLAY_PLAN_BYTES || sha25610(candidate.replayPlanCanonicalJson) !== candidate.replayPlanHash) {
+  if (Buffer.byteLength(candidate.replayPlanCanonicalJson, "utf8") > MAX_REPLAY_PLAN_BYTES || sha2566(candidate.replayPlanCanonicalJson) !== candidate.replayPlanHash) {
     throw new Error("context_replay_plan_identity_invalid");
   }
   const parsed = JSON.parse(candidate.replayPlanCanonicalJson);
-  if (!isRecord5(parsed)) throw new Error("context_replay_plan_invalid");
-  requireExactKeys(parsed, [
+  if (!isRecord6(parsed)) throw new Error("context_replay_plan_invalid");
+  if (canonicalJson5(parsed) !== candidate.replayPlanCanonicalJson) {
+    throw new Error("context_replay_plan_not_canonical");
+  }
+  if (parsed.planVersion === 2) {
+    return parseReplayPlanV4(parsed, candidate);
+  }
+  requireExactKeys2(parsed, [
     "attestationHash",
     "attestationId",
     "gatewayBinaryHash",
@@ -77372,21 +92180,21 @@ function parseReplayPlan(candidate) {
     throw new Error("context_replay_plan_scope_invalid");
   }
   const dependencies = parsed.sourceDependencies.map((value, index) => {
-    if (!isRecord5(value)) throw new Error("context_replay_dependency_invalid");
-    requireExactKeys(value, [
+    if (!isRecord6(value)) throw new Error("context_replay_dependency_invalid");
+    requireExactKeys2(value, [
       "operation",
       "operationKey",
       "replayQuery",
       "sequence"
     ]);
-    if (value.sequence !== index + 1 || !isRecord5(value.operation) || value.replayQuery !== null && typeof value.replayQuery !== "string") {
+    if (value.sequence !== index + 1 || !isRecord6(value.operation) || value.replayQuery !== null && typeof value.replayQuery !== "string") {
       throw new Error("context_replay_dependency_invalid");
     }
     const operationKey = requireSha256(
       stringField(value, "operationKey"),
       "source_operation_key"
     );
-    if (operationKey !== sha25610(canonicalJson9(value.operation))) {
+    if (operationKey !== sha2566(canonicalJson5(value.operation))) {
       throw new Error("context_replay_operation_identity_invalid");
     }
     return Object.freeze({
@@ -77413,7 +92221,68 @@ function parseReplayPlan(candidate) {
     sourceDependencies: Object.freeze(dependencies)
   });
 }
-function gitOptions(cwd) {
+function parseReplayPlanV4(parsed, candidate) {
+  requireExactKeys2(parsed, [
+    "attestationHash",
+    "attestationId",
+    "gatewayBinaryHash",
+    "gatewayPolicyVersion",
+    "operations",
+    "planVersion",
+    "sourceOperationReceiptIds",
+    "sourceOperationReceiptIdsHash"
+  ]);
+  const sourceOperationReceiptIds = requireDigestArray2(
+    parsed.sourceOperationReceiptIds,
+    "source_operation_receipt_ids",
+    CONTEXT_GATEWAY_MAX_OPERATIONS
+  );
+  const sourceOperationReceiptIdsHash = requireSha256(
+    stringField(parsed, "sourceOperationReceiptIdsHash"),
+    "source_operation_receipt_ids_hash"
+  );
+  if (parsed.planVersion !== 2 || parsed.attestationId !== candidate.attestationId || parsed.attestationHash !== candidate.attestationHash || parsed.gatewayPolicyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION || sourceOperationReceiptIdsHash !== sha2566(
+    canonicalJson5({ operationReceiptIds: sourceOperationReceiptIds })
+  ) || candidate.sourceOperationReceiptIdsHash !== void 0 && candidate.sourceOperationReceiptIdsHash !== sourceOperationReceiptIdsHash || !Array.isArray(parsed.operations) || parsed.operations.length === 0 || parsed.operations.length > CONTEXT_GATEWAY_MAX_OPERATIONS) {
+    throw new Error("context_replay_v4_plan_scope_invalid");
+  }
+  const operations = parsed.operations.map((value) => {
+    if (!isRecord6(value))
+      throw new Error("context_replay_v4_operation_invalid");
+    requireExactKeys2(value, ["operationKind", "replayInput"]);
+    const operationKind = enumField(value, "operationKind", [
+      "file_read" /* FileRead */,
+      "directory_list" /* DirectoryList */,
+      "text_search" /* TextSearch */,
+      "canonical_inventory" /* CanonicalInventory */,
+      "git_fact" /* GitFact */
+    ]);
+    if (!isRecord6(value.replayInput)) {
+      throw new Error("context_replay_v4_input_invalid");
+    }
+    return Object.freeze({
+      operationKind,
+      replayInput: Object.freeze({ ...value.replayInput })
+    });
+  });
+  return Object.freeze({
+    planVersion: 2,
+    attestationId: candidate.attestationId,
+    attestationHash: requireSha256(
+      candidate.attestationHash,
+      "source_attestation_hash"
+    ),
+    gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+    gatewayBinaryHash: requireSha256(
+      stringField(parsed, "gatewayBinaryHash"),
+      "source_gateway_binary_hash"
+    ),
+    sourceOperationReceiptIds,
+    sourceOperationReceiptIdsHash,
+    operations: Object.freeze(operations)
+  });
+}
+function gitOptions3(cwd) {
   return {
     cwd,
     encoding: "utf8",
@@ -77435,53 +92304,96 @@ function requireNoReplayQuery(source) {
 }
 function requireExactReplayPolicy(operation, expected) {
   for (const [key, value] of Object.entries(expected)) {
-    if (canonicalJson9(operation[key]) !== canonicalJson9(value)) {
+    if (canonicalJson5(operation[key]) !== canonicalJson5(value)) {
       throw new Error("context_replay_policy_unsupported");
     }
   }
 }
 function stringField(value, field) {
-  const result = value[field];
-  if (typeof result !== "string" || result.length === 0) {
+  const result2 = value[field];
+  if (typeof result2 !== "string" || result2.length === 0) {
     throw new Error(`context_replay_${field}_invalid`);
   }
-  return result;
+  return result2;
 }
 function stringArrayField(value, field) {
-  const result = value[field];
-  if (!Array.isArray(result) || result.length === 0 || result.some((entry) => typeof entry !== "string")) {
+  const result2 = value[field];
+  if (!Array.isArray(result2) || result2.length === 0 || result2.some((entry) => typeof entry !== "string")) {
     throw new Error(`context_replay_${field}_invalid`);
   }
-  return result;
+  return result2;
+}
+function requireDigestArray2(value, field, maximum) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maximum) {
+    throw new Error(`context_replay_${field}_invalid`);
+  }
+  const result2 = value.map((entry) => requireSha256(entry, field));
+  const sorted = [...result2].sort(compareCodeUnits5);
+  if (new Set(result2).size !== result2.length || canonicalJson5(result2) !== canonicalJson5(sorted)) {
+    throw new Error(`context_replay_${field}_invalid`);
+  }
+  return Object.freeze(result2);
 }
 function integerField(value, field, minimum) {
-  const result = value[field];
-  if (!Number.isSafeInteger(result) || result < minimum) {
+  const result2 = value[field];
+  if (!Number.isSafeInteger(result2) || result2 < minimum) {
     throw new Error(`context_replay_${field}_invalid`);
   }
-  return result;
+  return result2;
 }
 function booleanField(value, field) {
-  const result = value[field];
-  if (typeof result !== "boolean") {
+  const result2 = value[field];
+  if (typeof result2 !== "boolean") {
     throw new Error(`context_replay_${field}_invalid`);
   }
-  return result;
+  return result2;
+}
+function optionalRevision(value) {
+  if (value.revision === void 0) return {};
+  return {
+    revision: enumField(value, "revision", [
+      "head" /* Head */,
+      "merge_base" /* MergeBase */
+    ])
+  };
+}
+function optionalInteger(value, field, minimum) {
+  if (value[field] === void 0) return {};
+  return { [field]: integerField(value, field, minimum) };
+}
+function optionalBoolean(value, field) {
+  if (value[field] === void 0) return {};
+  return { [field]: booleanField(value, field) };
+}
+function optionalStringArray(value, field) {
+  if (value[field] === void 0) return {};
+  return { [field]: stringArrayField(value, field) };
 }
 function enumField(value, field, values) {
-  const result = stringField(value, field);
-  if (!values.includes(result)) {
+  const result2 = stringField(value, field);
+  if (!values.includes(result2)) {
     throw new Error(`context_replay_${field}_invalid`);
   }
-  return result;
+  return result2;
 }
-function requireExactKeys(value, expected) {
+function requireExactKeys2(value, expected) {
   const actual = Object.keys(value).sort();
-  if (canonicalJson9(actual) !== canonicalJson9([...expected].sort())) {
+  if (canonicalJson5(actual) !== canonicalJson5([...expected].sort())) {
     throw new Error("context_replay_object_shape_invalid");
   }
 }
-function isRecord5(value) {
+function requireAllowedKeys(value, allowed) {
+  const allowedSet = new Set(allowed);
+  if (Object.keys(value).some((key) => !allowedSet.has(key))) {
+    throw new Error("context_replay_object_shape_invalid");
+  }
+}
+function compareCodeUnits5(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+function isRecord6(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -77552,7 +92464,7 @@ function diagnosticText(error2) {
 // src/review-orchestration/infrastructure/git-review-revision-materializer.ts
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
-var execFileAsync5 = (0, import_node_util.promisify)(import_node_child_process.execFile);
+var execFileAsync7 = (0, import_node_util.promisify)(import_node_child_process.execFile);
 var COMMIT_SHA = /^[a-f0-9]{40}$/;
 var GITHUB_REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 var GitReviewRevisionMaterializer = class {
@@ -77631,7 +92543,7 @@ function hardenedGitEnvironment() {
   };
 }
 async function runGitCommand(args, options) {
-  await execFileAsync5("git", args, {
+  await execFileAsync7("git", args, {
     cwd: options.cwd,
     env: options.env,
     timeout: 6e4,
@@ -77640,7 +92552,7 @@ async function runGitCommand(args, options) {
 }
 
 // src/review-orchestration/infrastructure/github-review-state-adapter.ts
-var import_crypto28 = require("crypto");
+var import_crypto32 = require("crypto");
 
 // src/review-projection/domain/review-projection.ts
 var LifecycleRevalidationVerdict = /* @__PURE__ */ ((LifecycleRevalidationVerdict2) => {
@@ -77651,15 +92563,15 @@ var LifecycleRevalidationVerdict = /* @__PURE__ */ ((LifecycleRevalidationVerdic
 })(LifecycleRevalidationVerdict || {});
 
 // src/review-projection/domain/review-projection-canonicalizer.ts
-var import_crypto27 = require("crypto");
+var import_crypto31 = require("crypto");
 function canonicalizeReviewProjection(envelope) {
   return JSON.stringify(toCanonicalValue(envelope));
 }
-function hashReviewProjectionCanonicalJson(canonicalJson13) {
-  return (0, import_crypto27.createHash)("sha256").update(canonicalJson13, "utf8").digest("hex");
+function hashReviewProjectionCanonicalJson(canonicalJson14) {
+  return (0, import_crypto31.createHash)("sha256").update(canonicalJson14, "utf8").digest("hex");
 }
 function hashProjectionFact(value) {
-  return (0, import_crypto27.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
+  return (0, import_crypto31.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
 }
 function deepFreezeProjection(value) {
   if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
@@ -77839,11 +92751,11 @@ function hasValidTrustedResolutionMarker(target) {
     marker && marker.trust === "trusted" /* Trusted */ && marker.schemaVersion === "reviewrouter-lifecycle-resolution.v1" && marker.targetId === target.targetId && marker.fingerprint === target.trustedMarker
   );
 }
-function summaryPlacement(lineageId, path25, reason) {
+function summaryPlacement(lineageId, path28, reason) {
   return {
     lineageId,
     kind: "summary" /* Summary */,
-    path: path25,
+    path: path28,
     reason
   };
 }
@@ -77866,8 +92778,8 @@ function sortOccurrences(occurrences) {
     (left, right) => stateOrder[left.state] - stateOrder[right.state] || severityOrder[left.severity] - severityOrder[right.severity] || left.filePath.localeCompare(right.filePath) || (left.line ?? 0) - (right.line ?? 0) || left.lineageId.localeCompare(right.lineageId)
   );
 }
-function normalizePath(path25) {
-  return path25.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+function normalizePath(path28) {
+  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 }
 function sortedUnique(values) {
   return Array.from(new Set(values)).sort(
@@ -77997,7 +92909,7 @@ var GitHubReviewRevisionGuard = class {
       baseSha: facts.baseSha,
       mergeBaseSha: facts.mergeBaseSha,
       headSha: facts.headSha,
-      reviewRevisionHash: sha25612(canonicalJson10(facts))
+      reviewRevisionHash: sha25613(canonicalJson11(facts))
     });
   }
 };
@@ -78047,7 +92959,7 @@ function mapFreshInventory(raw, expectedHeadSha, ledger) {
       manual: true
     }))
   ].sort(
-    (left, right) => compareCodeUnits2(left.target.targetId, right.target.targetId)
+    (left, right) => compareCodeUnits6(left.target.targetId, right.target.targetId)
   );
   if (new Set(rawTargets.map(({ target }) => target.targetId)).size !== rawTargets.length) {
     throw new Error("review_action_v2_lifecycle_inventory_duplicate_target");
@@ -78082,8 +92994,8 @@ function mapFreshInventory(raw, expectedHeadSha, ledger) {
   }));
   const commandWatermark = commandLedgerWatermark(ledger.payload);
   const commandLedgerWatermarkValue = String(commandWatermark);
-  const lifecycleStateHash = sha25612(
-    canonicalJson10({
+  const lifecycleStateHash = sha25613(
+    canonicalJson11({
       commandLedgerWatermark: commandLedgerWatermarkValue,
       complete: true,
       loadedForHeadSha,
@@ -78174,26 +93086,26 @@ function readOwnDataProperty2(value, property) {
   const descriptor = Object.getOwnPropertyDescriptor(value, property);
   return descriptor && "value" in descriptor ? descriptor.value : void 0;
 }
-function canonicalJson10(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson10).join(",")}]`;
+function canonicalJson11(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson11).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.keys(value).sort().map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson10(value[key])}`
+      (key) => `${JSON.stringify(key)}:${canonicalJson11(value[key])}`
     ).join(",")}}`;
   }
   return JSON.stringify(value);
 }
-function sha25612(value) {
-  return (0, import_crypto28.createHash)("sha256").update(value).digest("hex");
+function sha25613(value) {
+  return (0, import_crypto32.createHash)("sha256").update(value).digest("hex");
 }
-function compareCodeUnits2(left, right) {
+function compareCodeUnits6(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
 }
 
 // src/review-orchestration/infrastructure/production-review-projection.ts
-var import_crypto30 = require("crypto");
+var import_crypto34 = require("crypto");
 
 // src/review-projection/application/build-current-review-projection.ts
 var BuildCurrentReviewProjection = class {
@@ -78291,6 +93203,9 @@ var BuildCurrentReviewProjection = class {
     const envelope = deepFreezeProjection({
       envelopeVersion: "review_projection.v1" /* V1 */,
       projectionPolicyVersion: command.projectionPolicyVersion,
+      authoritativeObservationIds: sortCodeUnits(
+        command.authoritativeObservationIds
+      ),
       scope: { ...command.scope },
       coverage,
       lifecycleStateHash: inventory.lifecycleStateHash,
@@ -78320,19 +93235,23 @@ var BuildCurrentReviewProjection = class {
       },
       snapshot: coverageOnly ? { occurrenceProvenance: [], lineageHints: [] } : buildSnapshotFacts(occurrences)
     });
-    const canonicalJson13 = canonicalizeReviewProjection(envelope);
-    const byteCount = Buffer.byteLength(canonicalJson13, "utf8");
+    const canonicalJson14 = canonicalizeReviewProjection(envelope);
+    const byteCount = Buffer.byteLength(canonicalJson14, "utf8");
     assertWithinProjectionLimit("maxProjectionBytes", byteCount, this.limits);
     return deepFreezeProjection({
       envelope,
-      canonicalJson: canonicalJson13,
-      projectionHash: hashReviewProjectionCanonicalJson(canonicalJson13),
+      canonicalJson: canonicalJson14,
+      projectionHash: hashReviewProjectionCanonicalJson(canonicalJson14),
       byteCount,
       findingCount: occurrences.length
     });
   }
   validateCommand(command) {
     assertNonEmpty("projectionPolicyVersion", command.projectionPolicyVersion);
+    validateAuthoritativeObservationIds(
+      command.authoritativeObservationIds,
+      this.limits
+    );
     validateProviderExecutionSummary(command.providerExecution);
     assertNonEmpty(
       "scmRepositoryIdentityId",
@@ -78479,6 +93398,17 @@ function validateProviderExecutionSummary(summary) {
       "succeededProviders must be between zero and plannedProviders"
     );
   }
+}
+function validateAuthoritativeObservationIds(observationIds, limits) {
+  for (const observationId of observationIds) {
+    assertNonEmpty("authoritative observationId", observationId);
+    assertWithinProjectionLimit(
+      "maxStringBytes",
+      Buffer.byteLength(observationId, "utf8"),
+      limits
+    );
+  }
+  assertUnique2("authoritative observationId", observationIds);
 }
 function applyBlockingDecision(occurrences, gate) {
   const blocking = new Set(gate.blockingLineageIds);
@@ -78661,11 +93591,11 @@ function countOccurrenceStates(occurrences) {
 function publicationMarker(kind, scope) {
   return `reviewrouter:${kind}:v2:${scope.reviewRevisionHash}`;
 }
-function summaryPlacement2(lineageId, path25, reason) {
+function summaryPlacement2(lineageId, path28, reason) {
   return {
     lineageId,
     kind: "summary" /* Summary */,
-    path: path25,
+    path: path28,
     reason
   };
 }
@@ -78791,13 +93721,20 @@ function validateGateDecision(occurrences, gate) {
 function assertNonEmpty(name, value) {
   if (!value.trim()) throw new Error(`${name} must not be empty`);
 }
-function normalizePath2(path25) {
-  return path25.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+function normalizePath2(path28) {
+  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 }
 function sortedUnique2(values) {
   return Array.from(new Set(values)).sort(
     (left, right) => left.localeCompare(right)
   );
+}
+function sortCodeUnits(values) {
+  return [...values].sort((left, right) => {
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  });
 }
 function assertUnique2(name, values) {
   if (new Set(values).size !== values.length) {
@@ -78882,7 +93819,7 @@ var LegacyReviewProjectionPolicyAdapter = class {
     const lifecycle = new ThreadLifecycleAggregator().aggregate({
       mode: "report",
       targets,
-      plannedProviders: providerResults.map((result) => result.name),
+      plannedProviders: providerResults.map((result2) => result2.name),
       providerResults,
       currentFindings: query.findings.map(toLegacyFinding),
       initialManualAttention: manualAttention,
@@ -79194,8 +94131,8 @@ function formatLifecycleLines(headSha, occurrences) {
     }
   });
 }
-function findRevisionFile(path25, revisionFiles) {
-  const normalized = normalizePath3(path25);
+function findRevisionFile(path28, revisionFiles) {
+  const normalized = normalizePath3(path28);
   return revisionFiles.find(
     (file) => normalizePath3(file.path) === normalized || file.previousPath && normalizePath3(file.previousPath) === normalized
   );
@@ -79217,8 +94154,8 @@ function toProjectionSeverity2(severity) {
 function toLegacySeverity(severity) {
   return severity;
 }
-function normalizePath3(path25) {
-  return path25.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+function normalizePath3(path28) {
+  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 }
 function normalizeText4(value) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -79230,7 +94167,7 @@ function sortedUnique3(values) {
 }
 
 // src/review-orchestration/infrastructure/current-review-projection-builder-adapter.ts
-var import_crypto29 = require("crypto");
+var import_crypto33 = require("crypto");
 var CurrentReviewProjectionBuilderAdapter = class {
   constructor(projection, commands) {
     this.projection = projection;
@@ -79242,9 +94179,9 @@ var CurrentReviewProjectionBuilderAdapter = class {
       throw new Error("review_projection_command_revision_mismatch");
     }
     const built = await this.projection.execute(command);
-    const operationsCanonicalJson = canonicalJson11(built.envelope.publishing);
-    const artifactHash = sha25613(
-      `rr.review-artifact.v1\0${canonicalJson11({
+    const operationsCanonicalJson = canonicalJson12(built.envelope.publishing);
+    const artifactHash = sha25614(
+      `rr.review-artifact.v1\0${canonicalJson12({
         operationsCanonicalJson,
         projectionHash: built.projectionHash
       })}`
@@ -79265,17 +94202,17 @@ var CurrentReviewProjectionBuilderAdapter = class {
     });
   }
 };
-function canonicalJson11(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson11).join(",")}]`;
+function canonicalJson12(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson12).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.keys(value).sort().map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson11(value[key])}`
+      (key) => `${JSON.stringify(key)}:${canonicalJson12(value[key])}`
     ).join(",")}}`;
   }
   return JSON.stringify(value);
 }
-function sha25613(value) {
-  return (0, import_crypto29.createHash)("sha256").update(value).digest("hex");
+function sha25614(value) {
+  return (0, import_crypto33.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/infrastructure/production-review-projection.ts
@@ -79309,6 +94246,9 @@ var ProductionReviewProjectionCommandFactory = class {
       evidence: input.acceptedEvidence,
       reviewRevisionHash: input.reviewRevisionHash
     });
+    const authoritativeObservationIds = Object.freeze(
+      [...evidence.values()].map(({ observation }) => observation.observationId).sort(compareCodeUnits7)
+    );
     const findings = [];
     const revalidations = [];
     for (const { observation } of evidence.values()) {
@@ -79348,13 +94288,13 @@ var ProductionReviewProjectionCommandFactory = class {
           `work_slot_context_inspection_incomplete:${assignment.workSlotId}`
         );
       }
-      for (const path25 of manifest.paths) {
-        if (path25.kind === "full_patch" /* FullPatch */) {
-          reviewedFiles.add(path25.path);
-        } else if (path25.kind === "policy_excluded" /* PolicyExcluded */) {
-          policyExcludedFiles.add(path25.path);
+      for (const path28 of manifest.paths) {
+        if (path28.kind === "full_patch" /* FullPatch */) {
+          reviewedFiles.add(path28.path);
+        } else if (path28.kind === "policy_excluded" /* PolicyExcluded */) {
+          policyExcludedFiles.add(path28.path);
         } else {
-          coverageLimitations.push(`path_coverage:${path25.path}:${path25.kind}`);
+          coverageLimitations.push(`path_coverage:${path28.path}:${path28.kind}`);
         }
       }
       if (!isReviewPromptCoverageComplete(manifest)) {
@@ -79372,7 +94312,7 @@ var ProductionReviewProjectionCommandFactory = class {
         (omission) => `pull_request_load:${omission.reason}`
       ) : [],
       ...requiredExhaustedWorkSlotIds.map((id) => `work_slot_exhausted:${id}`),
-      ...this.input.uncoveredPaths.map((path25) => `work_slot_uncovered:${path25}`),
+      ...this.input.uncoveredPaths.map((path28) => `work_slot_uncovered:${path28}`),
       ...this.input.uncoveredLifecycleTargetIds.map(
         (targetId) => `lifecycle_target_uncovered:${targetId}`
       ),
@@ -79384,6 +94324,7 @@ var ProductionReviewProjectionCommandFactory = class {
     );
     return Object.freeze({
       projectionPolicyVersion: productionReviewProjectionPolicyVersion,
+      authoritativeObservationIds,
       scope: {
         scmRepositoryIdentityId: this.input.authorizationFacts.scmRepositoryIdentityId,
         pullRequestNumber: this.input.authorizationFacts.pullRequestNumber,
@@ -79400,13 +94341,13 @@ var ProductionReviewProjectionCommandFactory = class {
       providerExecution,
       currentFindings: Object.freeze(
         findings.sort(
-          (left, right) => compareCodeUnits3(left.sourceFindingId, right.sourceFindingId)
+          (left, right) => compareCodeUnits7(left.sourceFindingId, right.sourceFindingId)
         )
       ),
       priorLineageHints: Object.freeze([]),
       lifecycleRevalidations: Object.freeze(
         revalidations.sort(
-          (left, right) => compareCodeUnits3(left.targetId, right.targetId)
+          (left, right) => compareCodeUnits7(left.targetId, right.targetId)
         )
       ),
       coverage: {
@@ -79482,7 +94423,7 @@ function providerExecutionSummary(assignments, evidence) {
 }
 function parseObservation(value) {
   const parsed = JSON.parse(value);
-  if (parsed.payloadVersion !== 2 || !Array.isArray(parsed.normalizedFindings) || !Array.isArray(parsed.normalizedLifecycleRevalidations) || parsed.normalizedFindings.some((item) => !isRecord6(item)) || parsed.normalizedLifecycleRevalidations.some((item) => !isRecord6(item))) {
+  if (parsed.payloadVersion !== 2 || !Array.isArray(parsed.normalizedFindings) || !Array.isArray(parsed.normalizedLifecycleRevalidations) || parsed.normalizedFindings.some((item) => !isRecord7(item)) || parsed.normalizedLifecycleRevalidations.some((item) => !isRecord7(item))) {
     throw new Error("review_action_v2_observation_payload_invalid");
   }
   return {
@@ -79492,10 +94433,10 @@ function parseObservation(value) {
 }
 function toFinding(observation, value, index) {
   const category = optionalString(value.category) ?? "correctness";
-  const title = requireString(value.title, "finding_title");
-  const message = requireString(value.message, "finding_message");
-  const filePath = requireString(value.path, "finding_file");
-  const normalizedFailureModeHash = requireDigest2(
+  const title = requireString2(value.title, "finding_title");
+  const message = requireString2(value.message, "finding_message");
+  const filePath = requireString2(value.path, "finding_file");
+  const normalizedFailureModeHash = requireDigest3(
     value.normalizedFailureModeHash,
     "finding_failure_mode_hash"
   );
@@ -79521,14 +94462,14 @@ function toFinding(observation, value, index) {
   });
 }
 function toRevalidation(observation, value) {
-  const verdict = requireString(value.verdict, "revalidation_verdict");
+  const verdict = requireString2(value.verdict, "revalidation_verdict");
   if (!Object.values(LifecycleRevalidationVerdict).includes(
     verdict
   )) {
     throw new Error("review_action_v2_revalidation_verdict_invalid");
   }
   return Object.freeze({
-    targetId: requireString(value.targetId, "revalidation_target_id"),
+    targetId: requireString2(value.targetId, "revalidation_target_id"),
     providerVoteKey: observation.providerVoteIdentityHash,
     verdict,
     ...optionalConfidence(value.confidence) !== void 0 ? { confidence: optionalConfidence(value.confidence) } : {},
@@ -79621,42 +94562,42 @@ function optionalConfidence(value) {
 function optionalString(value) {
   return typeof value === "string" && value.length > 0 ? value : void 0;
 }
-function requireString(value, field) {
+function requireString2(value, field) {
   const parsed = optionalString(value);
   if (!parsed) throw new Error(`review_action_v2_${field}_invalid`);
   return parsed;
 }
-function requireDigest2(value, field) {
-  const parsed = requireString(value, field);
+function requireDigest3(value, field) {
+  const parsed = requireString2(value, field);
   if (!/^[a-f0-9]{64}$/u.test(parsed)) {
     throw new Error(`review_action_v2_${field}_invalid`);
   }
   return parsed;
 }
-function isRecord6(value) {
+function isRecord7(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function deterministicId(namespace, parts) {
-  return `rr:${namespace}:${sha25614(parts.join("\0")).slice(0, 40)}`;
+  return `rr:${namespace}:${sha25615(parts.join("\0")).slice(0, 40)}`;
 }
-function compareCodeUnits3(left, right) {
+function compareCodeUnits7(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
 }
-function sha25614(value) {
-  return (0, import_crypto30.createHash)("sha256").update(value).digest("hex");
+function sha25615(value) {
+  return (0, import_crypto34.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter.ts
-var import_crypto31 = require("crypto");
+var import_crypto35 = require("crypto");
 var ReviewActionV2ControlPlaneAdapter = class {
   constructor(client) {
     this.client = client;
   }
   activeAuthorization = null;
   async authorize(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_run_authorize" /* ReviewRunAuthorize */,
       {
         oidcToken: input.oidcToken,
@@ -79668,41 +94609,41 @@ var ReviewActionV2ControlPlaneAdapter = class {
         ]
       }
     );
-    if (result.status !== "authorized" /* Authorized */ && result.status !== "restored" /* Restored */) {
+    if (result2.status !== "authorized" /* Authorized */ && result2.status !== "restored" /* Restored */) {
       throw new Error("review_action_v2_authorization_denied");
     }
     const authorization = {
-      authorizationId: requireString2(
-        result.authorizationId,
+      authorizationId: requireString3(
+        result2.authorizationId,
         "authorization_id"
       ),
-      authorizationToken: requireString2(
-        result.authorizationToken,
+      authorizationToken: requireString3(
+        result2.authorizationToken,
         "authorization_token"
       ),
-      producerReleaseId: requireString2(
-        result.producerReleaseId,
+      producerReleaseId: requireString3(
+        result2.producerReleaseId,
         "producer_release_id"
       ),
-      protocolLimitsProfileId: requireString2(
-        result.protocolLimitsProfileId,
+      protocolLimitsProfileId: requireString3(
+        result2.protocolLimitsProfileId,
         "protocol_limits_profile_id"
       ),
-      operationalSloProfileId: requireString2(
-        result.operationalSloProfileId,
+      operationalSloProfileId: requireString3(
+        result2.operationalSloProfileId,
         "operational_slo_profile_id"
       ),
-      mutationEpoch: requireDecimal(result.mutationEpoch, "mutation_epoch"),
-      expiresAt: requireTimestamp2(result.expiresAt, "expires_at"),
-      limits: parseProtocolLimits(result.protocolLimitsCanonicalJson),
-      facts: parseAuthorizationFacts(result.authorizationFactsCanonicalJson)
+      mutationEpoch: requireDecimal(result2.mutationEpoch, "mutation_epoch"),
+      expiresAt: requireTimestamp2(result2.expiresAt, "expires_at"),
+      limits: parseProtocolLimits(result2.protocolLimitsCanonicalJson),
+      facts: parseAuthorizationFacts(result2.authorizationFactsCanonicalJson)
     };
     this.activeAuthorization = authorization;
     return authorization;
   }
   async openGatewaySession(input) {
     const authorization = this.requireActiveAuthorization();
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_context_gateway_open" /* ReviewContextGatewayOpen */,
       {
         authorizationToken: authorization.authorizationToken,
@@ -79717,7 +94658,8 @@ var ReviewActionV2ControlPlaneAdapter = class {
           input.checkoutTreeOid,
           input.gatewayPolicyVersion,
           input.gatewayBinaryHash,
-          input.confinementEvidenceHash
+          input.confinementEvidenceHash,
+          ...input.openingIntentDiscriminator === void 0 ? [] : [input.openingIntentDiscriminator]
         ]),
         attemptId: input.invocationLease.attemptId,
         sourceLeaseId: input.invocationLease.leaseId,
@@ -79731,34 +94673,34 @@ var ReviewActionV2ControlPlaneAdapter = class {
         confinementEvidenceHash: input.confinementEvidenceHash
       }
     );
-    if (result.status !== "opened" /* Opened */ && result.status !== "idempotent" /* Idempotent */) {
-      throw new Error(`review_action_v2_context_gateway_open_${result.status}`);
+    if (result2.status !== "opened" /* Opened */ && result2.status !== "idempotent" /* Idempotent */) {
+      throw new Error(`review_action_v2_context_gateway_open_${result2.status}`);
     }
     return Object.freeze({
-      sessionId: requireString2(result.sessionId, "context_gateway_session_id"),
-      eventChainSeedHash: requireDigest3(
-        result.eventChainSeedHash,
+      sessionId: requireString3(result2.sessionId, "context_gateway_session_id"),
+      eventChainSeedHash: requireDigest4(
+        result2.eventChainSeedHash,
         "context_gateway_event_chain_seed_hash"
       ),
-      sealCapability: requireString2(
-        result.sealCapability,
+      sealCapability: requireString3(
+        result2.sealCapability,
         "context_gateway_seal_capability"
       ),
-      gatewaySessionSecret: requireString2(
-        result.gatewaySessionSecret,
+      gatewaySessionSecret: requireString3(
+        result2.gatewaySessionSecret,
         "context_gateway_session_secret"
       ),
       expiresAt: requireTimestamp2(
-        result.expiresAt,
+        result2.expiresAt,
         "context_gateway_expires_at"
       )
     });
   }
   async sealGatewaySession(input) {
     const authorization = this.requireActiveAuthorization();
-    let result;
+    let result2;
     try {
-      result = await this.client.execute(
+      result2 = await this.client.execute(
         "review_context_gateway_seal" /* ReviewContextGatewaySeal */,
         {
           authorizationToken: authorization.authorizationToken,
@@ -79788,25 +94730,25 @@ var ReviewActionV2ControlPlaneAdapter = class {
     } catch (error2) {
       throw controlPlaneFailure(error2);
     }
-    if (result.status === "denied" /* Denied */ || result.status === "conflict" /* Conflict */) {
+    if (result2.status === "denied" /* Denied */ || result2.status === "conflict" /* Conflict */) {
       return null;
     }
-    if (result.status !== "accepted" /* Accepted */ && result.status !== "idempotent" /* Idempotent */) {
-      throw new Error(`review_action_v2_context_gateway_seal_${result.status}`);
+    if (result2.status !== "accepted" /* Accepted */ && result2.status !== "idempotent" /* Idempotent */) {
+      throw new Error(`review_action_v2_context_gateway_seal_${result2.status}`);
     }
     return Object.freeze({
-      attestationId: requireString2(
-        result.attestationId,
+      attestationId: requireString3(
+        result2.attestationId,
         "context_dependency_attestation_id"
       ),
-      attestationHash: requireDigest3(
-        result.attestationHash,
+      attestationHash: requireDigest4(
+        result2.attestationHash,
         "context_dependency_attestation_hash"
       )
     });
   }
   async commitContextReplay(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_context_replay_commit" /* ReviewContextReplayCommit */,
       {
         authorizationToken: input.authorization.authorizationToken,
@@ -79829,15 +94771,15 @@ var ReviewActionV2ControlPlaneAdapter = class {
         replayResultHash: input.result.replayResultHash
       }
     );
-    if (result.status === "denied" /* Denied */ || result.status === "conflict" /* Conflict */) {
+    if (result2.status === "denied" /* Denied */ || result2.status === "conflict" /* Conflict */) {
       return null;
     }
-    if (result.status !== "accepted" /* Accepted */ && result.status !== "idempotent" /* Idempotent */) {
-      throw new Error(`review_action_v2_context_replay_${result.status}`);
+    if (result2.status !== "accepted" /* Accepted */ && result2.status !== "idempotent" /* Idempotent */) {
+      throw new Error(`review_action_v2_context_replay_${result2.status}`);
     }
     return Object.freeze({
-      attachmentCapability: requireString2(
-        result.attachmentCapability,
+      attachmentCapability: requireString3(
+        result2.attachmentCapability,
         "context_replay_attachment_capability"
       )
     });
@@ -79855,7 +94797,7 @@ var ReviewActionV2ControlPlaneAdapter = class {
     });
   }
   async restoreExecution(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_execution_restore" /* ReviewExecutionRestore */,
       {
         authorizationToken: input.authorization.authorizationToken,
@@ -79863,29 +94805,29 @@ var ReviewActionV2ControlPlaneAdapter = class {
         reviewRevisionHash: input.reviewRevisionHash
       }
     );
-    if (result.status === "missing" /* Missing */ || result.status === "not_restorable" /* NotRestorable */) {
+    if (result2.status === "missing" /* Missing */ || result2.status === "not_restorable" /* NotRestorable */) {
       return null;
     }
-    if (result.status !== "found" /* Found */) {
+    if (result2.status !== "found" /* Found */) {
       throw new Error("review_action_v2_restore_status_unknown");
     }
     const streamVersion = requireDecimal(
-      result.streamVersion,
+      result2.streamVersion,
       "restore_stream_version"
     );
-    const restored = parseRestoredExecution(result.executionCanonicalJson, {
+    const restored = parseRestoredExecution(result2.executionCanonicalJson, {
       authorizationId: input.authorization.authorizationId,
       reviewRevisionHash: input.reviewRevisionHash,
       maxWorkSlots: input.authorization.limits.maxWorkSlots,
       streamVersion
     });
-    if (requireString2(result.executionId, "restore_execution_id") !== restored.executionId || requireDecimal(result.generation, "restore_generation") !== restored.generation || requireString2(result.executionState, "restore_execution_state") !== restored.state) {
+    if (requireString3(result2.executionId, "restore_execution_id") !== restored.executionId || requireDecimal(result2.generation, "restore_generation") !== restored.generation || requireString3(result2.executionState, "restore_execution_state") !== restored.state) {
       throw new Error("review_action_v2_restore_envelope_mismatch");
     }
     return restored;
   }
   async startExecution(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_execution_start" /* ReviewExecutionStart */,
       {
         authorizationToken: input.authorization.authorizationToken,
@@ -79900,10 +94842,10 @@ var ReviewActionV2ControlPlaneAdapter = class {
         sourceRunAttempt: input.sourceRunAttempt
       }
     );
-    if (result.status !== "admitted" /* Admitted */ && result.status !== "restored" /* Restored */) {
-      throw new Error(`review_action_v2_execution_${result.status}`);
+    if (result2.status !== "admitted" /* Admitted */ && result2.status !== "restored" /* Restored */) {
+      throw new Error(`review_action_v2_execution_${result2.status}`);
     }
-    return parseExecutionAdmission(result, input);
+    return parseExecutionAdmission(result2, input);
   }
   async supersedeExecution(input) {
     const operationId = "review_execution_supersede" /* ReviewExecutionSupersede */;
@@ -79914,7 +94856,7 @@ var ReviewActionV2ControlPlaneAdapter = class {
       expectedStreamVersion: input.execution.streamVersion,
       targetRevisionHash: input.targetRevisionHash
     };
-    const result = await this.client.execute(operationId, request).catch((error2) => {
+    const result2 = await this.client.execute(operationId, request).catch((error2) => {
       if (isBenignSupersedeTargetRevisionMismatch(error2)) {
         return {
           status: "restored" /* Restored */,
@@ -79924,10 +94866,10 @@ var ReviewActionV2ControlPlaneAdapter = class {
       }
       throw error2;
     });
-    requireMutationApplied(result.status, "execution_supersede");
+    requireMutationApplied(result2.status, "execution_supersede");
   }
   async lookupEvidence(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_evidence_lookup" /* ReviewEvidenceLookup */,
       {
         authorizationToken: input.authorization.authorizationToken,
@@ -79941,31 +94883,31 @@ var ReviewActionV2ControlPlaneAdapter = class {
       }
     );
     logger.info(
-      `Review evidence lookup: status=${result.status}, manifest=${digestPrefix2(
+      `Review evidence lookup: status=${result2.status}, manifest=${digestPrefix2(
         input.manifest.manifestKey
       )}, invocation=${digestPrefix2(
         input.manifest.providerInvocationKey
-      )}, reasons=${formatLookupDenialReasons(result.denialReasons)}`
+      )}, reasons=${formatLookupDenialReasons(result2.denialReasons)}`
     );
-    if (result.status === "miss" /* Miss */) {
+    if (result2.status === "miss" /* Miss */) {
       return { kind: "miss" /* Miss */ };
     }
-    if (result.status === "replay_required" /* ReplayRequired */) {
-      const observation = parseLookupObservation(result, input);
-      const attestationId = requireString2(
-        result.contextDependencyAttestationId,
+    if (result2.status === "replay_required" /* ReplayRequired */) {
+      const observation = parseLookupObservation(result2, input);
+      const attestationId = requireString3(
+        result2.contextDependencyAttestationId,
         "context_dependency_attestation_id"
       );
-      const attestationHash = requireDigest3(
-        result.contextDependencyAttestationHash,
+      const attestationHash = requireDigest4(
+        result2.contextDependencyAttestationHash,
         "context_dependency_attestation_hash"
       );
       const replayPlanCanonicalJson = requireCanonicalJson(
-        result.contextReplayPlanCanonicalJson,
+        result2.contextReplayPlanCanonicalJson,
         "context_replay_plan"
       );
-      const replayPlanHash = requireDigest3(
-        result.contextReplayPlanHash,
+      const replayPlanHash = requireDigest4(
+        result2.contextReplayPlanHash,
         "context_replay_plan_hash"
       );
       if (digest(replayPlanCanonicalJson) !== replayPlanHash || observation.contextDependencyAttestationId !== attestationId || observation.contextDependencyAttestationHash !== attestationHash) {
@@ -79976,30 +94918,30 @@ var ReviewActionV2ControlPlaneAdapter = class {
         observation,
         attestationId,
         attestationHash,
-        replayCapability: requireString2(
-          result.contextReplayCapability,
+        replayCapability: requireString3(
+          result2.contextReplayCapability,
           "context_replay_capability"
         ),
         replayPlanCanonicalJson,
         replayPlanHash
       };
     }
-    if (result.status === "hit" /* Hit */ || result.status === "shadow" /* Shadow */) {
-      const sourceFacts = parseAdoptionSourceFacts(result);
-      if (result.status === "shadow" /* Shadow */ && sourceFacts === null) {
+    if (result2.status === "hit" /* Hit */ || result2.status === "shadow" /* Shadow */) {
+      const sourceFacts = parseAdoptionSourceFacts(result2);
+      if (result2.status === "shadow" /* Shadow */ && sourceFacts === null) {
         return { kind: "miss" /* Miss */ };
       }
-      const observation = parseLookupObservation(result, input);
-      const attachmentCapability = result.attachmentCapability ?? null;
-      const attachmentKind = result.attachmentKind ?? null;
+      const observation = parseLookupObservation(result2, input);
+      const attachmentCapability = result2.attachmentCapability ?? null;
+      const attachmentKind = result2.attachmentKind ?? null;
       const attachment = attachmentCapability ? parseExactRevisionAttachment(
         attachmentCapability,
         attachmentKind,
-        result.reuseSafetyDecisionHash,
+        result2.reuseSafetyDecisionHash,
         sourceFacts
       ) : parseSameExecutionAttachment(
         attachmentKind,
-        result.reuseSafetyDecisionHash,
+        result2.reuseSafetyDecisionHash,
         sourceFacts
       );
       return {
@@ -80011,7 +94953,7 @@ var ReviewActionV2ControlPlaneAdapter = class {
     throw new Error("review_action_v2_lookup_status_unknown");
   }
   async acquireInvocationLease(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_invocation_lease_acquire" /* ReviewInvocationLeaseAcquire */,
       {
         authorizationToken: input.authorization.authorizationToken,
@@ -80027,22 +94969,22 @@ var ReviewActionV2ControlPlaneAdapter = class {
         ownerIdHash: input.ownerIdHash
       }
     );
-    if (result.status === "busy" /* Busy */) {
+    if (result2.status === "busy" /* Busy */) {
       return { status: "busy" /* Busy */ };
     }
-    if (result.status === "rejected" /* Rejected */) {
-      return leaseAcquireRejectedOutcome(result.rejectionReason);
+    if (result2.status === "rejected" /* Rejected */) {
+      return leaseAcquireRejectedOutcome(result2.rejectionReason);
     }
-    if (result.status !== "acquired" /* Acquired */ && result.status !== "restored" /* Restored */) {
-      throw new Error(`review_action_v2_lease_${result.status}`);
+    if (result2.status !== "acquired" /* Acquired */ && result2.status !== "restored" /* Restored */) {
+      throw new Error(`review_action_v2_lease_${result2.status}`);
     }
     return {
       status: "acquired" /* Acquired */,
-      lease: parseLease(result)
+      lease: parseLease(result2)
     };
   }
   async renewInvocationLease(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_invocation_lease_renew" /* ReviewInvocationLeaseRenew */,
       {
         leaseCapability: input.lease.leaseCapability,
@@ -80053,27 +94995,27 @@ var ReviewActionV2ControlPlaneAdapter = class {
         renewRequestId: input.renewRequestId
       }
     );
-    if (result.status !== "applied" /* Applied */ && result.status !== "restored" /* Restored */) {
-      throw new Error(`review_action_v2_lease_renew_${result.status}`);
+    if (result2.status !== "applied" /* Applied */ && result2.status !== "restored" /* Restored */) {
+      throw new Error(`review_action_v2_lease_renew_${result2.status}`);
     }
-    const leaseId = requireString2(result.leaseId, "lease_renew_lease_id");
+    const leaseId = requireString3(result2.leaseId, "lease_renew_lease_id");
     const fencingToken = requireDecimal(
-      result.fencingToken,
+      result2.fencingToken,
       "lease_renew_fencing_token"
     );
     const expiresAt = requireTimestamp2(
-      result.expiresAt,
+      result2.expiresAt,
       "lease_renew_expires_at"
     );
-    const leaseCapability = requireString2(
-      result.leaseCapability,
+    const leaseCapability = requireString3(
+      result2.leaseCapability,
       "lease_renew_capability"
     );
     const previousExpiry = Date.parse(input.lease.expiresAt);
     const renewedExpiry = Date.parse(expiresAt);
     const expiryAdvanced = renewedExpiry > previousExpiry;
-    const renewalCeilingReached = result.status === "restored" /* Restored */ && !expiryAdvanced;
-    if (leaseId !== input.lease.leaseId || fencingToken !== input.lease.fencingToken || renewedExpiry < previousExpiry || expiryAdvanced && leaseCapability === input.lease.leaseCapability || result.status === "applied" /* Applied */ && !expiryAdvanced) {
+    const renewalCeilingReached = result2.status === "restored" /* Restored */ && !expiryAdvanced;
+    if (leaseId !== input.lease.leaseId || fencingToken !== input.lease.fencingToken || renewedExpiry < previousExpiry || expiryAdvanced && leaseCapability === input.lease.leaseCapability || result2.status === "applied" /* Applied */ && !expiryAdvanced) {
       throw new Error("review_action_v2_lease_renewal_drift");
     }
     return {
@@ -80084,7 +95026,7 @@ var ReviewActionV2ControlPlaneAdapter = class {
     };
   }
   async releaseInvocationLease(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_invocation_lease_release" /* ReviewInvocationLeaseRelease */,
       {
         leaseCapability: input.lease.leaseCapability,
@@ -80095,12 +95037,12 @@ var ReviewActionV2ControlPlaneAdapter = class {
         releaseRequestId: input.releaseRequestId
       }
     );
-    if (result.status !== "applied" /* Applied */ && result.status !== "restored" /* Restored */ && result.status !== "expired" /* Expired */) {
-      throw new Error(`review_action_v2_lease_release_${result.status}`);
+    if (result2.status !== "applied" /* Applied */ && result2.status !== "restored" /* Restored */ && result2.status !== "expired" /* Expired */) {
+      throw new Error(`review_action_v2_lease_release_${result2.status}`);
     }
   }
   async commitEvidence(input) {
-    const result = await (async () => {
+    const result2 = await (async () => {
       try {
         return await this.client.execute(
           "review_evidence_commit" /* ReviewEvidenceCommit */,
@@ -80118,6 +95060,8 @@ var ReviewActionV2ControlPlaneAdapter = class {
             actualModel: input.observation.actualModel,
             contextDependencyAttestationId: input.observation.contextDependencyAttestationId ?? null,
             contextDependencyAttestationHash: input.observation.contextDependencyAttestationHash ?? null,
+            investigationCertificateId: input.observation.investigationCertificateId ?? null,
+            investigationCertificateHash: input.observation.investigationCertificateHash ?? null,
             payloadCanonicalJson: input.observation.payloadCanonicalJson,
             payloadHash: input.observation.payloadHash,
             qualityFlags: input.observation.qualityFlags,
@@ -80128,20 +95072,20 @@ var ReviewActionV2ControlPlaneAdapter = class {
         throw controlPlaneFailure(error2);
       }
     })();
-    if (result.status !== "accepted" /* Accepted */ && result.status !== "idempotent" /* Idempotent */) {
-      throw new Error(`review_action_v2_evidence_commit_${result.status}`);
+    if (result2.status !== "accepted" /* Accepted */ && result2.status !== "idempotent" /* Idempotent */) {
+      throw new Error(`review_action_v2_evidence_commit_${result2.status}`);
     }
     return {
-      observationId: requireString2(result.observationId, "observation_id"),
-      historicalOnly: result.historicalOnly === true,
-      eligibilityPolicyVersion: requireString2(
-        result.eligibilityPolicyVersion,
+      observationId: requireString3(result2.observationId, "observation_id"),
+      historicalOnly: result2.historicalOnly === true,
+      eligibilityPolicyVersion: requireString3(
+        result2.eligibilityPolicyVersion,
         "eligibility_policy_version"
       )
     };
   }
   async attachObservation(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_execution_observation_attach" /* ReviewExecutionObservationAttach */,
       {
         authorizationToken: input.authorization.authorizationToken,
@@ -80158,13 +95102,13 @@ var ReviewActionV2ControlPlaneAdapter = class {
         eligibilityPolicyVersion: input.observation.eligibilityPolicyVersion
       }
     );
-    requireMutationApplied(result.status, "observation_attach");
+    requireMutationApplied(result2.status, "observation_attach");
     return {
-      streamVersion: requireDecimal(result.streamVersion, "stream_version")
+      streamVersion: requireDecimal(result2.streamVersion, "stream_version")
     };
   }
   async adoptObservation(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_execution_observation_adopt" /* ReviewExecutionObservationAdopt */,
       {
         authorizationToken: input.authorization.authorizationToken,
@@ -80190,22 +95134,22 @@ var ReviewActionV2ControlPlaneAdapter = class {
         eligibilityPolicyVersion: input.observation.eligibilityPolicyVersion
       }
     );
-    requireMutationApplied(result.status, "observation_adopt");
-    if (requireString2(result.executionId, "adopt_execution_id") !== input.execution.executionId || requireString2(result.workSlotId, "adopt_work_slot_id") !== input.workSlot.workSlotId || requireCanonicalJson(
-      result.observationPayloadCanonicalJson,
+    requireMutationApplied(result2.status, "observation_adopt");
+    if (requireString3(result2.executionId, "adopt_execution_id") !== input.execution.executionId || requireString3(result2.workSlotId, "adopt_work_slot_id") !== input.workSlot.workSlotId || requireCanonicalJson(
+      result2.observationPayloadCanonicalJson,
       "adopt_observation_payload"
     ) !== input.observation.payloadCanonicalJson || requireCanonicalJson(
-      result.observationFactsCanonicalJson,
+      result2.observationFactsCanonicalJson,
       "adopt_observation_facts"
     ) !== adoptionFactsCanonicalJson(input)) {
       throw new Error("review_action_v2_adoption_response_identity_mismatch");
     }
     return {
-      streamVersion: requireDecimal(result.streamVersion, "stream_version")
+      streamVersion: requireDecimal(result2.streamVersion, "stream_version")
     };
   }
   async finalizeExecution(input) {
-    const result = await (async () => {
+    const result2 = await (async () => {
       try {
         return await this.client.execute(
           "review_execution_finalize" /* ReviewExecutionFinalize */,
@@ -80229,18 +95173,18 @@ var ReviewActionV2ControlPlaneAdapter = class {
         throw controlPlaneFailure(error2);
       }
     })();
-    requireMutationApplied(result.status, "execution_finalize");
+    requireMutationApplied(result2.status, "execution_finalize");
     return {
-      publicationPermit: requireString2(
-        result.publicationPermit,
+      publicationPermit: requireString3(
+        result2.publicationPermit,
         "publication_permit"
       )
     };
   }
   async requestPublication(input) {
-    let result;
+    let result2;
     try {
-      result = await this.client.execute(
+      result2 = await this.client.execute(
         "review_publication_request" /* ReviewPublicationRequest */,
         {
           authorizationToken: input.authorization.authorizationToken,
@@ -80257,39 +95201,39 @@ var ReviewActionV2ControlPlaneAdapter = class {
       }
       throw controlPlaneFailure(error2);
     }
-    if (result.status === "conflict" /* Conflict */) {
+    if (result2.status === "conflict" /* Conflict */) {
       return {
         status: "conflict" /* Conflict */
       };
     }
-    if (result.status !== "accepted" /* Accepted */ && result.status !== "restored" /* Restored */) {
-      throw new Error(`review_action_v2_publication_${result.status}`);
+    if (result2.status !== "accepted" /* Accepted */ && result2.status !== "restored" /* Restored */) {
+      throw new Error(`review_action_v2_publication_${result2.status}`);
     }
     return {
       status: "requested" /* Requested */,
-      publicationAttemptId: requireString2(
-        result.publicationAttemptId,
+      publicationAttemptId: requireString3(
+        result2.publicationAttemptId,
         "publication_attempt_id"
       ),
       pollAfterMs: requireNonNegativeInteger3(
-        result.pollAfterMs,
+        result2.pollAfterMs,
         "publication_poll_after_ms"
       )
     };
   }
   async readPublicationStatus(input) {
-    const result = await this.client.execute(
+    const result2 = await this.client.execute(
       "review_publication_status" /* ReviewPublicationStatus */,
       {
         authorizationToken: input.authorization.authorizationToken,
         publicationAttemptId: input.publicationAttemptId
       }
     );
-    if (result.status !== "terminal" /* Terminal */) {
+    if (result2.status !== "terminal" /* Terminal */) {
       return {
         terminal: false,
         pollAfterMs: requireNonNegativeInteger3(
-          result.pollAfterMs,
+          result2.pollAfterMs,
           "publication_status_poll_after_ms"
         )
       };
@@ -80297,8 +95241,8 @@ var ReviewActionV2ControlPlaneAdapter = class {
     return {
       terminal: true,
       outcome: {
-        state: parsePublicationOutcome(result.terminalOutcome),
-        ...result.canonicalReceiptSetHash ? { canonicalReceiptSetHash: result.canonicalReceiptSetHash } : {}
+        state: parsePublicationOutcome(result2.terminalOutcome),
+        ...result2.canonicalReceiptSetHash ? { canonicalReceiptSetHash: result2.canonicalReceiptSetHash } : {}
       }
     };
   }
@@ -80373,67 +95317,67 @@ function controlPlaneFailure(error2) {
     cause: error2
   });
 }
-function parseLookupObservation(result, input) {
+function parseLookupObservation(result2, input) {
   const payloadCanonicalJson = requireCanonicalJson(
-    result.payloadCanonicalJson,
+    result2.payloadCanonicalJson,
     "evidence_payload"
   );
-  const payloadHash = requireDigest3(result.payloadHash, "payload_hash");
-  const byteCount = requireNonNegativeInteger3(result.byteCount, "byte_count");
+  const payloadHash = requireDigest4(result2.payloadHash, "payload_hash");
+  const byteCount = requireNonNegativeInteger3(result2.byteCount, "byte_count");
   if (payloadHash !== digest(payloadCanonicalJson) || byteCount !== Buffer.byteLength(payloadCanonicalJson, "utf8")) {
     throw new Error("review_action_v2_lookup_payload_identity_mismatch");
   }
-  const contextAttestationId = result.contextDependencyAttestationId ?? null;
-  const contextAttestationHash = result.contextDependencyAttestationHash ?? null;
+  const contextAttestationId = result2.contextDependencyAttestationId ?? null;
+  const contextAttestationHash = result2.contextDependencyAttestationHash ?? null;
   if (contextAttestationId === null !== (contextAttestationHash === null)) {
     throw new Error("review_action_v2_context_attestation_reference_invalid");
   }
   return Object.freeze({
-    observationId: requireString2(result.observationId, "observation_id"),
+    observationId: requireString3(result2.observationId, "observation_id"),
     payloadCanonicalJson,
     payloadHash,
     byteCount,
     findingCount: requireNonNegativeInteger3(
-      result.findingCount,
+      result2.findingCount,
       "finding_count"
     ),
-    actualModel: requireString2(result.actualModel, "actual_model"),
-    qualityFlags: requireStringArray(result.qualityFlags, "quality_flags"),
+    actualModel: requireString3(result2.actualModel, "actual_model"),
+    qualityFlags: requireStringArray(result2.qualityFlags, "quality_flags"),
     transportAttemptCount: requirePositiveInteger3(
-      result.transportAttemptCount,
+      result2.transportAttemptCount,
       "transport_attempt_count"
     ),
     schemaValidated: true,
     fullyConsumed: true,
-    eligibilityPolicyVersion: requireString2(
-      result.eligibilityPolicyVersion,
+    eligibilityPolicyVersion: requireString3(
+      result2.eligibilityPolicyVersion,
       "eligibility_policy_version"
     ),
     providerKind: input.workSlot.providerKind,
     providerInvocationKey: input.manifest.providerInvocationKey,
     providerVoteIdentityHash: input.manifest.providerVoteIdentityHash,
     ...contextAttestationId === null ? {} : {
-      contextDependencyAttestationId: requireString2(
+      contextDependencyAttestationId: requireString3(
         contextAttestationId,
         "context_dependency_attestation_id"
       ),
-      contextDependencyAttestationHash: requireDigest3(
+      contextDependencyAttestationHash: requireDigest4(
         contextAttestationHash,
         "context_dependency_attestation_hash"
       )
     }
   });
 }
-function parseExecutionAdmission(result, expected) {
-  const executionId = requireString2(result.executionId, "execution_id");
-  const generation = requireDecimal(result.generation, "execution_generation");
+function parseExecutionAdmission(result2, expected) {
+  const executionId = requireString3(result2.executionId, "execution_id");
+  const generation = requireDecimal(result2.generation, "execution_generation");
   const executionVersion = requireDecimal(
-    result.executionVersion,
+    result2.executionVersion,
     "execution_version"
   );
-  const streamVersion = requireDecimal(result.streamVersion, "stream_version");
+  const streamVersion = requireDecimal(result2.streamVersion, "stream_version");
   const restoredExecution = parseRestoredExecution(
-    result.executionCanonicalJson,
+    result2.executionCanonicalJson,
     {
       authorizationId: expected.authorization.authorizationId,
       reviewRevisionHash: expected.reviewRevisionHash,
@@ -80457,7 +95401,7 @@ function parseExecutionAdmission(result, expected) {
 }
 function parseRestoredExecution(value, expected) {
   const parsed = parseCanonicalObject2(value);
-  requireExactKeys2(parsed, [
+  requireExactKeys3(parsed, [
     "authorizationId",
     "executionId",
     "generation",
@@ -80467,21 +95411,21 @@ function parseRestoredExecution(value, expected) {
     "version",
     "workSlots"
   ]);
-  const executionId = requireString2(
+  const executionId = requireString3(
     parsed.executionId,
     "restored_execution_id"
   );
   const generation = requireDecimal(parsed.generation, "restored_generation");
   const version = requireDecimal(parsed.version, "restored_version");
-  const authorizationId = requireString2(
+  const authorizationId = requireString3(
     parsed.authorizationId,
     "restored_authorization_id"
   );
-  const reviewRevisionHash = requireDigest3(
+  const reviewRevisionHash = requireDigest4(
     parsed.reviewRevisionHash,
     "restored_review_revision_hash"
   );
-  const planHash = requireDigest3(parsed.planHash, "restored_plan_hash");
+  const planHash = requireDigest4(parsed.planHash, "restored_plan_hash");
   const state = parseRestoredExecutionState(parsed.state);
   if (authorizationId !== expected.authorizationId || reviewRevisionHash !== expected.reviewRevisionHash || expected.executionId !== void 0 && executionId !== expected.executionId || expected.planHash !== void 0 && planHash !== expected.planHash) {
     throw new Error("review_action_v2_restored_execution_scope_mismatch");
@@ -80517,10 +95461,10 @@ function parseRestoredExecution(value, expected) {
   });
 }
 function parseRestoredWorkSlot(value) {
-  if (!isRecord7(value)) {
+  if (!isRecord8(value)) {
     throw new Error("review_action_v2_restored_work_slot_invalid");
   }
-  requireExactKeys2(value, [
+  requireExactKeys3(value, [
     "acceptedObservationRefId",
     "activeLeaseId",
     "providerVoteIdentityHash",
@@ -80541,10 +95485,10 @@ function parseRestoredWorkSlot(value) {
     throw new Error("review_action_v2_restored_work_slot_state_invalid");
   }
   return Object.freeze({
-    workSlotId: requireString2(value.workSlotId, "restored_work_slot_id"),
+    workSlotId: requireString3(value.workSlotId, "restored_work_slot_id"),
     state,
     required: requireBoolean(value.required, "restored_work_slot_required"),
-    providerVoteIdentityHash: requireDigest3(
+    providerVoteIdentityHash: requireDigest4(
       value.providerVoteIdentityHash,
       "restored_provider_vote_identity_hash"
     ),
@@ -80570,17 +95514,22 @@ function parseRestoredWorkSlotState(value) {
 }
 function parseAuthorizationFacts(value) {
   const parsed = parseCanonicalObject2(value);
-  const providerVoteLanes = parsed.providerVoteLanes;
-  if (!Array.isArray(providerVoteLanes) || providerVoteLanes.length === 0) {
-    throw new Error("review_action_v2_provider_vote_lanes_invalid");
-  }
+  const providerVoteLanes = parseProviderVoteLanes(parsed.providerVoteLanes);
+  const hasReviewInvestigation = Object.prototype.hasOwnProperty.call(
+    parsed,
+    "reviewInvestigation"
+  );
+  const reviewInvestigation = !hasReviewInvestigation ? void 0 : parseOptionalReviewInvestigationCapability(
+    parsed.reviewInvestigation,
+    providerVoteLanes
+  );
   const facts = {
-    workspaceId: requireString2(parsed.workspaceId, "workspace_id"),
-    repositoryConnectionId: requireString2(
+    workspaceId: requireString3(parsed.workspaceId, "workspace_id"),
+    repositoryConnectionId: requireString3(
       parsed.repositoryConnectionId,
       "repository_connection_id"
     ),
-    scmRepositoryIdentityId: requireString2(
+    scmRepositoryIdentityId: requireString3(
       parsed.scmRepositoryIdentityId,
       "scm_repository_identity_id"
     ),
@@ -80588,46 +95537,30 @@ function parseAuthorizationFacts(value) {
       parsed.pullRequestNumber,
       "pull_request_number"
     ),
-    sourceRunId: requireString2(parsed.sourceRunId, "source_run_id"),
-    sourceRunAttempt: requireString2(
+    sourceRunId: requireString3(parsed.sourceRunId, "source_run_id"),
+    sourceRunAttempt: requireString3(
       parsed.sourceRunAttempt,
       "source_run_attempt"
     ),
     baseSha: requireCommitSha2(parsed.baseSha, "base_sha"),
     mergeBaseSha: requireCommitSha2(parsed.mergeBaseSha, "merge_base_sha"),
     headSha: requireCommitSha2(parsed.headSha, "head_sha"),
-    reviewRevisionHash: requireDigest3(
+    reviewRevisionHash: requireDigest4(
       parsed.reviewRevisionHash,
       "review_revision_hash"
     ),
-    trustDomain: requireString2(parsed.trustDomain, "trust_domain"),
-    producerReleaseId: requireString2(
+    trustDomain: requireString3(parsed.trustDomain, "trust_domain"),
+    producerReleaseId: requireString3(
       parsed.producerReleaseId,
       "facts_producer_release_id"
     ),
-    selectedProtocolVersion: requireString2(
+    selectedProtocolVersion: requireString3(
       parsed.selectedProtocolVersion,
       "selected_protocol_version"
     ),
-    schemaDigest: requireDigest3(parsed.schemaDigest, "schema_digest"),
-    providerVoteLanes: providerVoteLanes.map((value2) => {
-      if (!isRecord7(value2)) {
-        throw new Error("review_action_v2_provider_vote_lane_invalid");
-      }
-      const providerKind = requireString2(value2.providerKind, "provider_kind");
-      if (!Object.values(ReviewExecutionProviderKind).includes(
-        providerKind
-      )) {
-        throw new Error("review_action_v2_provider_kind_invalid");
-      }
-      return {
-        providerKind,
-        providerVoteIdentityHash: requireDigest3(
-          value2.providerVoteIdentityHash,
-          "provider_vote_identity_hash"
-        )
-      };
-    })
+    schemaDigest: requireDigest4(parsed.schemaDigest, "schema_digest"),
+    ...reviewInvestigation === void 0 ? {} : { reviewInvestigation },
+    providerVoteLanes
   };
   const expectedKeys = [
     "baseSha",
@@ -80637,6 +95570,7 @@ function parseAuthorizationFacts(value) {
     "providerVoteLanes",
     "pullRequestNumber",
     "repositoryConnectionId",
+    ...hasReviewInvestigation ? ["reviewInvestigation"] : [],
     "reviewRevisionHash",
     "schemaDigest",
     "scmRepositoryIdentityId",
@@ -80651,15 +95585,149 @@ function parseAuthorizationFacts(value) {
   }
   return facts;
 }
-function parseLease(result) {
+function parseProviderVoteLanes(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("review_action_v2_provider_vote_lanes_invalid");
+  }
+  return Object.freeze(
+    value.map((lane) => {
+      if (!isRecord8(lane)) {
+        throw new Error("review_action_v2_provider_vote_lane_invalid");
+      }
+      const providerKind = requireString3(lane.providerKind, "provider_kind");
+      if (!Object.values(ReviewExecutionProviderKind).includes(
+        providerKind
+      )) {
+        throw new Error("review_action_v2_provider_kind_invalid");
+      }
+      return Object.freeze({
+        providerKind,
+        providerVoteIdentityHash: requireDigest4(
+          lane.providerVoteIdentityHash,
+          "provider_vote_identity_hash"
+        )
+      });
+    })
+  );
+}
+function parseOptionalReviewInvestigationCapability(value, providerVoteLanes) {
+  try {
+    return parseReviewInvestigationCapability(value, providerVoteLanes);
+  } catch {
+    return void 0;
+  }
+}
+function parseReviewInvestigationCapability(value, providerVoteLanes) {
+  if (!isRecord8(value)) {
+    throw new Error("review_action_v2_review_investigation_invalid");
+  }
+  return parseReviewInvestigationCapabilityV2(value, providerVoteLanes);
+}
+function parseReviewInvestigationCapabilityV2(value, providerVoteLanes) {
+  requireExactKeys3(value, [
+    "authorizationDescriptorVersion",
+    "capability",
+    "coverageProfileHash",
+    "policyHash",
+    "providerCapabilities"
+  ]);
+  if (value.authorizationDescriptorVersion !== 2 /* V2 */ || value.authorizationDescriptorVersion !== reviewInvestigationRolloutAuthorizationV2Contract.authorizationDescriptorVersion || value.capability !== "review_investigation_v1" /* ReviewInvestigationV1 */ || value.capability !== reviewInvestigationRolloutAuthorizationV2Contract.capability) {
+    throw new Error("review_action_v2_review_investigation_capability_invalid");
+  }
+  if (!Array.isArray(value.providerCapabilities) || value.providerCapabilities.length === 0 || value.providerCapabilities.length > 2) {
+    throw new Error(
+      "review_action_v2_review_investigation_provider_capabilities_invalid"
+    );
+  }
+  const providerCapabilities = value.providerCapabilities.map((row) => {
+    if (!isRecord8(row)) {
+      throw new Error(
+        "review_action_v2_review_investigation_provider_capability_invalid"
+      );
+    }
+    requireExactKeys3(row, ["capabilities", "providerKind"]);
+    const providerKind = parseInvestigationProviderKind(row.providerKind);
+    if (!Array.isArray(row.capabilities) || row.capabilities.length === 0 || row.capabilities.length > reviewInvestigationRolloutAuthorizationV2Contract.capabilities.length) {
+      throw new Error(
+        "review_action_v2_review_investigation_capabilities_invalid"
+      );
+    }
+    const capabilities = row.capabilities.map(parseRolloutCapability);
+    if (new Set(capabilities).size !== capabilities.length || !isStrictlyLexicographicallySorted(capabilities) || !capabilities.includes("recording" /* Recording */) || !isDependencyClosed(capabilities)) {
+      throw new Error(
+        "review_action_v2_review_investigation_capabilities_not_canonical"
+      );
+    }
+    return Object.freeze({
+      providerKind,
+      capabilities: Object.freeze(capabilities)
+    });
+  });
+  const providerKinds = providerCapabilities.map((row) => row.providerKind);
+  if (new Set(providerKinds).size !== providerKinds.length || !isStrictlyLexicographicallySorted(providerKinds) || !providersAreLaneAuthorized(providerKinds, providerVoteLanes)) {
+    throw new Error(
+      "review_action_v2_review_investigation_provider_capabilities_not_canonical"
+    );
+  }
+  return Object.freeze({
+    authorizationDescriptorVersion: 2 /* V2 */,
+    capability: "review_investigation_v1" /* ReviewInvestigationV1 */,
+    coverageProfileHash: requireDigest4(
+      value.coverageProfileHash,
+      "review_investigation_coverage_profile_hash"
+    ),
+    policyHash: requireDigest4(
+      value.policyHash,
+      "review_investigation_policy_hash"
+    ),
+    providerCapabilities: Object.freeze(providerCapabilities)
+  });
+}
+function parseInvestigationProviderKind(value) {
+  if (value !== "codex" /* Codex */ && value !== "claude_code" /* ClaudeCode */) {
+    throw new Error(
+      "review_action_v2_review_investigation_provider_kind_invalid"
+    );
+  }
+  return value;
+}
+function parseRolloutCapability(value) {
+  if (typeof value !== "string" || !reviewInvestigationRolloutAuthorizationV2Contract.capabilities.includes(
+    value
+  )) {
+    throw new Error(
+      "review_action_v2_review_investigation_rollout_capability_invalid"
+    );
+  }
+  return value;
+}
+function isDependencyClosed(capabilities) {
+  const granted = new Set(capabilities);
+  const dependencies = reviewInvestigationRolloutAuthorizationV2Contract.dependencies;
+  return capabilities.every(
+    (capability) => dependencies[capability].every((dependency) => granted.has(dependency))
+  );
+}
+function providersAreLaneAuthorized(providerKinds, providerVoteLanes) {
+  const authorized = new Set(
+    providerVoteLanes.map((lane) => lane.providerKind)
+  );
+  return providerKinds.every((providerKind) => authorized.has(providerKind));
+}
+function isStrictlyLexicographicallySorted(values) {
+  return values.every(
+    (value, index) => index === 0 || values[index - 1] < value
+  );
+}
+function parseLease(result2) {
   return {
-    leaseId: requireString2(result.leaseId, "lease_id"),
-    attemptId: requireString2(result.attemptId, "attempt_id"),
-    leaseCapability: requireString2(result.leaseCapability, "lease_capability"),
-    fencingToken: requireDecimal(result.fencingToken, "fencing_token"),
-    expiresAt: requireTimestamp2(result.expiresAt, "lease_expires_at"),
+    leaseId: requireString3(result2.leaseId, "lease_id"),
+    attemptId: requireString3(result2.attemptId, "attempt_id"),
+    leaseCapability: requireString3(result2.leaseCapability, "lease_capability"),
+    fencingToken: requireDecimal(result2.fencingToken, "fencing_token"),
+    expiresAt: requireTimestamp2(result2.expiresAt, "lease_expires_at"),
     resultReportUntil: requireTimestamp2(
-      result.resultReportUntil,
+      result2.resultReportUntil,
       "result_report_until"
     ),
     renewalCeilingReached: false
@@ -80726,8 +95794,8 @@ function parseExactRevisionAttachment(capability, attachmentKind, reuseSafetyDec
   }
   return Object.freeze({
     kind: "exact_revision_reuse",
-    capability: requireString2(capability, "attachment_capability"),
-    reuseSafetyDecisionHash: requireDigest3(
+    capability: requireString3(capability, "attachment_capability"),
+    reuseSafetyDecisionHash: requireDigest4(
       reuseSafetyDecisionHash,
       "reuse_safety_decision_hash"
     )
@@ -80739,20 +95807,20 @@ function parseSameExecutionAttachment(attachmentKind, reuseSafetyDecisionHash, s
   }
   return Object.freeze({ kind: "same_execution", ...sourceFacts });
 }
-function parseAdoptionSourceFacts(result) {
-  const sourceLeaseId = result.sourceLeaseId ?? null;
-  const sourceFencingToken = result.sourceFencingToken ?? null;
-  const sourceOwnerIdHash = result.sourceOwnerIdHash ?? null;
+function parseAdoptionSourceFacts(result2) {
+  const sourceLeaseId = result2.sourceLeaseId ?? null;
+  const sourceFencingToken = result2.sourceFencingToken ?? null;
+  const sourceOwnerIdHash = result2.sourceOwnerIdHash ?? null;
   if (sourceLeaseId === null && sourceFencingToken === null && sourceOwnerIdHash === null) {
     return null;
   }
   return Object.freeze({
-    sourceLeaseId: requireString2(sourceLeaseId, "source_lease_id"),
+    sourceLeaseId: requireString3(sourceLeaseId, "source_lease_id"),
     sourceFencingToken: requireDecimal(
       sourceFencingToken,
       "source_fencing_token"
     ),
-    sourceOwnerIdHash: requireDigest3(sourceOwnerIdHash, "source_owner_id_hash")
+    sourceOwnerIdHash: requireDigest4(sourceOwnerIdHash, "source_owner_id_hash")
   });
 }
 function adoptionFactsCanonicalJson(input) {
@@ -80795,7 +95863,7 @@ function parseCanonicalObject2(value) {
       cause: error2
     });
   }
-  if (!isRecord7(parsed) || JSON.stringify(canonicalize4(parsed)) !== value) {
+  if (!isRecord8(parsed) || JSON.stringify(canonicalize4(parsed)) !== value) {
     throw new Error("review_action_v2_canonical_json_invalid");
   }
   return parsed;
@@ -80815,14 +95883,14 @@ function requireCanonicalJson(value, field) {
 }
 function canonicalize4(value) {
   if (Array.isArray(value)) return value.map(canonicalize4);
-  if (isRecord7(value)) {
+  if (isRecord8(value)) {
     return Object.fromEntries(
       Object.keys(value).sort().map((key) => [key, canonicalize4(value[key])])
     );
   }
   return value;
 }
-function requireString2(value, field) {
+function requireString3(value, field) {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`review_action_v2_${field}_missing`);
   }
@@ -80830,7 +95898,7 @@ function requireString2(value, field) {
 }
 function requireNullableString(value, field) {
   if (value === null) return null;
-  return requireString2(value, field);
+  return requireString3(value, field);
 }
 function requireBoolean(value, field) {
   if (typeof value !== "boolean") {
@@ -80838,27 +95906,27 @@ function requireBoolean(value, field) {
   }
   return value;
 }
-function requireExactKeys2(value, expectedKeys) {
+function requireExactKeys3(value, expectedKeys) {
   if (Object.keys(value).sort().join(",") !== [...expectedKeys].sort().join(",")) {
     throw new Error("review_action_v2_canonical_json_fields_invalid");
   }
 }
 function requireDecimal(value, field) {
-  const parsed = requireString2(value, field);
+  const parsed = requireString3(value, field);
   if (!/^(0|[1-9][0-9]*)$/.test(parsed)) {
     throw new Error(`review_action_v2_${field}_invalid`);
   }
   return parsed;
 }
-function requireDigest3(value, field) {
-  const parsed = requireString2(value, field);
+function requireDigest4(value, field) {
+  const parsed = requireString3(value, field);
   if (!/^[a-f0-9]{64}$/.test(parsed)) {
     throw new Error(`review_action_v2_${field}_invalid`);
   }
   return parsed;
 }
 function requireCommitSha2(value, field) {
-  const parsed = requireString2(value, field).toLowerCase();
+  const parsed = requireString3(value, field).toLowerCase();
   if (!/^[a-f0-9]{40}$/.test(parsed)) {
     throw new Error(`review_action_v2_${field}_invalid`);
   }
@@ -80871,7 +95939,7 @@ function requireStringArray(value, field) {
   return Object.freeze([...value]);
 }
 function requireTimestamp2(value, field) {
-  const parsed = requireString2(value, field);
+  const parsed = requireString3(value, field);
   if (!Number.isFinite(Date.parse(parsed))) {
     throw new Error(`review_action_v2_${field}_invalid`);
   }
@@ -80889,11 +95957,11 @@ function requireNonNegativeInteger3(value, field) {
   }
   return value;
 }
-function isRecord7(value) {
+function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function digest(value) {
-  return (0, import_crypto31.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto35.createHash)("sha256").update(value).digest("hex");
 }
 function deterministicIdempotencyKey(purpose, parts) {
   return `rr:${purpose}:${digest(
@@ -80904,8 +95972,2515 @@ function deterministicIdempotencyKey(purpose, parts) {
   )}`;
 }
 
+// src/review-investigation/application/replay-investigation-on-revision.ts
+var ReplayInvestigationOnRevision = class {
+  constructor(dependencies) {
+    this.dependencies = dependencies;
+  }
+  async execute(input) {
+    if (!await this.isCurrent(input)) return null;
+    const prepared = await this.dependencies.controlPlane.prepareReplay({
+      open: input.open,
+      providerManifestCanonicalJson: input.providerManifestCanonicalJson,
+      providerManifestHash: input.providerManifestHash
+    });
+    if (!prepared || !await this.isCurrent(input)) return null;
+    const replayProofs = [];
+    const proofsByReplayIdentity = /* @__PURE__ */ new Map();
+    for (const obligation of prepared.obligations) {
+      if (!await this.isCurrent(input)) return null;
+      const replayIdentity = [
+        obligation.contextAttestationId,
+        obligation.contextAttestationHash,
+        obligation.sourceOperationReceiptIdsHash,
+        obligation.replayPlanHash
+      ].join("\0");
+      let proof = proofsByReplayIdentity.get(replayIdentity);
+      if (!proof) {
+        proof = this.replayAndCommit(input, obligation);
+        proofsByReplayIdentity.set(replayIdentity, proof);
+      }
+      const committed = await proof;
+      if (committed) {
+        replayProofs.push({
+          obligationId: obligation.obligationId,
+          replayProofId: committed.replayProofId
+        });
+      }
+    }
+    if (!await this.isCurrent(input)) return null;
+    replayProofs.sort(
+      (left, right) => compareCodeUnits8(left.obligationId, right.obligationId)
+    );
+    return this.dependencies.controlPlane.replay({
+      open: input.open,
+      scope: input.scope,
+      revision: input.revision,
+      prepared,
+      replayProofs: Object.freeze(replayProofs)
+    });
+  }
+  async replayAndCommit(input, prepared) {
+    const replayed = await this.dependencies.receipts.replayReceipt({
+      prepared,
+      targetRevision: input.revision
+    });
+    if (!replayed || !await this.isCurrent(input)) return null;
+    return this.dependencies.controlPlane.commitReceiptReplay({
+      open: input.open,
+      prepared,
+      result: replayed
+    });
+  }
+  async isCurrent(input) {
+    return await this.dependencies.currency.check({
+      executionId: input.open.executionId,
+      workSlotId: input.open.workSlotId,
+      reviewRevisionHash: input.open.reviewRevisionHash
+    }) === "current" /* Current */;
+  }
+};
+function compareCodeUnits8(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+// src/review-investigation/infrastructure/review-agent-process-runner.ts
+var import_child_process17 = require("child_process");
+var NodeReviewAgentProcessRunner = class {
+  active = /* @__PURE__ */ new Map();
+  async run(request) {
+    validateRequest(request);
+    if (this.active.has(request.invocationId)) {
+      throw new Error("review_agent_invocation_already_active");
+    }
+    const startedAt = Date.now();
+    return new Promise((resolve5) => {
+      if (request.signal?.aborted) {
+        resolve5(
+          result(
+            "cancelled" /* Cancelled */,
+            null,
+            "",
+            "",
+            startedAt
+          )
+        );
+        return;
+      }
+      let child;
+      try {
+        child = (0, import_child_process17.spawn)(request.binary, request.args, {
+          cwd: request.cwd,
+          env: { ...request.environment },
+          detached: true,
+          shell: false,
+          stdio: ["pipe", "pipe", "pipe"]
+        });
+      } catch (error2) {
+        resolve5(
+          result(
+            "startup_failed" /* StartupFailed */,
+            null,
+            "",
+            sanitizeProcessText(
+              error2 instanceof Error ? error2.message : String(error2)
+            ),
+            startedAt
+          )
+        );
+        return;
+      }
+      let stdout = "";
+      let stderr = "";
+      let outputBytes = 0;
+      let settled = false;
+      let forcedTermination = null;
+      const terminate = () => {
+        try {
+          if (child.pid) process.kill(-child.pid, "SIGKILL");
+          else child.kill("SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        request.signal?.removeEventListener("abort", onAbort);
+        this.active.delete(request.invocationId);
+      };
+      const settle = (termination, exitCode) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve5(result(termination, exitCode, stdout, stderr, startedAt));
+      };
+      const onAbort = () => {
+        forcedTermination = "cancelled" /* Cancelled */;
+        terminate();
+      };
+      const collect = (target) => (chunk) => {
+        outputBytes += chunk.byteLength;
+        if (outputBytes > request.maxOutputBytes) {
+          forcedTermination = "output_limit_exceeded" /* OutputLimitExceeded */;
+          terminate();
+          return;
+        }
+        if (target === "stdout") stdout += chunk.toString("utf8");
+        else stderr += chunk.toString("utf8");
+      };
+      const timer = setTimeout(() => {
+        forcedTermination = "timed_out" /* TimedOut */;
+        terminate();
+      }, request.timeoutMs);
+      this.active.set(
+        request.invocationId,
+        Object.freeze({
+          fencingToken: request.fencingToken,
+          terminate: () => {
+            forcedTermination = "cancelled" /* Cancelled */;
+            terminate();
+          }
+        })
+      );
+      request.signal?.addEventListener("abort", onAbort, { once: true });
+      child.stdout.on("data", collect("stdout"));
+      child.stderr.on("data", collect("stderr"));
+      child.stdin.on("error", () => {
+      });
+      child.on("error", (error2) => {
+        stderr = sanitizeProcessText(error2.message);
+        settle("startup_failed" /* StartupFailed */, null);
+      });
+      child.on(
+        "close",
+        (code) => settle(forcedTermination ?? "exited" /* Exited */, code)
+      );
+      child.stdin.end(request.stdin, "utf8");
+    });
+  }
+  async cancel(invocationId, fencingToken) {
+    const active = this.active.get(invocationId);
+    if (!active) return;
+    if (active.fencingToken !== fencingToken) {
+      throw new Error("review_agent_cancel_fencing_mismatch");
+    }
+    active.terminate();
+  }
+};
+function validateRequest(request) {
+  if (!request.invocationId || !request.fencingToken || !request.binary || !request.cwd || !Number.isSafeInteger(request.timeoutMs) || request.timeoutMs < 1 || !Number.isSafeInteger(request.maxOutputBytes) || request.maxOutputBytes < 1) {
+    throw new Error("review_agent_process_request_invalid");
+  }
+}
+function result(termination, exitCode, stdout, stderr, startedAt) {
+  return Object.freeze({
+    termination,
+    exitCode,
+    stdout,
+    stderr,
+    durationMs: Math.max(0, Date.now() - startedAt)
+  });
+}
+function sanitizeProcessText(value) {
+  return value.replace(/[\r\n]+/gu, " ").slice(0, 400);
+}
+
+// src/review-investigation/infrastructure/strict-cli-review-agent.ts
+var GATEWAY_RUNTIME_ENV_KEYS = /* @__PURE__ */ new Set([
+  "REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION",
+  "REVIEWROUTER_CONTEXT_SESSION_ID",
+  "REVIEWROUTER_CONTEXT_ROOT",
+  "REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH",
+  "REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH",
+  "REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH",
+  "REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID",
+  "REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID",
+  "REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH",
+  "REVIEWROUTER_CONTEXT_BASE_SHA",
+  "REVIEWROUTER_CONTEXT_MERGE_BASE_SHA",
+  "REVIEWROUTER_CONTEXT_HEAD_SHA"
+]);
+var GATEWAY_CREDENTIAL_ENV_KEYS = /* @__PURE__ */ new Set([
+  "REVIEWROUTER_CONTEXT_GATEWAY_SECRET"
+]);
+var PROVIDER_ENV_KEYS = Object.freeze({
+  ["codex" /* Codex */]: /* @__PURE__ */ new Set([
+    "CODEX_HOME",
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY"
+  ]),
+  ["claude_code" /* ClaudeCode */]: /* @__PURE__ */ new Set([
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CONFIG_DIR"
+  ])
+});
+var MAX_SAFE_RETRY_AFTER_MS2 = 7 * 24 * 60 * 60 * 1e3;
+var SAFE_AGENT_ERROR_CODES = /* @__PURE__ */ new Set([
+  "review_agent_actual_model_invalid",
+  "review_agent_actual_model_unavailable",
+  "review_agent_authentication_unavailable",
+  "review_agent_cached_input_tokens_invalid",
+  "review_agent_cached_usage_invalid",
+  "review_agent_cancel_failure",
+  "review_agent_capability_requirements_unsatisfied",
+  "review_agent_capacity_unavailable",
+  "review_agent_claude_stream_incomplete",
+  "review_agent_claude_usage_missing",
+  "review_agent_codex_event_json_invalid",
+  "review_agent_codex_event_stream_empty",
+  "review_agent_codex_stream_incomplete",
+  "review_agent_codex_usage_missing",
+  "review_agent_critic_decision_invalid_for_turn",
+  "review_agent_execution_session_invalid",
+  "review_agent_gateway_credential_environment_invalid",
+  "review_agent_input_tokens_invalid",
+  "review_agent_output_invalid",
+  "review_agent_output_tokens_invalid",
+  "review_agent_process_cancelled",
+  "review_agent_process_failure",
+  "review_agent_process_timeout",
+  "review_agent_provider_credential_environment_invalid",
+  "review_agent_quota_unavailable",
+  "review_agent_reasoning_output_tokens_invalid",
+  "review_agent_runtime_environment_invalid",
+  "review_agent_startup_failure",
+  "review_agent_turn_request_invalid",
+  "review_agent_usage_attribution_missing",
+  "review_agent_workspace_authority_mismatch"
+]);
+var SAFE_DEFAULT_ERROR_CODE = Object.freeze({
+  ["capability_unavailable" /* CapabilityUnavailable */]: "review_agent_capability_unavailable",
+  ["authentication_unavailable" /* AuthenticationUnavailable */]: "review_agent_authentication_unavailable",
+  ["quota_unavailable" /* QuotaUnavailable */]: "review_agent_quota_unavailable",
+  ["capacity_unavailable" /* CapacityUnavailable */]: "review_agent_capacity_unavailable",
+  ["startup_failure" /* StartupFailure */]: "review_agent_startup_failure",
+  ["process_failure" /* ProcessFailure */]: "review_agent_process_failure",
+  ["timeout" /* Timeout */]: "review_agent_process_timeout",
+  ["cancelled" /* Cancelled */]: "review_agent_process_cancelled",
+  ["schema_invalid_output" /* SchemaInvalidOutput */]: "review_agent_output_invalid",
+  ["stream_incomplete" /* StreamIncomplete */]: "review_agent_stream_incomplete",
+  ["model_attribution_missing" /* ModelAttributionMissing */]: "review_agent_actual_model_unavailable",
+  ["usage_attribution_missing" /* UsageAttributionMissing */]: "review_agent_usage_attribution_missing",
+  ["confinement_violation" /* ConfinementViolation */]: "review_agent_confinement_violation"
+});
+var StrictCliReviewAgent = class {
+  constructor(profile, runner, executionSessions, providerCredentials) {
+    this.profile = profile;
+    this.runner = runner;
+    this.executionSessions = executionSessions;
+    this.providerCredentials = providerCredentials;
+  }
+  async negotiate(requirements) {
+    try {
+      assertRuntimeProfileSatisfies(this.profile, requirements);
+      return this.profile;
+    } catch {
+      throw new ReviewAgentExecutionError(
+        "capability_unavailable" /* CapabilityUnavailable */,
+        null,
+        "review_agent_capability_requirements_unsatisfied"
+      );
+    }
+  }
+  async cancel(invocationId, fencingToken) {
+    try {
+      await this.runner.cancel(invocationId, fencingToken);
+    } catch (error2) {
+      throw safeAgentError(
+        error2,
+        "process_failure" /* ProcessFailure */,
+        "review_agent_cancel_failure"
+      );
+    }
+  }
+  validateRequest(request) {
+    if (!request.invocationId || !request.fencingToken || !request.turnId || !Number.isSafeInteger(request.dossierVersion) || request.dossierVersion < 0 || !/^[a-f0-9]{64}$/u.test(request.dossierDigest) || !request.prompt || Buffer.byteLength(request.prompt, "utf8") > this.profile.maxPromptBytes || !request.workspaceRoot || request.requestedModel.length < 1 || request.requestedModel.length > 200 || !Number.isSafeInteger(request.timeoutMs) || request.timeoutMs < 1 || !Number.isSafeInteger(request.maxTurns) || request.maxTurns < 1 || request.maxTurns > this.profile.maxTurns) {
+      throw new ReviewAgentExecutionError(
+        "capability_unavailable" /* CapabilityUnavailable */,
+        null,
+        "review_agent_turn_request_invalid"
+      );
+    }
+  }
+  prepareExecution(request) {
+    this.validateRequest(request);
+    const gateway = this.executionSessions.resolve(
+      request.executionSession,
+      this.profile.providerKind
+    );
+    const providerCredentialEnvironment = Object.freeze({
+      ...this.providerCredentials()
+    });
+    assertGatewayBinding(gateway);
+    if (gateway.cwd !== request.workspaceRoot) {
+      throw new ReviewAgentExecutionError(
+        "confinement_violation" /* ConfinementViolation */,
+        null,
+        "review_agent_workspace_authority_mismatch"
+      );
+    }
+    assertEnvironmentPartition(
+      gateway.runtimeEnvironment,
+      gateway.credentialEnvironment,
+      providerCredentialEnvironment,
+      this.profile.providerKind
+    );
+    return Object.freeze({ gateway, providerCredentialEnvironment });
+  }
+  executionEnvironment(execution) {
+    return {
+      ...this.providerOnlyExecutionEnvironment(execution),
+      ...execution.gateway.runtimeEnvironment,
+      REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: "context-gateway-v4",
+      ...execution.gateway.credentialEnvironment
+    };
+  }
+  providerOnlyExecutionEnvironment(execution) {
+    return {
+      ...buildCliSafeEnv({ includeWorkspaceEnv: false }),
+      ...execution.providerCredentialEnvironment,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_NO_REPLACE_OBJECTS: "1"
+    };
+  }
+  async runProcess(request, execution, input) {
+    const result2 = await this.runner.run({
+      invocationId: request.invocationId,
+      fencingToken: request.fencingToken,
+      cwd: execution.gateway.cwd,
+      environment: input.environment ?? this.executionEnvironment(execution),
+      stdin: request.prompt,
+      timeoutMs: request.timeoutMs,
+      maxOutputBytes: this.profile.maxOutputBytes,
+      signal: request.signal,
+      binary: input.binary,
+      args: input.args
+    });
+    assertSuccessfulProcess(result2);
+    return result2;
+  }
+  observation(request, parsed, durationMs) {
+    if (request.purpose === "discovery" /* Discovery */ && parsed.output.criticDecision !== null || request.purpose === "critic" /* Critic */ && parsed.output.criticDecision === null) {
+      throw new ReviewAgentExecutionError(
+        "schema_invalid_output" /* SchemaInvalidOutput */,
+        null,
+        "review_agent_critic_decision_invalid_for_turn"
+      );
+    }
+    return Object.freeze({
+      observationVersion: REVIEW_TURN_OBSERVATION_VERSION,
+      invocationId: request.invocationId,
+      turnId: request.turnId,
+      dossierVersion: request.dossierVersion,
+      purpose: request.purpose,
+      actualProviderKind: this.profile.providerKind,
+      actualModel: parsed.actualModel,
+      runtimeProfile: this.profile.executionProfile,
+      usage: parsed.usage,
+      durationMs,
+      schemaComplete: true,
+      streamComplete: true,
+      contextAttestationReference: null,
+      ...parsed.output
+    });
+  }
+};
+function parseUsage(input) {
+  const inputTokens = requireTokenCount(input.inputTokens, "input");
+  const cachedInputTokens = requireTokenCount(
+    input.cachedInputTokens ?? 0,
+    "cached_input"
+  );
+  const outputTokens = requireTokenCount(input.outputTokens, "output");
+  const reasoningOutputTokens = requireTokenCount(
+    input.reasoningOutputTokens ?? 0,
+    "reasoning_output"
+  );
+  if (cachedInputTokens > inputTokens) {
+    throw new ReviewAgentExecutionError(
+      "usage_attribution_missing" /* UsageAttributionMissing */,
+      null,
+      "review_agent_cached_usage_invalid"
+    );
+  }
+  return Object.freeze({
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens: inputTokens + outputTokens + reasoningOutputTokens
+  });
+}
+function requireObservedModel(models) {
+  if (models.size !== 1) {
+    throw new ReviewAgentExecutionError(
+      "model_attribution_missing" /* ModelAttributionMissing */,
+      null,
+      "review_agent_actual_model_unavailable"
+    );
+  }
+  const model = [...models][0];
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/+#-]{0,199}$/u.test(model)) {
+    throw new ReviewAgentExecutionError(
+      "model_attribution_missing" /* ModelAttributionMissing */,
+      null,
+      "review_agent_actual_model_invalid"
+    );
+  }
+  return model;
+}
+function schemaFailure(error2) {
+  return safeAgentError(
+    error2,
+    "schema_invalid_output" /* SchemaInvalidOutput */,
+    "review_agent_output_invalid"
+  );
+}
+function streamFailure(message) {
+  return new ReviewAgentExecutionError(
+    "stream_incomplete" /* StreamIncomplete */,
+    null,
+    safeErrorCode2(message, "stream_incomplete" /* StreamIncomplete */)
+  );
+}
+function usageFailure(message) {
+  return new ReviewAgentExecutionError(
+    "usage_attribution_missing" /* UsageAttributionMissing */,
+    null,
+    safeErrorCode2(message, "usage_attribution_missing" /* UsageAttributionMissing */)
+  );
+}
+function assertSuccessfulProcess(result2) {
+  if (result2.termination === "exited" /* Exited */ && result2.exitCode === 0) {
+    return;
+  }
+  if (result2.termination === "timed_out" /* TimedOut */) {
+    throw new ReviewAgentExecutionError(
+      "timeout" /* Timeout */,
+      null,
+      "review_agent_process_timeout"
+    );
+  }
+  if (result2.termination === "cancelled" /* Cancelled */) {
+    throw new ReviewAgentExecutionError(
+      "cancelled" /* Cancelled */,
+      null,
+      "review_agent_process_cancelled"
+    );
+  }
+  const failureSignals = boundedProviderFailureSignals(result2);
+  throw classifyProviderFailure(failureSignals, result2.termination);
+}
+function classifyProviderFailure(diagnostic, termination) {
+  if (/(?:401|403|unauthorized|not logged in|refresh token|oauth|authentication)/iu.test(
+    diagnostic
+  )) {
+    return new ReviewAgentExecutionError(
+      "authentication_unavailable" /* AuthenticationUnavailable */,
+      null,
+      "review_agent_authentication_unavailable"
+    );
+  }
+  if (/(?:usage limit|quota|insufficient_quota|billing limit)/iu.test(diagnostic)) {
+    return new ReviewAgentExecutionError(
+      "quota_unavailable" /* QuotaUnavailable */,
+      null,
+      "review_agent_quota_unavailable"
+    );
+  }
+  if (/(?:capacity[_ -]unavailable|overloaded|too many requests|\b429\b|rate limit)/iu.test(
+    diagnostic
+  )) {
+    return new ReviewAgentExecutionError(
+      "capacity_unavailable" /* CapacityUnavailable */,
+      null,
+      "review_agent_capacity_unavailable"
+    );
+  }
+  if (/(?:model cache|startup|failed to start|enoent|spawn)/iu.test(diagnostic) || termination === "startup_failed" /* StartupFailed */) {
+    return new ReviewAgentExecutionError(
+      "startup_failure" /* StartupFailure */,
+      null,
+      "review_agent_startup_failure"
+    );
+  }
+  return new ReviewAgentExecutionError(
+    "process_failure" /* ProcessFailure */,
+    null,
+    "review_agent_process_failure"
+  );
+}
+function assertGatewayBinding(binding) {
+  const expectedTools = [...REVIEW_INVESTIGATION_GATEWAY_TOOLS].sort();
+  const actualTools = [...binding.enabledTools].sort();
+  if (binding.policyVersion !== "context-gateway-v4" || !/^[a-f0-9]{64}$/u.test(binding.binaryHash) || !binding.command || !binding.cwd || actualTools.length !== expectedTools.length || actualTools.some((tool, index) => tool !== expectedTools[index])) {
+    throw new ReviewAgentExecutionError(
+      "capability_unavailable" /* CapabilityUnavailable */,
+      null,
+      "review_agent_execution_session_invalid"
+    );
+  }
+}
+function assertEnvironmentPartition(runtime, gatewayCredentials, providerCredentials, providerKind) {
+  assertAllowlistedEnvironment(
+    runtime,
+    GATEWAY_RUNTIME_ENV_KEYS,
+    "review_agent_runtime_environment_invalid"
+  );
+  assertAllowlistedEnvironment(
+    gatewayCredentials,
+    GATEWAY_CREDENTIAL_ENV_KEYS,
+    "review_agent_gateway_credential_environment_invalid"
+  );
+  assertAllowlistedEnvironment(
+    providerCredentials,
+    PROVIDER_ENV_KEYS[providerKind],
+    "review_agent_provider_credential_environment_invalid"
+  );
+}
+function assertAllowlistedEnvironment(environment, allowedKeys, errorCode2) {
+  for (const key of Object.keys(environment)) {
+    if (!allowedKeys.has(key)) throw new Error(errorCode2);
+  }
+}
+function requireTokenCount(value, field) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new ReviewAgentExecutionError(
+      "usage_attribution_missing" /* UsageAttributionMissing */,
+      null,
+      `review_agent_${field}_tokens_invalid`
+    );
+  }
+  return value;
+}
+function boundedProviderFailureSignals(result2) {
+  return `${result2.stderr.slice(0, 8192)}
+${result2.stdout.slice(0, 8192)}`.replace(/(?:sk|sess|eyJ)[A-Za-z0-9._-]{12,}/gu, "<redacted>").replace(/[\r\n]+/gu, " ").trim().slice(0, 16384);
+}
+function safeAgentError(error2, fallbackClass, fallbackCode) {
+  if (!(error2 instanceof ReviewAgentExecutionError)) {
+    return new ReviewAgentExecutionError(fallbackClass, null, fallbackCode);
+  }
+  return new ReviewAgentExecutionError(
+    error2.failureClass,
+    safeRetryAfterMs(error2.retryAfterMs),
+    safeErrorCode2(error2.message, error2.failureClass)
+  );
+}
+function safeErrorCode2(value, failureClass) {
+  return SAFE_AGENT_ERROR_CODES.has(value) ? value : SAFE_DEFAULT_ERROR_CODE[failureClass];
+}
+function safeRetryAfterMs(value) {
+  if (value === null || !Number.isSafeInteger(value) || value < 0 || value > MAX_SAFE_RETRY_AFTER_MS2) {
+    return null;
+  }
+  return value;
+}
+
+// src/review-investigation/infrastructure/claude-review-agent-adapter.ts
+var CLAUDE_NATIVE_TOOLS = Object.freeze([
+  "Bash",
+  "Edit",
+  "Write",
+  "Read",
+  "Grep",
+  "Glob",
+  "WebFetch",
+  "WebSearch",
+  "NotebookEdit",
+  "Task",
+  "TaskOutput",
+  "KillShell",
+  "AskUserQuestion",
+  "Skill"
+]);
+
+// src/review-investigation/infrastructure/codex-review-agent-adapter.ts
+var import_promises7 = require("fs/promises");
+var import_os2 = __toESM(require("os"));
+var import_path5 = __toESM(require("path"));
+var import_util12 = require("util");
+var DISABLED_CODEX_FEATURES = Object.freeze([
+  "shell_tool",
+  "unified_exec",
+  "browser_use",
+  "computer_use",
+  "js_repl",
+  "tool_search",
+  "web_search_request",
+  "plugins"
+]);
+var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
+  constructor(runner, options) {
+    super(
+      createGatewayAttestedRuntimeProfile({
+        providerKind: "codex" /* Codex */,
+        eventStream: "json_lines" /* JsonLines */,
+        maxPromptBytes: 8 * 1024 * 1024
+      }),
+      runner,
+      options.executionSessions,
+      options.providerCredentialEnvironment ?? (() => ({}))
+    );
+    this.options = options;
+  }
+  async executeTurn(request) {
+    const execution = this.prepareExecution(request);
+    const directory = await (0, import_promises7.mkdtemp)(
+      import_path5.default.join(import_os2.default.tmpdir(), "review-agent-codex-")
+    );
+    const schemaPath = import_path5.default.join(directory, "turn-output.schema.json");
+    const outputPath = import_path5.default.join(directory, "turn-output.json");
+    try {
+      await Promise.all([
+        (0, import_promises7.writeFile)(
+          schemaPath,
+          JSON.stringify(buildReviewAgentTurnOutputSchema()),
+          {
+            mode: 384
+          }
+        ),
+        (0, import_promises7.writeFile)(outputPath, "", { mode: 384 })
+      ]);
+      const result2 = await this.runProcess(request, execution, {
+        binary: this.options.binary ?? "codex",
+        args: this.buildArguments(
+          request,
+          execution.gateway,
+          schemaPath,
+          outputPath
+        )
+      });
+      try {
+        const output = parseReviewAgentTurnOutput(
+          JSON.parse(
+            await readBoundedUtf8File(outputPath, this.profile.maxOutputBytes)
+          )
+        );
+        const events = parseJsonLines(result2.stdout);
+        const models = /* @__PURE__ */ new Set();
+        let usage = null;
+        let turnCompleted = false;
+        for (const event of events) {
+          collectConfiguredModels(event, models, 0);
+          if (event.type === "turn.completed") {
+            if (turnCompleted)
+              throw new Error("review_agent_turn_completed_duplicate");
+            turnCompleted = true;
+            if (!isRecord9(event.usage)) {
+              throw usageFailure("review_agent_codex_usage_missing");
+            }
+            const rawUsage = requireRecord2(event.usage, "codex_usage");
+            usage = parseUsage({
+              inputTokens: rawUsage.input_tokens,
+              cachedInputTokens: rawUsage.cached_input_tokens,
+              outputTokens: rawUsage.output_tokens,
+              reasoningOutputTokens: rawUsage.reasoning_output_tokens
+            });
+          }
+        }
+        if (!turnCompleted) {
+          throw streamFailure("review_agent_codex_stream_incomplete");
+        }
+        if (!usage) throw usageFailure("review_agent_codex_usage_missing");
+        return this.observation(
+          request,
+          {
+            output,
+            actualModel: requireObservedModel(models),
+            usage
+          },
+          result2.durationMs
+        );
+      } catch (error2) {
+        throw schemaFailure(error2);
+      }
+    } finally {
+      await (0, import_promises7.rm)(directory, { recursive: true, force: true });
+    }
+  }
+  buildArguments(request, gateway, schemaPath, outputPath) {
+    const args = [
+      "exec",
+      "--model",
+      request.requestedModel,
+      "--sandbox",
+      "read-only",
+      "--ephemeral",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--strict-config",
+      "--color",
+      "never",
+      "-c",
+      "approval_policy=never",
+      "--output-last-message",
+      outputPath,
+      "--output-schema",
+      schemaPath,
+      "--json"
+    ];
+    for (const feature of DISABLED_CODEX_FEATURES) {
+      args.push("--disable", feature);
+    }
+    args.push(
+      "-c",
+      "mcp_servers={}",
+      "-c",
+      `mcp_servers.reviewrouter.command=${tomlString2(gateway.command)}`,
+      "-c",
+      `mcp_servers.reviewrouter.args=${tomlStringArray2(gateway.args)}`,
+      "-c",
+      `mcp_servers.reviewrouter.cwd=${tomlString2(gateway.cwd)}`,
+      "-c",
+      `mcp_servers.reviewrouter.env_vars=${tomlStringArray2(
+        Object.keys({
+          ...gateway.runtimeEnvironment,
+          ...gateway.credentialEnvironment,
+          REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: "context-gateway-v4"
+        }).sort()
+      )}`,
+      "-c",
+      "mcp_servers.reviewrouter.required=true",
+      "-c",
+      "mcp_servers.reviewrouter.startup_timeout_sec=45",
+      "-c",
+      "mcp_servers.reviewrouter.tool_timeout_sec=30",
+      "-c",
+      `mcp_servers.reviewrouter.enabled_tools=${tomlStringArray2(
+        gateway.enabledTools
+      )}`,
+      "-c",
+      `model_reasoning_effort=${tomlString2(
+        this.options.reasoningEffort ?? "xhigh"
+      )}`,
+      "-"
+    );
+    return Object.freeze(args);
+  }
+};
+async function readBoundedUtf8File(filePath, maxBytes) {
+  const handle = await (0, import_promises7.open)(filePath, "r");
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isFile() || metadata.size > maxBytes) {
+      throw new Error("review_agent_output_file_size_invalid");
+    }
+    const buffer = Buffer.alloc(metadata.size + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
+    if (bytesRead > maxBytes || bytesRead !== metadata.size) {
+      throw new Error("review_agent_output_file_size_invalid");
+    }
+    return new import_util12.TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      buffer.subarray(0, bytesRead)
+    );
+  } finally {
+    await handle.close();
+  }
+}
+function parseJsonLines(value) {
+  const events = [];
+  for (const line of value.split(/\r?\n/u)) {
+    if (!line.trim()) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      throw streamFailure("review_agent_codex_event_json_invalid");
+    }
+    events.push(requireRecord2(parsed, "codex_event"));
+  }
+  if (events.length === 0)
+    throw streamFailure("review_agent_codex_event_stream_empty");
+  return events;
+}
+function collectConfiguredModels(value, models, depth) {
+  if (!value || typeof value !== "object" || depth > 5) return;
+  const record = value;
+  if (record.type === "session_configured") {
+    for (const candidate of [
+      record.model,
+      isRecord9(record.payload) ? record.payload.model : void 0,
+      isRecord9(record.data) ? record.data.model : void 0,
+      isRecord9(record.session) ? record.session.model : void 0
+    ]) {
+      if (typeof candidate === "string") models.add(candidate);
+    }
+  }
+  for (const nested of Object.values(record)) {
+    if (nested && typeof nested === "object") {
+      collectConfiguredModels(nested, models, depth + 1);
+    }
+  }
+}
+function requireRecord2(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return value;
+}
+function isRecord9(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function tomlString2(value) {
+  return JSON.stringify(value);
+}
+function tomlStringArray2(values) {
+  return `[${values.map(tomlString2).join(",")}]`;
+}
+
+// src/review-investigation/infrastructure/review-action-v2-investigation-adapter.ts
+var ReviewActionV2InvestigationAdapter = class {
+  constructor(client) {
+    this.client = client;
+  }
+  async open(input) {
+    const coverage = document(input.coverageContract);
+    const policy = document(input.investigationPolicy);
+    const receipts = document(input.initialReceipts);
+    const result2 = await this.mutation(
+      "review_investigation_open" /* ReviewInvestigationOpen */,
+      () => this.client.execute("review_investigation_open" /* ReviewInvestigationOpen */, {
+        authorizationToken: input.authorizationToken,
+        idempotencyKey: idempotencyKey("open", {
+          executionId: input.executionId,
+          workSlotId: input.workSlotId,
+          reviewRevisionHash: input.reviewRevisionHash,
+          stableReviewUnitKey: input.stableReviewUnitKey,
+          providerVoteLaneId: input.providerVoteLaneId,
+          coverageContractHash: coverage.hash,
+          runtimeProfile: input.runtimeProfile
+        }),
+        authorizationId: input.authorizationId,
+        executionId: input.executionId,
+        workSlotId: input.workSlotId,
+        reviewRevisionHash: input.reviewRevisionHash,
+        stableReviewUnitKey: input.stableReviewUnitKey,
+        providerVoteLaneId: input.providerVoteLaneId,
+        providerStrategyId: input.providerStrategyId,
+        runtimeProfile: runtimeProfile(input.runtimeProfile),
+        coverageContractCanonicalJson: coverage.canonicalJson,
+        coverageContractHash: coverage.hash,
+        investigationPolicyCanonicalJson: policy.canonicalJson,
+        investigationPolicyHash: policy.hash,
+        seedObligationsCanonicalJson: input.seedEnvelope.canonicalJson,
+        seedObligationsHash: input.seedEnvelope.hash,
+        initialReceiptsCanonicalJson: receipts.canonicalJson,
+        initialReceiptsHash: receipts.hash
+      })
+    );
+    if (result2.status !== "opened" /* Opened */ && result2.status !== "restored" /* Restored */) {
+      throw statusError(result2.status);
+    }
+    return snapshotFromResult(result2, null);
+  }
+  async restore(input) {
+    let result2;
+    try {
+      result2 = await this.client.execute(
+        "review_investigation_restore" /* ReviewInvestigationRestore */,
+        {
+          authorizationToken: input.authorizationToken,
+          authorizationId: input.authorizationId,
+          investigationId: input.investigationId,
+          reviewRevisionHash: input.reviewRevisionHash
+        }
+      );
+    } catch (error2) {
+      throw transportError(
+        error2,
+        "review_investigation_restore" /* ReviewInvestigationRestore */,
+        false
+      );
+    }
+    if (result2.status === "missing" /* Missing */) {
+      return null;
+    }
+    if (result2.status !== "found" /* Found */) {
+      throw statusError(result2.status);
+    }
+    return snapshotFromResult(result2, null);
+  }
+  async planTurn(input) {
+    const budget = document(input.turnBudget);
+    const result2 = await this.mutation(
+      "review_investigation_turn_plan" /* ReviewInvestigationTurnPlan */,
+      () => this.client.execute(
+        "review_investigation_turn_plan" /* ReviewInvestigationTurnPlan */,
+        {
+          authorizationToken: input.authorizationToken,
+          idempotencyKey: idempotencyKey("plan", {
+            investigationId: input.snapshot.investigationId,
+            expectedVersion: input.snapshot.version,
+            dossierDigest: input.snapshot.dossierDigest,
+            turnBudgetHash: budget.hash
+          }),
+          investigationId: input.snapshot.investigationId,
+          expectedVersion: String(input.snapshot.version),
+          dossierDigest: input.snapshot.dossierDigest,
+          leaseDurationMs: input.leaseDurationMs,
+          maxObligationsForTurn: input.maxObligationsForTurn,
+          turnBudgetHash: budget.hash
+        }
+      )
+    );
+    requireMutationApplied2(result2.status);
+    const turnCapability = nullableString(result2.turnCapability);
+    const snapshot = snapshotFromResult(result2, turnCapability);
+    if (snapshot.turn !== null && turnCapability === null) {
+      throw invalidResponse("investigation_turn_capability_missing");
+    }
+    return attachTurnBrief(snapshot, result2);
+  }
+  async commitTurn(input) {
+    const turn = requireTurn(input.snapshot);
+    const observationCanonicalJson = canonicalObservation(input.observation);
+    const observationHash = sha256(observationCanonicalJson);
+    const result2 = await this.mutation(
+      "review_investigation_turn_commit" /* ReviewInvestigationTurnCommit */,
+      () => this.client.execute(
+        "review_investigation_turn_commit" /* ReviewInvestigationTurnCommit */,
+        {
+          authorizationToken: input.authorizationToken,
+          leaseCapability: input.lease.leaseCapability,
+          idempotencyKey: idempotencyKey("commit", {
+            investigationId: input.snapshot.investigationId,
+            expectedVersion: input.snapshot.version,
+            turnId: turn.turnId,
+            sourceLeaseId: input.lease.leaseId,
+            fencingToken: input.lease.fencingToken,
+            observationHash,
+            attestationHash: input.attestationHash
+          }),
+          investigationId: input.snapshot.investigationId,
+          expectedVersion: String(input.snapshot.version),
+          turnId: turn.turnId,
+          turnCapability: turn.turnCapability,
+          sourceLeaseId: input.lease.leaseId,
+          fencingToken: input.lease.fencingToken,
+          acceptedAttestationId: input.attestationId,
+          acceptedAttestationHash: input.attestationHash,
+          turnObservationCanonicalJson: observationCanonicalJson,
+          turnObservationHash: observationHash
+        }
+      )
+    );
+    requireMutationApplied2(result2.status);
+    return snapshotFromResult(result2, null);
+  }
+  async abortTurn(input) {
+    const turn = requireTurn(input.snapshot);
+    const result2 = await this.mutation(
+      "review_investigation_turn_abort" /* ReviewInvestigationTurnAbort */,
+      () => this.client.execute(
+        "review_investigation_turn_abort" /* ReviewInvestigationTurnAbort */,
+        {
+          authorizationToken: input.authorizationToken,
+          leaseCapability: input.lease.leaseCapability,
+          idempotencyKey: idempotencyKey("abort", {
+            investigationId: input.snapshot.investigationId,
+            expectedVersion: input.snapshot.version,
+            turnId: turn.turnId,
+            sourceLeaseId: input.lease.leaseId,
+            fencingToken: input.lease.fencingToken,
+            reason: input.reason,
+            nextEligibleAt: input.nextEligibleAt
+          }),
+          investigationId: input.snapshot.investigationId,
+          expectedVersion: String(input.snapshot.version),
+          turnId: turn.turnId,
+          turnCapability: turn.turnCapability,
+          sourceLeaseId: input.lease.leaseId,
+          fencingToken: input.lease.fencingToken,
+          abortReason: publishedAbortReason(input.reason),
+          nextEligibleAt: input.nextEligibleAt
+        }
+      )
+    );
+    requireMutationApplied2(result2.status);
+    return snapshotFromResult(result2, null);
+  }
+  async conclude(input) {
+    const result2 = await this.mutation(
+      "review_investigation_conclude" /* ReviewInvestigationConclude */,
+      () => this.client.execute(
+        "review_investigation_conclude" /* ReviewInvestigationConclude */,
+        {
+          authorizationToken: input.authorizationToken,
+          idempotencyKey: idempotencyKey("conclude", {
+            investigationId: input.snapshot.investigationId,
+            expectedVersion: input.snapshot.version,
+            dossierDigest: input.snapshot.dossierDigest,
+            certificateTtlMs: input.certificateTtlMs
+          }),
+          investigationId: input.snapshot.investigationId,
+          expectedVersion: String(input.snapshot.version),
+          dossierDigest: input.snapshot.dossierDigest,
+          certificateTtlMs: input.certificateTtlMs
+        }
+      )
+    );
+    requireMutationApplied2(result2.status);
+    return snapshotFromResult(result2, null);
+  }
+  async prepareReplay(input) {
+    const coverage = document(input.open.coverageContract);
+    let result2;
+    try {
+      result2 = await this.client.execute(
+        "review_investigation_replay_prepare" /* ReviewInvestigationReplayPrepare */,
+        {
+          authorizationToken: input.open.authorizationToken,
+          authorizationId: input.open.authorizationId,
+          targetExecutionId: input.open.executionId,
+          targetWorkSlotId: input.open.workSlotId,
+          targetReviewRevisionHash: input.open.reviewRevisionHash,
+          stableReviewUnitKey: input.open.stableReviewUnitKey,
+          providerVoteLaneId: input.open.providerVoteLaneId,
+          providerManifestCanonicalJson: input.providerManifestCanonicalJson,
+          providerManifestHash: input.providerManifestHash,
+          coverageContractCanonicalJson: coverage.canonicalJson,
+          coverageContractHash: coverage.hash
+        }
+      );
+    } catch (error2) {
+      const mapped = transportError(
+        error2,
+        "review_investigation_replay_prepare" /* ReviewInvestigationReplayPrepare */,
+        false
+      );
+      if (mapped.failureClass === "capability_disabled" /* CapabilityDisabled */ || mapped.failureClass === "rejected" /* Rejected */) {
+        return null;
+      }
+      throw mapped;
+    }
+    if (result2.status === "missing" /* Missing */ || result2.status === "rejected" /* Rejected */) {
+      return null;
+    }
+    if (result2.status !== "prepared" /* Prepared */) {
+      throw invalidResponse("investigation_replay_prepare_status_invalid");
+    }
+    return parseReplayPreparation(result2);
+  }
+  async commitReceiptReplay(input) {
+    const result2 = await this.mutation(
+      "review_context_receipt_replay_commit" /* ReviewContextReceiptReplayCommit */,
+      () => this.client.execute(
+        "review_context_receipt_replay_commit" /* ReviewContextReceiptReplayCommit */,
+        {
+          authorizationToken: input.open.authorizationToken,
+          idempotencyKey: idempotencyKey("receipt-replay-commit", {
+            executionId: input.open.executionId,
+            workSlotId: input.open.workSlotId,
+            attestationId: input.prepared.contextAttestationId,
+            attestationHash: input.prepared.contextAttestationHash,
+            sourceOperationReceiptIdsHash: input.prepared.sourceOperationReceiptIdsHash,
+            targetReviewRevisionHash: input.open.reviewRevisionHash,
+            targetCheckoutTreeOid: input.result.targetCheckoutTreeOid,
+            replayResultHash: input.result.replayResultHash
+          }),
+          executionId: input.open.executionId,
+          workSlotId: input.open.workSlotId,
+          attestationId: input.prepared.contextAttestationId,
+          attestationHash: input.prepared.contextAttestationHash,
+          targetReviewRevisionHash: input.open.reviewRevisionHash,
+          targetCheckoutTreeOid: input.result.targetCheckoutTreeOid,
+          replayCapability: input.prepared.replayCapability,
+          replayResultCanonicalJson: input.result.replayResultCanonicalJson,
+          replayResultHash: input.result.replayResultHash
+        }
+      )
+    );
+    if (result2.status === "denied" /* Denied */ || result2.status === "conflict" /* Conflict */) {
+      return null;
+    }
+    if (result2.status !== "accepted" /* Accepted */ && result2.status !== "idempotent" /* Idempotent */) {
+      throw statusError(result2.status);
+    }
+    return Object.freeze({
+      replayProofId: requireString4(result2.replayProofId, "replay_proof_id")
+    });
+  }
+  async replay(input) {
+    const coverage = document(input.open.coverageContract);
+    const policy = document(input.open.investigationPolicy);
+    const initialReceipts = document(input.open.initialReceipts);
+    const targetScope = document(input.scope);
+    const targetRevision = document(input.revision);
+    const replayProofs = document(input.replayProofs);
+    const result2 = await this.mutation(
+      "review_investigation_replay" /* ReviewInvestigationReplay */,
+      () => this.client.execute(
+        "review_investigation_replay" /* ReviewInvestigationReplay */,
+        {
+          authorizationToken: input.open.authorizationToken,
+          idempotencyKey: idempotencyKey("replay", {
+            sourceInvestigationId: input.prepared.sourceInvestigationId,
+            sourceCertificateHash: input.prepared.sourceCertificateHash,
+            targetExecutionId: input.open.executionId,
+            targetWorkSlotId: input.open.workSlotId,
+            targetRevisionHash: targetRevision.hash,
+            providerStrategyId: input.open.providerStrategyId,
+            coverageContractHash: coverage.hash,
+            investigationPolicyHash: policy.hash,
+            seedObligationsHash: input.open.seedEnvelope.hash,
+            initialReceiptsHash: initialReceipts.hash,
+            replayProofsHash: replayProofs.hash
+          }),
+          authorizationId: input.open.authorizationId,
+          sourceInvestigationId: input.prepared.sourceInvestigationId,
+          sourceCertificateHash: input.prepared.sourceCertificateHash,
+          targetExecutionId: input.open.executionId,
+          targetWorkSlotId: input.open.workSlotId,
+          stableReviewUnitKey: input.open.stableReviewUnitKey,
+          providerVoteLaneId: input.open.providerVoteLaneId,
+          providerStrategyId: input.open.providerStrategyId,
+          runtimeProfile: runtimeProfile(input.open.runtimeProfile),
+          coverageContractCanonicalJson: coverage.canonicalJson,
+          coverageContractHash: coverage.hash,
+          investigationPolicyCanonicalJson: policy.canonicalJson,
+          investigationPolicyHash: policy.hash,
+          seedObligationsCanonicalJson: input.open.seedEnvelope.canonicalJson,
+          seedObligationsHash: input.open.seedEnvelope.hash,
+          initialReceiptsCanonicalJson: initialReceipts.canonicalJson,
+          initialReceiptsHash: initialReceipts.hash,
+          targetScopeCanonicalJson: targetScope.canonicalJson,
+          targetScopeHash: targetScope.hash,
+          targetRevisionCanonicalJson: targetRevision.canonicalJson,
+          targetRevisionHash: targetRevision.hash,
+          replayProofsCanonicalJson: replayProofs.canonicalJson,
+          replayProofsHash: replayProofs.hash
+        }
+      )
+    );
+    requireMutationApplied2(result2.status);
+    return snapshotFromResult(result2, null);
+  }
+  async mutation(operationId, execute) {
+    try {
+      return await execute();
+    } catch (error2) {
+      throw transportError(error2, operationId, true);
+    }
+  }
+};
+function document(value) {
+  const serialized = canonicalJson(value);
+  return Object.freeze({ canonicalJson: serialized, hash: sha256(serialized) });
+}
+function parseReplayPreparation(result2) {
+  const raw = requireCanonicalDocumentString(
+    result2.replayPreparationCanonicalJson,
+    "replay_preparation"
+  );
+  if (sha256(raw) !== requireDigest5(result2.replayPreparationHash, "replay_preparation_hash")) {
+    throw invalidResponse("replay_preparation_hash_mismatch");
+  }
+  const parsed = requireRecord3(JSON.parse(raw), "replay_preparation");
+  requireExactKeys4(parsed, ["obligations"]);
+  const obligations = requireArray2(
+    parsed.obligations,
+    "replay_preparation_obligations",
+    1024
+  ).map((value) => {
+    const obligation = requireRecord3(value, "replay_preparation_obligation");
+    requireExactKeys4(obligation, [
+      "obligationId",
+      "contextAttestationId",
+      "contextAttestationHash",
+      "sourceOperationReceiptIdsHash",
+      "replayCapability",
+      "replayPlanCanonicalJson",
+      "replayPlanHash"
+    ]);
+    const replayPlanCanonicalJson = requireCanonicalDocumentString(
+      obligation.replayPlanCanonicalJson,
+      "replay_plan",
+      512 * 1024
+    );
+    const replayPlanHash = requireDigest5(
+      obligation.replayPlanHash,
+      "replay_plan_hash"
+    );
+    if (sha256(replayPlanCanonicalJson) !== replayPlanHash) {
+      throw invalidResponse("replay_plan_hash_mismatch");
+    }
+    return Object.freeze({
+      obligationId: requireDigest5(obligation.obligationId, "obligation_id"),
+      contextAttestationId: requireString4(
+        obligation.contextAttestationId,
+        "context_attestation_id"
+      ),
+      contextAttestationHash: requireDigest5(
+        obligation.contextAttestationHash,
+        "context_attestation_hash"
+      ),
+      sourceOperationReceiptIdsHash: requireDigest5(
+        obligation.sourceOperationReceiptIdsHash,
+        "source_operation_receipt_ids_hash"
+      ),
+      replayCapability: requireString4(
+        obligation.replayCapability,
+        "replay_capability"
+      ),
+      replayPlanCanonicalJson,
+      replayPlanHash
+    });
+  });
+  if (obligations.length === 0 || new Set(obligations.map((item) => item.obligationId)).size !== obligations.length) {
+    throw invalidResponse("replay_preparation_obligations_invalid");
+  }
+  return Object.freeze({
+    sourceInvestigationId: requireString4(
+      result2.sourceInvestigationId,
+      "source_investigation_id"
+    ),
+    sourceCertificateId: requireString4(
+      result2.sourceCertificateId,
+      "source_certificate_id"
+    ),
+    sourceCertificateHash: requireDigest5(
+      result2.sourceCertificateHash,
+      "source_certificate_hash"
+    ),
+    obligations: Object.freeze(obligations)
+  });
+}
+function idempotencyKey(operation, preimage) {
+  return `rr:investigation:${operation}:${sha256(canonicalJson(preimage))}`;
+}
+function canonicalObservation(observation) {
+  return canonicalJson(observation);
+}
+function runtimeProfile(value) {
+  if (value === "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */) {
+    return "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */;
+  }
+  throw new ReviewInvestigationControlPlaneError(
+    "rejected" /* Rejected */,
+    "investigation_runtime_profile_unsupported"
+  );
+}
+function publishedAbortReason(value) {
+  if (!Object.values(ReviewInvestigationPublishedAbortReason).includes(
+    value
+  )) {
+    throw new ReviewInvestigationControlPlaneError(
+      "rejected" /* Rejected */,
+      "investigation_abort_reason_unsupported"
+    );
+  }
+  return value;
+}
+function requireMutationApplied2(status) {
+  if (status !== "applied" /* Applied */ && status !== "restored" /* Restored */ && status !== "parked" /* Parked */) {
+    throw statusError(status);
+  }
+}
+function snapshotFromResult(result2, turnCapability) {
+  const raw = requireString4(
+    result2.investigationCanonicalJson,
+    "investigation_canonical_json"
+  );
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw invalidResponse("investigation_canonical_json_invalid");
+  }
+  if (canonicalJson(value) !== raw) {
+    throw invalidResponse("investigation_canonical_json_not_canonical");
+  }
+  const root = requireRecord3(value, "investigation");
+  requireExactKeys4(root, [
+    "investigationId",
+    "version",
+    "state",
+    "dossierDigest",
+    "openObligationCount",
+    "satisfiedObligationCount",
+    "unresolvableObligationCount",
+    "findingCount",
+    "semanticTurns",
+    "operationalAttempts",
+    "criticCycles",
+    "nextEligibleAt",
+    "nextAction",
+    "turn",
+    "certificateId",
+    "certificateHash",
+    "terminalProviderKind",
+    "terminalActualModel",
+    "terminalObservationCanonicalJson",
+    "terminalOutcomeHash",
+    "conclusion"
+  ]);
+  const turn = root.turn === null ? null : parseTurn(root.turn, turnCapability);
+  const snapshot = Object.freeze({
+    investigationId: requireString4(root.investigationId, "investigation_id"),
+    version: requireNonNegativeInteger4(root.version, "investigation_version"),
+    state: enumValue(
+      root.state,
+      ReviewInvestigationState,
+      "investigation_state"
+    ),
+    dossierDigest: requireDigest5(root.dossierDigest, "dossier_digest"),
+    openObligationCount: requireNonNegativeInteger4(
+      root.openObligationCount,
+      "open_obligation_count"
+    ),
+    satisfiedObligationCount: requireNonNegativeInteger4(
+      root.satisfiedObligationCount,
+      "satisfied_obligation_count"
+    ),
+    unresolvableObligationCount: requireNonNegativeInteger4(
+      root.unresolvableObligationCount,
+      "unresolvable_obligation_count"
+    ),
+    findingCount: requireNonNegativeInteger4(root.findingCount, "finding_count"),
+    semanticTurns: requireNonNegativeInteger4(
+      root.semanticTurns,
+      "semantic_turns"
+    ),
+    operationalAttempts: requireNonNegativeInteger4(
+      root.operationalAttempts,
+      "operational_attempts"
+    ),
+    criticCycles: requireNonNegativeInteger4(root.criticCycles, "critic_cycles"),
+    nextEligibleAt: nullableTimestamp(root.nextEligibleAt, "next_eligible_at"),
+    nextAction: enumValue(
+      root.nextAction,
+      ReviewInvestigationNextAction,
+      "next_action"
+    ),
+    turn,
+    certificateId: nullableString(root.certificateId),
+    certificateHash: nullableDigest(root.certificateHash, "certificate_hash"),
+    terminalProviderKind: nullableEnumValue(
+      root.terminalProviderKind,
+      ReviewAgentProviderKind,
+      "terminal_provider_kind"
+    ),
+    terminalActualModel: nullableString(root.terminalActualModel),
+    terminalObservationCanonicalJson: nullableCanonicalJson(
+      root.terminalObservationCanonicalJson,
+      "terminal_observation"
+    ),
+    terminalOutcomeHash: nullableDigest(
+      root.terminalOutcomeHash,
+      "terminal_outcome_hash"
+    ),
+    conclusion: nullableEnumValue(
+      root.conclusion,
+      ReviewInvestigationConclusion,
+      "investigation_conclusion"
+    )
+  });
+  verifyTerminalArtifact(snapshot);
+  verifyEnvelopeConsistency(result2, snapshot);
+  return snapshot;
+}
+function parseTurn(value, turnCapability) {
+  const turn = requireRecord3(value, "investigation_turn");
+  requireExactKeys4(turn, [
+    "turnId",
+    "purpose",
+    "leasedAtVersion",
+    "dossierDigest",
+    "obligationIds",
+    "semanticTurnOrdinal",
+    "criticCycleOrdinal",
+    "leasedAt",
+    "expiresAt"
+  ]);
+  return Object.freeze({
+    turnId: requireString4(turn.turnId, "turn_id"),
+    purpose: enumValue(turn.purpose, ReviewTurnPurpose, "turn_purpose"),
+    leasedAtVersion: requireNonNegativeInteger4(
+      turn.leasedAtVersion,
+      "turn_leased_at_version"
+    ),
+    dossierDigest: requireDigest5(turn.dossierDigest, "turn_dossier_digest"),
+    obligationIds: Object.freeze(
+      requireArray2(turn.obligationIds, "turn_obligation_ids").map(
+        (item) => requireDigest5(item, "turn_obligation_id")
+      )
+    ),
+    semanticTurnOrdinal: requireNonNegativeInteger4(
+      turn.semanticTurnOrdinal,
+      "semantic_turn_ordinal"
+    ),
+    criticCycleOrdinal: requireNonNegativeInteger4(
+      turn.criticCycleOrdinal,
+      "critic_cycle_ordinal"
+    ),
+    leasedAt: timestamp2(turn.leasedAt, "turn_leased_at"),
+    expiresAt: timestamp2(turn.expiresAt, "turn_expires_at"),
+    turnCapability: turnCapability ?? "",
+    brief: null
+  });
+}
+function attachTurnBrief(snapshot, result2) {
+  const raw = requireString4(
+    result2.turnBriefCanonicalJson,
+    "turn_brief_canonical_json"
+  );
+  const expectedHash = requireDigest5(result2.turnBriefHash, "turn_brief_hash");
+  if (sha256(raw) !== expectedHash) {
+    throw invalidResponse("turn_brief_hash_mismatch");
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw invalidResponse("turn_brief_json_invalid");
+  }
+  if (canonicalJson(parsed) !== raw) {
+    throw invalidResponse("turn_brief_not_canonical");
+  }
+  if (snapshot.turn === null) {
+    if (parsed !== null) throw invalidResponse("turn_brief_without_turn");
+    return snapshot;
+  }
+  const brief = parseTurnBrief(parsed, snapshot);
+  return Object.freeze({
+    ...snapshot,
+    turn: Object.freeze({ ...snapshot.turn, brief })
+  });
+}
+function parseTurnBrief(value, snapshot) {
+  const brief = requireRecord3(value, "turn_brief");
+  requireExactKeys4(brief, [
+    "briefVersion",
+    "investigationId",
+    "investigationVersion",
+    "dossierDigest",
+    "turnId",
+    "purpose",
+    "maximumSemanticRiskPriority",
+    "obligations"
+  ]);
+  const parsed = Object.freeze({
+    briefVersion: requireLiteralOne(brief.briefVersion, "brief_version"),
+    investigationId: requireString4(brief.investigationId, "investigation_id"),
+    investigationVersion: requireNonNegativeInteger4(
+      brief.investigationVersion,
+      "investigation_version"
+    ),
+    dossierDigest: requireDigest5(brief.dossierDigest, "dossier_digest"),
+    turnId: requireString4(brief.turnId, "turn_id"),
+    purpose: enumValue(brief.purpose, ReviewTurnPurpose, "turn_purpose"),
+    maximumSemanticRiskPriority: requireBoundedRiskPriority(
+      brief.maximumSemanticRiskPriority,
+      "maximum_semantic_risk_priority"
+    ),
+    obligations: Object.freeze(
+      requireArray2(brief.obligations, "turn_obligations").map((value2) => {
+        const obligation = requireRecord3(value2, "turn_obligation");
+        requireExactKeys4(obligation, [
+          "obligationId",
+          "kind",
+          "canonicalSubject",
+          "canonicalRequirement",
+          "riskPriority",
+          "origin"
+        ]);
+        return Object.freeze({
+          obligationId: requireDigest5(obligation.obligationId, "obligation_id"),
+          kind: enumValue(
+            obligation.kind,
+            ReviewTurnObligationKind,
+            "obligation_kind"
+          ),
+          canonicalSubject: requireString4(
+            obligation.canonicalSubject,
+            "canonical_subject"
+          ),
+          canonicalRequirement: requireString4(
+            obligation.canonicalRequirement,
+            "canonical_requirement"
+          ),
+          riskPriority: requireNonNegativeInteger4(
+            obligation.riskPriority,
+            "risk_priority"
+          ),
+          origin: enumValue(
+            obligation.origin,
+            ReviewInvestigationObligationOrigin,
+            "obligation_origin"
+          )
+        });
+      })
+    )
+  });
+  if (parsed.investigationId !== snapshot.investigationId || parsed.investigationVersion !== snapshot.version || parsed.dossierDigest !== snapshot.dossierDigest || parsed.turnId !== snapshot.turn?.turnId || parsed.purpose !== snapshot.turn?.purpose || parsed.obligations.length !== snapshot.turn.obligationIds.length || parsed.obligations.some(
+    (obligation, index) => obligation.obligationId !== snapshot.turn?.obligationIds[index]
+  )) {
+    throw invalidResponse("turn_brief_envelope_mismatch");
+  }
+  return parsed;
+}
+function requireLiteralOne(value, field) {
+  if (value !== 1) throw invalidResponse(`${field}_invalid`);
+  return 1;
+}
+function verifyEnvelopeConsistency(result2, snapshot) {
+  if (result2.investigationId !== snapshot.investigationId || result2.investigationVersion !== String(snapshot.version) || publishedState(snapshot.state) !== result2.investigationState || result2.dossierDigest !== snapshot.dossierDigest || publishedNextAction(snapshot.nextAction) !== result2.nextAction || result2.certificateId !== snapshot.certificateId || result2.certificateHash !== snapshot.certificateHash || result2.terminalProviderKind !== snapshot.terminalProviderKind || result2.terminalActualModel !== snapshot.terminalActualModel || result2.terminalObservationCanonicalJson !== snapshot.terminalObservationCanonicalJson || result2.terminalOutcomeHash !== snapshot.terminalOutcomeHash || result2.investigationConclusion !== publishedConclusion(snapshot.conclusion)) {
+    throw invalidResponse("investigation_result_envelope_mismatch");
+  }
+}
+function verifyTerminalArtifact(snapshot) {
+  const artifact = [
+    snapshot.certificateId,
+    snapshot.certificateHash,
+    snapshot.terminalObservationCanonicalJson,
+    snapshot.terminalOutcomeHash
+  ];
+  const artifactPresent = artifact.some((value) => value !== null);
+  if (artifactPresent && artifact.some((value) => value === null)) {
+    throw invalidResponse("investigation_terminal_artifact_incomplete");
+  }
+  const provenancePresent = snapshot.terminalProviderKind !== null || snapshot.terminalActualModel !== null;
+  if (provenancePresent && (snapshot.terminalProviderKind === null || snapshot.terminalActualModel === null)) {
+    throw invalidResponse("investigation_terminal_provenance_incomplete");
+  }
+  verifyConclusionConsistency(snapshot);
+  if (!artifactPresent) {
+    if (provenancePresent) {
+      throw invalidResponse(
+        "investigation_terminal_provenance_without_artifact"
+      );
+    }
+    if (snapshot.conclusion !== null && !(snapshot.nextAction === "conclude" /* Conclude */ && snapshot.turn === null && (snapshot.state === "ready_to_conclude" /* ReadyToConclude */ && snapshot.conclusion !== "inconclusive" /* Inconclusive */ || snapshot.state === "inconclusive" /* Inconclusive */ && snapshot.conclusion === "inconclusive" /* Inconclusive */))) {
+      throw invalidResponse("investigation_preterminal_conclusion_invalid");
+    }
+    return;
+  }
+  if (snapshot.conclusion === null || ![
+    "concluded" /* Concluded */,
+    "inconclusive" /* Inconclusive */
+  ].includes(snapshot.state) || snapshot.nextAction !== "terminal" /* Terminal */ || snapshot.turn !== null || sha256(snapshot.terminalObservationCanonicalJson) !== snapshot.terminalOutcomeHash || snapshot.conclusion !== "inconclusive" /* Inconclusive */ && !provenancePresent) {
+    throw invalidResponse("investigation_terminal_artifact_invalid");
+  }
+  verifyTerminalPayload(snapshot);
+}
+function verifyConclusionConsistency(snapshot) {
+  if (snapshot.state === "concluded" /* Concluded */ && snapshot.conclusion !== "verified_clean" /* VerifiedClean */ && snapshot.conclusion !== "findings" /* Findings */ || snapshot.state === "inconclusive" /* Inconclusive */ && snapshot.conclusion !== "inconclusive" /* Inconclusive */ || snapshot.conclusion === "verified_clean" /* VerifiedClean */ && (snapshot.findingCount !== 0 || snapshot.openObligationCount !== 0 || snapshot.unresolvableObligationCount !== 0) || snapshot.conclusion === "findings" /* Findings */ && (snapshot.findingCount === 0 || snapshot.openObligationCount !== 0 || snapshot.unresolvableObligationCount !== 0)) {
+    throw invalidResponse("investigation_terminal_artifact_invalid");
+  }
+}
+function verifyTerminalPayload(snapshot) {
+  let value;
+  try {
+    value = JSON.parse(snapshot.terminalObservationCanonicalJson);
+  } catch {
+    throw invalidResponse("investigation_terminal_payload_invalid");
+  }
+  if (!isRecord10(value)) {
+    throw invalidResponse("investigation_terminal_payload_invalid");
+  }
+  const findings = value.normalizedFindings;
+  const lifecycle = value.normalizedLifecycleRevalidations;
+  if (!hasExactKeys2(value, [
+    "normalizedFindings",
+    "normalizedLifecycleRevalidations",
+    "payloadVersion",
+    "safeUsage"
+  ]) || value.payloadVersion !== 2 || !Array.isArray(findings) || findings.some((item) => !isNormalizedFinding(item)) || !Array.isArray(lifecycle) || lifecycle.some((item) => !isNormalizedLifecycleRevalidation(item)) || !isSafeUsage(value.safeUsage) || findings.length !== snapshot.findingCount) {
+    throw invalidResponse("investigation_terminal_payload_invalid");
+  }
+}
+function isNormalizedFinding(value) {
+  return isRecord10(value) && hasExactKeys2(value, [
+    "category",
+    "endLine",
+    "evidence",
+    "message",
+    "normalizedFailureModeHash",
+    "path",
+    "placementConfidence",
+    "severity",
+    "startLine",
+    "suggestion",
+    "title"
+  ]) && typeof value.category === "string" && isNullablePositiveInteger(value.endLine) && isStringArray(value.evidence) && typeof value.message === "string" && isSha256Digest(value.normalizedFailureModeHash) && typeof value.path === "string" && isNullableConfidence(value.placementConfidence) && isFindingSeverity(value.severity) && isNullablePositiveInteger(value.startLine) && (value.suggestion === null || typeof value.suggestion === "string") && typeof value.title === "string";
+}
+function isNormalizedLifecycleRevalidation(value) {
+  return isRecord10(value) && hasExactKeys2(value, [
+    "confidence",
+    "evidence",
+    "fingerprint",
+    "rationale",
+    "targetId",
+    "verdict"
+  ]) && isNullableConfidence(value.confidence) && Array.isArray(value.evidence) && value.evidence.every(isNormalizedLifecycleEvidence) && (value.fingerprint === null || typeof value.fingerprint === "string") && (value.rationale === null || typeof value.rationale === "string") && typeof value.targetId === "string" && isLifecycleVerdict(value.verdict);
+}
+function isNormalizedLifecycleEvidence(value) {
+  return isRecord10(value) && hasExactKeys2(value, ["endLine", "path", "reason", "startLine"]) && isNullablePositiveInteger(value.endLine) && typeof value.path === "string" && typeof value.reason === "string" && isNullablePositiveInteger(value.startLine);
+}
+function isFindingSeverity(value) {
+  return value === "critical" || value === "major" || value === "minor";
+}
+function isLifecycleVerdict(value) {
+  return value === "resolved" || value === "still_valid" || value === "uncertain";
+}
+function isSha256Digest(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+function isNullablePositiveInteger(value) {
+  return value === null || Number.isSafeInteger(value) && Number(value) > 0;
+}
+function isNullableConfidence(value) {
+  return value === null || typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+function isSafeUsage(value) {
+  if (!isRecord10(value) || !hasExactKeys2(value, ["inputTokens", "outputTokens", "totalTokens"]) || !isNullableNonNegativeInteger(value.inputTokens) || !isNullableNonNegativeInteger(value.outputTokens) || !isNullableNonNegativeInteger(value.totalTokens)) {
+    return false;
+  }
+  return !(typeof value.inputTokens === "number" && typeof value.outputTokens === "number" && typeof value.totalTokens === "number" && value.totalTokens !== value.inputTokens + value.outputTokens);
+}
+function isNullableNonNegativeInteger(value) {
+  return value === null || Number.isSafeInteger(value) && Number(value) >= 0;
+}
+function publishedConclusion(conclusion) {
+  return conclusion;
+}
+function publishedState(state) {
+  return state;
+}
+function publishedNextAction(action) {
+  return action;
+}
+function requireTurn(snapshot) {
+  if (snapshot.turn === null || snapshot.turn.turnCapability.length === 0) {
+    throw invalidResponse("investigation_active_turn_missing");
+  }
+  return snapshot.turn;
+}
+function transportError(error2, operationId, mutation) {
+  if (error2 instanceof ReviewInvestigationControlPlaneError) return error2;
+  if (!(error2 instanceof ReviewActionV2ClientError)) {
+    return new ReviewInvestigationControlPlaneError(
+      mutation ? "ambiguous_outcome" /* AmbiguousOutcome */ : "unavailable" /* Unavailable */,
+      `investigation_control_plane_failure:${operationId}`
+    );
+  }
+  if (error2.protocolErrorCode === "capability_disabled" /* CapabilityDisabled */) {
+    return new ReviewInvestigationControlPlaneError(
+      "capability_disabled" /* CapabilityDisabled */,
+      error2.message
+    );
+  }
+  if (error2.protocolErrorCode === "capacity_limited" /* CapacityLimited */) {
+    return new ReviewInvestigationControlPlaneError(
+      "capacity_limited" /* CapacityLimited */,
+      error2.message
+    );
+  }
+  if (error2.protocolErrorCode === "stale_precondition" /* StalePrecondition */) {
+    return new ReviewInvestigationControlPlaneError(
+      "stale_precondition" /* StalePrecondition */,
+      error2.message
+    );
+  }
+  const ambiguous = mutation && (error2.protocolErrorCode === "ambiguous_outcome" /* AmbiguousOutcome */ || error2.code === "network_failure" /* NetworkFailure */ || error2.code === "request_timed_out" /* RequestTimedOut */ || error2.code === "invalid_response" /* InvalidResponse */);
+  return new ReviewInvestigationControlPlaneError(
+    ambiguous ? "ambiguous_outcome" /* AmbiguousOutcome */ : "rejected" /* Rejected */,
+    error2.message
+  );
+}
+function statusError(status) {
+  return new ReviewInvestigationControlPlaneError(
+    status === "conflict" ? "conflict" /* Conflict */ : "rejected" /* Rejected */,
+    `investigation_result_${status}`
+  );
+}
+function invalidResponse(message) {
+  return new ReviewInvestigationControlPlaneError(
+    "invalid_response" /* InvalidResponse */,
+    message
+  );
+}
+function requireRecord3(value, field) {
+  if (!isRecord10(value)) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  return value;
+}
+function isRecord10(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function requireExactKeys4(value, keys) {
+  if (!hasExactKeys2(value, keys)) {
+    throw invalidResponse("investigation_shape_invalid");
+  }
+}
+function hasExactKeys2(value, keys) {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return !(actual.length !== expected.length || actual.some((key, index) => key !== expected[index]));
+}
+function requireString4(value, field) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 16e3) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  return value;
+}
+function nullableString(value) {
+  return value === null || value === void 0 ? null : requireString4(value, "nullable_string");
+}
+function nullableDigest(value, field) {
+  return value === null ? null : requireDigest5(value, field);
+}
+function nullableEnumValue(value, source, field) {
+  return value === null ? null : enumValue(value, source, field);
+}
+function nullableCanonicalJson(value, field) {
+  if (value === null) return null;
+  if (typeof value !== "string" || value.length < 2) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  if (canonicalJson(parsed) !== value) {
+    throw invalidResponse(`${field}_not_canonical`);
+  }
+  return value;
+}
+function requireDigest5(value, field) {
+  const digest2 = requireString4(value, field);
+  if (!/^[a-f0-9]{64}$/.test(digest2)) throw invalidResponse(`${field}_invalid`);
+  return digest2;
+}
+function requireNonNegativeInteger4(value, field) {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  return Number(value);
+}
+function requireBoundedRiskPriority(value, field) {
+  const parsed = requireNonNegativeInteger4(value, field);
+  if (parsed > 1e6) throw invalidResponse(`${field}_invalid`);
+  return parsed;
+}
+function requireArray2(value, field, maximum = 256) {
+  if (!Array.isArray(value) || value.length > maximum) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  return value;
+}
+function requireCanonicalDocumentString(value, field, maximumBytes = 2 * 1024 * 1024) {
+  if (typeof value !== "string" || value.length < 2 || Buffer.byteLength(value, "utf8") > maximumBytes) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  if (canonicalJson(parsed) !== value) {
+    throw invalidResponse(`${field}_not_canonical`);
+  }
+  return value;
+}
+function enumValue(value, source, field) {
+  if (typeof value !== "string" || !Object.values(source).includes(value)) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  return value;
+}
+function timestamp2(value, field) {
+  const result2 = requireString4(value, field);
+  if (!Number.isFinite(Date.parse(result2))) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  return result2;
+}
+function nullableTimestamp(value, field) {
+  return value === null ? null : timestamp2(value, field);
+}
+
+// src/review-investigation/infrastructure/context-gateway-v4-investigation-adapter.ts
+var ContextGatewayV4InvestigationAdapter = class {
+  constructor(factory, context) {
+    this.factory = factory;
+    this.context = context;
+    this.executionAuthority = Object.freeze({
+      preparedManifestKey: requireAuthorityValue(
+        context.preparedManifestKey,
+        "investigation_prepared_manifest_key_missing"
+      ),
+      providerInvocationKey: requireAuthorityValue(
+        context.providerInvocationKey,
+        "investigation_provider_invocation_key_missing"
+      ),
+      providerKind: requireProviderKind2(context.providerKind),
+      requestedModel: requireAuthorityValue(
+        context.requestedModel,
+        "investigation_requested_model_missing"
+      ),
+      executionProfile: requireExecutionProfile2(context.executionProfile),
+      toolPolicyHash: requireAuthorityValue(
+        context.toolPolicyHash,
+        "investigation_tool_policy_hash_missing"
+      )
+    });
+  }
+  executionAuthority;
+  agentSessions = /* @__PURE__ */ new WeakMap();
+  async open(input) {
+    const session = await this.factory.open({
+      invocationLease: runtimeLease(input.lease),
+      sourceExecutionId: input.executionId,
+      sourceWorkSlotId: input.workSlotId,
+      sourceReviewRevisionHash: input.reviewRevisionHash,
+      providerKind: this.executionAuthority.providerKind,
+      requestedModel: this.executionAuthority.requestedModel,
+      executionProfile: this.executionAuthority.executionProfile,
+      providerInvocationKey: this.executionAuthority.providerInvocationKey,
+      toolPolicyHash: this.executionAuthority.toolPolicyHash,
+      openingIntentDiscriminator: `${input.investigationId}:${input.turnId}`,
+      revision: this.context.revision
+    });
+    if (session.providerConfig.gatewayPolicyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION) {
+      await session.dispose();
+      throw new Error("investigation_context_gateway_v4_required");
+    }
+    const agentSession = Object.freeze({
+      kind: "context_gateway_v4" /* ContextGatewayV4 */
+    });
+    const activeSession = {
+      active: true,
+      providerKind: this.executionAuthority.providerKind,
+      binding: Object.freeze({
+        policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+        binaryHash: session.providerConfig.gatewayBinaryHash,
+        command: session.providerConfig.command,
+        args: Object.freeze([...session.providerConfig.args]),
+        cwd: session.providerConfig.cwd,
+        enabledTools: Object.freeze([...session.providerConfig.enabledTools]),
+        runtimeEnvironment: Object.freeze({
+          ...session.providerConfig.runtimeEnvironment
+        }),
+        credentialEnvironment: Object.freeze({
+          ...session.credentialLease.environment ?? {}
+        })
+      })
+    };
+    this.agentSessions.set(agentSession, activeSession);
+    return Object.freeze({
+      agentSession,
+      seal: async (sealInput) => {
+        const accepted = await session.seal(sealInput);
+        if (!accepted) {
+          throw new Error("investigation_context_attestation_rejected");
+        }
+        return accepted;
+      },
+      dispose: async () => {
+        activeSession.active = false;
+        this.agentSessions.delete(agentSession);
+        await session.dispose();
+      }
+    });
+  }
+  resolve(session, providerKind) {
+    const activeSession = this.agentSessions.get(session);
+    if (session.kind !== "context_gateway_v4" /* ContextGatewayV4 */ || !activeSession?.active) {
+      throw confinementViolation("review_agent_execution_session_unavailable");
+    }
+    if (activeSession.providerKind !== providerKind) {
+      throw confinementViolation(
+        "review_agent_execution_session_provider_mismatch"
+      );
+    }
+    return activeSession.binding;
+  }
+};
+function requireProviderKind2(value) {
+  switch (value) {
+    case "codex" /* Codex */:
+      return "codex" /* Codex */;
+    case "claude_code" /* ClaudeCode */:
+      return "claude_code" /* ClaudeCode */;
+    default:
+      throw new Error("investigation_provider_kind_invalid");
+  }
+}
+function requireExecutionProfile2(value) {
+  switch (value) {
+    case "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */:
+      return "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */;
+    case "investigation_gateway_v1" /* InvestigationGatewayV1 */:
+      return "investigation_gateway_v1" /* InvestigationGatewayV1 */;
+    default:
+      throw new Error("investigation_execution_profile_invalid");
+  }
+}
+function requireAuthorityValue(value, error2) {
+  if (value === void 0 || value.length === 0) throw new Error(error2);
+  return value;
+}
+function confinementViolation(message) {
+  return new ReviewAgentExecutionError(
+    "confinement_violation" /* ConfinementViolation */,
+    null,
+    message
+  );
+}
+function runtimeLease(lease) {
+  return Object.freeze({ ...lease, renewalCeilingReached: false });
+}
+
+// src/review-investigation/infrastructure/deterministic-review-agent-selector.ts
+var DeterministicReviewAgentSelector = class {
+  constructor(registrations, options) {
+    this.options = options;
+    if (registrations.length === 0 || new Set(registrations.map((item) => item.providerKind)).size !== registrations.length) {
+      throw new Error("review_agent_registrations_invalid");
+    }
+    if (options.allowedProviderKinds.length === 0 || new Set(options.allowedProviderKinds).size !== options.allowedProviderKinds.length) {
+      throw new Error("review_agent_allowed_providers_invalid");
+    }
+    const threshold = options.requireIndependentCriticAtOrAboveRiskPriority;
+    if (threshold !== void 0 && (!Number.isSafeInteger(threshold) || threshold < 0 || threshold > 1e6)) {
+      throw new Error("review_agent_independent_critic_threshold_invalid");
+    }
+    if (options.critic?.requestedModel.length === 0) {
+      throw new Error("review_agent_critic_model_missing");
+    }
+    this.registrations = new Map(
+      registrations.map((registration) => [
+        registration.providerKind,
+        registration
+      ])
+    );
+  }
+  registrations;
+  resolve(input) {
+    const criticRoute = input.purpose === "critic" /* Critic */ ? this.options.critic : void 0;
+    const providerKind = criticRoute?.providerKind ?? input.primaryProviderKind;
+    const requestedModel = criticRoute?.requestedModel ?? input.primaryRequestedModel;
+    const executionAuthority = input.executionAuthority ?? {
+      providerKind: input.primaryProviderKind,
+      requestedModel: input.primaryRequestedModel
+    };
+    const threshold = this.options.requireIndependentCriticAtOrAboveRiskPriority;
+    if (!this.options.allowedProviderKinds.includes(providerKind)) {
+      throw new ReviewAgentExecutionError(
+        "capability_unavailable" /* CapabilityUnavailable */,
+        null,
+        "review_agent_provider_not_authorized"
+      );
+    }
+    if (input.purpose === "critic" /* Critic */ && threshold !== void 0 && input.maximumSemanticRiskPriority >= threshold && providerKind === input.primaryProviderKind) {
+      throw new ReviewAgentExecutionError(
+        "confinement_violation" /* ConfinementViolation */,
+        null,
+        "review_agent_critic_execution_authority_unavailable"
+      );
+    }
+    if (providerKind !== executionAuthority.providerKind || requestedModel !== executionAuthority.requestedModel) {
+      throw new ReviewAgentExecutionError(
+        "confinement_violation" /* ConfinementViolation */,
+        null,
+        input.purpose === "critic" /* Critic */ ? "review_agent_critic_execution_authority_unavailable" : "review_agent_execution_authority_mismatch"
+      );
+    }
+    const registration = this.registrations.get(providerKind);
+    if (!registration) {
+      throw new ReviewAgentExecutionError(
+        "capability_unavailable" /* CapabilityUnavailable */,
+        null,
+        "review_agent_provider_not_registered"
+      );
+    }
+    return Object.freeze({
+      agent: registration.agent,
+      providerKind,
+      requestedModel
+    });
+  }
+};
+
+// src/review-investigation/infrastructure/logging-investigation-operational-diagnostics.ts
+var LoggingInvestigationOperationalDiagnostics = class {
+  constructor(logger2) {
+    this.logger = logger2;
+  }
+  async record(diagnostic) {
+    this.logger.warn("Review investigation operation failed", {
+      code: diagnostic.code,
+      failureClass: diagnostic.failureClass,
+      investigationId: diagnostic.investigationId,
+      phase: diagnostic.phase,
+      retryAfterMs: diagnostic.retryAfterMs,
+      turnId: diagnostic.turnId
+    });
+  }
+};
+
+// src/review-orchestration/infrastructure/review-investigation-recording-adapter.ts
+var REVIEW_INVESTIGATION_PRODUCTION_POLICY = Object.freeze({
+  policyId: "review-investigation-shadow.v1",
+  maxObligations: 1024,
+  maxSeedProbesPerFile: REVIEW_INVESTIGATION_PROBE_LIMITS.maxProbesPerFile,
+  maxSeedProbesOverall: REVIEW_INVESTIGATION_PROBE_LIMITS.maxProbesOverall,
+  maxExpansionDepth: 8,
+  maxSemanticTurns: 12,
+  maxOperationalAttempts: 24,
+  maxCriticCycles: 3,
+  maxFindings: 256,
+  maxProposalsPerTurn: 128,
+  maxReceiptsPerTurn: 256
+});
+var REVIEW_INVESTIGATION_COVERAGE_PROFILE = Object.freeze({
+  coverageContractVersion: "review-investigation-coverage.v1",
+  criticPolicyVersion: REVIEW_INVESTIGATION_CRITIC_POLICY_V1,
+  expansionRulesVersion: "review-investigation-expansion.v2",
+  gatewayPolicyVersion: "context-gateway-v4",
+  probePolicyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
+  runtimeProfileVersion: "gateway-attested-agent.v1",
+  searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION
+});
+var ReviewInvestigationRecordingAdapter = class {
+  constructor(createRunner, options, mode = "record_only" /* RecordOnly */, verifiedCleanEffectsEnabled = false) {
+    this.createRunner = createRunner;
+    this.options = options;
+    this.mode = mode;
+    this.verifiedCleanEffectsEnabled = verifiedCleanEffectsEnabled;
+  }
+  supports(input) {
+    return reviewAgentProviderKind(input.workSlot.providerKind) !== null && input.invocation.manifestFacts.providerKind === input.workSlot.providerKind && input.invocation.workSlotId === input.workSlot.workSlotId && input.invocation.manifestFacts.executionProfile === "investigation_gateway_v1" && input.invocation.manifestFacts.taskKindSet.length === 1 && input.invocation.manifestFacts.taskKindSet[0] === "finding_discovery" /* FindingDiscovery */ && input.invocation.coverageManifest.workSlotId === input.workSlot.workSlotId && input.invocation.investigationSeedEnvelope !== void 0 && input.invocation.investigationSeedEnvelope !== null && input.invocation.investigationSeedEnvelope.hash === input.invocation.manifestFacts.providerRequestEnvelopeHash && supportsProbePlan(input.invocation, this.options.policy);
+  }
+  async execute(input) {
+    if (!this.supports(input)) {
+      throw new Error("review_investigation_recording_unsupported");
+    }
+    if (input.sourceReviewRevisionHash !== input.authorization.facts.reviewRevisionHash || input.invocation.coverageManifest.reviewRevisionHash !== input.sourceReviewRevisionHash) {
+      throw new Error("review_investigation_recording_revision_mismatch");
+    }
+    const result2 = await this.createRunner(input).execute({
+      authorizationToken: input.authorization.authorizationToken,
+      authorizationId: input.authorization.authorizationId,
+      executionId: input.execution.executionId,
+      workSlotId: input.workSlot.workSlotId,
+      reviewRevisionHash: input.sourceReviewRevisionHash,
+      stableReviewUnitKey: input.workSlot.shardKey,
+      providerVoteLaneId: input.workSlot.providerVoteIdentityHash,
+      providerStrategyId: input.manifest.providerInvocationKey,
+      runtimeProfile: "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */,
+      coverageContract: reviewInvestigationCoverageContract(
+        input.authorization.facts.producerReleaseId
+      ),
+      investigationPolicy: this.options.policy,
+      seedEnvelope: requireSeedEnvelope(input.invocation),
+      initialReceipts: [],
+      targetScope: {
+        workspaceId: input.authorization.facts.workspaceId,
+        repositoryConnectionId: input.authorization.facts.repositoryConnectionId,
+        scmRepositoryIdentityId: input.authorization.facts.scmRepositoryIdentityId,
+        pullRequestNumber: input.authorization.facts.pullRequestNumber,
+        trustDomain: input.authorization.facts.trustDomain,
+        authorizationScopeHash: sha256(
+          canonicalJson({
+            workspaceId: input.authorization.facts.workspaceId,
+            repositoryConnectionId: input.authorization.facts.repositoryConnectionId,
+            scmRepositoryIdentityId: input.authorization.facts.scmRepositoryIdentityId,
+            pullRequestNumber: input.authorization.facts.pullRequestNumber
+          })
+        )
+      },
+      targetRevision: {
+        baseSha: input.authorization.facts.baseSha,
+        mergeBaseSha: input.authorization.facts.mergeBaseSha,
+        headSha: input.authorization.facts.headSha,
+        reviewRevisionHash: input.authorization.facts.reviewRevisionHash
+      },
+      providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
+      providerManifestHash: sha256(input.manifest.manifestCanonicalJson),
+      requestedModel: input.invocation.requestedModel,
+      providerKind: requireReviewAgentProviderKind(input.workSlot.providerKind),
+      promptFor: (snapshot) => investigationPrompt(input.invocation.reviewPrompt, snapshot),
+      workingDirectory: this.options.workingDirectory,
+      turnBudget: {
+        maxGatewayOperations: this.options.policy.maxReceiptsPerTurn,
+        maxOutputFindings: this.options.policy.maxFindings,
+        maxOutputProposals: this.options.policy.maxProposalsPerTurn
+      },
+      leaseDurationMs: this.options.leaseDurationMs,
+      maxObligationsForTurn: this.options.maxObligationsForTurn,
+      providerTimeoutMs: this.options.providerTimeoutMs,
+      providerMaxTurns: this.options.policy.maxSemanticTurns,
+      certificateTtlMs: this.options.certificateTtlMs,
+      minimumCapacityParkMs: this.options.minimumCapacityParkMs,
+      maxStateTransitions: this.options.maxStateTransitions,
+      managedLease: () => investigationLease(input.currentLease()),
+      signal: input.signal
+    });
+    if (this.mode === "record_only" /* RecordOnly */ && (result2.status === "parked" /* Parked */ || result2.status === "recovery_required" /* RecoveryRequired */ || result2.status === "transition_budget_exhausted" /* TransitionBudgetExhausted */)) {
+      throw new ReviewInvestigationLegacyFallbackSignal();
+    }
+    return terminalObservation(result2.status, result2.snapshot);
+  }
+};
+var RevisionGuardInvestigationCurrencyAdapter = class {
+  constructor(revisions) {
+    this.revisions = revisions;
+  }
+  async check(input) {
+    const current = await this.revisions.loadCurrentRevision();
+    return current.reviewRevisionHash === input.reviewRevisionHash ? "current" /* Current */ : "superseded" /* Superseded */;
+  }
+};
+var ManagedOnlyInvestigationLeaseAdapter = class {
+  async acquire() {
+    throw new Error("review_investigation_managed_lease_required");
+  }
+  async release() {
+    throw new Error("review_investigation_managed_lease_release_forbidden");
+  }
+};
+function reviewInvestigationCoverageContract(producerReleaseId) {
+  if (producerReleaseId.length === 0) {
+    throw new Error("review_investigation_producer_release_id_missing");
+  }
+  return Object.freeze({
+    ...REVIEW_INVESTIGATION_COVERAGE_PROFILE,
+    producerReleaseId
+  });
+}
+function reviewInvestigationCoverageProfileHash() {
+  return sha256(canonicalJson(REVIEW_INVESTIGATION_COVERAGE_PROFILE));
+}
+function reviewInvestigationPolicyHash(policy = REVIEW_INVESTIGATION_PRODUCTION_POLICY) {
+  return sha256(canonicalJson(policy));
+}
+function matchesReviewInvestigationCapability(input) {
+  const descriptor = input.facts.reviewInvestigation;
+  if (descriptor?.authorizationDescriptorVersion !== 2 /* V2 */ || descriptor.capability !== "review_investigation_v1" /* ReviewInvestigationV1 */ || descriptor.coverageProfileHash !== reviewInvestigationCoverageProfileHash() || descriptor.policyHash !== reviewInvestigationPolicyHash(
+    input.policy ?? REVIEW_INVESTIGATION_PRODUCTION_POLICY
+  ) || !input.facts.providerVoteLanes.some(
+    (lane) => lane.providerKind === input.providerKind
+  )) {
+    return false;
+  }
+  const capability = input.capability ?? "recording" /* Recording */;
+  return descriptor.providerCapabilities.find((row) => row.providerKind === input.providerKind)?.capabilities.includes(capability) ?? false;
+}
+function reviewAgentProviderKind(providerKind) {
+  switch (providerKind) {
+    case "codex" /* Codex */:
+      return "codex" /* Codex */;
+    case "claude_code" /* ClaudeCode */:
+      return "claude_code" /* ClaudeCode */;
+    case "openrouter" /* OpenRouter */:
+      return null;
+  }
+}
+function requireReviewAgentProviderKind(providerKind) {
+  const mapped = reviewAgentProviderKind(providerKind);
+  if (mapped === null) {
+    throw new Error("review_investigation_provider_unsupported");
+  }
+  return mapped;
+}
+function supportsProbePlan(invocation, policy) {
+  const plan = invocation.investigationProbePlan;
+  return plan.status === "complete" /* Complete */ && plan.limits.maxProbesPerFile === policy.maxSeedProbesPerFile && plan.limits.maxProbesOverall === policy.maxSeedProbesOverall && 1 + invocation.coverageManifest.paths.length + plan.probes.length <= policy.maxObligations;
+}
+function requireSeedEnvelope(invocation) {
+  const envelope = invocation.investigationSeedEnvelope;
+  if (!envelope || envelope.hash !== invocation.manifestFacts.providerRequestEnvelopeHash) {
+    throw new Error("review_investigation_seed_envelope_unbound");
+  }
+  return envelope;
+}
+function investigationPrompt(reviewPrompt, snapshot) {
+  if (snapshot.turn?.brief === null || snapshot.turn?.brief === void 0) {
+    throw new Error("review_investigation_turn_brief_missing");
+  }
+  const encodedBrief = Buffer.from(
+    canonicalJson(snapshot.turn.brief),
+    "utf8"
+  ).toString("base64url");
+  return [
+    reviewPrompt,
+    "",
+    "REVIEW INVESTIGATION TURN CONTRACT:",
+    "Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.",
+    'For typed search requirements, execute the exact literal query with paths=["."], revision="head", caseSensitive=true, and pageSize=500, then follow every cursor to completion.',
+    "During discovery turns, attach every complete typed search chain, plus every additional complete exploratory text-search chain, to operationBackedDiscoveryClaims with its sourceObligationId, exact query, and every operationReceiptId from the chain.",
+    "When inspected evidence reveals additional review scope, add a provider-neutral obligationProposals entry instead of silently broadening an existing obligation.",
+    "Each obligation proposal must contain exactly kind, canonicalSubject, canonicalRequirement, and riskPriority. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.",
+    "Obligation proposals are non-authoritative and remain open until the control plane validates and independently closes them with accepted evidence.",
+    "Do not close an obligation without complete operation receipt evidence.",
+    `REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:${encodedBrief}`
+  ].join("\n");
+}
+function investigationLease(lease) {
+  return Object.freeze({
+    leaseId: lease.leaseId,
+    attemptId: lease.attemptId,
+    leaseCapability: lease.leaseCapability,
+    fencingToken: lease.fencingToken,
+    expiresAt: lease.expiresAt,
+    resultReportUntil: lease.resultReportUntil
+  });
+}
+function terminalObservation(status, snapshot) {
+  if (status !== "completed" /* Completed */ || snapshot.nextAction !== "terminal" /* Terminal */ || snapshot.certificateId === null || snapshot.certificateHash === null || snapshot.terminalActualModel === null || snapshot.terminalObservationCanonicalJson === null || snapshot.terminalOutcomeHash === null || snapshot.conclusion === null) {
+    throw new Error(`review_investigation_not_publishable:${status}`);
+  }
+  const qualityFlags = [
+    ...snapshot.findingCount > 0 ? ["investigation_findings"] : [],
+    ...snapshot.conclusion === "verified_clean" /* VerifiedClean */ ? ["investigation_verified_clean"] : [],
+    ...snapshot.conclusion === "inconclusive" /* Inconclusive */ ? ["investigation_inconclusive"] : []
+  ];
+  return Object.freeze({
+    payloadCanonicalJson: snapshot.terminalObservationCanonicalJson,
+    payloadHash: snapshot.terminalOutcomeHash,
+    byteCount: Buffer.byteLength(
+      snapshot.terminalObservationCanonicalJson,
+      "utf8"
+    ),
+    findingCount: snapshot.findingCount,
+    actualModel: snapshot.terminalActualModel,
+    qualityFlags: Object.freeze(qualityFlags),
+    transportAttemptCount: Math.max(1, snapshot.operationalAttempts),
+    schemaValidated: true,
+    fullyConsumed: true,
+    investigationCertificateId: snapshot.certificateId,
+    investigationCertificateHash: snapshot.certificateHash
+  });
+}
+
+// src/review-orchestration/infrastructure/production-review-investigation-composition.ts
+var ROLLOUT_ENV = Object.freeze({
+  recordingEnabled: "REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED",
+  shadowEnabled: "REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED",
+  contextCriticEnabled: "REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED",
+  verifiedCleanEnabled: "REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED",
+  crossRevisionReplayEnabled: "REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED",
+  productionEffectsEnabled: "REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED"
+});
+function readProductionReviewInvestigationRolloutFlags(env = process.env) {
+  return Object.freeze({
+    recordingEnabled: readBooleanFlag(
+      env[ROLLOUT_ENV.recordingEnabled],
+      "recording"
+    ),
+    shadowEnabled: readBooleanFlag(env[ROLLOUT_ENV.shadowEnabled], "shadow"),
+    contextCriticEnabled: readBooleanFlag(
+      env[ROLLOUT_ENV.contextCriticEnabled],
+      "context_critic"
+    ),
+    verifiedCleanEnabled: readBooleanFlag(
+      env[ROLLOUT_ENV.verifiedCleanEnabled],
+      "verified_clean"
+    ),
+    crossRevisionReplayEnabled: readBooleanFlag(
+      env[ROLLOUT_ENV.crossRevisionReplayEnabled],
+      "cross_revision_replay"
+    ),
+    productionEffectsEnabled: readBooleanFlag(
+      env[ROLLOUT_ENV.productionEffectsEnabled],
+      "production_effects"
+    )
+  });
+}
+function resolveProductionReviewInvestigationRollout(input) {
+  assertCanonicalRolloutDependencies(input.flags);
+  const recordingEnabled = input.flags.recordingEnabled && input.agenticContext && matchesReviewInvestigationCapability({
+    facts: input.authorization.facts,
+    providerKind: input.primaryProviderKind,
+    capability: "recording" /* Recording */
+  });
+  return Object.freeze({
+    recordingEnabled,
+    shadowEnabled: recordingEnabled && input.flags.shadowEnabled && matchesReviewInvestigationCapability({
+      facts: input.authorization.facts,
+      providerKind: input.primaryProviderKind,
+      capability: "shadow" /* Shadow */
+    }),
+    contextCriticEnabled: recordingEnabled && input.flags.contextCriticEnabled && matchesReviewInvestigationCapability({
+      facts: input.authorization.facts,
+      providerKind: input.primaryProviderKind,
+      capability: "context_critic" /* ContextCritic */
+    }),
+    verifiedCleanEnabled: recordingEnabled && input.flags.verifiedCleanEnabled && matchesReviewInvestigationCapability({
+      facts: input.authorization.facts,
+      providerKind: input.primaryProviderKind,
+      capability: "verified_clean" /* VerifiedClean */
+    }),
+    crossRevisionReplayEnabled: recordingEnabled && input.flags.crossRevisionReplayEnabled && matchesReviewInvestigationCapability({
+      facts: input.authorization.facts,
+      providerKind: input.primaryProviderKind,
+      capability: "cross_revision_replay" /* CrossRevisionReplay */
+    }),
+    productionEffectsEnabled: recordingEnabled && input.flags.productionEffectsEnabled && matchesReviewInvestigationCapability({
+      facts: input.authorization.facts,
+      providerKind: input.primaryProviderKind,
+      capability: "production_effects" /* ProductionEffects */
+    })
+  });
+}
+function productionReviewInvestigationRecordingMode(rollout) {
+  return rollout.productionEffectsEnabled ? "authoritative" /* Authoritative */ : "record_only" /* RecordOnly */;
+}
+function createProductionReviewInvestigationAgentSelector(input) {
+  for (const registration of input.agents) {
+    if (registration.requestedModel.length === 0) {
+      throw new Error("review_agent_configured_model_missing");
+    }
+  }
+  const authorizedAgents = input.agents.filter(
+    (registration) => matchesReviewInvestigationCapability({
+      facts: input.authorization.facts,
+      providerKind: executionProviderKind(registration.providerKind),
+      capability: "recording" /* Recording */
+    })
+  );
+  const authorizedCriticProviderKinds = new Set(
+    authorizedAgents.filter(
+      (registration) => matchesReviewInvestigationCapability({
+        facts: input.authorization.facts,
+        providerKind: executionProviderKind(registration.providerKind),
+        capability: "context_critic" /* ContextCritic */
+      })
+    ).map((registration) => registration.providerKind)
+  );
+  if (!authorizedAgents.some(
+    (registration) => registration.providerKind === input.primaryProviderKind
+  )) {
+    throw new Error("review_investigation_primary_agent_unavailable");
+  }
+  const registrations = authorizedAgents.map((registration) => ({
+    providerKind: registration.providerKind,
+    agent: registration.agent
+  }));
+  const allowedProviderKinds = authorizedAgents.map(
+    (registration) => registration.providerKind
+  );
+  const createDelegate = (critic) => new DeterministicReviewAgentSelector(registrations, {
+    allowedProviderKinds,
+    ...critic ? {
+      critic: {
+        providerKind: critic.providerKind,
+        requestedModel: critic.requestedModel
+      }
+    } : {},
+    requireIndependentCriticAtOrAboveRiskPriority: REVIEW_INVESTIGATION_INDEPENDENT_CRITIC_RISK_PRIORITY_V1
+  });
+  const primaryDelegate = createDelegate();
+  const independentCriticDelegates = new Map(
+    authorizedAgents.filter(
+      (registration) => registration.providerKind !== input.primaryProviderKind && authorizedCriticProviderKinds.has(registration.providerKind)
+    ).map((registration) => [
+      registration.providerKind,
+      createDelegate(registration)
+    ])
+  );
+  return new RolloutGatedReviewAgentSelector(
+    primaryDelegate,
+    independentCriticDelegates,
+    input.primaryProviderKind,
+    input.contextCriticEnabled
+  );
+}
+var RolloutGatedReviewAgentSelector = class {
+  constructor(primaryDelegate, independentCriticDelegates, primaryProviderKind, contextCriticEnabled) {
+    this.primaryDelegate = primaryDelegate;
+    this.independentCriticDelegates = independentCriticDelegates;
+    this.primaryProviderKind = primaryProviderKind;
+    this.contextCriticEnabled = contextCriticEnabled;
+  }
+  resolve(input) {
+    if (input.primaryProviderKind !== this.primaryProviderKind) {
+      throw capabilityUnavailable("review_agent_primary_provider_mismatch");
+    }
+    if (input.purpose === "critic" /* Critic */ && !this.contextCriticEnabled) {
+      throw capabilityUnavailable("review_agent_context_critic_disabled");
+    }
+    const authorityProviderKind = input.executionAuthority?.providerKind ?? input.primaryProviderKind;
+    if (input.purpose === "critic" /* Critic */ && authorityProviderKind !== this.primaryProviderKind) {
+      const independent = this.independentCriticDelegates.get(
+        authorityProviderKind
+      );
+      if (!independent) {
+        throw capabilityUnavailable(
+          "review_agent_independent_critic_unavailable"
+        );
+      }
+      return independent.resolve(input);
+    }
+    return this.primaryDelegate.resolve(input);
+  }
+};
+function assertCanonicalRolloutDependencies(flags) {
+  const dependencies = reviewInvestigationRolloutAuthorizationV2Contract.dependencies;
+  for (const capability of reviewInvestigationRolloutAuthorizationV2Contract.capabilities) {
+    for (const dependency of dependencies[capability]) {
+      const capabilityKey = capability;
+      const dependencyKey = dependency;
+      assertDependency(
+        flags[rolloutFlagByCapability[capabilityKey]],
+        flags[rolloutFlagByCapability[dependencyKey]],
+        capability,
+        dependency
+      );
+    }
+  }
+}
+var rolloutFlagByCapability = Object.freeze({
+  ["context_critic" /* ContextCritic */]: "contextCriticEnabled",
+  ["cross_revision_replay" /* CrossRevisionReplay */]: "crossRevisionReplayEnabled",
+  ["production_effects" /* ProductionEffects */]: "productionEffectsEnabled",
+  ["recording" /* Recording */]: "recordingEnabled",
+  ["shadow" /* Shadow */]: "shadowEnabled",
+  ["verified_clean" /* VerifiedClean */]: "verifiedCleanEnabled"
+});
+function assertDependency(capabilityEnabled, dependencyEnabled, capability, dependency) {
+  if (capabilityEnabled && !dependencyEnabled) {
+    throw new Error(`rollout_dependency_missing:${capability}:${dependency}`);
+  }
+}
+function executionProviderKind(providerKind) {
+  switch (providerKind) {
+    case "codex" /* Codex */:
+      return "codex" /* Codex */;
+    case "claude_code" /* ClaudeCode */:
+      return "claude_code" /* ClaudeCode */;
+  }
+}
+function readBooleanFlag(value, capability) {
+  if (value === void 0 || value === "" || value === "0") {
+    return false;
+  }
+  if (value === "1") return true;
+  throw new Error(`review_investigation_rollout_flag_invalid:${capability}`);
+}
+function capabilityUnavailable(message) {
+  return new ReviewAgentExecutionError(
+    "capability_unavailable" /* CapabilityUnavailable */,
+    null,
+    message
+  );
+}
+
 // src/review-orchestration/infrastructure/production-t0-review-runner.ts
-var execFileAsync6 = (0, import_util9.promisify)(import_child_process15.execFile);
+var execFileAsync8 = (0, import_util13.promisify)(import_child_process18.execFile);
 var CODEX_RETRY_POLICY_VERSION = "codex-semantic-retry.v1";
 var SCM_READ_TOKEN_EXPIRY_MARGIN_MS = 3e4;
 var ProductionT0ReviewRunner = class {
@@ -80927,11 +98502,12 @@ var ProductionT0ReviewRunner = class {
     validateInput(input);
     await applyReviewRuntimeConfig(input, this.fetchImpl);
     const config = ConfigLoader.load();
+    const reviewActionClient = new ReviewActionV2Client({
+      apiUrl: input.apiUrl,
+      fetchImpl: this.fetchImpl
+    });
     const controlPlane = new ReviewActionV2ControlPlaneAdapter(
-      new ReviewActionV2Client({
-        apiUrl: input.apiUrl,
-        fetchImpl: this.fetchImpl
-      })
+      reviewActionClient
     );
     const oidc = new GitHubActionsOidcTokenProvider({
       fetchImpl: this.fetchImpl
@@ -80969,7 +98545,7 @@ var ProductionT0ReviewRunner = class {
       return { outcome: "superseded" /* Superseded */ };
     }
     await new GitReviewRevisionMaterializer().ensureAvailable({
-      checkoutRoot: path23.resolve(input.workspacePath),
+      checkoutRoot: path26.resolve(input.workspacePath),
       repository: input.repository,
       scmReadToken: await scmReadTokenProvider.getToken(),
       commitShas: [
@@ -80989,6 +98565,13 @@ var ProductionT0ReviewRunner = class {
     const codexProviderName = selectCodexProvider(config);
     const model = codexProviderName.slice("codex/".length);
     const agenticContext = config.codexAgenticContext ?? true;
+    const investigationRollout = resolveProductionReviewInvestigationRollout({
+      flags: readProductionReviewInvestigationRolloutFlags(),
+      agenticContext,
+      authorization,
+      primaryProviderKind: "codex" /* Codex */
+    });
+    const investigationRecordingEnabled = investigationRollout.recordingEnabled;
     const provider = new CodexProvider(model, {
       agenticContext,
       eventAudit: config.codexEventAudit
@@ -80998,14 +98581,21 @@ var ProductionT0ReviewRunner = class {
       process.env.REVIEWROUTER_RUNTIME_CONFIG_VERSION
     );
     const gatewayBundlePath = resolveContextGatewayBundlePath();
+    const requiredContextWitness = new SubprocessRequiredContextWitnessRunner();
     const contextGateway = agenticContext ? new ContextGatewayInvocationSessionFactory(
       controlPlane,
       {
-        checkoutRoot: path23.resolve(input.workspacePath),
-        gatewayBundlePath
+        checkoutRoot: path26.resolve(input.workspacePath),
+        gatewayBundlePath,
+        ...investigationRecordingEnabled ? { policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION } : {}
       },
-      new SubprocessRequiredContextWitnessRunner()
+      requiredContextWitness
     ) : void 0;
+    const investigationGatewayFactory = investigationRecordingEnabled ? contextGateway : void 0;
+    const contextReplayRunner = contextGateway ? new ContextAttestationReplayRunner({
+      checkoutRoot: path26.resolve(input.workspacePath),
+      gatewayBundlePath
+    }) : void 0;
     const planned = planAssignments({
       authorization,
       pr: pr2,
@@ -81021,9 +98611,83 @@ var ProductionT0ReviewRunner = class {
       planned.assignments,
       Math.max(1e3, config.runTimeoutSeconds * 1e3),
       agenticContext,
-      contextGateway
+      contextGateway,
+      investigationRecordingEnabled
     );
     const identities = new DeterministicReviewOrchestrationIdentity();
+    const investigationProtocol = investigationRecordingEnabled ? new ReviewActionV2InvestigationAdapter(reviewActionClient) : void 0;
+    const investigationControlPlane = investigationProtocol ? new LegacyFallbackBeforeInvestigationAuthorityControlPlane(
+      investigationProtocol
+    ) : void 0;
+    const investigationRecording = investigationControlPlane && investigationGatewayFactory ? new ReviewInvestigationRecordingAdapter(
+      (recordingInput) => {
+        const currency = new RevisionGuardInvestigationCurrencyAdapter(
+          revisionGuard
+        );
+        const gateway = new ContextGatewayV4InvestigationAdapter(
+          investigationGatewayFactory,
+          {
+            revision: {
+              baseSha: authorization.facts.baseSha,
+              mergeBaseSha: authorization.facts.mergeBaseSha,
+              headSha: authorization.facts.headSha
+            },
+            preparedManifestKey: recordingInput.manifest.manifestKey,
+            providerKind: recordingInput.invocation.manifestFacts.providerKind,
+            requestedModel: recordingInput.invocation.requestedModel,
+            executionProfile: recordingInput.invocation.manifestFacts.executionProfile,
+            providerInvocationKey: recordingInput.manifest.providerInvocationKey,
+            toolPolicyHash: recordingInput.invocation.manifestFacts.toolPolicyHash
+          }
+        );
+        const agents = createProductionReviewInvestigationAgentSelector({
+          authorization,
+          primaryProviderKind: "codex" /* Codex */,
+          contextCriticEnabled: investigationRollout.contextCriticEnabled,
+          agents: createConfiguredProductionInvestigationAgents({
+            codexModel: model,
+            codexBinaryPath: input.codexBinaryPath,
+            executionSessions: gateway
+          })
+        });
+        return new RunInvestigationWorkSlot({
+          controlPlane: investigationControlPlane,
+          leases: new ManagedOnlyInvestigationLeaseAdapter(),
+          ...investigationRollout.crossRevisionReplayEnabled && contextReplayRunner ? {
+            replay: new ReplayInvestigationOnRevision({
+              controlPlane: investigationControlPlane,
+              receipts: contextReplayRunner,
+              currency
+            })
+          } : {},
+          turnRunner: new RunInvestigationTurn({
+            controlPlane: investigationControlPlane,
+            currency,
+            gateway,
+            agents,
+            diagnostics: new LoggingInvestigationOperationalDiagnostics(
+              logger
+            ),
+            now: () => /* @__PURE__ */ new Date()
+          })
+        });
+      },
+      {
+        workingDirectory: path26.resolve(input.workspacePath),
+        leaseDurationMs: 5 * 6e4,
+        providerTimeoutMs: Math.max(
+          1e3,
+          config.runTimeoutSeconds * 1e3
+        ),
+        certificateTtlMs: 24 * 60 * 6e4,
+        minimumCapacityParkMs: 6e4,
+        maxObligationsForTurn: 64,
+        maxStateTransitions: 128,
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY
+      },
+      productionReviewInvestigationRecordingMode(investigationRollout),
+      investigationRollout.verifiedCleanEnabled
+    ) : void 0;
     const useCase = new RunT0ReviewOrchestration({
       controlPlane,
       revisionGuard,
@@ -81041,6 +98705,7 @@ var ProductionT0ReviewRunner = class {
       invocationFailureClassifier: new ProviderInvocationFailureClassifier(),
       invocationDiagnostics: new LoggingReviewInvocationDiagnostics(logger),
       leaseSupervisor: new CooperativeReviewLeaseSupervisor(),
+      ...investigationRecording ? { investigationRecording } : {},
       projectionBuilder: createProductionReviewProjectionBuilder({
         authorizationFacts: authorization.facts,
         pr: pr2,
@@ -81058,16 +98723,13 @@ var ProductionT0ReviewRunner = class {
         lifecycleInventory
       }),
       ...contextGateway ? {
-        contextReplay: new ContextAttestationReplayRunner({
-          checkoutRoot: path23.resolve(input.workspacePath),
-          gatewayBundlePath
-        }),
+        contextReplay: contextReplayRunner,
         contextAttestations: controlPlane
       } : {},
       identities,
       delay: new SystemReviewOrchestrationDelay()
     });
-    const result = await useCase.executeAuthorized(
+    const result2 = await useCase.executeAuthorized(
       {
         executionId: identities.deterministicId("execution", [
           authorization.authorizationId,
@@ -81086,8 +98748,8 @@ var ProductionT0ReviewRunner = class {
         ),
         sourceRunId: authorization.facts.sourceRunId,
         sourceRunAttempt: authorization.facts.sourceRunAttempt,
-        ownerIdHash: sha25615(
-          canonicalJson12({
+        ownerIdHash: sha25616(
+          canonicalJson13({
             authorizationId: authorization.authorizationId,
             providerInstanceId: input.providerInstanceId,
             sourceRunAttempt: authorization.facts.sourceRunAttempt,
@@ -81098,17 +98760,83 @@ var ProductionT0ReviewRunner = class {
       },
       authorization
     );
-    return mapOrchestrationResultToCodexOutcome(result);
+    return mapOrchestrationResultToCodexOutcome(result2);
   }
 };
-function mapOrchestrationResultToCodexOutcome(result) {
-  switch (result.status) {
+var LegacyFallbackBeforeInvestigationAuthorityControlPlane = class {
+  constructor(delegate) {
+    this.delegate = delegate;
+  }
+  open(input) {
+    return this.openWithLegacyFallback(() => this.delegate.open(input));
+  }
+  restore(input) {
+    return this.delegate.restore(input);
+  }
+  planTurn(input) {
+    return this.delegate.planTurn(input);
+  }
+  commitTurn(input) {
+    return this.delegate.commitTurn(input);
+  }
+  abortTurn(input) {
+    return this.delegate.abortTurn(input);
+  }
+  conclude(input) {
+    return this.delegate.conclude(input);
+  }
+  prepareReplay(input) {
+    return this.delegate.prepareReplay(input);
+  }
+  commitReceiptReplay(input) {
+    return this.delegate.commitReceiptReplay(input);
+  }
+  replay(input) {
+    return this.delegate.replay(input);
+  }
+  async openWithLegacyFallback(execute) {
+    try {
+      return await execute();
+    } catch (error2) {
+      if (error2 instanceof ReviewInvestigationControlPlaneError && error2.failureClass === "capability_disabled" /* CapabilityDisabled */) {
+        throw new ReviewInvestigationLegacyFallbackSignal();
+      }
+      throw error2;
+    }
+  }
+};
+function codexCredentialEnvironment() {
+  return Object.freeze(
+    Object.fromEntries(
+      ["CODEX_HOME", "OPENAI_API_KEY", "OPENROUTER_API_KEY"].map((key) => [key, process.env[key]]).filter(
+        (entry) => entry[1] !== void 0
+      )
+    )
+  );
+}
+function createConfiguredProductionInvestigationAgents(input) {
+  const processRunner = new NodeReviewAgentProcessRunner();
+  return Object.freeze([
+    {
+      providerKind: "codex" /* Codex */,
+      requestedModel: input.codexModel,
+      agent: new CodexReviewAgentAdapter(processRunner, {
+        executionSessions: input.executionSessions,
+        providerCredentialEnvironment: codexCredentialEnvironment,
+        ...input.codexBinaryPath ? { binary: input.codexBinaryPath } : {},
+        reasoningEffort: "xhigh"
+      })
+    }
+  ]);
+}
+function mapOrchestrationResultToCodexOutcome(result2) {
+  switch (result2.status) {
     case "completed" /* Completed */:
       return { outcome: "completed" /* Completed */ };
     case "partial_completed" /* PartialCompleted */:
-      return result.failureCode ? {
+      return result2.failureCode ? {
         outcome: "partial_completed" /* PartialCompleted */,
-        blockingFailure: result.failureCode
+        blockingFailure: result2.failureCode
       } : { outcome: "partial_completed" /* PartialCompleted */ };
     case "publication_not_applied" /* PublicationNotApplied */:
     case "publication_stale" /* PublicationStale */:
@@ -81118,7 +98846,7 @@ function mapOrchestrationResultToCodexOutcome(result) {
     default:
       return {
         outcome: "partial_completed" /* PartialCompleted */,
-        blockingFailure: result.failureCode ?? `review_action_v2_${result.status}`
+        blockingFailure: result2.failureCode ?? `review_action_v2_${result2.status}`
       };
   }
 }
@@ -81204,8 +98932,8 @@ function resolveContextGatewayBundlePath() {
   if (!entrypoint) {
     throw new Error("review_action_v2_runtime_entrypoint_missing");
   }
-  return path23.join(
-    path23.dirname(path23.resolve(entrypoint)),
+  return path26.join(
+    path26.dirname(path26.resolve(entrypoint)),
     "context-gateway.js"
   );
 }
@@ -81366,7 +99094,7 @@ async function withRunnerEnvironment(input, operation) {
     set2("REVIEWROUTER_CODEX_BINARY", input.codexBinaryPath);
     set2(
       "PATH",
-      `${path23.dirname(input.codexBinaryPath)}${path23.delimiter}${process.env.PATH ?? ""}`
+      `${path26.dirname(input.codexBinaryPath)}${path26.delimiter}${process.env.PATH ?? ""}`
     );
   }
   try {
@@ -81398,7 +99126,7 @@ function sameAuthorizedRevision(revision, authorization) {
   return revision.baseSha === authorization.facts.baseSha && revision.mergeBaseSha === authorization.facts.mergeBaseSha && revision.headSha === authorization.facts.headSha && revision.reviewRevisionHash === authorization.facts.reviewRevisionHash;
 }
 async function readCheckedOutHead(workspacePath) {
-  const result = await execFileAsync6("git", ["rev-parse", "HEAD"], {
+  const result2 = await execFileAsync8("git", ["rev-parse", "HEAD"], {
     cwd: workspacePath,
     env: {
       PATH: process.env.PATH,
@@ -81406,24 +99134,24 @@ async function readCheckedOutHead(workspacePath) {
       GIT_CONFIG_GLOBAL: "/dev/null"
     }
   });
-  const head = result.stdout.trim().toLowerCase();
+  const head = result2.stdout.trim().toLowerCase();
   if (!/^[a-f0-9]{40}$/.test(head)) {
     throw new Error("review_action_v2_checked_out_head_invalid");
   }
   return head;
 }
-function canonicalJson12(value) {
+function canonicalJson13(value) {
   if (value === void 0) return "null";
-  if (Array.isArray(value)) return `[${value.map(canonicalJson12).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(canonicalJson13).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.keys(value).sort().map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson12(value[key])}`
+      (key) => `${JSON.stringify(key)}:${canonicalJson13(value[key])}`
     ).join(",")}}`;
   }
   return JSON.stringify(value);
 }
-function sha25615(value) {
-  return (0, import_crypto32.createHash)("sha256").update(value).digest("hex");
+function sha25616(value) {
+  return (0, import_crypto36.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/codex-oauth/action.ts
@@ -81849,8 +99577,8 @@ async function runReviewComputation(input) {
     process.env.CODEX_HEALTHCHECK_MODE = "binary";
     if (input.codexBinaryPath) {
       process.env.REVIEWROUTER_CODEX_BINARY = input.codexBinaryPath;
-      const codexBinDir = path24.dirname(input.codexBinaryPath);
-      process.env.PATH = previousPath ? `${codexBinDir}${path24.delimiter}${previousPath}` : codexBinDir;
+      const codexBinDir = path27.dirname(input.codexBinaryPath);
+      process.env.PATH = previousPath ? `${codexBinDir}${path27.delimiter}${previousPath}` : codexBinDir;
     }
     process.env.REVIEW_ROUTER_PROGRESS_COMMENTS = "never";
     await applyCodexRotatingReviewRuntimeConfig({
@@ -82355,7 +100083,7 @@ async function runInteractionPreflight(token) {
   const command = parseInteractionCommand(body);
   const memoryInteraction = parseMemoryInteraction(body);
   const memoryRequest = memoryInteraction.instructions.length > 0 || Boolean(memoryInteraction.invalidReason);
-  const result = botComment ? {
+  const result2 = botComment ? {
     shouldRun: false,
     needsDiscussion: false,
     reason: "bot comment"
@@ -82368,11 +100096,11 @@ async function runInteractionPreflight(token) {
     needsDiscussion: false,
     reason: "ReviewRouter memory request"
   } : await discussionHandler.preflight(payload);
-  setOutput("should_run", result.shouldRun ? "true" : "false");
-  setOutput("needs_discussion", result.needsDiscussion ? "true" : "false");
-  setOutput("reason", result.reason);
+  setOutput("should_run", result2.shouldRun ? "true" : "false");
+  setOutput("needs_discussion", result2.needsDiscussion ? "true" : "false");
+  setOutput("reason", result2.reason);
   info(
-    `Interaction preflight: should_run=${result.shouldRun}, needs_discussion=${result.needsDiscussion}, reason=${result.reason}`
+    `Interaction preflight: should_run=${result2.shouldRun}, needs_discussion=${result2.needsDiscussion}, reason=${result2.reason}`
   );
 }
 function createDiscussionHandler(githubClient) {

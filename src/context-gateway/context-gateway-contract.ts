@@ -6,10 +6,7 @@ export const CONTEXT_GATEWAY_MAX_OPERATIONS = 2_000;
 export const CONTEXT_GIT_DIFF_POLICY_VERSION = 'git-diff-stat-v2' as const;
 
 export type ContextDependencyKind =
-  | 'file_read'
-  | 'directory_list'
-  | 'text_search'
-  | 'git_fact';
+  'file_read' | 'directory_list' | 'text_search' | 'git_fact';
 
 export type ContextGitFactKind = 'changed_paths' | 'diff_stat' | 'merge_base';
 

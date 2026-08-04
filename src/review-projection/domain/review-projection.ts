@@ -311,6 +311,7 @@ export interface ReviewProjectionSnapshotFacts {
 export interface ReviewProjectionEnvelopeV1 {
   readonly envelopeVersion: ReviewProjectionEnvelopeVersion.V1;
   readonly projectionPolicyVersion: string;
+  readonly authoritativeObservationIds: readonly string[];
   readonly scope: ReviewProjectionScope;
   readonly coverage: ReviewCoverageFact;
   readonly lifecycleStateHash: string;

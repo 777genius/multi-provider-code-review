@@ -12,6 +12,7 @@ import {
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
+  ReviewInvestigationRecordingMode,
   RestoredReviewWorkSlotState,
   type AcceptedReviewObservation,
   type AcceptedReviewWorkSlotEvidence,
@@ -28,6 +29,7 @@ import {
   type ReviewInvocationDiagnosticsPort,
   type ReviewInvocationFailureClassifierPort,
   type ReviewInvocationLeaseSupervisorPort,
+  type ReviewInvestigationRecordingPort,
   type ReviewOidcTokenPort,
   type ReviewOrchestrationDelayPort,
   type ReviewOrchestrationIdentityPort,
@@ -42,6 +44,7 @@ import {
 } from './review-orchestration-ports';
 import type { ReviewPromptCoverageManifest } from '../domain';
 import { RetryableReviewContextInspectionFailure } from './review-context-inspection-failure';
+import { ReviewInvestigationLegacyFallbackSignal } from '../../review-investigation/application/run-investigation-work-slot';
 
 export enum ReviewOrchestrationResultStatus {
   Completed = 'completed',
@@ -93,6 +96,7 @@ export type RunT0ReviewOrchestrationDependencies = {
   readonly invocations: PreparedReviewInvocationPort;
   readonly invocationFailureClassifier: ReviewInvocationFailureClassifierPort;
   readonly invocationDiagnostics?: ReviewInvocationDiagnosticsPort;
+  readonly investigationRecording?: ReviewInvestigationRecordingPort;
   readonly leaseSupervisor: ReviewInvocationLeaseSupervisorPort;
   readonly projectionBuilder: CurrentReviewProjectionBuilderPort;
   readonly contextReplay?: ContextDependencyReplayPort;
@@ -692,11 +696,15 @@ export class RunT0ReviewOrchestration {
             lease = await this.renewLease(lease!, input.ownerIdHash);
             return lease;
           },
-          operation: (signal) =>
+          operation: (signal, currentLease) =>
             this.executeInvocationWithRevisionWatch({
+              authorization: input.authorization,
+              execution: input.execution,
+              workSlot: input.workSlot,
+              ownerIdHash: input.ownerIdHash,
               invocation,
               manifest,
-              lease: lease!,
+              currentLease,
               sourceExecutionId: input.execution.executionId,
               signal,
               revision: input.revision,
@@ -1022,7 +1030,11 @@ export class RunT0ReviewOrchestration {
     readonly signal: AbortSignal;
     readonly invocation: PreparedReviewInvocation;
     readonly manifest: ProviderInvocationManifest;
-    readonly lease: ReviewInvocationLease;
+    readonly currentLease: () => ReviewInvocationLease;
+    readonly authorization: ReviewRunAuthorization;
+    readonly execution: ReviewExecutionAdmission;
+    readonly workSlot: ReviewWorkSlotPlan;
+    readonly ownerIdHash: string;
     readonly sourceExecutionId: string;
     readonly revision: ReviewRevisionFacts;
   }): Promise<ReviewObservationPayload> {
@@ -1032,7 +1044,13 @@ export class RunT0ReviewOrchestration {
     if (input.signal.aborted) relayLeaseAbort();
     else
       input.signal.addEventListener('abort', relayLeaseAbort, { once: true });
+    const investigate =
+      this.dependencies.investigationRecording?.supports({
+        workSlot: input.workSlot,
+        invocation: input.invocation,
+      }) ?? false;
     const drainOnSupersession =
+      !investigate &&
       input.invocation.manifestFacts.executionProfile === 'context_gateway_v1';
     const monitor = async () => {
       if (drainOnSupersession) return;
@@ -1051,10 +1069,56 @@ export class RunT0ReviewOrchestration {
     };
     void monitor();
     try {
+      if (investigate) {
+        let investigationObservation: ReviewObservationPayload;
+        try {
+          investigationObservation =
+            await this.dependencies.investigationRecording!.execute({
+              authorization: input.authorization,
+              execution: input.execution,
+              workSlot: input.workSlot,
+              invocation: input.invocation,
+              manifest: input.manifest,
+              currentLease: input.currentLease,
+              ownerIdHash: input.ownerIdHash,
+              sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+              signal: abort.signal,
+            });
+        } catch (error) {
+          if (!(error instanceof ReviewInvestigationLegacyFallbackSignal)) {
+            throw error;
+          }
+          return this.dependencies.invocations.execute({
+            invocation: input.invocation,
+            manifest: input.manifest,
+            lease: input.currentLease(),
+            sourceExecutionId: input.sourceExecutionId,
+            sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+            signal: abort.signal,
+          });
+        }
+        if (
+          this.dependencies.investigationRecording!.mode ===
+          ReviewInvestigationRecordingMode.Authoritative
+        ) {
+          const verifiedClean = investigationObservation.qualityFlags.includes(
+            'investigation_verified_clean'
+          );
+          const findings = investigationObservation.findingCount > 0;
+          if (
+            findings ||
+            (verifiedClean &&
+              this.dependencies.investigationRecording!
+                .verifiedCleanEffectsEnabled === true)
+          ) {
+            return investigationObservation;
+          }
+        }
+      }
       return await this.dependencies.invocations.execute({
         invocation: input.invocation,
         manifest: input.manifest,
-        lease: input.lease,
+        lease: input.currentLease(),
         sourceExecutionId: input.sourceExecutionId,
         sourceReviewRevisionHash: input.revision.reviewRevisionHash,
         signal: abort.signal,

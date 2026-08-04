@@ -7,6 +7,7 @@ import {
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
   ReviewExecutionStartResultStatus,
+  ReviewInvestigationPublishedRuntimeProfile,
   ReviewRunAuthorizationResultStatus,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
@@ -120,6 +121,59 @@ describe('ReviewActionV2Client', () => {
       code: ReviewActionV2ClientFailureCode.ProtocolError,
       httpStatus: 426,
       protocolErrorCode: ReviewActionV2ProtocolErrorCode.UnsupportedProtocol,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails deterministically when an old server does not enable investigations', async () => {
+    const fetchImpl = jest.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      return jsonResponse(
+        {
+          protocolVersion: reviewActionV2PublishedProtocolVersion,
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
+          requestId: request.requestId,
+          serverTime: '2026-07-22T12:00:00.000Z',
+          error: {
+            errorCode: ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
+            retryClass: ReviewActionV2RetryClass.Never,
+            details: { issues: ['capability_disabled'] },
+          },
+        },
+        403
+      );
+    });
+
+    await expect(
+      createClient(fetchImpl).execute(
+        ReviewActionV2OperationId.ReviewInvestigationOpen,
+        {
+          authorizationToken: 'authorization.token',
+          idempotencyKey: 'idem:investigation:1',
+          authorizationId: 'authorization-1',
+          executionId: 'execution-1',
+          workSlotId: 'work-slot-1',
+          reviewRevisionHash: '1'.repeat(64),
+          stableReviewUnitKey: 'stable-unit-1',
+          providerVoteLaneId: 'provider-lane-1',
+          providerStrategyId: 'provider-strategy-1',
+          runtimeProfile:
+            ReviewInvestigationPublishedRuntimeProfile.GatewayAttestedAgentV1,
+          coverageContractCanonicalJson: '{}',
+          coverageContractHash: '2'.repeat(64),
+          investigationPolicyCanonicalJson: '{}',
+          investigationPolicyHash: '3'.repeat(64),
+          seedObligationsCanonicalJson: '[]',
+          seedObligationsHash: '4'.repeat(64),
+          initialReceiptsCanonicalJson: '[]',
+          initialReceiptsHash: '5'.repeat(64),
+        }
+      )
+    ).rejects.toMatchObject({
+      code: ReviewActionV2ClientFailureCode.ProtocolError,
+      httpStatus: 403,
+      protocolErrorCode: ReviewActionV2ProtocolErrorCode.CapabilityDisabled,
+      retryClass: ReviewActionV2RetryClass.Never,
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });

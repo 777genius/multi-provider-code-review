@@ -34,6 +34,13 @@ import {
 } from '../domain';
 import { normalizeReviewObservation } from './review-observation-normalizer';
 import type { ContextGatewayInvocationSessionFactoryPort } from './context-gateway-invocation-session';
+import { buildReviewAgentTurnOutputSchema } from '../../review-investigation/domain/turn-observation';
+import {
+  REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
+  REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
+  ReviewInvestigationProbePlanStatus,
+} from '../../review-investigation/domain/deterministic-context-probe-plan';
+import { buildReviewInvestigationSeedEnvelope } from '../../review-investigation/domain/review-investigation-seed-envelope';
 
 export type CodexReviewAssignment = {
   readonly workSlot: ReviewWorkSlotPlan;
@@ -60,7 +67,8 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
     assignments: readonly CodexReviewAssignment[],
     private readonly timeoutMs: number,
     private readonly agenticContext: boolean,
-    private readonly contextGateway?: ContextGatewayInvocationSessionFactoryPort
+    private readonly contextGateway?: ContextGatewayInvocationSessionFactoryPort,
+    private readonly investigationManifestBindingEnabled = false
   ) {
     for (const assignment of assignments) {
       if (this.assignments.has(assignment.workSlot.workSlotId)) {
@@ -98,13 +106,24 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
       coverageCanonicalJson,
       'utf8'
     ).toString('base64url')}`;
-    const gatewayPlanningConfig = this.contextGateway
-      ? await this.contextGateway.planningConfig({
-          baseSha: assignment.context.baseSha,
-          mergeBaseSha: assignment.mergeBaseSha,
-          headSha: assignment.context.headSha,
-        })
-      : undefined;
+    const revision = Object.freeze({
+      baseSha: assignment.context.baseSha,
+      mergeBaseSha: assignment.mergeBaseSha,
+      headSha: assignment.context.headSha,
+    });
+    const shouldPrepareInvestigationSeed =
+      this.investigationManifestBindingEnabled &&
+      preparedPrompt.investigationProbePlan.status ===
+        ReviewInvestigationProbePlanStatus.Complete &&
+      assignment.lifecycleTargets.length === 0;
+    const [gatewayPlanningConfig, canonicalInventory] = this.contextGateway
+      ? await Promise.all([
+          this.contextGateway.planningConfig(revision),
+          shouldPrepareInvestigationSeed
+            ? this.contextGateway.canonicalInventory(revision)
+            : Promise.resolve(undefined),
+        ])
+      : [undefined, undefined];
     const prepared = await this.provider.prepareInvocation(
       prompt,
       this.timeoutMs,
@@ -126,33 +145,80 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
         ])
       ).sort()
     ) as readonly ReviewTaskKind[];
+    const probePlanComplete =
+      preparedPrompt.investigationProbePlan.status ===
+      ReviewInvestigationProbePlanStatus.Complete;
+    const investigationEligible =
+      this.investigationManifestBindingEnabled &&
+      gatewayPlanningConfig !== undefined &&
+      probePlanComplete &&
+      !taskKindSet.includes(ReviewTaskKind.LifecycleRevalidation);
+    const investigationContract = investigationEligible
+      ? canonicalJson({
+          adapterVersion: 'review-investigation-codex.v2',
+          actualModelAttribution: 'observed',
+          confinement: 'gateway_only',
+          continuation: 'durable_dossier',
+          gatewayBinaryHash: gatewayPlanningConfig.gatewayBinaryHash,
+          gatewayPolicyVersion: gatewayPlanningConfig.gatewayPolicyVersion,
+          enabledTools: [...gatewayPlanningConfig.enabledTools].sort(),
+          probeLimits: preparedPrompt.investigationProbePlan.limits,
+          probePolicyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
+          reasoningEffort: 'xhigh',
+          requestedModel: prepared.requestedModel,
+          searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
+        })
+      : null;
+    const investigationSeedEnvelope = investigationEligible
+      ? buildReviewInvestigationSeedEnvelope({
+          coverageManifest,
+          canonicalInventory,
+          probePlan: preparedPrompt.investigationProbePlan,
+          reviewPrompt: prompt,
+          requestedModel: prepared.requestedModel,
+        })
+      : null;
     return Object.freeze({
       workSlotId: input.workSlot.workSlotId,
       attemptOrdinal: input.attemptOrdinal,
       provider: prepared.providerName,
       requestedModel: prepared.requestedModel,
+      reviewPrompt: prompt,
       immutableRequest: prepared,
       coverageManifest,
+      investigationProbePlan: preparedPrompt.investigationProbePlan,
+      investigationSeedEnvelope,
       manifestFacts: Object.freeze({
         taskKindSet,
         providerKind: ReviewExecutionProviderKind.Codex,
         providerCapabilityHash: sha256(
-          canonicalJson({
-            agenticContext: this.agenticContext,
-            contextGateway: gatewayPlanningConfig
-              ? {
-                  gatewayBinaryHash: gatewayPlanningConfig.gatewayBinaryHash,
-                  gatewayPolicyVersion:
-                    gatewayPlanningConfig.gatewayPolicyVersion,
-                  enabledTools: [...gatewayPlanningConfig.enabledTools].sort(),
-                }
-              : null,
-            preparedInvocationContract: PROVIDER_EXECUTION_CONTRACT_VERSION,
-            providerKind: prepared.providerKind,
-          })
+          investigationContract ??
+            canonicalJson({
+              agenticContext: this.agenticContext,
+              contextGateway: gatewayPlanningConfig
+                ? {
+                    gatewayBinaryHash: gatewayPlanningConfig.gatewayBinaryHash,
+                    gatewayPolicyVersion:
+                      gatewayPlanningConfig.gatewayPolicyVersion,
+                    enabledTools: [
+                      ...gatewayPlanningConfig.enabledTools,
+                    ].sort(),
+                  }
+                : null,
+              preparedInvocationContract: PROVIDER_EXECUTION_CONTRACT_VERSION,
+              providerKind: prepared.providerKind,
+            })
         ),
-        providerRequestEnvelopeHash: sha256(prepared.observableInputPreimage),
-        outputSchemaHash: sha256(canonicalJson(request.outputSchema ?? null)),
+        providerRequestEnvelopeHash: investigationSeedEnvelope
+          ? investigationSeedEnvelope.hash
+          : sha256(prepared.observableInputPreimage),
+        outputSchemaHash: sha256(
+          canonicalJson(
+            investigationEligible
+              ? buildReviewAgentTurnOutputSchema()
+              : (request.outputSchema ?? null)
+          )
+        ),
         filePatchManifestHash: sha256(
           canonicalJson(
             assignment.context.files.map((file) => ({
@@ -174,6 +240,10 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
             lifecycleTargetIds: assignment.lifecycleTargets
               .map((target) => target.targetId)
               .sort(),
+            investigationProbePlanHash:
+              preparedPrompt.investigationProbePlan.planHash,
+            investigationProbePlanStatus:
+              preparedPrompt.investigationProbePlan.status,
             number: assignment.context.number,
             title: assignment.context.title,
           })
@@ -209,6 +279,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
                   gatewayBinaryHash: gatewayPlanningConfig.gatewayBinaryHash,
                   gatewayPolicyVersion:
                     gatewayPlanningConfig.gatewayPolicyVersion,
+                  textSearchMatchMode: 'fixed_string',
                   enabledTools: [...gatewayPlanningConfig.enabledTools].sort(),
                 }
               : {
@@ -219,7 +290,9 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           )
         ),
         executionProfile: gatewayPlanningConfig
-          ? 'context_gateway_v1'
+          ? investigationEligible
+            ? 'investigation_gateway_v1'
+            : 'context_gateway_v1'
           : this.agenticContext
             ? 'agentic_unbounded_v1'
             : 'prompt_only_envelope_v1',
@@ -230,9 +303,20 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
             )
           : null,
         environmentContractHash: sha256(
-          canonicalJson(
-            this.provider.describePreparedEnvironmentContract(prepared)
-          )
+          investigationEligible
+            ? canonicalJson({
+                credentialKeys: [
+                  'CODEX_HOME',
+                  'OPENAI_API_KEY',
+                  'OPENROUTER_API_KEY',
+                ],
+                gitConfigGlobal: '/dev/null',
+                gitConfigNoSystem: '1',
+                userConfig: 'ignored',
+              })
+            : canonicalJson(
+                this.provider.describePreparedEnvironmentContract(prepared)
+              )
         ),
       }),
     });
@@ -506,7 +590,10 @@ export class CooperativeReviewLeaseSupervisor implements ReviewInvocationLeaseSu
   async run<T>(input: {
     readonly lease: ReviewInvocationLease;
     readonly renew: () => Promise<ReviewInvocationLease>;
-    readonly operation: (signal: AbortSignal) => Promise<T>;
+    readonly operation: (
+      signal: AbortSignal,
+      currentLease: () => ReviewInvocationLease
+    ) => Promise<T>;
   }): Promise<T> {
     let stopped = false;
     let stopWake: (() => void) | undefined;
@@ -559,7 +646,9 @@ export class CooperativeReviewLeaseSupervisor implements ReviewInvocationLeaseSu
 
     try {
       return await Promise.race([
-        Promise.resolve().then(() => input.operation(abort.signal)),
+        Promise.resolve().then(() =>
+          input.operation(abort.signal, () => currentLease)
+        ),
         leaseFailure,
       ]);
     } finally {

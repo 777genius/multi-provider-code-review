@@ -5,6 +5,7 @@ import {
   ReviewExecutionProviderKind,
   ReviewInvocationFailureClass,
   ReviewInvocationLeaseAcquireOutcomeStatus,
+  ReviewInvestigationRecordingMode,
   ReviewOrchestrationResultStatus,
   ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
@@ -27,6 +28,7 @@ import {
   ReviewOrchestrationPhase,
   ReviewPromptPathCoverageKind,
 } from '../../../src/review-orchestration/domain';
+import { ReviewInvestigationLegacyFallbackSignal } from '../../../src/review-investigation/application/run-investigation-work-slot';
 
 describe('RunT0ReviewOrchestration', () => {
   it('completes a fresh exact-revision observation and publication', async () => {
@@ -70,6 +72,106 @@ describe('RunT0ReviewOrchestration', () => {
       'publication.permit',
       projection.projectionHash,
     ]);
+  });
+
+  it('records shadow investigation evidence without replacing the legacy observation', async () => {
+    const fixture = createFixture({
+      executionProfile: 'context_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.RecordOnly,
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: expect.objectContaining({
+          payloadHash: observationPayload.payloadHash,
+        }),
+      })
+    );
+  });
+
+  it('uses certificate-backed investigation evidence only in authoritative mode', async () => {
+    const fixture = createFixture({
+      executionProfile: 'investigation_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationVerifiedCleanEffectsEnabled: true,
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: expect.objectContaining({
+          payloadHash: investigationObservationPayload.payloadHash,
+          investigationCertificateId: 'certificate-1',
+        }),
+      })
+    );
+  });
+
+  it('falls back to legacy evidence when verified clean effects are disabled', async () => {
+    const fixture = createFixture({
+      executionProfile: 'investigation_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationVerifiedCleanEffectsEnabled: false,
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: expect.objectContaining({
+          payloadHash: observationPayload.payloadHash,
+        }),
+      })
+    );
+  });
+
+  it('falls back to legacy after a pre-open capability-disabled rejection', async () => {
+    const fixture = createFixture({
+      executionProfile: 'investigation_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationError: new ReviewInvestigationLegacyFallbackSignal(),
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: expect.objectContaining({
+          payloadHash: observationPayload.payloadHash,
+        }),
+      })
+    );
+  });
+
+  it('does not silently fall back after investigation has mutated', async () => {
+    const fixture = createFixture({
+      executionProfile: 'investigation_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationError: new Error('capability_disabled_after_open'),
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'required_work_exhausted',
+    });
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
   });
 
   it('treats publication request conflicts as not applied instead of failing the run', async () => {
@@ -912,10 +1014,13 @@ describe('RunT0ReviewOrchestration', () => {
         operation,
       }: {
         renew: () => Promise<unknown>;
-        operation: (signal: AbortSignal) => Promise<unknown>;
+        operation: (
+          signal: AbortSignal,
+          currentLease: () => unknown
+        ) => Promise<unknown>;
       }) => {
-        await renew();
-        return operation(new AbortController().signal);
+        const currentLease = await renew();
+        return operation(new AbortController().signal, () => currentLease);
       }
     );
     fixture.controlPlane.renewInvocationLease.mockResolvedValue({
@@ -942,10 +1047,13 @@ describe('RunT0ReviewOrchestration', () => {
         operation,
       }: {
         renew: () => Promise<unknown>;
-        operation: (signal: AbortSignal) => Promise<unknown>;
+        operation: (
+          signal: AbortSignal,
+          currentLease: () => unknown
+        ) => Promise<unknown>;
       }) => {
-        await renew();
-        return operation(new AbortController().signal);
+        const currentLease = await renew();
+        return operation(new AbortController().signal, () => currentLease);
       }
     );
     fixture.controlPlane.renewInvocationLease.mockResolvedValue({
@@ -1068,10 +1176,14 @@ describe('RunT0ReviewOrchestration', () => {
 function createFixture(
   options: {
     maxAttempts?: number;
+    investigationMode?: ReviewInvestigationRecordingMode;
+    investigationVerifiedCleanEffectsEnabled?: boolean;
+    investigationError?: unknown;
     executionProfile?:
       | 'prompt_only_envelope_v1'
       | 'agentic_unbounded_v1'
-      | 'context_gateway_v1';
+      | 'context_gateway_v1'
+      | 'investigation_gateway_v1';
   } = {}
 ) {
   const controlPlane = {
@@ -1195,6 +1307,7 @@ function createFixture(
           attemptOrdinal,
           provider: 'codex',
           requestedModel: 'gpt-test',
+          reviewPrompt: 'review',
           immutableRequest: Object.freeze({ prompt: 'review' }),
           coverageManifest: coverageManifest(workSlot.workSlotId),
           manifestFacts: Object.freeze({
@@ -1228,7 +1341,7 @@ function createFixture(
       run: jest
         .fn()
         .mockImplementation(async ({ operation }) =>
-          operation(new AbortController().signal)
+          operation(new AbortController().signal, () => lease)
         ),
     },
     projectionBuilder: {
@@ -1244,10 +1357,26 @@ function createFixture(
       sleep: jest.fn().mockResolvedValue(undefined),
     } satisfies ReviewOrchestrationDelayPort,
   } as unknown as jest.Mocked<RunT0ReviewOrchestrationDependencies>;
+  const investigationRecording = options.investigationMode
+    ? {
+        mode: options.investigationMode,
+        verifiedCleanEffectsEnabled:
+          options.investigationVerifiedCleanEffectsEnabled ?? false,
+        supports: jest.fn().mockReturnValue(true),
+        execute:
+          options.investigationError === undefined
+            ? jest.fn().mockResolvedValue(investigationObservationPayload)
+            : jest.fn().mockRejectedValue(options.investigationError),
+      }
+    : undefined;
+  if (investigationRecording) {
+    Object.assign(dependencies, { investigationRecording });
+  }
   return {
     controlPlane,
     command,
     dependencies,
+    investigationRecording,
     useCase: new RunT0ReviewOrchestration(dependencies),
   };
 }
@@ -1326,6 +1455,13 @@ const observationPayload = {
   transportAttemptCount: 1,
   schemaValidated: true,
   fullyConsumed: true,
+};
+
+const investigationObservationPayload = {
+  ...observationPayload,
+  qualityFlags: ['investigation_verified_clean'] as readonly string[],
+  investigationCertificateId: 'certificate-1',
+  investigationCertificateHash: hash('certificate-1'),
 };
 
 const acceptedObservation = {

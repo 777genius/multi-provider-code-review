@@ -1,7 +1,14 @@
 {
   "artifactKind": "reviewrouter-context-gateway",
-  "contextGatewayEntrypointDigest": "d8d254d3e64e565269f54dec54d393130d9992e72edf74235d5e269e7331703e",
+  "contextGatewayEntrypointDigest": "c619f5444a2dd07729008650c324fa8ca78d555eceba7f6e4f168ece8834ea0a",
   "contextGatewayEntrypointPath": "dist/context-gateway.js",
-  "contextGatewayPolicyVersion": "context-gateway-v3",
-  "metadataVersion": 1
+  "contextGatewayPolicyVersion": "context-gateway-v4",
+  "metadataVersion": 2,
+  "reviewInvestigationCapability": "review_investigation_v1",
+  "reviewInvestigationCoverageProfileHash": "4462900f2e610b2649101987f1131158312b2ad8d453e1fb5f048174f9fbfdc9",
+  "reviewInvestigationPolicyHash": "6af1a3ecea3cb01f8a0e1cea614c8578c6bc7e4010db13603c114757291af698",
+  "supportedContextGatewayPolicyVersions": [
+    "context-gateway-v3",
+    "context-gateway-v4"
+  ]
 }

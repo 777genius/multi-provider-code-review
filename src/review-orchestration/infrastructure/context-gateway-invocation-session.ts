@@ -11,6 +11,10 @@ import {
   canonicalizeReviewContextSearchQuery,
 } from '../../control-plane/generated/review-action-v2/review-action-v2';
 import {
+  buildCanonicalGitInventory,
+  type CanonicalGitInventory,
+} from '../../context-gateway/canonical-git-inventory';
+import {
   ChangedPathsWitnessStatus,
   CONTEXT_GATEWAY_POLICY_VERSION,
   canonicalJson,
@@ -20,8 +24,12 @@ import {
   type ContextGatewayReplayMaterial,
   type ContextGatewayTranscript,
 } from '../../context-gateway/context-gateway-contract';
-import type { CodexContextGatewayInvocationConfig } from '../../providers/codex';
-import type { ProviderCredentialLease } from '../../providers/prepared-invocation';
+import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../context-gateway/context-gateway-v4-contract';
+import { decryptContextGatewayV4ReplayMaterial } from '../../context-gateway/context-gateway-v4-replay-material';
+import {
+  ContextGatewayV4Recorder,
+  type ContextGatewayV4Transcript,
+} from '../../context-gateway/context-gateway-v4-recorder';
 import type {
   ContextDependencyAttestationReference,
   ReviewContextAttestationPort,
@@ -30,17 +38,31 @@ import type {
 import {
   ReviewContextInspectionFailure,
   ReviewContextInspectionFailureReason,
+  ReviewExecutionProviderKind,
 } from '../application';
 
 const execFileAsync = promisify(execFile);
 const MAX_TRANSCRIPT_BYTES = 2 * 1024 * 1024;
 const MAX_REPLAY_MATERIAL_BYTES = 2 * 1024 * 1024;
+const MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES =
+  Math.ceil((MAX_REPLAY_MATERIAL_BYTES * 4) / 3) + 4_096;
 const ENABLED_TOOLS = Object.freeze([
   'review_read_file',
   'review_list_directory',
   'review_search_text',
   'review_git_fact',
 ]);
+const V4_ENABLED_TOOLS = Object.freeze([
+  'review_read_file',
+  'review_list_directory',
+  'review_search_text',
+  'review_canonical_inventory',
+  'review_git_fact',
+]);
+
+export type ContextGatewayPolicyVersion =
+  | typeof CONTEXT_GATEWAY_POLICY_VERSION
+  | typeof CONTEXT_GATEWAY_V4_POLICY_VERSION;
 
 export type ContextGatewayRevision = Readonly<{
   baseSha: string;
@@ -48,22 +70,45 @@ export type ContextGatewayRevision = Readonly<{
   headSha: string;
 }>;
 
+export type ContextGatewayInvocationConfig = Readonly<{
+  command: string;
+  args: readonly string[];
+  cwd: string;
+  gatewayBinaryHash: string;
+  gatewayPolicyVersion: ContextGatewayPolicyVersion;
+  enabledTools: readonly string[];
+  runtimeEnvironment: Readonly<Record<string, string | undefined>>;
+}>;
+
+export type ContextGatewayCredentialLease = Readonly<{
+  environment?: Readonly<Record<string, string | undefined>>;
+}>;
+
+export enum ContextGatewayExecutionProfile {
+  PromptOnlyEnvelopeV1 = 'prompt_only_envelope_v1',
+  AgenticUnboundedV1 = 'agentic_unbounded_v1',
+  ContextGatewayV1 = 'context_gateway_v1',
+  InvestigationGatewayV1 = 'investigation_gateway_v1',
+  GatewayAttestedAgentV1 = 'gateway_attested_agent_v1',
+}
+
 export type OpenContextGatewayInvocationInput = Readonly<{
   invocationLease: ReviewInvocationLease;
   sourceExecutionId: string;
   sourceWorkSlotId: string;
   sourceReviewRevisionHash: string;
-  providerKind: string;
+  providerKind: unknown;
   requestedModel: string;
-  executionProfile: string;
+  executionProfile: unknown;
   providerInvocationKey: string;
   toolPolicyHash: string;
+  openingIntentDiscriminator?: string;
   revision: ContextGatewayRevision;
 }>;
 
 export interface ContextGatewayInvocationSessionPort {
-  readonly providerConfig: CodexContextGatewayInvocationConfig;
-  readonly credentialLease: ProviderCredentialLease;
+  readonly providerConfig: ContextGatewayInvocationConfig;
+  readonly credentialLease: ContextGatewayCredentialLease;
   seal(input: {
     readonly actualModel: string;
     readonly terminalOutcomeHash: string;
@@ -74,7 +119,10 @@ export interface ContextGatewayInvocationSessionPort {
 export interface ContextGatewayInvocationSessionFactoryPort {
   planningConfig(
     revision: ContextGatewayRevision
-  ): Promise<CodexContextGatewayInvocationConfig>;
+  ): Promise<ContextGatewayInvocationConfig>;
+  canonicalInventory(
+    revision: ContextGatewayRevision
+  ): Promise<CanonicalGitInventory>;
   open(
     input: OpenContextGatewayInvocationInput
   ): Promise<ContextGatewayInvocationSessionPort>;
@@ -123,6 +171,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     private readonly options: Readonly<{
       checkoutRoot: string;
       gatewayBundlePath: string;
+      policyVersion?: ContextGatewayPolicyVersion;
     }>,
     private readonly requiredWitnessRunner: RequiredContextWitnessRunnerPort
   ) {
@@ -136,7 +185,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
 
   async planningConfig(
     revision: ContextGatewayRevision
-  ): Promise<CodexContextGatewayInvocationConfig> {
+  ): Promise<ContextGatewayInvocationConfig> {
     const [gatewayBundleSnapshot, revisionTreeOids] = await Promise.all([
       this.gatewayBundleSnapshot(),
       this.revisionTreeOids(revision),
@@ -154,15 +203,28 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     });
   }
 
+  canonicalInventory(
+    revision: ContextGatewayRevision
+  ): Promise<CanonicalGitInventory> {
+    return buildCanonicalGitInventory({
+      root: this.options.checkoutRoot,
+      mergeBaseSha: revision.mergeBaseSha,
+      headSha: revision.headSha,
+    });
+  }
+
   async open(
     input: OpenContextGatewayInvocationInput
   ): Promise<ContextGatewayInvocationSessionPort> {
+    const providerKind = requireProviderKind(input.providerKind);
+    const executionProfile = requireExecutionProfile(input.executionProfile);
     const [gatewayBundleSnapshot, revisionTreeOids] = await Promise.all([
       this.gatewayBundleSnapshot(),
       this.revisionTreeOids(input.revision),
     ]);
     const { checkoutTreeOid } = revisionTreeOids;
     const gatewayBinaryHash = sha256(gatewayBundleSnapshot);
+    const gatewayPolicyVersion = this.policyVersion();
     const directory = await mkdtemp(
       path.join(os.tmpdir(), 'reviewrouter-context-gateway-')
     );
@@ -187,12 +249,12 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         sourceWorkSlotId: input.sourceWorkSlotId,
         sourceReviewRevisionHash: input.sourceReviewRevisionHash,
         checkoutTreeOid,
-        providerKind: input.providerKind,
+        providerKind,
         requestedModel: input.requestedModel,
-        executionProfile: input.executionProfile,
+        executionProfile,
         providerInvocationKey: input.providerInvocationKey,
         toolPolicyHash: input.toolPolicyHash,
-        gatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
+        gatewayPolicyVersion,
         gatewayBinaryHash,
       })
     );
@@ -204,9 +266,14 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         sourceWorkSlotId: input.sourceWorkSlotId,
         sourceReviewRevisionHash: input.sourceReviewRevisionHash,
         checkoutTreeOid,
-        gatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
+        gatewayPolicyVersion,
         gatewayBinaryHash,
         confinementEvidenceHash,
+        ...(input.openingIntentDiscriminator === undefined
+          ? {}
+          : {
+              openingIntentDiscriminator: input.openingIntentDiscriminator,
+            }),
       });
     } catch (error) {
       await rm(directory, { recursive: true, force: true });
@@ -261,15 +328,20 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     readonly transcriptPath: string;
     readonly replayMaterialPath: string;
     readonly gatewayBundlePath: string;
-  }): CodexContextGatewayInvocationConfig {
+  }): ContextGatewayInvocationConfig {
+    const policyVersion = this.policyVersion();
     return Object.freeze({
       command: process.execPath,
       args: Object.freeze([input.gatewayBundlePath]),
       cwd: this.options.checkoutRoot,
       gatewayBinaryHash: input.gatewayBinaryHash,
-      gatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
-      enabledTools: ENABLED_TOOLS,
+      gatewayPolicyVersion: policyVersion,
+      enabledTools:
+        policyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION
+          ? V4_ENABLED_TOOLS
+          : ENABLED_TOOLS,
       runtimeEnvironment: Object.freeze({
+        REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: policyVersion,
         REVIEWROUTER_CONTEXT_SESSION_ID: input.sessionId,
         REVIEWROUTER_CONTEXT_ROOT: this.options.checkoutRoot,
         REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH: input.transcriptPath,
@@ -283,6 +355,10 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         REVIEWROUTER_CONTEXT_HEAD_SHA: input.revision.headSha,
       }),
     });
+  }
+
+  private policyVersion(): ContextGatewayPolicyVersion {
+    return this.options.policyVersion ?? CONTEXT_GATEWAY_POLICY_VERSION;
   }
 
   private async gatewayBundleSnapshot(): Promise<Buffer> {
@@ -336,7 +412,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
 }
 
 class ContextGatewayInvocationSession implements ContextGatewayInvocationSessionPort {
-  readonly credentialLease: ProviderCredentialLease;
+  readonly credentialLease: ContextGatewayCredentialLease;
 
   constructor(
     private readonly attestations: ReviewContextAttestationPort,
@@ -344,7 +420,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     private readonly serverSession: Awaited<
       ReturnType<ReviewContextAttestationPort['openGatewaySession']>
     >,
-    readonly providerConfig: CodexContextGatewayInvocationConfig,
+    readonly providerConfig: ContextGatewayInvocationConfig,
     private readonly secret: Buffer,
     private readonly transcriptPath: string,
     private readonly replayMaterialPath: string,
@@ -361,6 +437,12 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     readonly actualModel: string;
     readonly terminalOutcomeHash: string;
   }): Promise<ContextDependencyAttestationReference | null> {
+    if (
+      this.providerConfig.gatewayPolicyVersion ===
+      CONTEXT_GATEWAY_V4_POLICY_VERSION
+    ) {
+      return this.sealV4(input);
+    }
     let rawTranscriptCanonicalJson: string;
     let rawReplayMaterialCanonicalJson: string;
     try {
@@ -429,6 +511,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     }
     const { transcriptCanonicalJson, replayMaterialCanonicalJson } =
       createWireSealPayload(transcript, replayMaterial);
+    await rm(this.replayMaterialPath);
     return this.attestations.sealGatewaySession({
       invocationLease: this.invocationLease,
       session: this.serverSession,
@@ -442,6 +525,57 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
       replayMaterialCanonicalJson,
       replayMaterialHash: sha256(replayMaterialCanonicalJson),
     });
+  }
+
+  private async sealV4(input: {
+    readonly actualModel: string;
+    readonly terminalOutcomeHash: string;
+  }): Promise<ContextDependencyAttestationReference | null> {
+    try {
+      const recorder = new ContextGatewayV4Recorder({
+        sessionId: this.serverSession.sessionId,
+        transcriptPath: this.transcriptPath,
+        secret: this.secret,
+        gatewayBinaryHash: this.providerConfig.gatewayBinaryHash,
+        checkoutTreeOid:
+          this.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID!,
+        eventChainSeedHash: this.serverSession.eventChainSeedHash,
+      });
+      await recorder.resume();
+      const transcript = recorder.snapshot();
+      const transcriptCanonicalJson = createV4WireSealPayload(transcript);
+      const encryptedReplayMaterialCanonicalJson = await readBoundedText(
+        this.replayMaterialPath,
+        MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES
+      );
+      const replayMaterialCanonicalJson = decryptContextGatewayV4ReplayMaterial(
+        {
+          encryptedCanonicalJson: encryptedReplayMaterialCanonicalJson,
+          secret: this.secret,
+          sessionId: this.serverSession.sessionId,
+        }
+      );
+      await rm(this.replayMaterialPath);
+      return this.attestations.sealGatewaySession({
+        invocationLease: this.invocationLease,
+        session: this.serverSession,
+        providerSucceeded: true,
+        schemaValidated: true,
+        fullyConsumed: true,
+        actualModel: input.actualModel,
+        terminalOutcomeHash: input.terminalOutcomeHash,
+        transcriptCanonicalJson,
+        transcriptHash: sha256(transcriptCanonicalJson),
+        replayMaterialCanonicalJson,
+        replayMaterialHash: sha256(replayMaterialCanonicalJson),
+      });
+    } catch (error) {
+      if (error instanceof ReviewContextInspectionFailure) throw error;
+      throw new ReviewContextInspectionFailure(
+        ReviewContextInspectionFailureReason.GatewayOutputUnavailable
+      );
+    }
   }
 
   async dispose(): Promise<void> {
@@ -460,6 +594,21 @@ async function readBoundedCanonicalJson(
   }
   const parsed = JSON.parse(await readFile(file, 'utf8')) as unknown;
   return canonicalJson(parsed);
+}
+
+async function readBoundedText(
+  file: string,
+  maximumBytes: number
+): Promise<string> {
+  const metadata = await stat(file);
+  if (!metadata.isFile() || metadata.size < 2 || metadata.size > maximumBytes) {
+    throw new Error('context_gateway_output_size_invalid');
+  }
+  const value = await readFile(file, 'utf8');
+  if (Buffer.byteLength(value, 'utf8') !== metadata.size) {
+    throw new Error('context_gateway_output_size_invalid');
+  }
+  return value;
 }
 
 function verifyTranscript(input: {
@@ -596,8 +745,57 @@ function createWireSealPayload(
   });
 }
 
+function createV4WireSealPayload(
+  transcript: ContextGatewayV4Transcript
+): string {
+  return canonicalJson({
+    manifestVersion: 3,
+    gatewayPolicyVersion: transcript.gatewayPolicyVersion,
+    gatewayBinaryHash: transcript.gatewayBinaryHash,
+    checkoutTreeOid: transcript.checkoutTreeOid,
+    eventChainSeedHash: transcript.eventChainSeedHash,
+    authenticatedChainHash: transcript.authenticatedChainHash,
+    complete: true,
+    confinementTainted: transcript.confinementTainted,
+    terminalFailureClass: transcript.terminalFailureClass,
+    events: transcript.events,
+  });
+}
+
 function keyedSha256(secret: Buffer, value: string): string {
   return createHmac('sha256', secret).update(value).digest('hex');
+}
+
+function requireProviderKind(value: unknown): ReviewExecutionProviderKind {
+  switch (value) {
+    case ReviewExecutionProviderKind.Codex:
+      return ReviewExecutionProviderKind.Codex;
+    case ReviewExecutionProviderKind.ClaudeCode:
+      return ReviewExecutionProviderKind.ClaudeCode;
+    case ReviewExecutionProviderKind.OpenRouter:
+      return ReviewExecutionProviderKind.OpenRouter;
+    default:
+      throw new Error('context_gateway_provider_kind_invalid');
+  }
+}
+
+function requireExecutionProfile(
+  value: unknown
+): ContextGatewayExecutionProfile {
+  switch (value) {
+    case ContextGatewayExecutionProfile.PromptOnlyEnvelopeV1:
+      return ContextGatewayExecutionProfile.PromptOnlyEnvelopeV1;
+    case ContextGatewayExecutionProfile.AgenticUnboundedV1:
+      return ContextGatewayExecutionProfile.AgenticUnboundedV1;
+    case ContextGatewayExecutionProfile.ContextGatewayV1:
+      return ContextGatewayExecutionProfile.ContextGatewayV1;
+    case ContextGatewayExecutionProfile.InvestigationGatewayV1:
+      return ContextGatewayExecutionProfile.InvestigationGatewayV1;
+    case ContextGatewayExecutionProfile.GatewayAttestedAgentV1:
+      return ContextGatewayExecutionProfile.GatewayAttestedAgentV1;
+    default:
+      throw new Error('context_gateway_execution_profile_invalid');
+  }
 }
 
 function sha256(value: string | Buffer): string {

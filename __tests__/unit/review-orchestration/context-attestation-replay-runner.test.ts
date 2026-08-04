@@ -15,6 +15,10 @@ import {
   ReviewExecutionProviderKind,
   type ContextDependencyReplayCandidate,
 } from '../../../src/review-orchestration/application';
+import {
+  CONTEXT_GATEWAY_V4_POLICY_VERSION,
+  ContextGatewayV4OperationKind,
+} from '../../../src/context-gateway/context-gateway-v4-contract';
 import { ContextAttestationReplayRunner } from '../../../src/review-orchestration/infrastructure';
 
 const execFileAsync = promisify(execFile);
@@ -379,6 +383,96 @@ describe('ContextAttestationReplayRunner', () => {
       itemCount: 1,
     });
   });
+
+  it('replays a selective v4 file receipt into a synthetic target manifest', async () => {
+    const headSha = await revParse(root, 'HEAD');
+    const prepared = replayReceiptCandidate({
+      gatewayBinaryHash: sha256('gateway-v1'),
+      operations: [
+        {
+          operationKind: ContextGatewayV4OperationKind.FileRead,
+          replayInput: {
+            path: 'src.ts',
+            revision: 'head',
+            startByte: 0,
+            maxBytes: 4096,
+          },
+        },
+      ],
+    });
+    const runner = new ContextAttestationReplayRunner({
+      checkoutRoot: root,
+      gatewayBundlePath,
+    });
+
+    const result = await runner.replayReceipt({
+      prepared,
+      targetRevision: targetRevision(headSha, 'v4-target'),
+    });
+
+    expect(result).not.toBeNull();
+    const manifest = JSON.parse(result!.replayResultCanonicalJson);
+    expect(manifest).toMatchObject({
+      manifestVersion: 3,
+      gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+      complete: true,
+      confinementTainted: false,
+      terminalFailureClass: null,
+    });
+    expect(manifest.events).toHaveLength(1);
+    expect(manifest.events[0]).toMatchObject({
+      sequence: 1,
+      operationKind: ContextGatewayV4OperationKind.FileRead,
+      outcome: 'succeeded',
+      result: {
+        contentHash: sha256('export const value = 1;\n'),
+        complete: true,
+      },
+    });
+    expect(manifest.authenticatedChainHash).toBe(manifest.events[0].eventHash);
+  });
+
+  it('fully replays every v4 search page with bounded cursors', async () => {
+    await writeFile(
+      path.join(root, 'search.ts'),
+      ['MATCH one', 'MATCH two', 'MATCH three', ''].join('\n')
+    );
+    await git(root, ['add', 'search.ts']);
+    await git(root, ['commit', '-m', 'test: add paginated search']);
+    const headSha = await revParse(root, 'HEAD');
+    const runner = new ContextAttestationReplayRunner({
+      checkoutRoot: root,
+      gatewayBundlePath,
+    });
+
+    const result = await runner.replayReceipt({
+      prepared: replayReceiptCandidate({
+        gatewayBinaryHash: sha256('gateway-v1'),
+        operations: [
+          {
+            operationKind: ContextGatewayV4OperationKind.TextSearch,
+            replayInput: {
+              query: 'MATCH',
+              paths: ['search.ts'],
+              revision: 'head',
+              caseSensitive: true,
+              pageSize: 1,
+            },
+          },
+        ],
+      }),
+      targetRevision: targetRevision(headSha, 'search-target'),
+    });
+
+    const manifest = JSON.parse(result!.replayResultCanonicalJson);
+    expect(manifest.events).toHaveLength(3);
+    expect(
+      manifest.events.map(
+        (event: { result: { pageOrdinal: number } }) => event.result.pageOrdinal
+      )
+    ).toEqual([0, 1, 2]);
+    expect(manifest.events[2].result.complete).toBe(true);
+  });
 });
 
 function treeComparisonOperation(
@@ -476,6 +570,49 @@ function replayCandidate(input: {
     replayPlanCanonicalJson,
     replayPlanHash: sha256(replayPlanCanonicalJson),
   };
+}
+
+function replayReceiptCandidate(input: {
+  gatewayBinaryHash: string;
+  operations: readonly {
+    operationKind: ContextGatewayV4OperationKind;
+    replayInput: Readonly<Record<string, unknown>>;
+  }[];
+}) {
+  const contextAttestationId = 'attestation-v4';
+  const contextAttestationHash = sha256('attestation-v4');
+  const sourceOperationReceiptIds = [sha256('source-receipt')];
+  const sourceOperationReceiptIdsHash = sha256(
+    canonicalJson({ operationReceiptIds: sourceOperationReceiptIds })
+  );
+  const replayPlanCanonicalJson = canonicalJson({
+    planVersion: 2,
+    attestationId: contextAttestationId,
+    attestationHash: contextAttestationHash,
+    gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+    gatewayBinaryHash: input.gatewayBinaryHash,
+    sourceOperationReceiptIds,
+    sourceOperationReceiptIdsHash,
+    operations: input.operations,
+  });
+  return Object.freeze({
+    obligationId: sha256('obligation-v4'),
+    contextAttestationId,
+    contextAttestationHash,
+    sourceOperationReceiptIdsHash,
+    replayCapability: 'replay-capability-v4',
+    replayPlanCanonicalJson,
+    replayPlanHash: sha256(replayPlanCanonicalJson),
+  });
+}
+
+function targetRevision(headSha: string, revision: string) {
+  return Object.freeze({
+    baseSha: headSha,
+    mergeBaseSha: headSha,
+    headSha,
+    reviewRevisionHash: sha256(revision),
+  });
 }
 
 async function git(cwd: string, args: readonly string[]): Promise<void> {

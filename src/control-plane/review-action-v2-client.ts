@@ -3,6 +3,7 @@ import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 import reviewContextGatewayOpenSchema from './generated/review-action-v2/schemas/review_context_gateway_open.schema.json';
 import reviewContextGatewaySealSchema from './generated/review-action-v2/schemas/review_context_gateway_seal.schema.json';
+import reviewContextReceiptReplayCommitSchema from './generated/review-action-v2/schemas/review_context_receipt_replay_commit.schema.json';
 import reviewContextReplayCommitSchema from './generated/review-action-v2/schemas/review_context_replay_commit.schema.json';
 import reviewEvidenceCommitSchema from './generated/review-action-v2/schemas/review_evidence_commit.schema.json';
 import reviewEvidenceLookupSchema from './generated/review-action-v2/schemas/review_evidence_lookup.schema.json';
@@ -12,6 +13,14 @@ import reviewExecutionObservationAdoptSchema from './generated/review-action-v2/
 import reviewExecutionRestoreSchema from './generated/review-action-v2/schemas/review_execution_restore.schema.json';
 import reviewExecutionStartSchema from './generated/review-action-v2/schemas/review_execution_start.schema.json';
 import reviewExecutionSupersedeSchema from './generated/review-action-v2/schemas/review_execution_supersede.schema.json';
+import reviewInvestigationConcludeSchema from './generated/review-action-v2/schemas/review_investigation_conclude.schema.json';
+import reviewInvestigationOpenSchema from './generated/review-action-v2/schemas/review_investigation_open.schema.json';
+import reviewInvestigationReplaySchema from './generated/review-action-v2/schemas/review_investigation_replay.schema.json';
+import reviewInvestigationReplayPrepareSchema from './generated/review-action-v2/schemas/review_investigation_replay_prepare.schema.json';
+import reviewInvestigationRestoreSchema from './generated/review-action-v2/schemas/review_investigation_restore.schema.json';
+import reviewInvestigationTurnAbortSchema from './generated/review-action-v2/schemas/review_investigation_turn_abort.schema.json';
+import reviewInvestigationTurnCommitSchema from './generated/review-action-v2/schemas/review_investigation_turn_commit.schema.json';
+import reviewInvestigationTurnPlanSchema from './generated/review-action-v2/schemas/review_investigation_turn_plan.schema.json';
 import reviewInvocationLeaseAcquireSchema from './generated/review-action-v2/schemas/review_invocation_lease_acquire.schema.json';
 import reviewInvocationLeaseReleaseSchema from './generated/review-action-v2/schemas/review_invocation_lease_release.schema.json';
 import reviewInvocationLeaseRenewSchema from './generated/review-action-v2/schemas/review_invocation_lease_renew.schema.json';
@@ -124,6 +133,22 @@ const responseSchemas = {
     reviewExecutionObservationAdoptSchema,
   [ReviewActionV2OperationId.ReviewExecutionFinalize]:
     reviewExecutionFinalizeSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationOpen]:
+    reviewInvestigationOpenSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationRestore]:
+    reviewInvestigationRestoreSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationTurnPlan]:
+    reviewInvestigationTurnPlanSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationTurnCommit]:
+    reviewInvestigationTurnCommitSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationTurnAbort]:
+    reviewInvestigationTurnAbortSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationConclude]:
+    reviewInvestigationConcludeSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationReplayPrepare]:
+    reviewInvestigationReplayPrepareSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationReplay]:
+    reviewInvestigationReplaySchema,
   [ReviewActionV2OperationId.ReviewInvocationLeaseAcquire]:
     reviewInvocationLeaseAcquireSchema,
   [ReviewActionV2OperationId.ReviewInvocationLeaseRenew]:
@@ -135,6 +160,8 @@ const responseSchemas = {
   [ReviewActionV2OperationId.ReviewContextGatewaySeal]:
     reviewContextGatewaySealSchema,
   [ReviewActionV2OperationId.ReviewEvidenceLookup]: reviewEvidenceLookupSchema,
+  [ReviewActionV2OperationId.ReviewContextReceiptReplayCommit]:
+    reviewContextReceiptReplayCommitSchema,
   [ReviewActionV2OperationId.ReviewContextReplayCommit]:
     reviewContextReplayCommitSchema,
   [ReviewActionV2OperationId.ReviewEvidenceCommit]: reviewEvidenceCommitSchema,
@@ -445,8 +472,7 @@ function parseApiUrl(value: string, allowInsecureLocalhost = false): URL {
 function isResponseEnvelope(
   value: unknown
 ): value is
-  | ReviewActionV2ResultEnvelope<unknown>
-  | ReviewActionV2ErrorResponse {
+  ReviewActionV2ResultEnvelope<unknown> | ReviewActionV2ErrorResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
   const hasResult = Object.prototype.hasOwnProperty.call(body, 'result');

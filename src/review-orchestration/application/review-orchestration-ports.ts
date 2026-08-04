@@ -10,6 +10,40 @@ export enum ReviewExecutionProviderKind {
   OpenRouter = 'openrouter',
 }
 
+export enum ReviewCapabilityKind {
+  ReviewInvestigationV1 = 'review_investigation_v1',
+}
+
+export enum ReviewInvestigationAuthorizationDescriptorVersion {
+  V2 = 2,
+}
+
+export enum ReviewInvestigationRolloutCapability {
+  Recording = 'recording',
+  Shadow = 'shadow',
+  ContextCritic = 'context_critic',
+  VerifiedClean = 'verified_clean',
+  CrossRevisionReplay = 'cross_revision_replay',
+  ProductionEffects = 'production_effects',
+}
+
+export type ReviewInvestigationProviderCapabilities = Readonly<{
+  providerKind:
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+  capabilities: readonly ReviewInvestigationRolloutCapability[];
+}>;
+
+export type ReviewInvestigationAuthorizationDescriptorV2 = Readonly<{
+  authorizationDescriptorVersion: ReviewInvestigationAuthorizationDescriptorVersion.V2;
+  capability: ReviewCapabilityKind.ReviewInvestigationV1;
+  coverageProfileHash: string;
+  policyHash: string;
+  providerCapabilities: readonly ReviewInvestigationProviderCapabilities[];
+}>;
+
+export type ReviewInvestigationCapabilityDescriptor =
+  ReviewInvestigationAuthorizationDescriptorV2;
+
 export enum ReviewTaskKind {
   FindingDiscovery = 'finding_discovery',
   LifecycleRevalidation = 'lifecycle_revalidation',
@@ -92,6 +126,7 @@ export type ReviewRunAuthorizationFacts = {
   readonly producerReleaseId: string;
   readonly selectedProtocolVersion: string;
   readonly schemaDigest: string;
+  readonly reviewInvestigation?: ReviewInvestigationCapabilityDescriptor;
   readonly providerVoteLanes: readonly {
     readonly providerKind: ReviewExecutionProviderKind;
     readonly providerVoteIdentityHash: string;
@@ -114,9 +149,15 @@ export type PreparedReviewInvocation = {
   readonly attemptOrdinal: number;
   readonly provider: string;
   readonly requestedModel: string;
+  /** In-memory semantic prompt before provider-specific wrapping. Never persist or log. */
+  readonly reviewPrompt: string;
   readonly immutableRequest: unknown;
   readonly manifestFacts: PreparedReviewInvocationManifestFacts;
   readonly coverageManifest: import('../domain').ReviewPromptCoverageManifest;
+  readonly investigationProbePlan: import('../../review-investigation/domain').ReviewInvestigationProbePlan;
+  readonly investigationSeedEnvelope?:
+    | import('../../review-investigation/domain').PreparedReviewInvestigationSeedEnvelope
+    | null;
 };
 
 export interface ReviewInvocationFailureClassifierPort {
@@ -146,7 +187,8 @@ export type PreparedReviewInvocationManifestFacts = {
   readonly executionProfile:
     | 'prompt_only_envelope_v1'
     | 'agentic_unbounded_v1'
-    | 'context_gateway_v1';
+    | 'context_gateway_v1'
+    | 'investigation_gateway_v1';
   readonly baseTreeHash: string | null;
   readonly environmentContractHash: string;
 };
@@ -170,6 +212,8 @@ export type ReviewObservationPayload = {
   readonly fullyConsumed: boolean;
   readonly contextDependencyAttestationId?: string;
   readonly contextDependencyAttestationHash?: string;
+  readonly investigationCertificateId?: string;
+  readonly investigationCertificateHash?: string;
 };
 
 export type ContextGatewaySessionLease = Readonly<{
@@ -217,6 +261,7 @@ export interface ReviewContextAttestationPort {
     readonly gatewayPolicyVersion: string;
     readonly gatewayBinaryHash: string;
     readonly confinementEvidenceHash: string;
+    readonly openingIntentDiscriminator?: string;
   }): Promise<ContextGatewaySessionLease>;
   sealGatewaySession(input: {
     readonly invocationLease: ReviewInvocationLease;
@@ -521,11 +566,39 @@ export interface PreparedReviewInvocationPort {
   }): Promise<ReviewObservationPayload>;
 }
 
+export enum ReviewInvestigationRecordingMode {
+  RecordOnly = 'record_only',
+  Authoritative = 'authoritative',
+}
+
+export interface ReviewInvestigationRecordingPort {
+  readonly mode: ReviewInvestigationRecordingMode;
+  readonly verifiedCleanEffectsEnabled?: boolean;
+  supports(input: {
+    readonly workSlot: ReviewWorkSlotPlan;
+    readonly invocation: PreparedReviewInvocation;
+  }): boolean;
+  execute(input: {
+    readonly authorization: ReviewRunAuthorization;
+    readonly execution: ReviewExecutionAdmission;
+    readonly workSlot: ReviewWorkSlotPlan;
+    readonly invocation: PreparedReviewInvocation;
+    readonly manifest: ProviderInvocationManifest;
+    readonly currentLease: () => ReviewInvocationLease;
+    readonly ownerIdHash: string;
+    readonly sourceReviewRevisionHash: string;
+    readonly signal: AbortSignal;
+  }): Promise<ReviewObservationPayload>;
+}
+
 export interface ReviewInvocationLeaseSupervisorPort {
   run<T>(input: {
     readonly lease: ReviewInvocationLease;
     readonly renew: () => Promise<ReviewInvocationLease>;
-    readonly operation: (signal: AbortSignal) => Promise<T>;
+    readonly operation: (
+      signal: AbortSignal,
+      currentLease: () => ReviewInvocationLease
+    ) => Promise<T>;
   }): Promise<T>;
 }
 
