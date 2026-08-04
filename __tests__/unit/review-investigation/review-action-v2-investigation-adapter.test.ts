@@ -3,6 +3,7 @@ import {
   ReviewContextReceiptReplayCommitResultStatus,
   ReviewInvestigationMutationResultStatus,
   ReviewInvestigationNextAction,
+  ReviewInvestigationOpenResultStatus,
   ReviewInvestigationPublishedConclusion,
   ReviewInvestigationPublishedState,
   ReviewInvestigationRestoreResultStatus,
@@ -26,6 +27,42 @@ import {
 } from '../../../src/review-investigation/domain/turn-observation';
 
 describe('ReviewActionV2InvestigationAdapter turn brief', () => {
+  it('sends the exact prepared seed envelope bytes and hash', async () => {
+    const seedEnvelopeCanonicalJson = canonicalJson({
+      contract: 'review_investigation_seed_envelope.v1',
+      obligations: [],
+      probePlanHash: sha256('probe-plan'),
+      requestedModel: 'gpt-test',
+      reviewPromptHash: sha256('review-prompt'),
+    });
+    const client = {
+      execute: jest.fn().mockResolvedValue({
+        ...planResult({
+          turnBriefCanonicalJson: canonicalJson(null),
+          turnBriefHash: sha256(canonicalJson(null)),
+        }),
+        status: ReviewInvestigationOpenResultStatus.Opened,
+      }),
+    };
+    const adapter = new ReviewActionV2InvestigationAdapter(client as never);
+
+    await adapter.open({
+      ...openInput(),
+      seedEnvelope: {
+        canonicalJson: seedEnvelopeCanonicalJson,
+        hash: sha256(seedEnvelopeCanonicalJson),
+      },
+    });
+
+    expect(client.execute).toHaveBeenCalledWith(
+      ReviewActionV2OperationId.ReviewInvestigationOpen,
+      expect.objectContaining({
+        seedObligationsCanonicalJson: seedEnvelopeCanonicalJson,
+        seedObligationsHash: sha256(seedEnvelopeCanonicalJson),
+      })
+    );
+  });
+
   it('restores a complete certificate-backed terminal artifact', async () => {
     const result = terminalResult();
     const adapter = new ReviewActionV2InvestigationAdapter({
@@ -67,6 +104,291 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
     ).rejects.toThrow('investigation_terminal_artifact_invalid');
   });
 
+  it.each([
+    [
+      'concluded with inconclusive',
+      {
+        state: ReviewInvestigationState.Concluded,
+        conclusion: ReviewInvestigationConclusion.Inconclusive,
+      },
+    ],
+    [
+      'inconclusive with verified_clean',
+      {
+        state: ReviewInvestigationState.Inconclusive,
+        conclusion: ReviewInvestigationConclusion.VerifiedClean,
+      },
+    ],
+    [
+      'inconclusive with findings',
+      {
+        state: ReviewInvestigationState.Inconclusive,
+        conclusion: ReviewInvestigationConclusion.Findings,
+        findingCount: 1,
+        terminalPayload: reviewEvidencePayload([normalizedFinding()]),
+      },
+    ],
+  ])(
+    'rejects terminal state/conclusion combination: %s',
+    async (_, overrides) => {
+      await expect(restoreResult(terminalResult(overrides))).rejects.toThrow(
+        'investigation_terminal_artifact_invalid'
+      );
+    }
+  );
+
+  it.each([
+    [
+      'verified_clean with findings',
+      {
+        findingCount: 1,
+        terminalPayload: reviewEvidencePayload([normalizedFinding()]),
+      },
+    ],
+    ['verified_clean with open obligations', { openObligationCount: 1 }],
+    [
+      'verified_clean with unresolvable obligations',
+      { unresolvableObligationCount: 1 },
+    ],
+    [
+      'findings without findings',
+      { conclusion: ReviewInvestigationConclusion.Findings },
+    ],
+    [
+      'findings with open obligations',
+      {
+        conclusion: ReviewInvestigationConclusion.Findings,
+        findingCount: 1,
+        openObligationCount: 1,
+        terminalPayload: reviewEvidencePayload([normalizedFinding()]),
+      },
+    ],
+    [
+      'findings with unresolvable obligations',
+      {
+        conclusion: ReviewInvestigationConclusion.Findings,
+        findingCount: 1,
+        unresolvableObligationCount: 1,
+        terminalPayload: reviewEvidencePayload([normalizedFinding()]),
+      },
+    ],
+  ])('rejects inconsistent terminal counts: %s', async (_, overrides) => {
+    await expect(restoreResult(terminalResult(overrides))).rejects.toThrow(
+      'investigation_terminal_artifact_invalid'
+    );
+  });
+
+  it.each([
+    ['a non-object root', []],
+    [
+      'an unsupported payload version',
+      { ...reviewEvidencePayload(), payloadVersion: 1 },
+    ],
+    [
+      'a missing normalized findings array',
+      {
+        normalizedLifecycleRevalidations: [],
+        payloadVersion: 2,
+        safeUsage: safeUsage(),
+      },
+    ],
+    [
+      'a non-array lifecycle collection',
+      {
+        ...reviewEvidencePayload(),
+        normalizedLifecycleRevalidations: {},
+      },
+    ],
+    [
+      'a non-record normalized finding',
+      { ...reviewEvidencePayload(), normalizedFindings: ['invalid'] },
+    ],
+    [
+      'a non-record safe usage value',
+      { ...reviewEvidencePayload(), safeUsage: [] },
+    ],
+    [
+      'an incomplete safe usage value',
+      {
+        ...reviewEvidencePayload(),
+        safeUsage: { inputTokens: null, outputTokens: null },
+      },
+    ],
+    [
+      'an inconsistent safe usage total',
+      {
+        ...reviewEvidencePayload(),
+        safeUsage: { inputTokens: 2, outputTokens: 3, totalTokens: 6 },
+      },
+    ],
+    [
+      'an unexpected root field',
+      { ...reviewEvidencePayload(), unexpected: true },
+    ],
+  ])(
+    'rejects terminal ReviewEvidence v2 payload with %s',
+    async (_, payload) => {
+      await expect(
+        restoreResult(terminalResult({ terminalPayload: payload }))
+      ).rejects.toThrow('investigation_terminal_payload_invalid');
+    }
+  );
+
+  it.each([
+    ['an empty record', {}],
+    ['an unexpected key', { ...normalizedFinding(), unexpected: true }],
+    ['a non-string field', { ...normalizedFinding(), title: 1 }],
+    [
+      'an invalid failure-mode digest',
+      { ...normalizedFinding(), normalizedFailureModeHash: 'invalid' },
+    ],
+    ['an unsupported severity', { ...normalizedFinding(), severity: 'info' }],
+    ['an invalid line', { ...normalizedFinding(), startLine: 0 }],
+    [
+      'an out-of-range confidence',
+      { ...normalizedFinding(), placementConfidence: 1.1 },
+    ],
+    ['non-string evidence', { ...normalizedFinding(), evidence: [1] }],
+  ])('rejects normalized finding with %s', async (_, finding) => {
+    await expect(
+      restoreResult(
+        terminalResult({
+          conclusion: ReviewInvestigationConclusion.Findings,
+          findingCount: 1,
+          terminalPayload: {
+            ...reviewEvidencePayload(),
+            normalizedFindings: [finding],
+          },
+        })
+      )
+    ).rejects.toThrow('investigation_terminal_payload_invalid');
+  });
+
+  it.each([
+    ['an empty record', {}],
+    [
+      'an unexpected key',
+      { ...normalizedLifecycleRevalidation(), unexpected: true },
+    ],
+    [
+      'a non-string target',
+      { ...normalizedLifecycleRevalidation(), targetId: 1 },
+    ],
+    [
+      'an unsupported verdict',
+      { ...normalizedLifecycleRevalidation(), verdict: 'open' },
+    ],
+    [
+      'an out-of-range confidence',
+      { ...normalizedLifecycleRevalidation(), confidence: -0.1 },
+    ],
+    [
+      'a non-array evidence value',
+      { ...normalizedLifecycleRevalidation(), evidence: {} },
+    ],
+    [
+      'an empty evidence record',
+      { ...normalizedLifecycleRevalidation(), evidence: [{}] },
+    ],
+    [
+      'an unexpected evidence key',
+      {
+        ...normalizedLifecycleRevalidation(),
+        evidence: [{ ...normalizedLifecycleEvidence(), unexpected: true }],
+      },
+    ],
+    [
+      'a non-string evidence field',
+      {
+        ...normalizedLifecycleRevalidation(),
+        evidence: [{ ...normalizedLifecycleEvidence(), reason: 1 }],
+      },
+    ],
+    [
+      'an invalid evidence line',
+      {
+        ...normalizedLifecycleRevalidation(),
+        evidence: [{ ...normalizedLifecycleEvidence(), endLine: 0 }],
+      },
+    ],
+  ])('rejects normalized lifecycle revalidation with %s', async (_, item) => {
+    await expect(
+      restoreResult(
+        terminalResult({
+          terminalPayload: {
+            ...reviewEvidencePayload(),
+            normalizedLifecycleRevalidations: [item],
+          },
+        })
+      )
+    ).rejects.toThrow('investigation_terminal_payload_invalid');
+  });
+
+  it('rejects a terminal payload whose finding count differs from the snapshot', async () => {
+    await expect(
+      restoreResult(
+        terminalResult({
+          conclusion: ReviewInvestigationConclusion.Findings,
+          findingCount: 1,
+          terminalPayload: reviewEvidencePayload(),
+        })
+      )
+    ).rejects.toThrow('investigation_terminal_payload_invalid');
+  });
+
+  it('restores findings when the terminal payload and snapshot counts agree', async () => {
+    await expect(
+      restoreResult(
+        terminalResult({
+          conclusion: ReviewInvestigationConclusion.Findings,
+          findingCount: 1,
+          terminalPayload: reviewEvidencePayload([normalizedFinding()]),
+        })
+      )
+    ).resolves.toMatchObject({
+      state: ReviewInvestigationState.Concluded,
+      conclusion: ReviewInvestigationConclusion.Findings,
+      findingCount: 1,
+    });
+  });
+
+  it('restores a terminal payload with normalized lifecycle evidence', async () => {
+    await expect(
+      restoreResult(
+        terminalResult({
+          terminalPayload: reviewEvidencePayload(
+            [],
+            [normalizedLifecycleRevalidation()]
+          ),
+        })
+      )
+    ).resolves.toMatchObject({
+      state: ReviewInvestigationState.Concluded,
+      conclusion: ReviewInvestigationConclusion.VerifiedClean,
+    });
+  });
+
+  it('accepts an inconclusive decision while certificate issuance is pending', async () => {
+    const result = preCertificateInconclusiveResult();
+    const adapter = new ReviewActionV2InvestigationAdapter({
+      execute: jest.fn().mockResolvedValue(result),
+    } as never);
+
+    await expect(
+      adapter.restore({
+        authorizationToken: 'authorization-token',
+        authorizationId: 'authorization-1',
+        investigationId: 'investigation-1',
+        reviewRevisionHash: digest('r'),
+      })
+    ).resolves.toMatchObject({
+      state: ReviewInvestigationState.Inconclusive,
+      nextAction: DomainNextAction.Conclude,
+      certificateId: null,
+      conclusion: ReviewInvestigationConclusion.Inconclusive,
+    });
+  });
+
   it('binds a canonical turn brief to the returned dossier and turn', async () => {
     const brief = canonicalJson({
       briefVersion: 1,
@@ -75,6 +397,7 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
       dossierDigest: digest('d'),
       turnId: 'turn-1',
       purpose: ReviewTurnPurpose.Discovery,
+      maximumSemanticRiskPriority: 100,
       obligations: [
         {
           obligationId: digest('b'),
@@ -111,6 +434,7 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
       dossierDigest: digest('d'),
       turnId: 'turn-1',
       purpose: ReviewTurnPurpose.Discovery,
+      maximumSemanticRiskPriority: 100,
       obligations: [
         {
           obligationId: digest('b'),
@@ -145,6 +469,79 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
         turnBudget: { maxTokens: 10_000 },
       })
     ).rejects.toThrow('turn_brief_hash_mismatch');
+  });
+
+  it('preserves aggregate risk when a critic turn has no open obligations', async () => {
+    const brief = canonicalJson({
+      briefVersion: 1,
+      investigationId: 'investigation-1',
+      investigationVersion: 2,
+      dossierDigest: digest('d'),
+      turnId: 'turn-1',
+      purpose: ReviewTurnPurpose.Critic,
+      maximumSemanticRiskPriority: 900_000,
+      obligations: [],
+    });
+    const adapter = new ReviewActionV2InvestigationAdapter({
+      execute: jest.fn().mockResolvedValue(
+        planResult({
+          turnBriefCanonicalJson: brief,
+          turnBriefHash: sha256(brief),
+          critic: true,
+        })
+      ),
+    } as never);
+
+    const planned = await adapter.planTurn({
+      authorizationToken: 'authorization-token',
+      snapshot: unplannedSnapshot(),
+      leaseDurationMs: 60_000,
+      maxObligationsForTurn: 4,
+      turnBudget: { maxTokens: 10_000 },
+    });
+
+    expect(planned.turn?.brief).toMatchObject({
+      purpose: ReviewTurnPurpose.Critic,
+      maximumSemanticRiskPriority: 900_000,
+      obligations: [],
+    });
+  });
+
+  it('requires a bounded aggregate semantic risk in the v1 turn brief', async () => {
+    for (const maximumSemanticRiskPriority of [undefined, 1_000_001]) {
+      const document = {
+        briefVersion: 1,
+        investigationId: 'investigation-1',
+        investigationVersion: 2,
+        dossierDigest: digest('d'),
+        turnId: 'turn-1',
+        purpose: ReviewTurnPurpose.Critic,
+        ...(maximumSemanticRiskPriority === undefined
+          ? {}
+          : { maximumSemanticRiskPriority }),
+        obligations: [],
+      };
+      const brief = canonicalJson(document);
+      const adapter = new ReviewActionV2InvestigationAdapter({
+        execute: jest.fn().mockResolvedValue(
+          planResult({
+            turnBriefCanonicalJson: brief,
+            turnBriefHash: sha256(brief),
+            critic: true,
+          })
+        ),
+      } as never);
+
+      await expect(
+        adapter.planTurn({
+          authorizationToken: 'authorization-token',
+          snapshot: unplannedSnapshot(),
+          leaseDurationMs: 60_000,
+          maxObligationsForTurn: 4,
+          turnBudget: { maxTokens: 10_000 },
+        })
+      ).rejects.toThrow();
+    }
   });
 
   it('parses a selective replay preparation and preserves its private capability', async () => {
@@ -231,6 +628,73 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
       })
     );
   });
+
+  it('binds replay to the exact current target seed and open profile', async () => {
+    const seedEnvelopeCanonicalJson = canonicalJson({
+      contract: 'review_investigation_seed_envelope.v1',
+      obligations: [{ kind: 'inventory_witness' }],
+      probePlanHash: sha256('probe-plan'),
+      requestedModel: 'gpt-test',
+      reviewPromptHash: sha256('review-prompt'),
+    });
+    const initialReceipts = [{ receiptId: 'target-receipt' }];
+    const open = {
+      ...openInput(),
+      coverageContract: { coverageContractVersion: 'coverage-v1' },
+      investigationPolicy: { policyId: 'policy-v1' },
+      seedEnvelope: {
+        canonicalJson: seedEnvelopeCanonicalJson,
+        hash: sha256(seedEnvelopeCanonicalJson),
+      },
+      initialReceipts,
+    };
+    const client = {
+      execute: jest.fn().mockResolvedValue(replayMutationResult()),
+    };
+    const adapter = new ReviewActionV2InvestigationAdapter(client as never);
+
+    await adapter.replay({
+      open,
+      scope: {
+        workspaceId: 'workspace-1',
+        repositoryConnectionId: 'connection-1',
+        scmRepositoryIdentityId: 'repository-1',
+        pullRequestNumber: 7,
+        trustDomain: 'trusted',
+        authorizationScopeHash: sha256('scope'),
+      },
+      revision: {
+        baseSha: '1'.repeat(40),
+        mergeBaseSha: '2'.repeat(40),
+        headSha: '3'.repeat(40),
+        reviewRevisionHash: open.reviewRevisionHash,
+      },
+      prepared: {
+        sourceInvestigationId: 'source-investigation',
+        sourceCertificateId: 'source-certificate',
+        sourceCertificateHash: sha256('source-certificate'),
+        obligations: [],
+      },
+      replayProofs: [],
+    });
+
+    expect(client.execute).toHaveBeenCalledWith(
+      ReviewActionV2OperationId.ReviewInvestigationReplay,
+      expect.objectContaining({
+        stableReviewUnitKey: open.stableReviewUnitKey,
+        providerVoteLaneId: open.providerVoteLaneId,
+        providerStrategyId: open.providerStrategyId,
+        coverageContractCanonicalJson: canonicalJson(open.coverageContract),
+        investigationPolicyCanonicalJson: canonicalJson(
+          open.investigationPolicy
+        ),
+        seedObligationsCanonicalJson: seedEnvelopeCanonicalJson,
+        seedObligationsHash: sha256(seedEnvelopeCanonicalJson),
+        initialReceiptsCanonicalJson: canonicalJson(initialReceipts),
+        initialReceiptsHash: sha256(canonicalJson(initialReceipts)),
+      })
+    );
+  });
 });
 
 function openInput() {
@@ -246,21 +710,49 @@ function openInput() {
     runtimeProfile: 'gateway_attested_agent_v1',
     coverageContract: {},
     investigationPolicy: {},
-    seedObligations: [],
+    seedEnvelope: {
+      canonicalJson: '{}',
+      hash: sha256('{}'),
+    },
     initialReceipts: [],
   });
+}
+
+function replayMutationResult() {
+  const readModel = unplannedSnapshot();
+  return {
+    status: ReviewInvestigationMutationResultStatus.Applied,
+    investigationId: readModel.investigationId,
+    investigationVersion: String(readModel.version),
+    investigationState: ReviewInvestigationPublishedState.AwaitingTurn,
+    dossierDigest: readModel.dossierDigest,
+    nextAction: ReviewInvestigationNextAction.RunTurn,
+    investigationCanonicalJson: canonicalJson(readModel),
+    certificateId: null,
+    certificateHash: null,
+    terminalProviderKind: null,
+    terminalActualModel: null,
+    terminalObservationCanonicalJson: null,
+    terminalOutcomeHash: null,
+    investigationConclusion: null,
+  };
 }
 
 function planResult(input: {
   turnBriefCanonicalJson: string;
   turnBriefHash: string;
+  critic?: boolean;
 }) {
+  const purpose = input.critic
+    ? ReviewTurnPurpose.Critic
+    : ReviewTurnPurpose.Discovery;
+  const obligationIds = input.critic ? [] : [digest('b')];
   const readModel = {
     investigationId: 'investigation-1',
     version: 2,
     state: ReviewInvestigationState.TurnLeased,
     dossierDigest: digest('d'),
-    openObligationCount: 1,
+    openObligationCount: input.critic ? 0 : 1,
     satisfiedObligationCount: 0,
     unresolvableObligationCount: 0,
     findingCount: 0,
@@ -268,15 +760,17 @@ function planResult(input: {
     operationalAttempts: 1,
     criticCycles: 0,
     nextEligibleAt: null,
-    nextAction: DomainNextAction.RunTurn,
+    nextAction: input.critic
+      ? DomainNextAction.RunCritic
+      : DomainNextAction.RunTurn,
     turn: {
       turnId: 'turn-1',
-      purpose: ReviewTurnPurpose.Discovery,
+      purpose,
       leasedAtVersion: 2,
       dossierDigest: digest('d'),
-      obligationIds: [digest('b')],
-      semanticTurnOrdinal: 1,
-      criticCycleOrdinal: 0,
+      obligationIds,
+      semanticTurnOrdinal: input.critic ? 0 : 1,
+      criticCycleOrdinal: input.critic ? 1 : 0,
       leasedAt: '2026-08-02T10:00:00.000Z',
       expiresAt: '2026-08-02T10:05:00.000Z',
     },
@@ -294,7 +788,9 @@ function planResult(input: {
     investigationVersion: '2',
     investigationState: ReviewInvestigationPublishedState.TurnLeased,
     dossierDigest: digest('d'),
-    nextAction: ReviewInvestigationNextAction.RunTurn,
+    nextAction: input.critic
+      ? ReviewInvestigationNextAction.RunCritic
+      : ReviewInvestigationNextAction.RunTurn,
     investigationCanonicalJson: canonicalJson(readModel),
     certificateId: null,
     certificateHash: null,
@@ -306,27 +802,38 @@ function planResult(input: {
     turnId: 'turn-1',
     turnCapability: 'turn.capability.value',
     turnExpiresAt: '2026-08-02T10:05:00.000Z',
-    ...input,
+    turnBriefCanonicalJson: input.turnBriefCanonicalJson,
+    turnBriefHash: input.turnBriefHash,
   };
 }
 
-function terminalResult(
-  overrides: Partial<{
-    terminalOutcomeHash: string;
-  }> = {}
-) {
-  const terminalObservationCanonicalJson = canonicalJson({ payloadVersion: 2 });
+type TerminalResultOverrides = Partial<{
+  state: ReviewInvestigationState;
+  conclusion: ReviewInvestigationConclusion | null;
+  openObligationCount: number;
+  unresolvableObligationCount: number;
+  findingCount: number;
+  terminalPayload: Parameters<typeof canonicalJson>[0];
+  terminalOutcomeHash: string;
+}>;
+
+function terminalResult(overrides: TerminalResultOverrides = {}) {
+  const terminalObservationCanonicalJson = canonicalJson(
+    overrides.terminalPayload === undefined
+      ? reviewEvidencePayload()
+      : overrides.terminalPayload
+  );
   const terminalOutcomeHash =
     overrides.terminalOutcomeHash ?? sha256(terminalObservationCanonicalJson);
   const readModel = {
     investigationId: 'investigation-1',
     version: 7,
-    state: ReviewInvestigationState.Concluded,
+    state: overrides.state ?? ReviewInvestigationState.Concluded,
     dossierDigest: digest('d'),
-    openObligationCount: 0,
+    openObligationCount: overrides.openObligationCount ?? 0,
     satisfiedObligationCount: 2,
-    unresolvableObligationCount: 0,
-    findingCount: 0,
+    unresolvableObligationCount: overrides.unresolvableObligationCount ?? 0,
+    findingCount: overrides.findingCount ?? 0,
     semanticTurns: 1,
     operationalAttempts: 1,
     criticCycles: 1,
@@ -339,13 +846,17 @@ function terminalResult(
     terminalActualModel: 'gpt-test',
     terminalObservationCanonicalJson,
     terminalOutcomeHash,
-    conclusion: ReviewInvestigationConclusion.VerifiedClean,
+    conclusion:
+      overrides.conclusion === undefined
+        ? ReviewInvestigationConclusion.VerifiedClean
+        : overrides.conclusion,
   };
   return {
     status: ReviewInvestigationRestoreResultStatus.Found,
     investigationId: readModel.investigationId,
     investigationVersion: String(readModel.version),
-    investigationState: ReviewInvestigationPublishedState.Concluded,
+    investigationState:
+      readModel.state as unknown as ReviewInvestigationPublishedState,
     dossierDigest: readModel.dossierDigest,
     nextAction: ReviewInvestigationNextAction.Terminal,
     investigationCanonicalJson: canonicalJson(readModel),
@@ -356,7 +867,120 @@ function terminalResult(
     terminalObservationCanonicalJson,
     terminalOutcomeHash,
     investigationConclusion:
-      ReviewInvestigationPublishedConclusion.VerifiedClean,
+      readModel.conclusion as unknown as ReviewInvestigationPublishedConclusion | null,
+  };
+}
+
+function restoreResult(result: unknown) {
+  const adapter = new ReviewActionV2InvestigationAdapter({
+    execute: jest.fn().mockResolvedValue(result),
+  } as never);
+  return adapter.restore({
+    authorizationToken: 'authorization-token',
+    authorizationId: 'authorization-1',
+    investigationId: 'investigation-1',
+    reviewRevisionHash: digest('r'),
+  });
+}
+
+function reviewEvidencePayload(
+  normalizedFindings: readonly ReturnType<typeof normalizedFinding>[] = [],
+  normalizedLifecycleRevalidations: readonly ReturnType<
+    typeof normalizedLifecycleRevalidation
+  >[] = []
+) {
+  return {
+    normalizedFindings,
+    normalizedLifecycleRevalidations,
+    payloadVersion: 2,
+    safeUsage: safeUsage(),
+  } as const;
+}
+
+function normalizedFinding() {
+  return {
+    category: 'correctness',
+    endLine: 1,
+    evidence: ['Finding evidence'],
+    message: 'Finding message',
+    normalizedFailureModeHash: digest('f'),
+    path: 'src/index.ts',
+    placementConfidence: 1,
+    severity: 'major',
+    startLine: 1,
+    suggestion: null,
+    title: 'Finding title',
+  } as const;
+}
+
+function normalizedLifecycleRevalidation() {
+  return {
+    confidence: 0.8,
+    evidence: [normalizedLifecycleEvidence()],
+    fingerprint: 'finding-fingerprint',
+    rationale: 'The previous finding is still present.',
+    targetId: 'thread-1',
+    verdict: 'still_valid',
+  } as const;
+}
+
+function normalizedLifecycleEvidence() {
+  return {
+    endLine: 2,
+    path: 'src/index.ts',
+    reason: 'The affected line is unchanged.',
+    startLine: 2,
+  } as const;
+}
+
+function safeUsage() {
+  return {
+    inputTokens: null,
+    outputTokens: null,
+    totalTokens: null,
+  } as const;
+}
+
+function preCertificateInconclusiveResult() {
+  const readModel = {
+    investigationId: 'investigation-1',
+    version: 6,
+    state: ReviewInvestigationState.Inconclusive,
+    dossierDigest: digest('d'),
+    openObligationCount: 0,
+    satisfiedObligationCount: 2,
+    unresolvableObligationCount: 0,
+    findingCount: 0,
+    semanticTurns: 1,
+    operationalAttempts: 1,
+    criticCycles: 2,
+    nextEligibleAt: null,
+    nextAction: DomainNextAction.Conclude,
+    turn: null,
+    certificateId: null,
+    certificateHash: null,
+    terminalProviderKind: null,
+    terminalActualModel: null,
+    terminalObservationCanonicalJson: null,
+    terminalOutcomeHash: null,
+    conclusion: ReviewInvestigationConclusion.Inconclusive,
+  };
+  return {
+    status: ReviewInvestigationRestoreResultStatus.Found,
+    investigationId: readModel.investigationId,
+    investigationVersion: String(readModel.version),
+    investigationState: ReviewInvestigationPublishedState.Inconclusive,
+    dossierDigest: readModel.dossierDigest,
+    nextAction: ReviewInvestigationNextAction.Conclude,
+    investigationCanonicalJson: canonicalJson(readModel),
+    certificateId: null,
+    certificateHash: null,
+    terminalProviderKind: null,
+    terminalActualModel: null,
+    terminalObservationCanonicalJson: null,
+    terminalOutcomeHash: null,
+    investigationConclusion:
+      ReviewInvestigationPublishedConclusion.Inconclusive,
   };
 }
 

@@ -99,6 +99,11 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
       evidence: input.acceptedEvidence,
       reviewRevisionHash: input.reviewRevisionHash,
     });
+    const authoritativeObservationIds = Object.freeze(
+      [...evidence.values()]
+        .map(({ observation }) => observation.observationId)
+        .sort(compareCodeUnits)
+    );
     const findings: CurrentFindingCandidate[] = [];
     const revalidations: LifecycleRevalidation[] = [];
     for (const { observation } of evidence.values()) {
@@ -188,6 +193,7 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
 
     return Object.freeze({
       projectionPolicyVersion: productionReviewProjectionPolicyVersion,
+      authoritativeObservationIds,
       scope: {
         scmRepositoryIdentityId:
           this.input.authorizationFacts.scmRepositoryIdentityId,

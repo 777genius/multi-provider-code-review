@@ -69,7 +69,10 @@ describe('Context Gateway v4 contract', () => {
   });
 
   it('requires an ordered terminal page chain', () => {
-    const pages = [page(0), page(2), page(4)];
+    const first = page(0);
+    const second = page(2, sha256(requireCursor(first.nextCursor)));
+    const third = page(4, sha256(requireCursor(second.nextCursor)));
+    const pages = [first, second, third];
     expect(() => verifyCompleteContextGatewayV4PageChain(pages)).not.toThrow();
     expect(() =>
       verifyCompleteContextGatewayV4PageChain([pages[1], pages[0], pages[2]])
@@ -77,6 +80,24 @@ describe('Context Gateway v4 contract', () => {
     expect(() =>
       verifyCompleteContextGatewayV4PageChain(pages.slice(0, 2))
     ).toThrow('context_gateway_page_chain_incomplete');
+  });
+
+  it('rejects path membership claims larger than the result set', () => {
+    expect(() =>
+      createContextGatewayV4PageReceipt({
+        secret,
+        sessionId,
+        operationKind: ContextGatewayV4OperationKind.TextSearch,
+        queryDigest,
+        treeOid,
+        pageSize: 2,
+        offset: 0,
+        allItems: ['single-match'],
+        cursorInputHash: null,
+        allItemPathHashes: [sha256('one'), sha256('two')],
+        nowMs: 1_000,
+      })
+    ).toThrow('context_gateway_page_path_hashes_invalid');
   });
 
   it('classifies confinement, incomplete, recoverable, and infrastructure failures', () => {
@@ -97,7 +118,7 @@ describe('Context Gateway v4 contract', () => {
   });
 });
 
-function page(offset: number) {
+function page(offset: number, cursorInputHash: string | null = null) {
   return createContextGatewayV4PageReceipt({
     secret,
     sessionId,
@@ -107,6 +128,8 @@ function page(offset: number) {
     pageSize: 2,
     offset,
     allItems: ['a', 'b', 'c', 'd', 'e'],
+    cursorInputHash,
+    allItemPathHashes: [],
     nowMs: 1_000,
   });
 }

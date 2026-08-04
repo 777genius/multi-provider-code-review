@@ -55,6 +55,7 @@ import {
 
 export interface BuildCurrentReviewProjectionCommand {
   readonly projectionPolicyVersion: string;
+  readonly authoritativeObservationIds: readonly string[];
   readonly scope: ReviewProjectionScope;
   readonly presentation: ReviewProjectionPresentationContext;
   readonly providerExecution: ProviderExecutionSummaryFact;
@@ -207,6 +208,9 @@ export class BuildCurrentReviewProjection {
     const envelope: ReviewProjectionEnvelopeV1 = deepFreezeProjection({
       envelopeVersion: ReviewProjectionEnvelopeVersion.V1,
       projectionPolicyVersion: command.projectionPolicyVersion,
+      authoritativeObservationIds: sortCodeUnits(
+        command.authoritativeObservationIds
+      ),
       scope: { ...command.scope },
       coverage,
       lifecycleStateHash: inventory.lifecycleStateHash,
@@ -256,6 +260,10 @@ export class BuildCurrentReviewProjection {
 
   private validateCommand(command: BuildCurrentReviewProjectionCommand): void {
     assertNonEmpty('projectionPolicyVersion', command.projectionPolicyVersion);
+    validateAuthoritativeObservationIds(
+      command.authoritativeObservationIds,
+      this.limits
+    );
     validateProviderExecutionSummary(command.providerExecution);
     assertNonEmpty(
       'scmRepositoryIdentityId',
@@ -425,6 +433,21 @@ function validateProviderExecutionSummary(
   }
 }
 
+function validateAuthoritativeObservationIds(
+  observationIds: readonly string[],
+  limits: ReviewProjectionLimits
+): void {
+  for (const observationId of observationIds) {
+    assertNonEmpty('authoritative observationId', observationId);
+    assertWithinProjectionLimit(
+      'maxStringBytes',
+      Buffer.byteLength(observationId, 'utf8'),
+      limits
+    );
+  }
+  assertUnique('authoritative observationId', observationIds);
+}
+
 function applyBlockingDecision(
   occurrences: readonly FindingOccurrence[],
   gate: MergeGateDecision
@@ -506,7 +529,7 @@ function buildInlineChunks(
 
   assertWithinProjectionLimit('maxInlineComments', comments.length, limits);
   const chunks: ReviewProjectionInlineChunkFact[] = [];
-  for (let offset = 0; offset < comments.length; ) {
+  for (let offset = 0; offset < comments.length;) {
     const chunkComments = comments.slice(
       offset,
       offset + limits.maxInlineCommentsPerChunk
@@ -886,6 +909,14 @@ function sortedUnique(values: readonly string[]): string[] {
   return Array.from(new Set(values)).sort((left, right) =>
     left.localeCompare(right)
   );
+}
+
+function sortCodeUnits(values: readonly string[]): string[] {
+  return [...values].sort((left, right) => {
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  });
 }
 
 function assertUnique(name: string, values: readonly string[]): void {

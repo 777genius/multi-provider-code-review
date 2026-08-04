@@ -55,9 +55,13 @@ export type ContextGatewayV4CursorPayload = Readonly<{
 export type ContextGatewayV4PageReceipt = Readonly<{
   operationReceiptId: string;
   operationKind: ContextGatewayV4OperationKind;
+  cursorInputHash: string | null;
   pageOrdinal: number;
   pageItemCount: number;
   pageItemsHash: string;
+  pagePathHashes: readonly string[];
+  aggregatePathCount: number;
+  aggregatePathSetHash: string;
   aggregateItemCount: number;
   aggregateHash: string;
   complete: boolean;
@@ -151,6 +155,8 @@ export function createContextGatewayV4PageReceipt<T>(input: {
   readonly pageSize: number;
   readonly offset: number;
   readonly allItems: readonly T[];
+  readonly cursorInputHash: string | null;
+  readonly allItemPathHashes: readonly string[];
   readonly nowMs: number;
 }): ContextGatewayV4PageReceipt {
   assertSecret(input.secret);
@@ -160,6 +166,20 @@ export function createContextGatewayV4PageReceipt<T>(input: {
   if (!Number.isSafeInteger(input.offset) || input.offset < 0) {
     throw new Error('context_gateway_page_offset_invalid');
   }
+  if (
+    input.cursorInputHash !== null &&
+    !/^[a-f0-9]{64}$/u.test(input.cursorInputHash)
+  ) {
+    throw new Error('context_gateway_page_cursor_hash_invalid');
+  }
+  const allItemPathHashes = [...new Set(input.allItemPathHashes)].sort();
+  if (
+    allItemPathHashes.length > 250_000 ||
+    allItemPathHashes.length > input.allItems.length ||
+    allItemPathHashes.some((value) => !/^[a-f0-9]{64}$/u.test(value))
+  ) {
+    throw new Error('context_gateway_page_path_hashes_invalid');
+  }
   const page = input.allItems.slice(
     input.offset,
     input.offset + input.pageSize
@@ -168,6 +188,11 @@ export function createContextGatewayV4PageReceipt<T>(input: {
   const complete = nextOffset >= input.allItems.length;
   const pageOrdinal = Math.floor(input.offset / input.pageSize);
   const aggregateItems = input.allItems.slice(0, nextOffset);
+  const pagePathHashes = allItemPathHashes.slice(
+    input.offset,
+    input.offset + input.pageSize
+  );
+  const aggregatePathHashes = allItemPathHashes.slice(0, nextOffset);
   const receiptIdentity = {
     sessionId: input.sessionId,
     operationKind: input.operationKind,
@@ -175,8 +200,12 @@ export function createContextGatewayV4PageReceipt<T>(input: {
     treeOid: input.treeOid,
     pageSize: input.pageSize,
     pageOrdinal,
+    cursorInputHash: input.cursorInputHash,
     pageItemCount: page.length,
     pageItemsHash: sha256(canonicalJson(page)),
+    pagePathHashes,
+    aggregatePathCount: aggregatePathHashes.length,
+    aggregatePathSetHash: sha256(canonicalJson(aggregatePathHashes)),
     aggregateItemCount: aggregateItems.length,
     aggregateHash: sha256(canonicalJson(aggregateItems)),
     complete,
@@ -187,9 +216,13 @@ export function createContextGatewayV4PageReceipt<T>(input: {
       canonicalJson(receiptIdentity)
     ),
     operationKind: input.operationKind,
+    cursorInputHash: input.cursorInputHash,
     pageOrdinal,
     pageItemCount: page.length,
     pageItemsHash: receiptIdentity.pageItemsHash,
+    pagePathHashes: Object.freeze(pagePathHashes),
+    aggregatePathCount: receiptIdentity.aggregatePathCount,
+    aggregatePathSetHash: receiptIdentity.aggregatePathSetHash,
     aggregateItemCount: aggregateItems.length,
     aggregateHash: receiptIdentity.aggregateHash,
     complete,
@@ -221,21 +254,38 @@ export function verifyCompleteContextGatewayV4PageChain(
   }
   let aggregateCount = 0;
   let terminalSeen = false;
+  let expectedCursorInputHash: string | null = null;
+  const aggregatePathHashes = new Set<string>();
   for (let index = 0; index < pages.length; index += 1) {
     const page = pages[index];
     if (
       terminalSeen ||
       page.pageOrdinal !== index ||
+      page.cursorInputHash !== expectedCursorInputHash ||
       page.aggregateItemCount !== aggregateCount + page.pageItemCount ||
       !isSha256(page.pageItemsHash) ||
       !isSha256(page.aggregateHash) ||
+      !isSha256(page.aggregatePathSetHash) ||
       !isSha256(page.operationReceiptId) ||
+      page.pagePathHashes.length > CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS ||
+      page.pagePathHashes.some((value) => !isSha256(value)) ||
+      new Set(page.pagePathHashes).size !== page.pagePathHashes.length ||
       (page.complete ? page.nextCursor !== null : page.nextCursor === null)
     ) {
       throw new Error('context_gateway_page_chain_invalid');
     }
+    for (const pathHash of page.pagePathHashes) {
+      if (aggregatePathHashes.has(pathHash)) {
+        throw new Error('context_gateway_page_chain_invalid');
+      }
+      aggregatePathHashes.add(pathHash);
+    }
+    if (page.aggregatePathCount !== aggregatePathHashes.size) {
+      throw new Error('context_gateway_page_chain_invalid');
+    }
     aggregateCount = page.aggregateItemCount;
     terminalSeen = page.complete;
+    expectedCursorInputHash = page.nextCursor ? sha256(page.nextCursor) : null;
   }
   if (!terminalSeen) {
     throw new Error('context_gateway_page_chain_incomplete');

@@ -10,6 +10,40 @@ export enum ReviewExecutionProviderKind {
   OpenRouter = 'openrouter',
 }
 
+export enum ReviewCapabilityKind {
+  ReviewInvestigationV1 = 'review_investigation_v1',
+}
+
+export enum ReviewInvestigationAuthorizationDescriptorVersion {
+  V2 = 2,
+}
+
+export enum ReviewInvestigationRolloutCapability {
+  Recording = 'recording',
+  Shadow = 'shadow',
+  ContextCritic = 'context_critic',
+  VerifiedClean = 'verified_clean',
+  CrossRevisionReplay = 'cross_revision_replay',
+  ProductionEffects = 'production_effects',
+}
+
+export type ReviewInvestigationProviderCapabilities = Readonly<{
+  providerKind:
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+  capabilities: readonly ReviewInvestigationRolloutCapability[];
+}>;
+
+export type ReviewInvestigationAuthorizationDescriptorV2 = Readonly<{
+  authorizationDescriptorVersion: ReviewInvestigationAuthorizationDescriptorVersion.V2;
+  capability: ReviewCapabilityKind.ReviewInvestigationV1;
+  coverageProfileHash: string;
+  policyHash: string;
+  providerCapabilities: readonly ReviewInvestigationProviderCapabilities[];
+}>;
+
+export type ReviewInvestigationCapabilityDescriptor =
+  ReviewInvestigationAuthorizationDescriptorV2;
+
 export enum ReviewTaskKind {
   FindingDiscovery = 'finding_discovery',
   LifecycleRevalidation = 'lifecycle_revalidation',
@@ -92,6 +126,7 @@ export type ReviewRunAuthorizationFacts = {
   readonly producerReleaseId: string;
   readonly selectedProtocolVersion: string;
   readonly schemaDigest: string;
+  readonly reviewInvestigation?: ReviewInvestigationCapabilityDescriptor;
   readonly providerVoteLanes: readonly {
     readonly providerKind: ReviewExecutionProviderKind;
     readonly providerVoteIdentityHash: string;
@@ -119,6 +154,10 @@ export type PreparedReviewInvocation = {
   readonly immutableRequest: unknown;
   readonly manifestFacts: PreparedReviewInvocationManifestFacts;
   readonly coverageManifest: import('../domain').ReviewPromptCoverageManifest;
+  readonly investigationProbePlan: import('../../review-investigation/domain').ReviewInvestigationProbePlan;
+  readonly investigationSeedEnvelope?:
+    | import('../../review-investigation/domain').PreparedReviewInvestigationSeedEnvelope
+    | null;
 };
 
 export interface ReviewInvocationFailureClassifierPort {
@@ -222,6 +261,7 @@ export interface ReviewContextAttestationPort {
     readonly gatewayPolicyVersion: string;
     readonly gatewayBinaryHash: string;
     readonly confinementEvidenceHash: string;
+    readonly openingIntentDiscriminator?: string;
   }): Promise<ContextGatewaySessionLease>;
   sealGatewaySession(input: {
     readonly invocationLease: ReviewInvocationLease;

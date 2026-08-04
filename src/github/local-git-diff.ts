@@ -93,7 +93,7 @@ function parseNameStatus(output: string): Map<string, FileStatus> {
   const fields = splitNullDelimited(output);
   const statuses = new Map<string, FileStatus>();
 
-  for (let index = 0; index < fields.length; ) {
+  for (let index = 0; index < fields.length;) {
     const statusCode = fields[index++];
     if (!statusCode) {
       continue;
@@ -127,7 +127,7 @@ function parseNumstat(output: string): Map<string, FileStats> {
   const fields = splitNullDelimited(output);
   const stats = new Map<string, FileStats>();
 
-  for (let index = 0; index < fields.length; ) {
+  for (let index = 0; index < fields.length;) {
     const entry = fields[index++];
     if (!entry) {
       continue;

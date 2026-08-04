@@ -158,6 +158,68 @@ describe('BuildCurrentReviewProjection', () => {
     expect(second.envelope.lifecycleStateHash).toBe('state-2');
   });
 
+  it('canonicalizes authoritative observation lineage deterministically', async () => {
+    const useCase = createUseCase(new MutableInventoryPort(inventory()));
+
+    const first = await useCase.execute(
+      command({
+        authoritativeObservationIds: ['observation-z', 'observation-a'],
+      })
+    );
+    const reordered = await useCase.execute(
+      command({
+        authoritativeObservationIds: ['observation-a', 'observation-z'],
+      })
+    );
+    const different = await useCase.execute(
+      command({ authoritativeObservationIds: ['observation-a'] })
+    );
+
+    expect(first.envelope.authoritativeObservationIds).toEqual([
+      'observation-a',
+      'observation-z',
+    ]);
+    expect(Object.isFrozen(first.envelope.authoritativeObservationIds)).toBe(
+      true
+    );
+    expect(JSON.parse(first.canonicalJson).authoritativeObservationIds).toEqual(
+      ['observation-a', 'observation-z']
+    );
+    expect(first.projectionHash).toBe(reordered.projectionHash);
+    expect(first.projectionHash).not.toBe(different.projectionHash);
+  });
+
+  it('rejects blank or duplicate authoritative observation identifiers', async () => {
+    const useCase = createUseCase(new MutableInventoryPort(inventory()));
+
+    await expect(
+      useCase.execute(command({ authoritativeObservationIds: ['  '] }))
+    ).rejects.toThrow('authoritative observationId must not be empty');
+    await expect(
+      useCase.execute(
+        command({
+          authoritativeObservationIds: ['observation-1', 'observation-1'],
+        })
+      )
+    ).rejects.toThrow('authoritative observationId values must be unique');
+  });
+
+  it('bounds authoritative observation identifiers by the domain string limit', async () => {
+    const useCase = createUseCase(
+      new MutableInventoryPort(inventory()),
+      testLimits({ maxStringBytes: 8 })
+    );
+
+    await expect(
+      useCase.execute(
+        command({ authoritativeObservationIds: ['observation-1'] })
+      )
+    ).rejects.toMatchObject({
+      name: 'ReviewProjectionLimitError',
+      limitName: 'maxStringBytes',
+    } satisfies Partial<ReviewProjectionLimitError>);
+  });
+
   it('rejects inventory loaded for another head', async () => {
     const useCase = createUseCase(
       new MutableInventoryPort(inventory({ loadedForHeadSha: '2'.repeat(40) }))
@@ -533,6 +595,7 @@ function command(
 ): BuildCurrentReviewProjectionCommand {
   return {
     projectionPolicyVersion: 'projection-policy.v1',
+    authoritativeObservationIds: ['observation-1'],
     scope: {
       scmRepositoryIdentityId: 'repo-1',
       pullRequestNumber: 252,

@@ -1,40 +1,144 @@
 import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../context-gateway/context-gateway-v4-contract';
-import type { ReviewInvocationLease } from '../../review-orchestration/application';
-import type {
-  ContextGatewayInvocationSessionFactoryPort,
-  ContextGatewayRevision,
-} from '../../review-orchestration/infrastructure/context-gateway-invocation-session';
 import type {
   AcceptedInvestigationAttestation,
+  ReviewInvestigationGatewayOpenInput,
+  ReviewInvestigationGatewayRevision,
   ReviewInvestigationGatewaySessionFactoryPort,
   ReviewInvestigationGatewaySessionPort,
+  ReviewInvestigationTurnExecutionAuthority,
 } from '../application/investigation-gateway-port';
+import {
+  ReviewAgentExecutionError,
+  ReviewAgentExecutionSessionKind,
+  ReviewAgentFailureClass,
+  type ReviewAgentExecutionSession,
+} from '../application/review-agent-port';
+import {
+  ReviewAgentExecutionProfile,
+  ReviewAgentProviderKind,
+} from '../domain/runtime-profile';
+import type {
+  ReviewAgentExecutionSessionResolverPort,
+  ReviewAgentGatewayLaunchBinding,
+} from './review-agent-execution-session';
 
-export class ContextGatewayV4InvestigationAdapter implements ReviewInvestigationGatewaySessionFactoryPort {
+type InvestigationContextGatewayInvocationLease = Readonly<{
+  leaseId: string;
+  attemptId: string;
+  leaseCapability: string;
+  fencingToken: string;
+  expiresAt: string;
+  resultReportUntil: string;
+  renewalCeilingReached: boolean;
+}>;
+
+type InvestigationContextGatewayRuntimeConfig = Readonly<{
+  command: string;
+  args: readonly string[];
+  cwd: string;
+  gatewayBinaryHash: string;
+  gatewayPolicyVersion: unknown;
+  enabledTools: readonly string[];
+  runtimeEnvironment: Readonly<Record<string, string | undefined>>;
+}>;
+
+type InvestigationContextGatewayCredentialBinding = Readonly<{
+  environment?: Readonly<Record<string, string | undefined>>;
+}>;
+
+export interface InvestigationContextGatewayRuntimeSessionPort {
+  readonly providerConfig: InvestigationContextGatewayRuntimeConfig;
+  readonly credentialLease: InvestigationContextGatewayCredentialBinding;
+  seal(input: {
+    readonly actualModel: string;
+    readonly terminalOutcomeHash: string;
+  }): Promise<AcceptedInvestigationAttestation | null>;
+  dispose(): Promise<void>;
+}
+
+export interface InvestigationContextGatewayRuntimeFactoryPort {
+  open(input: {
+    readonly invocationLease: InvestigationContextGatewayInvocationLease;
+    readonly sourceExecutionId: string;
+    readonly sourceWorkSlotId: string;
+    readonly sourceReviewRevisionHash: string;
+    readonly providerKind: ReviewAgentProviderKind;
+    readonly requestedModel: string;
+    readonly executionProfile: ReviewAgentExecutionProfile;
+    readonly providerInvocationKey: string;
+    readonly toolPolicyHash: string;
+    readonly openingIntentDiscriminator: string;
+    readonly revision: ReviewInvestigationGatewayRevision;
+  }): Promise<InvestigationContextGatewayRuntimeSessionPort>;
+}
+
+type ActiveReviewAgentExecutionSession = {
+  active: boolean;
+  readonly providerKind: ReviewAgentProviderKind;
+  readonly binding: ReviewAgentGatewayLaunchBinding;
+};
+
+export class ContextGatewayV4InvestigationAdapter
+  implements
+    ReviewInvestigationGatewaySessionFactoryPort,
+    ReviewAgentExecutionSessionResolverPort
+{
+  readonly executionAuthority: ReviewInvestigationTurnExecutionAuthority;
+  private readonly agentSessions = new WeakMap<
+    ReviewAgentExecutionSession,
+    ActiveReviewAgentExecutionSession
+  >();
+
   constructor(
-    private readonly factory: ContextGatewayInvocationSessionFactoryPort,
+    private readonly factory: InvestigationContextGatewayRuntimeFactoryPort,
     private readonly context: Readonly<{
-      revision: ContextGatewayRevision;
-      providerKind: string;
-      executionProfile: string;
+      revision: ReviewInvestigationGatewayRevision;
+      preparedManifestKey?: string;
+      providerKind?: unknown;
+      requestedModel?: string;
+      executionProfile?: unknown;
       providerInvocationKey: string;
       toolPolicyHash: string;
     }>
-  ) {}
+  ) {
+    // Independent critics stay gated until Review Executions supplies their
+    // own fenced prepared manifest instead of the parent work-slot manifest.
+    this.executionAuthority = Object.freeze({
+      preparedManifestKey: requireAuthorityValue(
+        context.preparedManifestKey,
+        'investigation_prepared_manifest_key_missing'
+      ),
+      providerInvocationKey: requireAuthorityValue(
+        context.providerInvocationKey,
+        'investigation_provider_invocation_key_missing'
+      ),
+      providerKind: requireProviderKind(context.providerKind),
+      requestedModel: requireAuthorityValue(
+        context.requestedModel,
+        'investigation_requested_model_missing'
+      ),
+      executionProfile: requireExecutionProfile(context.executionProfile),
+      toolPolicyHash: requireAuthorityValue(
+        context.toolPolicyHash,
+        'investigation_tool_policy_hash_missing'
+      ),
+    });
+  }
 
   async open(
-    input: Parameters<ReviewInvestigationGatewaySessionFactoryPort['open']>[0]
+    input: ReviewInvestigationGatewayOpenInput
   ): Promise<ReviewInvestigationGatewaySessionPort> {
     const session = await this.factory.open({
-      invocationLease: orchestrationLease(input.lease),
+      invocationLease: runtimeLease(input.lease),
       sourceExecutionId: input.executionId,
       sourceWorkSlotId: input.workSlotId,
       sourceReviewRevisionHash: input.reviewRevisionHash,
-      providerKind: this.context.providerKind,
-      requestedModel: input.requestedModel,
-      executionProfile: this.context.executionProfile,
-      providerInvocationKey: this.context.providerInvocationKey,
-      toolPolicyHash: this.context.toolPolicyHash,
+      providerKind: this.executionAuthority.providerKind,
+      requestedModel: this.executionAuthority.requestedModel,
+      executionProfile: this.executionAuthority.executionProfile,
+      providerInvocationKey: this.executionAuthority.providerInvocationKey,
+      toolPolicyHash: this.executionAuthority.toolPolicyHash,
+      openingIntentDiscriminator: `${input.investigationId}:${input.turnId}`,
       revision: this.context.revision,
     });
     if (
@@ -44,17 +148,30 @@ export class ContextGatewayV4InvestigationAdapter implements ReviewInvestigation
       await session.dispose();
       throw new Error('investigation_context_gateway_v4_required');
     }
-    return Object.freeze({
-      providerConfig: Object.freeze({
+    const agentSession: ReviewAgentExecutionSession = Object.freeze({
+      kind: ReviewAgentExecutionSessionKind.ContextGatewayV4,
+    });
+    const activeSession: ActiveReviewAgentExecutionSession = {
+      active: true,
+      providerKind: this.executionAuthority.providerKind,
+      binding: Object.freeze({
         policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
         binaryHash: session.providerConfig.gatewayBinaryHash,
         command: session.providerConfig.command,
-        args: session.providerConfig.args,
+        args: Object.freeze([...session.providerConfig.args]),
         cwd: session.providerConfig.cwd,
-        enabledTools: session.providerConfig.enabledTools,
-        runtimeEnvironment: session.providerConfig.runtimeEnvironment,
-        credentialEnvironment: session.credentialLease.environment ?? {},
+        enabledTools: Object.freeze([...session.providerConfig.enabledTools]),
+        runtimeEnvironment: Object.freeze({
+          ...session.providerConfig.runtimeEnvironment,
+        }),
+        credentialEnvironment: Object.freeze({
+          ...(session.credentialLease.environment ?? {}),
+        }),
       }),
+    };
+    this.agentSessions.set(agentSession, activeSession);
+    return Object.freeze({
+      agentSession,
       seal: async (
         sealInput: Parameters<ReviewInvestigationGatewaySessionPort['seal']>[0]
       ): Promise<AcceptedInvestigationAttestation> => {
@@ -64,15 +181,74 @@ export class ContextGatewayV4InvestigationAdapter implements ReviewInvestigation
         }
         return accepted;
       },
-      dispose: () => session.dispose(),
+      dispose: async (): Promise<void> => {
+        activeSession.active = false;
+        this.agentSessions.delete(agentSession);
+        await session.dispose();
+      },
     });
+  }
+
+  resolve(
+    session: ReviewAgentExecutionSession,
+    providerKind: ReviewAgentProviderKind
+  ): ReviewAgentGatewayLaunchBinding {
+    const activeSession = this.agentSessions.get(session);
+    if (
+      session.kind !== ReviewAgentExecutionSessionKind.ContextGatewayV4 ||
+      !activeSession?.active
+    ) {
+      throw confinementViolation('review_agent_execution_session_unavailable');
+    }
+    if (activeSession.providerKind !== providerKind) {
+      throw confinementViolation(
+        'review_agent_execution_session_provider_mismatch'
+      );
+    }
+    return activeSession.binding;
   }
 }
 
-function orchestrationLease(
-  lease: Parameters<
-    ReviewInvestigationGatewaySessionFactoryPort['open']
-  >[0]['lease']
-): ReviewInvocationLease {
+function requireProviderKind(value: unknown): ReviewAgentProviderKind {
+  switch (value) {
+    case ReviewAgentProviderKind.Codex:
+      return ReviewAgentProviderKind.Codex;
+    case ReviewAgentProviderKind.ClaudeCode:
+      return ReviewAgentProviderKind.ClaudeCode;
+    default:
+      throw new Error('investigation_provider_kind_invalid');
+  }
+}
+
+function requireExecutionProfile(value: unknown): ReviewAgentExecutionProfile {
+  switch (value) {
+    case ReviewAgentExecutionProfile.GatewayAttestedAgentV1:
+      return ReviewAgentExecutionProfile.GatewayAttestedAgentV1;
+    case ReviewAgentExecutionProfile.InvestigationGatewayV1:
+      return ReviewAgentExecutionProfile.InvestigationGatewayV1;
+    default:
+      throw new Error('investigation_execution_profile_invalid');
+  }
+}
+
+function requireAuthorityValue(
+  value: string | undefined,
+  error: string
+): string {
+  if (value === undefined || value.length === 0) throw new Error(error);
+  return value;
+}
+
+function confinementViolation(message: string): ReviewAgentExecutionError {
+  return new ReviewAgentExecutionError(
+    ReviewAgentFailureClass.ConfinementViolation,
+    null,
+    message
+  );
+}
+
+function runtimeLease(
+  lease: ReviewInvestigationGatewayOpenInput['lease']
+): InvestigationContextGatewayInvocationLease {
   return Object.freeze({ ...lease, renewalCeilingReached: false });
 }

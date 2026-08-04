@@ -1,4 +1,9 @@
-import { randomBytes } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  randomBytes,
+} from 'crypto';
 import { mkdir, readFile, rename, writeFile } from 'fs/promises';
 import path from 'path';
 import {
@@ -14,6 +19,9 @@ import type { ContextGatewayV4TranscriptEvent } from './context-gateway-v4-recor
 
 const MAX_ENTRIES = 2_000;
 const MAX_STATE_BYTES = 2 * 1024 * 1024;
+const MAX_ENCRYPTED_STATE_BYTES = Math.ceil((MAX_STATE_BYTES * 4) / 3) + 4_096;
+const REPLAY_ENCRYPTION_VERSION = 1 as const;
+const REPLAY_ENCRYPTION_ALGORITHM = 'aes-256-gcm' as const;
 
 export type ContextGatewayV4ReplayMaterialEntry = Readonly<{
   sequence: number;
@@ -37,8 +45,11 @@ export class ContextGatewayV4ReplayMaterialRecorder {
     private readonly config: Readonly<{
       sessionId: string;
       replayMaterialPath: string;
+      secret: Buffer;
     }>
-  ) {}
+  ) {
+    assertReplaySecret(config.secret);
+  }
 
   async initialize(): Promise<void> {
     await mkdir(path.dirname(this.config.replayMaterialPath), {
@@ -61,10 +72,12 @@ export class ContextGatewayV4ReplayMaterialRecorder {
     if (this.entries.length > 0) {
       throw new Error('context_gateway_v4_replay_already_active');
     }
-    const raw = await readFile(this.config.replayMaterialPath, 'utf8');
-    if (raw.length < 2 || Buffer.byteLength(raw, 'utf8') > MAX_STATE_BYTES) {
-      throw new Error('context_gateway_v4_replay_size_invalid');
-    }
+    const encrypted = await readFile(this.config.replayMaterialPath, 'utf8');
+    const raw = decryptContextGatewayV4ReplayMaterial({
+      encryptedCanonicalJson: encrypted,
+      secret: this.config.secret,
+      sessionId: this.config.sessionId,
+    });
     const parsed = JSON.parse(raw) as ContextGatewayV4ReplayMaterial;
     if (
       canonicalJson(parsed) !== raw ||
@@ -93,6 +106,21 @@ export class ContextGatewayV4ReplayMaterialRecorder {
       throw new Error('context_gateway_v4_replay_receipt_missing');
     }
     return this.serializeMutation(async () => {
+      const existing = this.entries.find(
+        (entry) => entry.operationReceiptId === operationReceiptId
+      );
+      if (existing) {
+        if (
+          existing.sequence !== input.event.sequence ||
+          existing.operationKey !== input.event.operationKey ||
+          existing.operationKind !== input.event.operationKind ||
+          canonicalJson(existing.replayInput) !==
+            canonicalJson(input.replayInput)
+        ) {
+          throw new Error('context_gateway_v4_replay_receipt_collision');
+        }
+        return;
+      }
       if (
         this.entries.length >= MAX_ENTRIES ||
         input.event.sequence <= (this.entries.at(-1)?.sequence ?? 0)
@@ -138,10 +166,130 @@ export class ContextGatewayV4ReplayMaterialRecorder {
   }
 
   private async flush(): Promise<void> {
-    await atomicPrivateWrite(
-      this.config.replayMaterialPath,
-      canonicalJson(this.snapshot())
+    const encrypted = encryptContextGatewayV4ReplayMaterial({
+      plaintextCanonicalJson: canonicalJson(this.snapshot()),
+      secret: this.config.secret,
+      sessionId: this.config.sessionId,
+    });
+    await atomicPrivateWrite(this.config.replayMaterialPath, encrypted);
+  }
+}
+
+export function decryptContextGatewayV4ReplayMaterial(input: {
+  readonly encryptedCanonicalJson: string;
+  readonly secret: Buffer;
+  readonly sessionId: string;
+}): string {
+  assertReplaySecret(input.secret);
+  if (
+    Buffer.byteLength(input.encryptedCanonicalJson, 'utf8') >
+    MAX_ENCRYPTED_STATE_BYTES
+  ) {
+    throw new Error('context_gateway_v4_replay_size_invalid');
+  }
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(input.encryptedCanonicalJson);
+  } catch {
+    throw new Error('context_gateway_v4_replay_envelope_invalid');
+  }
+  if (
+    canonicalJson(envelope) !== input.encryptedCanonicalJson ||
+    !isRecord(envelope) ||
+    Object.keys(envelope).sort().join(',') !==
+      'algorithm,authTag,ciphertext,encryptionVersion,nonce,sessionId' ||
+    envelope.encryptionVersion !== REPLAY_ENCRYPTION_VERSION ||
+    envelope.algorithm !== REPLAY_ENCRYPTION_ALGORITHM ||
+    envelope.sessionId !== input.sessionId ||
+    typeof envelope.nonce !== 'string' ||
+    typeof envelope.authTag !== 'string' ||
+    typeof envelope.ciphertext !== 'string'
+  ) {
+    throw new Error('context_gateway_v4_replay_envelope_invalid');
+  }
+  try {
+    const nonce = Buffer.from(envelope.nonce, 'base64url');
+    const authTag = Buffer.from(envelope.authTag, 'base64url');
+    const ciphertext = Buffer.from(envelope.ciphertext, 'base64url');
+    if (nonce.byteLength !== 12 || authTag.byteLength !== 16) {
+      throw new Error('invalid_envelope');
+    }
+    const decipher = createDecipheriv(
+      REPLAY_ENCRYPTION_ALGORITHM,
+      replayEncryptionKey(input.secret, input.sessionId),
+      nonce
     );
+    decipher.setAAD(replayAssociatedData(input.sessionId));
+    decipher.setAuthTag(authTag);
+    const plaintext = Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final(),
+    ]).toString('utf8');
+    if (
+      Buffer.byteLength(plaintext, 'utf8') > MAX_STATE_BYTES ||
+      canonicalJson(JSON.parse(plaintext)) !== plaintext
+    ) {
+      throw new Error('invalid_plaintext');
+    }
+    return plaintext;
+  } catch {
+    throw new Error('context_gateway_v4_replay_decryption_invalid');
+  }
+}
+
+function encryptContextGatewayV4ReplayMaterial(input: {
+  readonly plaintextCanonicalJson: string;
+  readonly secret: Buffer;
+  readonly sessionId: string;
+}): string {
+  assertReplaySecret(input.secret);
+  if (
+    Buffer.byteLength(input.plaintextCanonicalJson, 'utf8') > MAX_STATE_BYTES
+  ) {
+    throw new Error('context_gateway_v4_replay_size_invalid');
+  }
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv(
+    REPLAY_ENCRYPTION_ALGORITHM,
+    replayEncryptionKey(input.secret, input.sessionId),
+    nonce
+  );
+  cipher.setAAD(replayAssociatedData(input.sessionId));
+  const ciphertext = Buffer.concat([
+    cipher.update(input.plaintextCanonicalJson, 'utf8'),
+    cipher.final(),
+  ]);
+  return canonicalJson({
+    encryptionVersion: REPLAY_ENCRYPTION_VERSION,
+    algorithm: REPLAY_ENCRYPTION_ALGORITHM,
+    sessionId: input.sessionId,
+    nonce: nonce.toString('base64url'),
+    ciphertext: ciphertext.toString('base64url'),
+    authTag: cipher.getAuthTag().toString('base64url'),
+  });
+}
+
+function replayEncryptionKey(secret: Buffer, sessionId: string): Buffer {
+  return createHmac('sha256', secret)
+    .update('reviewrouter.context-gateway-v4.replay-material.v1\0', 'utf8')
+    .update(sessionId, 'utf8')
+    .digest();
+}
+
+function replayAssociatedData(sessionId: string): Buffer {
+  return Buffer.from(
+    canonicalJson({
+      encryptionVersion: REPLAY_ENCRYPTION_VERSION,
+      algorithm: REPLAY_ENCRYPTION_ALGORITHM,
+      sessionId,
+    }),
+    'utf8'
+  );
+}
+
+function assertReplaySecret(secret: Buffer): void {
+  if (!Buffer.isBuffer(secret) || secret.byteLength < 32) {
+    throw new Error('context_gateway_v4_replay_secret_invalid');
   }
 }
 

@@ -1,4 +1,5 @@
 import type {
+  ReviewAgentProviderKind,
   ReviewAgentProtocolRequirements,
   ReviewAgentRuntimeProfile,
 } from '../domain/runtime-profile';
@@ -15,15 +16,12 @@ export const REVIEW_INVESTIGATION_GATEWAY_TOOLS = Object.freeze([
   'review_git_fact',
 ]);
 
-export type ReviewAgentGatewayConfig = Readonly<{
-  policyVersion: 'context-gateway-v4';
-  binaryHash: string;
-  command: string;
-  args: readonly string[];
-  cwd: string;
-  enabledTools: readonly string[];
-  runtimeEnvironment: Readonly<NodeJS.ProcessEnv>;
-  credentialEnvironment: Readonly<NodeJS.ProcessEnv>;
+export enum ReviewAgentExecutionSessionKind {
+  ContextGatewayV4 = 'context_gateway_v4',
+}
+
+export type ReviewAgentExecutionSession = Readonly<{
+  kind: ReviewAgentExecutionSessionKind;
 }>;
 
 export type ReviewTurnRequest = Readonly<{
@@ -34,12 +32,11 @@ export type ReviewTurnRequest = Readonly<{
   dossierDigest: string;
   purpose: ReviewTurnPurpose;
   prompt: string;
-  workingDirectory: string;
+  workspaceRoot: string;
   requestedModel: string;
   timeoutMs: number;
   maxTurns: number;
-  gateway: ReviewAgentGatewayConfig;
-  providerCredentialEnvironment: Readonly<NodeJS.ProcessEnv>;
+  executionSession: ReviewAgentExecutionSession;
   signal?: AbortSignal;
 }>;
 
@@ -49,6 +46,27 @@ export interface ReviewAgentPort {
   ): Promise<ReviewAgentRuntimeProfile>;
   executeTurn(request: ReviewTurnRequest): Promise<ReviewTurnObservation>;
   cancel(invocationId: string, fencingToken: string): Promise<void>;
+}
+
+export type ReviewAgentSelectionRequest = Readonly<{
+  primaryProviderKind: ReviewAgentProviderKind;
+  primaryRequestedModel: string;
+  executionAuthority?: Readonly<{
+    providerKind: ReviewAgentProviderKind;
+    requestedModel: string;
+  }>;
+  purpose: ReviewTurnPurpose;
+  maximumSemanticRiskPriority: number;
+}>;
+
+export type ReviewAgentSelection = Readonly<{
+  agent: ReviewAgentPort;
+  providerKind: ReviewAgentProviderKind;
+  requestedModel: string;
+}>;
+
+export interface ReviewAgentSelectionPort {
+  resolve(input: ReviewAgentSelectionRequest): ReviewAgentSelection;
 }
 
 export enum ReviewAgentFailureClass {

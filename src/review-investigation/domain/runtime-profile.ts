@@ -5,6 +5,7 @@ export enum ReviewAgentProviderKind {
 
 export enum ReviewAgentExecutionProfile {
   GatewayAttestedAgentV1 = 'gateway_attested_agent_v1',
+  InvestigationGatewayV1 = 'investigation_gateway_v1',
   OrchestratedToolLoopV1 = 'orchestrated_tool_loop_v1',
   PreassembledContextV1 = 'preassembled_context_v1',
   PromptOnlyV1 = 'prompt_only_v1',

@@ -4,6 +4,7 @@ import {
   PRContext,
   ReviewConfig,
   ReviewIntensity,
+  type FileChange,
 } from '../../types';
 import { compactDiffForPrompt, trimDiff } from '../../utils/diff';
 import {
@@ -21,6 +22,10 @@ import {
   type PreparedPromptPathCoverage,
   type PreparedReviewPromptV2,
 } from './prepared-review-prompt';
+import {
+  ReviewInvestigationChangedFileStatus,
+  createReviewInvestigationProbePlan,
+} from '../../review-investigation/domain/deterministic-context-probe-plan';
 
 export class PromptBuilder {
   private readonly validationDetector: ValidationDetector;
@@ -132,6 +137,16 @@ export class PromptBuilder {
     if (!Array.isArray(pr.files)) {
       throw new Error('Invalid PR context: files must be an array');
     }
+
+    const investigationProbePlan = createReviewInvestigationProbePlan({
+      files: pr.files.map((file) => ({
+        path: file.filename,
+        previousPath: file.previousFilename ?? null,
+        status: investigationChangedFileStatus(file.status),
+        patch: file.patch ?? null,
+      })),
+      fullDiff: pr.diff,
+    });
 
     const compacted = compactDiffForPrompt(pr.diff, pr.files, {
       enabled: this.config.smartDiffCompaction ?? true,
@@ -399,6 +414,7 @@ export class PromptBuilder {
       version: 'prepared_review_prompt.v2',
       prompt: instructions.join('\n'),
       pathCoverage,
+      investigationProbePlan,
     });
   }
 
@@ -538,6 +554,21 @@ export class PromptBuilder {
     }
 
     return false;
+  }
+}
+
+function investigationChangedFileStatus(
+  status: FileChange['status']
+): ReviewInvestigationChangedFileStatus {
+  switch (status) {
+    case 'added':
+      return ReviewInvestigationChangedFileStatus.Added;
+    case 'modified':
+      return ReviewInvestigationChangedFileStatus.Modified;
+    case 'removed':
+      return ReviewInvestigationChangedFileStatus.Removed;
+    case 'renamed':
+      return ReviewInvestigationChangedFileStatus.Renamed;
   }
 }
 

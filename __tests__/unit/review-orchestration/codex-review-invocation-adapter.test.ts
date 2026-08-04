@@ -26,6 +26,17 @@ import {
   GeneratedProviderInvocationManifestAssembler,
 } from '../../../src/review-orchestration/infrastructure';
 import { createReviewPromptCoverageManifest } from '../../../src/review-orchestration/domain';
+import {
+  ReviewInvestigationChangedFileStatus,
+  ReviewInvestigationProbePlanStatus,
+  createReviewInvestigationProbePlan,
+} from '../../../src/review-investigation/domain/deterministic-context-probe-plan';
+import { canonicalJson } from '../../../src/context-gateway/context-gateway-contract';
+
+const emptyProbePlan = createReviewInvestigationProbePlan({
+  files: [],
+  fullDiff: '',
+});
 
 describe('Codex T0 prepared invocation', () => {
   it('executes the exact branded object that was prepared', async () => {
@@ -56,6 +67,7 @@ describe('Codex T0 prepared invocation', () => {
         version: 'prepared_review_prompt.v2',
         prompt: 'prepared prompt',
         pathCoverage: [],
+        investigationProbePlan: emptyProbePlan,
       }),
     } as unknown as PromptBuilder;
     const adapter = new CodexReviewInvocationAdapter(
@@ -80,12 +92,127 @@ describe('Codex T0 prepared invocation', () => {
     });
 
     expect(invocation.immutableRequest).toBe(prepared);
+    expect(invocation.investigationProbePlan).toBe(emptyProbePlan);
     expect(provider.executePreparedInvocation).toHaveBeenCalledWith(
       prepared,
       undefined,
       expect.any(AbortSignal)
     );
     expect(observation.schemaValidated).toBe(true);
+  });
+
+  it('keeps a limit-exceeded probe plan out of investigation execution', async () => {
+    const prepared = preparedInvocation('prepared prompt');
+    const provider = {
+      name: 'codex/gpt-test',
+      describePreparedEnvironmentContract: jest
+        .fn()
+        .mockReturnValue({ PATH: '/usr/bin' }),
+      prepareInvocation: jest.fn().mockResolvedValue(prepared),
+    } as unknown as CodexProvider;
+    const incompleteProbePlan = createReviewInvestigationProbePlan({
+      files: [
+        {
+          path: 'src/service.ts',
+          previousPath: null,
+          status: ReviewInvestigationChangedFileStatus.Modified,
+          patch: null,
+        },
+      ],
+      fullDiff: [
+        'diff --git a/src/service.ts b/src/service.ts',
+        '+export const first = 1;',
+        '+export const second = 2;',
+      ].join('\n'),
+      limits: { maxProbesPerFile: 2, maxProbesOverall: 2 },
+    });
+    const gatewayFactory = {
+      planningConfig: jest.fn().mockResolvedValue(gatewayConfig),
+    } as unknown as ContextGatewayInvocationSessionFactoryPort;
+    const adapter = new CodexReviewInvocationAdapter(
+      provider,
+      {
+        buildPreparedV2: jest.fn().mockResolvedValue({
+          version: 'prepared_review_prompt.v2',
+          prompt: 'prepared prompt',
+          pathCoverage: [],
+          investigationProbePlan: incompleteProbePlan,
+        }),
+      } as unknown as PromptBuilder,
+      [assignment],
+      10_000,
+      true,
+      gatewayFactory,
+      true
+    );
+
+    const invocation = await adapter.prepare({
+      workSlot: assignment.workSlot,
+      attemptOrdinal: 1,
+    });
+
+    expect(invocation.investigationProbePlan.status).toBe(
+      ReviewInvestigationProbePlanStatus.LimitExceeded
+    );
+    expect(invocation.manifestFacts.executionProfile).toBe(
+      'context_gateway_v1'
+    );
+  });
+
+  it('binds the exact investigation seed envelope into the prepared manifest facts', async () => {
+    const provider = {
+      name: 'codex/gpt-test',
+      describePreparedEnvironmentContract: jest
+        .fn()
+        .mockReturnValue({ PATH: '/usr/bin' }),
+      prepareInvocation: jest
+        .fn()
+        .mockResolvedValue(preparedInvocation('prepared prompt')),
+    } as unknown as CodexProvider;
+    const adapter = new CodexReviewInvocationAdapter(
+      provider,
+      {
+        buildPreparedV2: jest.fn().mockResolvedValue({
+          version: 'prepared_review_prompt.v2',
+          prompt: 'prepared prompt',
+          pathCoverage: [],
+          investigationProbePlan: emptyProbePlan,
+        }),
+      } as unknown as PromptBuilder,
+      [assignment],
+      10_000,
+      true,
+      {
+        planningConfig: jest.fn().mockResolvedValue(gatewayConfig),
+        canonicalInventory: jest
+          .fn()
+          .mockResolvedValue(emptyCanonicalInventory),
+      } as unknown as ContextGatewayInvocationSessionFactoryPort,
+      true
+    );
+
+    const invocation = await adapter.prepare({
+      workSlot: assignment.workSlot,
+      attemptOrdinal: 1,
+    });
+    const seed = invocation.investigationSeedEnvelope;
+
+    expect(seed).not.toBeNull();
+    expect(seed).toBeDefined();
+    expect(invocation.manifestFacts.providerRequestEnvelopeHash).toBe(
+      seed!.hash
+    );
+    expect(invocation.manifestFacts.executionProfile).toBe(
+      'investigation_gateway_v1'
+    );
+    expect(hash(seed!.canonicalJson)).toBe(seed!.hash);
+    expect(JSON.parse(seed!.canonicalJson)).toEqual(seed!.envelope);
+    expect(seed!.envelope).toMatchObject({
+      contract: 'review_investigation_seed_envelope.v1',
+      probePlanHash: emptyProbePlan.planHash,
+      requestedModel: 'gpt-test',
+      obligations: [expect.objectContaining({ kind: 'inventory_witness' })],
+    });
   });
 
   it('materializes a lease-bound gateway session without changing semantic identity', async () => {
@@ -134,6 +261,7 @@ describe('Codex T0 prepared invocation', () => {
         version: 'prepared_review_prompt.v2',
         prompt: 'prepared prompt',
         pathCoverage: [],
+        investigationProbePlan: emptyProbePlan,
       }),
     } as unknown as PromptBuilder;
     const session = {
@@ -277,6 +405,7 @@ describe('Codex T0 prepared invocation', () => {
             version: 'prepared_review_prompt.v2',
             prompt: 'prepared prompt',
             pathCoverage: [],
+            investigationProbePlan: emptyProbePlan,
           }),
         } as unknown as PromptBuilder,
         [assignment],
@@ -361,6 +490,7 @@ describe('Codex T0 prepared invocation', () => {
           version: 'prepared_review_prompt.v2',
           prompt: 'prepared prompt',
           pathCoverage: [],
+          investigationProbePlan: emptyProbePlan,
         }),
       } as unknown as PromptBuilder,
       [assignment],
@@ -444,6 +574,7 @@ describe('Codex T0 prepared invocation', () => {
           version: 'prepared_review_prompt.v2',
           prompt: 'prepared prompt',
           pathCoverage: [],
+          investigationProbePlan: emptyProbePlan,
         }),
       } as unknown as PromptBuilder,
       [assignment],
@@ -526,6 +657,7 @@ describe('Codex T0 prepared invocation', () => {
           version: 'prepared_review_prompt.v2',
           prompt: 'prepared prompt',
           pathCoverage: [],
+          investigationProbePlan: emptyProbePlan,
         }),
       } as unknown as PromptBuilder,
       [assignment],
@@ -587,6 +719,7 @@ describe('Codex T0 prepared invocation', () => {
       requestedModel: 'gpt-test',
       reviewPrompt: 'review',
       immutableRequest: Object.freeze({}),
+      investigationProbePlan: emptyProbePlan,
       coverageManifest: createReviewPromptCoverageManifest({
         workSlotId: 'slot-1',
         reviewRevisionHash: hash('revision'),
@@ -848,6 +981,18 @@ const gatewayConfig = Object.freeze({
     REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: '2'.repeat(40),
     REVIEWROUTER_CONTEXT_HEAD_SHA: '3'.repeat(40),
   }),
+});
+
+const emptyCanonicalInventoryValue = Object.freeze({
+  inventoryVersion: 2 as const,
+  mergeBaseTreeOid: '5'.repeat(40),
+  headTreeOid: '4'.repeat(40),
+  entries: Object.freeze([]),
+});
+const emptyCanonicalInventory = Object.freeze({
+  ...emptyCanonicalInventoryValue,
+  itemCount: 0,
+  inventoryHash: hash(canonicalJson(emptyCanonicalInventoryValue)),
 });
 
 function preparedInvocation(prompt: string) {

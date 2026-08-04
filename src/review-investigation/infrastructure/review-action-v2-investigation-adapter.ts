@@ -70,7 +70,6 @@ export class ReviewActionV2InvestigationAdapter
   ): ReturnType<ReviewInvestigationControlPlanePort['open']> {
     const coverage = document(input.coverageContract);
     const policy = document(input.investigationPolicy);
-    const obligations = document(input.seedObligations);
     const receipts = document(input.initialReceipts);
     const result = await this.mutation(
       ReviewActionV2OperationId.ReviewInvestigationOpen,
@@ -98,8 +97,8 @@ export class ReviewActionV2InvestigationAdapter
           coverageContractHash: coverage.hash,
           investigationPolicyCanonicalJson: policy.canonicalJson,
           investigationPolicyHash: policy.hash,
-          seedObligationsCanonicalJson: obligations.canonicalJson,
-          seedObligationsHash: obligations.hash,
+          seedObligationsCanonicalJson: input.seedEnvelope.canonicalJson,
+          seedObligationsHash: input.seedEnvelope.hash,
           initialReceiptsCanonicalJson: receipts.canonicalJson,
           initialReceiptsHash: receipts.hash,
         })
@@ -392,6 +391,9 @@ export class ReviewActionV2InvestigationAdapter
   async replay(
     input: Parameters<ReviewInvestigationReplayControlPlanePort['replay']>[0]
   ): ReturnType<ReviewInvestigationReplayControlPlanePort['replay']> {
+    const coverage = document(input.open.coverageContract);
+    const policy = document(input.open.investigationPolicy);
+    const initialReceipts = document(input.open.initialReceipts);
     const targetScope = document(input.scope);
     const targetRevision = document(input.revision);
     const replayProofs = document(input.replayProofs);
@@ -408,6 +410,11 @@ export class ReviewActionV2InvestigationAdapter
               targetExecutionId: input.open.executionId,
               targetWorkSlotId: input.open.workSlotId,
               targetRevisionHash: targetRevision.hash,
+              providerStrategyId: input.open.providerStrategyId,
+              coverageContractHash: coverage.hash,
+              investigationPolicyHash: policy.hash,
+              seedObligationsHash: input.open.seedEnvelope.hash,
+              initialReceiptsHash: initialReceipts.hash,
               replayProofsHash: replayProofs.hash,
             }),
             authorizationId: input.open.authorizationId,
@@ -415,6 +422,18 @@ export class ReviewActionV2InvestigationAdapter
             sourceCertificateHash: input.prepared.sourceCertificateHash,
             targetExecutionId: input.open.executionId,
             targetWorkSlotId: input.open.workSlotId,
+            stableReviewUnitKey: input.open.stableReviewUnitKey,
+            providerVoteLaneId: input.open.providerVoteLaneId,
+            providerStrategyId: input.open.providerStrategyId,
+            runtimeProfile: runtimeProfile(input.open.runtimeProfile),
+            coverageContractCanonicalJson: coverage.canonicalJson,
+            coverageContractHash: coverage.hash,
+            investigationPolicyCanonicalJson: policy.canonicalJson,
+            investigationPolicyHash: policy.hash,
+            seedObligationsCanonicalJson: input.open.seedEnvelope.canonicalJson,
+            seedObligationsHash: input.open.seedEnvelope.hash,
+            initialReceiptsCanonicalJson: initialReceipts.canonicalJson,
+            initialReceiptsHash: initialReceipts.hash,
             targetScopeCanonicalJson: targetScope.canonicalJson,
             targetScopeHash: targetScope.hash,
             targetRevisionCanonicalJson: targetRevision.canonicalJson,
@@ -781,6 +800,7 @@ function parseTurnBrief(
     'dossierDigest',
     'turnId',
     'purpose',
+    'maximumSemanticRiskPriority',
     'obligations',
   ]);
   const parsed = Object.freeze({
@@ -793,6 +813,10 @@ function parseTurnBrief(
     dossierDigest: requireDigest(brief.dossierDigest, 'dossier_digest'),
     turnId: requireString(brief.turnId, 'turn_id'),
     purpose: enumValue(brief.purpose, ReviewTurnPurpose, 'turn_purpose'),
+    maximumSemanticRiskPriority: requireBoundedRiskPriority(
+      brief.maximumSemanticRiskPriority,
+      'maximum_semantic_risk_priority'
+    ),
     obligations: Object.freeze(
       requireArray(brief.obligations, 'turn_obligations').map((value) => {
         const obligation = requireRecord(value, 'turn_obligation');
@@ -883,7 +907,6 @@ function verifyTerminalArtifact(snapshot: ReviewInvestigationSnapshot): void {
     snapshot.certificateHash,
     snapshot.terminalObservationCanonicalJson,
     snapshot.terminalOutcomeHash,
-    snapshot.conclusion,
   ];
   const artifactPresent = artifact.some((value) => value !== null);
   if (artifactPresent && artifact.some((value) => value === null)) {
@@ -899,15 +922,30 @@ function verifyTerminalArtifact(snapshot: ReviewInvestigationSnapshot): void {
   ) {
     throw invalidResponse('investigation_terminal_provenance_incomplete');
   }
+  verifyConclusionConsistency(snapshot);
   if (!artifactPresent) {
     if (provenancePresent) {
       throw invalidResponse(
         'investigation_terminal_provenance_without_artifact'
       );
     }
+    if (
+      snapshot.conclusion !== null &&
+      !(
+        snapshot.nextAction === ReviewInvestigationNextAction.Conclude &&
+        snapshot.turn === null &&
+        ((snapshot.state === ReviewInvestigationState.ReadyToConclude &&
+          snapshot.conclusion !== ReviewInvestigationConclusion.Inconclusive) ||
+          (snapshot.state === ReviewInvestigationState.Inconclusive &&
+            snapshot.conclusion === ReviewInvestigationConclusion.Inconclusive))
+      )
+    ) {
+      throw invalidResponse('investigation_preterminal_conclusion_invalid');
+    }
     return;
   }
   if (
+    snapshot.conclusion === null ||
     ![
       ReviewInvestigationState.Concluded,
       ReviewInvestigationState.Inconclusive,
@@ -921,6 +959,178 @@ function verifyTerminalArtifact(snapshot: ReviewInvestigationSnapshot): void {
   ) {
     throw invalidResponse('investigation_terminal_artifact_invalid');
   }
+  verifyTerminalPayload(snapshot);
+}
+
+function verifyConclusionConsistency(
+  snapshot: ReviewInvestigationSnapshot
+): void {
+  if (
+    (snapshot.state === ReviewInvestigationState.Concluded &&
+      snapshot.conclusion !== ReviewInvestigationConclusion.VerifiedClean &&
+      snapshot.conclusion !== ReviewInvestigationConclusion.Findings) ||
+    (snapshot.state === ReviewInvestigationState.Inconclusive &&
+      snapshot.conclusion !== ReviewInvestigationConclusion.Inconclusive) ||
+    (snapshot.conclusion === ReviewInvestigationConclusion.VerifiedClean &&
+      (snapshot.findingCount !== 0 ||
+        snapshot.openObligationCount !== 0 ||
+        snapshot.unresolvableObligationCount !== 0)) ||
+    (snapshot.conclusion === ReviewInvestigationConclusion.Findings &&
+      (snapshot.findingCount === 0 ||
+        snapshot.openObligationCount !== 0 ||
+        snapshot.unresolvableObligationCount !== 0))
+  ) {
+    throw invalidResponse('investigation_terminal_artifact_invalid');
+  }
+}
+
+function verifyTerminalPayload(snapshot: ReviewInvestigationSnapshot): void {
+  let value: unknown;
+  try {
+    value = JSON.parse(snapshot.terminalObservationCanonicalJson!);
+  } catch {
+    throw invalidResponse('investigation_terminal_payload_invalid');
+  }
+  if (!isRecord(value)) {
+    throw invalidResponse('investigation_terminal_payload_invalid');
+  }
+  const findings = value.normalizedFindings;
+  const lifecycle = value.normalizedLifecycleRevalidations;
+  if (
+    !hasExactKeys(value, [
+      'normalizedFindings',
+      'normalizedLifecycleRevalidations',
+      'payloadVersion',
+      'safeUsage',
+    ]) ||
+    value.payloadVersion !== 2 ||
+    !Array.isArray(findings) ||
+    findings.some((item) => !isNormalizedFinding(item)) ||
+    !Array.isArray(lifecycle) ||
+    lifecycle.some((item) => !isNormalizedLifecycleRevalidation(item)) ||
+    !isSafeUsage(value.safeUsage) ||
+    findings.length !== snapshot.findingCount
+  ) {
+    throw invalidResponse('investigation_terminal_payload_invalid');
+  }
+}
+
+function isNormalizedFinding(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      'category',
+      'endLine',
+      'evidence',
+      'message',
+      'normalizedFailureModeHash',
+      'path',
+      'placementConfidence',
+      'severity',
+      'startLine',
+      'suggestion',
+      'title',
+    ]) &&
+    typeof value.category === 'string' &&
+    isNullablePositiveInteger(value.endLine) &&
+    isStringArray(value.evidence) &&
+    typeof value.message === 'string' &&
+    isSha256Digest(value.normalizedFailureModeHash) &&
+    typeof value.path === 'string' &&
+    isNullableConfidence(value.placementConfidence) &&
+    isFindingSeverity(value.severity) &&
+    isNullablePositiveInteger(value.startLine) &&
+    (value.suggestion === null || typeof value.suggestion === 'string') &&
+    typeof value.title === 'string'
+  );
+}
+
+function isNormalizedLifecycleRevalidation(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      'confidence',
+      'evidence',
+      'fingerprint',
+      'rationale',
+      'targetId',
+      'verdict',
+    ]) &&
+    isNullableConfidence(value.confidence) &&
+    Array.isArray(value.evidence) &&
+    value.evidence.every(isNormalizedLifecycleEvidence) &&
+    (value.fingerprint === null || typeof value.fingerprint === 'string') &&
+    (value.rationale === null || typeof value.rationale === 'string') &&
+    typeof value.targetId === 'string' &&
+    isLifecycleVerdict(value.verdict)
+  );
+}
+
+function isNormalizedLifecycleEvidence(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ['endLine', 'path', 'reason', 'startLine']) &&
+    isNullablePositiveInteger(value.endLine) &&
+    typeof value.path === 'string' &&
+    typeof value.reason === 'string' &&
+    isNullablePositiveInteger(value.startLine)
+  );
+}
+
+function isFindingSeverity(value: unknown): boolean {
+  return value === 'critical' || value === 'major' || value === 'minor';
+}
+
+function isLifecycleVerdict(value: unknown): boolean {
+  return (
+    value === 'resolved' || value === 'still_valid' || value === 'uncertain'
+  );
+}
+
+function isSha256Digest(value: unknown): boolean {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+function isStringArray(value: unknown): boolean {
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === 'string')
+  );
+}
+
+function isNullablePositiveInteger(value: unknown): boolean {
+  return value === null || (Number.isSafeInteger(value) && Number(value) > 0);
+}
+
+function isNullableConfidence(value: unknown): boolean {
+  return (
+    value === null ||
+    (typeof value === 'number' &&
+      Number.isFinite(value) &&
+      value >= 0 &&
+      value <= 1)
+  );
+}
+
+function isSafeUsage(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['inputTokens', 'outputTokens', 'totalTokens']) ||
+    !isNullableNonNegativeInteger(value.inputTokens) ||
+    !isNullableNonNegativeInteger(value.outputTokens) ||
+    !isNullableNonNegativeInteger(value.totalTokens)
+  ) {
+    return false;
+  }
+  return !(
+    typeof value.inputTokens === 'number' &&
+    typeof value.outputTokens === 'number' &&
+    typeof value.totalTokens === 'number' &&
+    value.totalTokens !== value.inputTokens + value.outputTokens
+  );
+}
+
+function isNullableNonNegativeInteger(value: unknown): boolean {
+  return value === null || (Number.isSafeInteger(value) && Number(value) >= 0);
 }
 
 function publishedConclusion(
@@ -1024,24 +1234,35 @@ function invalidResponse(
 }
 
 function requireRecord(value: unknown, field: string): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw invalidResponse(`${field}_invalid`);
   }
-  return value as Record<string, unknown>;
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function requireExactKeys(
   value: Record<string, unknown>,
   keys: readonly string[]
 ): void {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  if (
-    actual.length !== expected.length ||
-    actual.some((key, index) => key !== expected[index])
-  ) {
+  if (!hasExactKeys(value, keys)) {
     throw invalidResponse('investigation_shape_invalid');
   }
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[]
+): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return !(
+    actual.length !== expected.length ||
+    actual.some((key, index) => key !== expected[index])
+  );
 }
 
 function requireString(value: unknown, field: string): string {
@@ -1097,6 +1318,12 @@ function requireNonNegativeInteger(value: unknown, field: string): number {
     throw invalidResponse(`${field}_invalid`);
   }
   return Number(value);
+}
+
+function requireBoundedRiskPriority(value: unknown, field: string): number {
+  const parsed = requireNonNegativeInteger(value, field);
+  if (parsed > 1_000_000) throw invalidResponse(`${field}_invalid`);
+  return parsed;
 }
 
 function requireArray(

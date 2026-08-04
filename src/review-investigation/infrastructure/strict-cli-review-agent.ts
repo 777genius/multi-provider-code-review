@@ -8,10 +8,12 @@ import {
 } from '../application/review-agent-port';
 import {
   assertRuntimeProfileSatisfies,
+  ReviewAgentProviderKind,
   type ReviewAgentProtocolRequirements,
   type ReviewAgentRuntimeProfile,
 } from '../domain/runtime-profile';
 import {
+  REVIEW_TURN_OBSERVATION_VERSION,
   ReviewTurnPurpose,
   type ReviewAgentTurnOutput,
   type ReviewTurnObservation,
@@ -22,6 +24,10 @@ import {
   type ReviewAgentProcessResult,
   type ReviewAgentProcessRunnerPort,
 } from './review-agent-process-runner';
+import type {
+  ReviewAgentExecutionSessionResolverPort,
+  ReviewAgentGatewayLaunchBinding,
+} from './review-agent-execution-session';
 
 export type ParsedProviderTurn = Readonly<{
   output: ReviewAgentTurnOutput;
@@ -29,10 +35,105 @@ export type ParsedProviderTurn = Readonly<{
   usage: ReviewTurnUsage;
 }>;
 
+export type ReviewAgentAdapterExecution = Readonly<{
+  gateway: ReviewAgentGatewayLaunchBinding;
+  providerCredentialEnvironment: Readonly<NodeJS.ProcessEnv>;
+}>;
+
+const GATEWAY_RUNTIME_ENV_KEYS = new Set([
+  'REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION',
+  'REVIEWROUTER_CONTEXT_SESSION_ID',
+  'REVIEWROUTER_CONTEXT_ROOT',
+  'REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH',
+  'REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH',
+  'REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH',
+  'REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID',
+  'REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID',
+  'REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH',
+  'REVIEWROUTER_CONTEXT_BASE_SHA',
+  'REVIEWROUTER_CONTEXT_MERGE_BASE_SHA',
+  'REVIEWROUTER_CONTEXT_HEAD_SHA',
+]);
+const GATEWAY_CREDENTIAL_ENV_KEYS = new Set([
+  'REVIEWROUTER_CONTEXT_GATEWAY_SECRET',
+]);
+const PROVIDER_ENV_KEYS: Readonly<
+  Record<ReviewAgentProviderKind, ReadonlySet<string>>
+> = Object.freeze({
+  [ReviewAgentProviderKind.Codex]: new Set([
+    'CODEX_HOME',
+    'OPENAI_API_KEY',
+    'OPENROUTER_API_KEY',
+  ]),
+  [ReviewAgentProviderKind.ClaudeCode]: new Set([
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'CLAUDE_CONFIG_DIR',
+  ]),
+});
+const MAX_SAFE_RETRY_AFTER_MS = 7 * 24 * 60 * 60 * 1_000;
+const SAFE_AGENT_ERROR_CODES = new Set([
+  'review_agent_actual_model_invalid',
+  'review_agent_actual_model_unavailable',
+  'review_agent_authentication_unavailable',
+  'review_agent_cached_input_tokens_invalid',
+  'review_agent_cached_usage_invalid',
+  'review_agent_cancel_failure',
+  'review_agent_capability_requirements_unsatisfied',
+  'review_agent_capacity_unavailable',
+  'review_agent_claude_stream_incomplete',
+  'review_agent_claude_usage_missing',
+  'review_agent_codex_event_json_invalid',
+  'review_agent_codex_event_stream_empty',
+  'review_agent_codex_stream_incomplete',
+  'review_agent_codex_usage_missing',
+  'review_agent_critic_decision_invalid_for_turn',
+  'review_agent_execution_session_invalid',
+  'review_agent_gateway_credential_environment_invalid',
+  'review_agent_input_tokens_invalid',
+  'review_agent_output_invalid',
+  'review_agent_output_tokens_invalid',
+  'review_agent_process_cancelled',
+  'review_agent_process_failure',
+  'review_agent_process_timeout',
+  'review_agent_provider_credential_environment_invalid',
+  'review_agent_quota_unavailable',
+  'review_agent_reasoning_output_tokens_invalid',
+  'review_agent_runtime_environment_invalid',
+  'review_agent_startup_failure',
+  'review_agent_turn_request_invalid',
+  'review_agent_usage_attribution_missing',
+  'review_agent_workspace_authority_mismatch',
+]);
+const SAFE_DEFAULT_ERROR_CODE: Readonly<
+  Record<ReviewAgentFailureClass, string>
+> = Object.freeze({
+  [ReviewAgentFailureClass.CapabilityUnavailable]:
+    'review_agent_capability_unavailable',
+  [ReviewAgentFailureClass.AuthenticationUnavailable]:
+    'review_agent_authentication_unavailable',
+  [ReviewAgentFailureClass.QuotaUnavailable]: 'review_agent_quota_unavailable',
+  [ReviewAgentFailureClass.CapacityUnavailable]:
+    'review_agent_capacity_unavailable',
+  [ReviewAgentFailureClass.StartupFailure]: 'review_agent_startup_failure',
+  [ReviewAgentFailureClass.ProcessFailure]: 'review_agent_process_failure',
+  [ReviewAgentFailureClass.Timeout]: 'review_agent_process_timeout',
+  [ReviewAgentFailureClass.Cancelled]: 'review_agent_process_cancelled',
+  [ReviewAgentFailureClass.SchemaInvalidOutput]: 'review_agent_output_invalid',
+  [ReviewAgentFailureClass.StreamIncomplete]: 'review_agent_stream_incomplete',
+  [ReviewAgentFailureClass.ModelAttributionMissing]:
+    'review_agent_actual_model_unavailable',
+  [ReviewAgentFailureClass.UsageAttributionMissing]:
+    'review_agent_usage_attribution_missing',
+  [ReviewAgentFailureClass.ConfinementViolation]:
+    'review_agent_confinement_violation',
+});
+
 export abstract class StrictCliReviewAgent implements ReviewAgentPort {
   protected constructor(
     protected readonly profile: ReviewAgentRuntimeProfile,
-    protected readonly runner: ReviewAgentProcessRunnerPort
+    protected readonly runner: ReviewAgentProcessRunnerPort,
+    private readonly executionSessions: ReviewAgentExecutionSessionResolverPort,
+    private readonly providerCredentials: () => Readonly<NodeJS.ProcessEnv>
   ) {}
 
   async negotiate(
@@ -54,13 +155,19 @@ export abstract class StrictCliReviewAgent implements ReviewAgentPort {
     request: ReviewTurnRequest
   ): Promise<ReviewTurnObservation>;
 
-  cancel(invocationId: string, fencingToken: string): Promise<void> {
-    return this.runner.cancel(invocationId, fencingToken);
+  async cancel(invocationId: string, fencingToken: string): Promise<void> {
+    try {
+      await this.runner.cancel(invocationId, fencingToken);
+    } catch (error) {
+      throw safeAgentError(
+        error,
+        ReviewAgentFailureClass.ProcessFailure,
+        'review_agent_cancel_failure'
+      );
+    }
   }
 
   protected validateRequest(request: ReviewTurnRequest): void {
-    const expectedTools = [...REVIEW_INVESTIGATION_GATEWAY_TOOLS].sort();
-    const actualTools = [...request.gateway.enabledTools].sort();
     if (
       !request.invocationId ||
       !request.fencingToken ||
@@ -70,17 +177,14 @@ export abstract class StrictCliReviewAgent implements ReviewAgentPort {
       !/^[a-f0-9]{64}$/u.test(request.dossierDigest) ||
       !request.prompt ||
       Buffer.byteLength(request.prompt, 'utf8') > this.profile.maxPromptBytes ||
+      !request.workspaceRoot ||
       request.requestedModel.length < 1 ||
       request.requestedModel.length > 200 ||
       !Number.isSafeInteger(request.timeoutMs) ||
       request.timeoutMs < 1 ||
       !Number.isSafeInteger(request.maxTurns) ||
       request.maxTurns < 1 ||
-      request.maxTurns > this.profile.maxTurns ||
-      request.gateway.policyVersion !== 'context-gateway-v4' ||
-      !/^[a-f0-9]{64}$/u.test(request.gateway.binaryHash) ||
-      actualTools.length !== expectedTools.length ||
-      actualTools.some((tool, index) => tool !== expectedTools[index])
+      request.maxTurns > this.profile.maxTurns
     ) {
       throw new ReviewAgentExecutionError(
         ReviewAgentFailureClass.CapabilityUnavailable,
@@ -88,30 +192,53 @@ export abstract class StrictCliReviewAgent implements ReviewAgentPort {
         'review_agent_turn_request_invalid'
       );
     }
-    assertEnvironmentPartition(
-      request.gateway.runtimeEnvironment,
-      request.gateway.credentialEnvironment,
-      request.providerCredentialEnvironment
+  }
+
+  protected prepareExecution(
+    request: ReviewTurnRequest
+  ): ReviewAgentAdapterExecution {
+    this.validateRequest(request);
+    const gateway = this.executionSessions.resolve(
+      request.executionSession,
+      this.profile.providerKind
     );
+    const providerCredentialEnvironment = Object.freeze({
+      ...this.providerCredentials(),
+    });
+    assertGatewayBinding(gateway);
+    if (gateway.cwd !== request.workspaceRoot) {
+      throw new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.ConfinementViolation,
+        null,
+        'review_agent_workspace_authority_mismatch'
+      );
+    }
+    assertEnvironmentPartition(
+      gateway.runtimeEnvironment,
+      gateway.credentialEnvironment,
+      providerCredentialEnvironment,
+      this.profile.providerKind
+    );
+    return Object.freeze({ gateway, providerCredentialEnvironment });
   }
 
   protected executionEnvironment(
-    request: ReviewTurnRequest
+    execution: ReviewAgentAdapterExecution
   ): NodeJS.ProcessEnv {
     return {
-      ...this.providerOnlyExecutionEnvironment(request),
-      ...request.gateway.runtimeEnvironment,
+      ...this.providerOnlyExecutionEnvironment(execution),
+      ...execution.gateway.runtimeEnvironment,
       REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v4',
-      ...request.gateway.credentialEnvironment,
+      ...execution.gateway.credentialEnvironment,
     };
   }
 
   protected providerOnlyExecutionEnvironment(
-    request: ReviewTurnRequest
+    execution: ReviewAgentAdapterExecution
   ): NodeJS.ProcessEnv {
     return {
       ...buildCliSafeEnv({ includeWorkspaceEnv: false }),
-      ...request.providerCredentialEnvironment,
+      ...execution.providerCredentialEnvironment,
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_CONFIG_GLOBAL: '/dev/null',
       GIT_NO_REPLACE_OBJECTS: '1',
@@ -120,6 +247,7 @@ export abstract class StrictCliReviewAgent implements ReviewAgentPort {
 
   protected async runProcess(
     request: ReviewTurnRequest,
+    execution: ReviewAgentAdapterExecution,
     input: Readonly<{
       binary: string;
       args: readonly string[];
@@ -129,8 +257,8 @@ export abstract class StrictCliReviewAgent implements ReviewAgentPort {
     const result = await this.runner.run({
       invocationId: request.invocationId,
       fencingToken: request.fencingToken,
-      cwd: request.workingDirectory,
-      environment: input.environment ?? this.executionEnvironment(request),
+      cwd: execution.gateway.cwd,
+      environment: input.environment ?? this.executionEnvironment(execution),
       stdin: request.prompt,
       timeoutMs: request.timeoutMs,
       maxOutputBytes: this.profile.maxOutputBytes,
@@ -160,7 +288,7 @@ export abstract class StrictCliReviewAgent implements ReviewAgentPort {
       );
     }
     return Object.freeze({
-      observationVersion: 1,
+      observationVersion: REVIEW_TURN_OBSERVATION_VERSION,
       invocationId: request.invocationId,
       turnId: request.turnId,
       dossierVersion: request.dossierVersion,
@@ -206,7 +334,7 @@ export function parseUsage(input: {
     cachedInputTokens,
     outputTokens,
     reasoningOutputTokens,
-    totalTokens: inputTokens + outputTokens,
+    totalTokens: inputTokens + outputTokens + reasoningOutputTokens,
   });
 }
 
@@ -230,11 +358,10 @@ export function requireObservedModel(models: ReadonlySet<string>): string {
 }
 
 export function schemaFailure(error: unknown): ReviewAgentExecutionError {
-  if (error instanceof ReviewAgentExecutionError) return error;
-  return new ReviewAgentExecutionError(
+  return safeAgentError(
+    error,
     ReviewAgentFailureClass.SchemaInvalidOutput,
-    null,
-    error instanceof Error ? error.message : 'review_agent_output_invalid'
+    'review_agent_output_invalid'
   );
 }
 
@@ -242,7 +369,7 @@ export function streamFailure(message: string): ReviewAgentExecutionError {
   return new ReviewAgentExecutionError(
     ReviewAgentFailureClass.StreamIncomplete,
     null,
-    message
+    safeErrorCode(message, ReviewAgentFailureClass.StreamIncomplete)
   );
 }
 
@@ -250,7 +377,7 @@ export function usageFailure(message: string): ReviewAgentExecutionError {
   return new ReviewAgentExecutionError(
     ReviewAgentFailureClass.UsageAttributionMissing,
     null,
-    message
+    safeErrorCode(message, ReviewAgentFailureClass.UsageAttributionMissing)
   );
 }
 
@@ -275,8 +402,8 @@ function assertSuccessfulProcess(result: ReviewAgentProcessResult): void {
       'review_agent_process_cancelled'
     );
   }
-  const diagnostic = sanitizeDiagnostic(`${result.stderr}\n${result.stdout}`);
-  throw classifyProviderFailure(diagnostic, result.termination);
+  const failureSignals = boundedProviderFailureSignals(result);
+  throw classifyProviderFailure(failureSignals, result.termination);
 }
 
 function classifyProviderFailure(
@@ -327,39 +454,60 @@ function classifyProviderFailure(
   return new ReviewAgentExecutionError(
     ReviewAgentFailureClass.ProcessFailure,
     null,
-    `review_agent_process_failure:${diagnostic || 'unknown'}`
+    'review_agent_process_failure'
   );
+}
+
+function assertGatewayBinding(binding: ReviewAgentGatewayLaunchBinding): void {
+  const expectedTools = [...REVIEW_INVESTIGATION_GATEWAY_TOOLS].sort();
+  const actualTools = [...binding.enabledTools].sort();
+  if (
+    binding.policyVersion !== 'context-gateway-v4' ||
+    !/^[a-f0-9]{64}$/u.test(binding.binaryHash) ||
+    !binding.command ||
+    !binding.cwd ||
+    actualTools.length !== expectedTools.length ||
+    actualTools.some((tool, index) => tool !== expectedTools[index])
+  ) {
+    throw new ReviewAgentExecutionError(
+      ReviewAgentFailureClass.CapabilityUnavailable,
+      null,
+      'review_agent_execution_session_invalid'
+    );
+  }
 }
 
 function assertEnvironmentPartition(
   runtime: Readonly<NodeJS.ProcessEnv>,
   gatewayCredentials: Readonly<NodeJS.ProcessEnv>,
-  providerCredentials: Readonly<NodeJS.ProcessEnv>
+  providerCredentials: Readonly<NodeJS.ProcessEnv>,
+  providerKind: ReviewAgentProviderKind
 ): void {
-  for (const [key, value] of Object.entries(runtime)) {
-    if (value !== undefined && isCredentialKey(key)) {
-      throw new Error('review_agent_runtime_environment_contains_credential');
-    }
-  }
-  for (const [key, value] of Object.entries(gatewayCredentials)) {
-    if (value !== undefined && !isCredentialKey(key)) {
-      throw new Error('review_agent_gateway_credential_environment_invalid');
-    }
-  }
-  for (const [key, value] of Object.entries(providerCredentials)) {
-    if (
-      value !== undefined &&
-      !isCredentialKey(key) &&
-      key !== 'CODEX_HOME' &&
-      key !== 'CLAUDE_CONFIG_DIR'
-    ) {
-      throw new Error('review_agent_provider_credential_environment_invalid');
-    }
-  }
+  assertAllowlistedEnvironment(
+    runtime,
+    GATEWAY_RUNTIME_ENV_KEYS,
+    'review_agent_runtime_environment_invalid'
+  );
+  assertAllowlistedEnvironment(
+    gatewayCredentials,
+    GATEWAY_CREDENTIAL_ENV_KEYS,
+    'review_agent_gateway_credential_environment_invalid'
+  );
+  assertAllowlistedEnvironment(
+    providerCredentials,
+    PROVIDER_ENV_KEYS[providerKind],
+    'review_agent_provider_credential_environment_invalid'
+  );
 }
 
-function isCredentialKey(key: string): boolean {
-  return /(?:TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|COOKIE)/iu.test(key);
+function assertAllowlistedEnvironment(
+  environment: Readonly<NodeJS.ProcessEnv>,
+  allowedKeys: ReadonlySet<string>,
+  errorCode: string
+): void {
+  for (const key of Object.keys(environment)) {
+    if (!allowedKeys.has(key)) throw new Error(errorCode);
+  }
 }
 
 function requireTokenCount(value: unknown, field: string): number {
@@ -373,10 +521,48 @@ function requireTokenCount(value: unknown, field: string): number {
   return value as number;
 }
 
-function sanitizeDiagnostic(value: string): string {
-  return value
+function boundedProviderFailureSignals(
+  result: ReviewAgentProcessResult
+): string {
+  return `${result.stderr.slice(0, 8_192)}\n${result.stdout.slice(0, 8_192)}`
     .replace(/(?:sk|sess|eyJ)[A-Za-z0-9._-]{12,}/gu, '<redacted>')
     .replace(/[\r\n]+/gu, ' ')
     .trim()
-    .slice(0, 400);
+    .slice(0, 16_384);
+}
+
+function safeAgentError(
+  error: unknown,
+  fallbackClass: ReviewAgentFailureClass,
+  fallbackCode: string
+): ReviewAgentExecutionError {
+  if (!(error instanceof ReviewAgentExecutionError)) {
+    return new ReviewAgentExecutionError(fallbackClass, null, fallbackCode);
+  }
+  return new ReviewAgentExecutionError(
+    error.failureClass,
+    safeRetryAfterMs(error.retryAfterMs),
+    safeErrorCode(error.message, error.failureClass)
+  );
+}
+
+function safeErrorCode(
+  value: string,
+  failureClass: ReviewAgentFailureClass
+): string {
+  return SAFE_AGENT_ERROR_CODES.has(value)
+    ? value
+    : SAFE_DEFAULT_ERROR_CODE[failureClass];
+}
+
+function safeRetryAfterMs(value: number | null): number | null {
+  if (
+    value === null ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > MAX_SAFE_RETRY_AFTER_MS
+  ) {
+    return null;
+  }
+  return value;
 }

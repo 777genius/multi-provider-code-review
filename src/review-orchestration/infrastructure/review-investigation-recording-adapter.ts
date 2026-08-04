@@ -1,11 +1,15 @@
 import {
+  ReviewCapabilityKind,
   ReviewExecutionProviderKind,
+  ReviewInvestigationAuthorizationDescriptorVersion,
   ReviewInvestigationRecordingMode,
+  ReviewInvestigationRolloutCapability,
   ReviewTaskKind,
   type PreparedReviewInvocation,
   type ReviewInvestigationRecordingPort,
   type ReviewInvocationLease,
   type ReviewRevisionGuardPort,
+  type ReviewRunAuthorizationFacts,
   type ReviewWorkSlotPlan,
 } from '../application';
 import {
@@ -14,7 +18,10 @@ import {
   type ReviewInvestigationLease,
   type ReviewInvestigationLeasePort,
 } from '../../review-investigation/application/investigation-control-plane-port';
-import { RunInvestigationWorkSlot } from '../../review-investigation/application/run-investigation-work-slot';
+import {
+  ReviewInvestigationLegacyFallbackSignal,
+  RunInvestigationWorkSlot,
+} from '../../review-investigation/application/run-investigation-work-slot';
 import {
   ReviewInvestigationConclusion,
   ReviewInvestigationNextAction,
@@ -25,11 +32,17 @@ import {
   ReviewAgentExecutionProfile,
   ReviewAgentProviderKind,
 } from '../../review-investigation/domain/runtime-profile';
-import { ReviewTurnObligationKind } from '../../review-investigation/domain/turn-observation';
+import { REVIEW_INVESTIGATION_CRITIC_POLICY_V1 } from '../../review-investigation/domain/semantic-risk-policy';
 import {
   canonicalJson,
   sha256,
 } from '../../review-investigation/domain/canonical-json';
+import {
+  REVIEW_INVESTIGATION_PROBE_LIMITS,
+  REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
+  REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
+  ReviewInvestigationProbePlanStatus,
+} from '../../review-investigation/domain/deterministic-context-probe-plan';
 
 export type ReviewInvestigationRunnerFactory = (
   input: Parameters<ReviewInvestigationRecordingPort['execute']>[0]
@@ -37,22 +50,53 @@ export type ReviewInvestigationRunnerFactory = (
 
 export type ReviewInvestigationRecordingOptions = Readonly<{
   workingDirectory: string;
-  providerCredentialEnvironment: () => Readonly<NodeJS.ProcessEnv>;
   leaseDurationMs: number;
   providerTimeoutMs: number;
   certificateTtlMs: number;
   minimumCapacityParkMs: number;
   maxObligationsForTurn: number;
   maxStateTransitions: number;
+  policy: ReviewInvestigationPolicy;
+}>;
+
+export type ReviewInvestigationPolicy = Readonly<{
+  policyId: 'review-investigation-shadow.v1';
+  maxObligations: number;
+  maxSeedProbesPerFile: number;
+  maxSeedProbesOverall: number;
+  maxExpansionDepth: number;
   maxSemanticTurns: number;
   maxOperationalAttempts: number;
   maxCriticCycles: number;
-  maxObligations: number;
   maxFindings: number;
   maxProposalsPerTurn: number;
   maxReceiptsPerTurn: number;
-  maxExpansionDepth: number;
 }>;
+
+export const REVIEW_INVESTIGATION_PRODUCTION_POLICY: ReviewInvestigationPolicy =
+  Object.freeze({
+    policyId: 'review-investigation-shadow.v1',
+    maxObligations: 1_024,
+    maxSeedProbesPerFile: REVIEW_INVESTIGATION_PROBE_LIMITS.maxProbesPerFile,
+    maxSeedProbesOverall: REVIEW_INVESTIGATION_PROBE_LIMITS.maxProbesOverall,
+    maxExpansionDepth: 8,
+    maxSemanticTurns: 12,
+    maxOperationalAttempts: 24,
+    maxCriticCycles: 3,
+    maxFindings: 256,
+    maxProposalsPerTurn: 128,
+    maxReceiptsPerTurn: 256,
+  });
+
+export const REVIEW_INVESTIGATION_COVERAGE_PROFILE = Object.freeze({
+  coverageContractVersion: 'review-investigation-coverage.v1',
+  criticPolicyVersion: REVIEW_INVESTIGATION_CRITIC_POLICY_V1,
+  expansionRulesVersion: 'review-investigation-expansion.v2',
+  gatewayPolicyVersion: 'context-gateway-v4',
+  probePolicyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
+  runtimeProfileVersion: 'gateway-attested-agent.v1',
+  searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
+});
 
 export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationRecordingPort {
   constructor(
@@ -67,16 +111,22 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
     readonly invocation: PreparedReviewInvocation;
   }): boolean {
     return (
-      input.workSlot.providerKind === ReviewExecutionProviderKind.Codex &&
+      reviewAgentProviderKind(input.workSlot.providerKind) !== null &&
+      input.invocation.manifestFacts.providerKind ===
+        input.workSlot.providerKind &&
       input.invocation.workSlotId === input.workSlot.workSlotId &&
       input.invocation.manifestFacts.executionProfile ===
-        (this.mode === ReviewInvestigationRecordingMode.Authoritative
-          ? 'investigation_gateway_v1'
-          : 'context_gateway_v1') &&
+        'investigation_gateway_v1' &&
       input.invocation.manifestFacts.taskKindSet.length === 1 &&
       input.invocation.manifestFacts.taskKindSet[0] ===
         ReviewTaskKind.FindingDiscovery &&
-      input.invocation.coverageManifest.workSlotId === input.workSlot.workSlotId
+      input.invocation.coverageManifest.workSlotId ===
+        input.workSlot.workSlotId &&
+      input.invocation.investigationSeedEnvelope !== undefined &&
+      input.invocation.investigationSeedEnvelope !== null &&
+      input.invocation.investigationSeedEnvelope.hash ===
+        input.invocation.manifestFacts.providerRequestEnvelopeHash &&
+      supportsProbePlan(input.invocation, this.options.policy)
     );
   }
 
@@ -104,11 +154,11 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
       providerVoteLaneId: input.workSlot.providerVoteIdentityHash,
       providerStrategyId: input.manifest.providerInvocationKey,
       runtimeProfile: ReviewAgentExecutionProfile.GatewayAttestedAgentV1,
-      coverageContract: coverageContract(
+      coverageContract: reviewInvestigationCoverageContract(
         input.authorization.facts.producerReleaseId
       ),
-      investigationPolicy: investigationPolicy(this.options),
-      seedObligations: seedObligations(input.invocation),
+      investigationPolicy: this.options.policy,
+      seedEnvelope: requireSeedEnvelope(input.invocation),
       initialReceipts: [],
       targetScope: {
         workspaceId: input.authorization.facts.workspaceId,
@@ -138,27 +188,34 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
       providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
       providerManifestHash: sha256(input.manifest.manifestCanonicalJson),
       requestedModel: input.invocation.requestedModel,
-      providerKind: ReviewAgentProviderKind.Codex,
+      providerKind: requireReviewAgentProviderKind(input.workSlot.providerKind),
       promptFor: (snapshot) =>
         investigationPrompt(input.invocation.reviewPrompt, snapshot),
       workingDirectory: this.options.workingDirectory,
-      providerCredentialEnvironment:
-        this.options.providerCredentialEnvironment(),
       turnBudget: {
-        maxGatewayOperations: this.options.maxReceiptsPerTurn,
-        maxOutputFindings: this.options.maxFindings,
-        maxOutputProposals: this.options.maxProposalsPerTurn,
+        maxGatewayOperations: this.options.policy.maxReceiptsPerTurn,
+        maxOutputFindings: this.options.policy.maxFindings,
+        maxOutputProposals: this.options.policy.maxProposalsPerTurn,
       },
       leaseDurationMs: this.options.leaseDurationMs,
       maxObligationsForTurn: this.options.maxObligationsForTurn,
       providerTimeoutMs: this.options.providerTimeoutMs,
-      providerMaxTurns: this.options.maxSemanticTurns,
+      providerMaxTurns: this.options.policy.maxSemanticTurns,
       certificateTtlMs: this.options.certificateTtlMs,
       minimumCapacityParkMs: this.options.minimumCapacityParkMs,
       maxStateTransitions: this.options.maxStateTransitions,
       managedLease: () => investigationLease(input.currentLease()),
       signal: input.signal,
     });
+    if (
+      this.mode === ReviewInvestigationRecordingMode.RecordOnly &&
+      (result.status === ReviewInvestigationRunStatus.Parked ||
+        result.status === ReviewInvestigationRunStatus.RecoveryRequired ||
+        result.status ===
+          ReviewInvestigationRunStatus.TransitionBudgetExhausted)
+    ) {
+      throw new ReviewInvestigationLegacyFallbackSignal();
+    }
     return terminalObservation(result.status, result.snapshot);
   }
 }
@@ -186,56 +243,107 @@ export class ManagedOnlyInvestigationLeaseAdapter implements ReviewInvestigation
   }
 }
 
-function coverageContract(producerReleaseId: string) {
-  return Object.freeze({
-    coverageContractVersion: 'review-investigation-coverage.v1',
-    expansionRulesVersion: 'review-investigation-expansion.v1',
-    criticPolicyVersion: 'review-investigation-critic.v1',
-    gatewayPolicyVersion: 'context-gateway-v4',
-    producerReleaseId,
-    runtimeProfileVersion: 'gateway-attested-agent.v1',
-  });
-}
-
-function investigationPolicy(options: ReviewInvestigationRecordingOptions) {
-  return Object.freeze({
-    policyId: 'review-investigation-shadow.v1',
-    maxObligations: options.maxObligations,
-    maxExpansionDepth: options.maxExpansionDepth,
-    maxSemanticTurns: options.maxSemanticTurns,
-    maxOperationalAttempts: options.maxOperationalAttempts,
-    maxCriticCycles: options.maxCriticCycles,
-    maxFindings: options.maxFindings,
-    maxProposalsPerTurn: options.maxProposalsPerTurn,
-    maxReceiptsPerTurn: options.maxReceiptsPerTurn,
-  });
-}
-
-function seedObligations(invocation: PreparedReviewInvocation) {
-  const paths = [...invocation.coverageManifest.paths]
-    .map((item) => item.path)
-    .sort(compareCodeUnits);
-  if (new Set(paths).size !== paths.length) {
-    throw new Error('review_investigation_seed_path_duplicate');
+export function reviewInvestigationCoverageContract(producerReleaseId: string) {
+  if (producerReleaseId.length === 0) {
+    throw new Error('review_investigation_producer_release_id_missing');
   }
-  return Object.freeze([
-    Object.freeze({
-      kind: ReviewTurnObligationKind.InventoryWitness,
-      canonicalSubject: `inventory:${invocation.coverageManifest.reviewRevisionHash}`,
-      canonicalRequirement:
-        'authenticate the complete canonical changed-path inventory',
-      riskPriority: 1_000_000,
-    }),
-    ...paths.map((path) =>
-      Object.freeze({
-        kind: ReviewTurnObligationKind.ChangedContent,
-        canonicalSubject: `${path}@head`,
-        canonicalRequirement:
-          'inspect the complete changed content and its directly relevant context',
-        riskPriority: 900_000,
-      })
-    ),
-  ]);
+  return Object.freeze({
+    ...REVIEW_INVESTIGATION_COVERAGE_PROFILE,
+    producerReleaseId,
+  });
+}
+
+export function reviewInvestigationCoverageProfileHash(): string {
+  return sha256(canonicalJson(REVIEW_INVESTIGATION_COVERAGE_PROFILE));
+}
+
+export function reviewInvestigationPolicyHash(
+  policy: ReviewInvestigationPolicy = REVIEW_INVESTIGATION_PRODUCTION_POLICY
+): string {
+  return sha256(canonicalJson(policy));
+}
+
+export function matchesReviewInvestigationCapability(input: {
+  readonly facts: ReviewRunAuthorizationFacts;
+  readonly providerKind:
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+  readonly capability?: ReviewInvestigationRolloutCapability;
+  readonly policy?: ReviewInvestigationPolicy;
+}): boolean {
+  const descriptor = input.facts.reviewInvestigation;
+  if (
+    descriptor?.authorizationDescriptorVersion !==
+      ReviewInvestigationAuthorizationDescriptorVersion.V2 ||
+    descriptor.capability !== ReviewCapabilityKind.ReviewInvestigationV1 ||
+    descriptor.coverageProfileHash !==
+      reviewInvestigationCoverageProfileHash() ||
+    descriptor.policyHash !==
+      reviewInvestigationPolicyHash(
+        input.policy ?? REVIEW_INVESTIGATION_PRODUCTION_POLICY
+      ) ||
+    !input.facts.providerVoteLanes.some(
+      (lane) => lane.providerKind === input.providerKind
+    )
+  ) {
+    return false;
+  }
+  const capability =
+    input.capability ?? ReviewInvestigationRolloutCapability.Recording;
+  return (
+    descriptor.providerCapabilities
+      .find((row) => row.providerKind === input.providerKind)
+      ?.capabilities.includes(capability) ?? false
+  );
+}
+
+function reviewAgentProviderKind(
+  providerKind: ReviewExecutionProviderKind
+): ReviewAgentProviderKind | null {
+  switch (providerKind) {
+    case ReviewExecutionProviderKind.Codex:
+      return ReviewAgentProviderKind.Codex;
+    case ReviewExecutionProviderKind.ClaudeCode:
+      return ReviewAgentProviderKind.ClaudeCode;
+    case ReviewExecutionProviderKind.OpenRouter:
+      return null;
+  }
+}
+
+function requireReviewAgentProviderKind(
+  providerKind: ReviewExecutionProviderKind
+): ReviewAgentProviderKind {
+  const mapped = reviewAgentProviderKind(providerKind);
+  if (mapped === null) {
+    throw new Error('review_investigation_provider_unsupported');
+  }
+  return mapped;
+}
+
+function supportsProbePlan(
+  invocation: PreparedReviewInvocation,
+  policy: ReviewInvestigationPolicy
+): boolean {
+  const plan = invocation.investigationProbePlan;
+  return (
+    plan.status === ReviewInvestigationProbePlanStatus.Complete &&
+    plan.limits.maxProbesPerFile === policy.maxSeedProbesPerFile &&
+    plan.limits.maxProbesOverall === policy.maxSeedProbesOverall &&
+    1 + invocation.coverageManifest.paths.length + plan.probes.length <=
+      policy.maxObligations
+  );
+}
+
+function requireSeedEnvelope(
+  invocation: PreparedReviewInvocation
+): NonNullable<PreparedReviewInvocation['investigationSeedEnvelope']> {
+  const envelope = invocation.investigationSeedEnvelope;
+  if (
+    !envelope ||
+    envelope.hash !== invocation.manifestFacts.providerRequestEnvelopeHash
+  ) {
+    throw new Error('review_investigation_seed_envelope_unbound');
+  }
+  return envelope;
 }
 
 function investigationPrompt(
@@ -254,7 +362,12 @@ function investigationPrompt(
     '',
     'REVIEW INVESTIGATION TURN CONTRACT:',
     'Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.',
-    'Do not close an obligation without complete operation receipt evidence. Propose newly discovered obligations instead of silently broadening scope.',
+    'For typed search requirements, execute the exact literal query with paths=["."], revision="head", caseSensitive=true, and pageSize=500, then follow every cursor to completion.',
+    'During discovery turns, attach every complete typed search chain, plus every additional complete exploratory text-search chain, to operationBackedDiscoveryClaims with its sourceObligationId, exact query, and every operationReceiptId from the chain.',
+    'When inspected evidence reveals additional review scope, add a provider-neutral obligationProposals entry instead of silently broadening an existing obligation.',
+    'Each obligation proposal must contain exactly kind, canonicalSubject, canonicalRequirement, and riskPriority. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.',
+    'Obligation proposals are non-authoritative and remain open until the control plane validates and independently closes them with accepted evidence.',
+    'Do not close an obligation without complete operation receipt evidence.',
     `REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:${encodedBrief}`,
   ].join('\n');
 }
@@ -313,10 +426,4 @@ function terminalObservation(
     investigationCertificateId: snapshot.certificateId,
     investigationCertificateHash: snapshot.certificateHash,
   });
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
 }

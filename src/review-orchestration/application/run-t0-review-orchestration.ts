@@ -44,6 +44,7 @@ import {
 } from './review-orchestration-ports';
 import type { ReviewPromptCoverageManifest } from '../domain';
 import { RetryableReviewContextInspectionFailure } from './review-context-inspection-failure';
+import { ReviewInvestigationLegacyFallbackSignal } from '../../review-investigation/application/run-investigation-work-slot';
 
 export enum ReviewOrchestrationResultStatus {
   Completed = 'completed',
@@ -1069,18 +1070,33 @@ export class RunT0ReviewOrchestration {
     void monitor();
     try {
       if (investigate) {
-        const investigationObservation =
-          await this.dependencies.investigationRecording!.execute({
-            authorization: input.authorization,
-            execution: input.execution,
-            workSlot: input.workSlot,
+        let investigationObservation: ReviewObservationPayload;
+        try {
+          investigationObservation =
+            await this.dependencies.investigationRecording!.execute({
+              authorization: input.authorization,
+              execution: input.execution,
+              workSlot: input.workSlot,
+              invocation: input.invocation,
+              manifest: input.manifest,
+              currentLease: input.currentLease,
+              ownerIdHash: input.ownerIdHash,
+              sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+              signal: abort.signal,
+            });
+        } catch (error) {
+          if (!(error instanceof ReviewInvestigationLegacyFallbackSignal)) {
+            throw error;
+          }
+          return this.dependencies.invocations.execute({
             invocation: input.invocation,
             manifest: input.manifest,
-            currentLease: input.currentLease,
-            ownerIdHash: input.ownerIdHash,
+            lease: input.currentLease(),
+            sourceExecutionId: input.sourceExecutionId,
             sourceReviewRevisionHash: input.revision.reviewRevisionHash,
             signal: abort.signal,
           });
+        }
         if (
           this.dependencies.investigationRecording!.mode ===
           ReviewInvestigationRecordingMode.Authoritative

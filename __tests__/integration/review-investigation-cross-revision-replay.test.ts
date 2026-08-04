@@ -53,12 +53,12 @@ describe('cross-revision investigation replay E2E', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it('reuses unchanged receipts and enters a fresh target critic', async () => {
+  it('reuses unchanged receipts and enters fresh target discovery before critic', async () => {
     await git(['commit', '--allow-empty', '-m', 'test: unchanged target']);
     const result = await executeReplay(sha256('export const value = 1;\n'));
 
-    expect(result?.state).toBe(ReviewInvestigationState.AwaitingCritic);
-    expect(result?.nextAction).toBe(DomainNextAction.RunCritic);
+    expect(result?.state).toBe(ReviewInvestigationState.AwaitingTurn);
+    expect(result?.nextAction).toBe(DomainNextAction.RunTurn);
     expect(result?.satisfiedObligationCount).toBe(1);
   });
 
@@ -75,6 +75,7 @@ describe('cross-revision investigation replay E2E', () => {
 
   async function executeReplay(expectedContentHash: string) {
     const headSha = await revParse('HEAD');
+    const targetCheckoutTreeOid = await revParse('HEAD^{tree}');
     const targetRevision = {
       baseSha: sourceHead,
       mergeBaseSha: sourceHead,
@@ -103,6 +104,25 @@ describe('cross-revision investigation replay E2E', () => {
               stringValue(payload.replayResultCanonicalJson)
             );
             receiptMatched =
+              payload.attestationId === 'attestation-e2e' &&
+              payload.attestationHash === sha256('attestation-e2e') &&
+              payload.replayCapability === 'replay.capability.e2e' &&
+              payload.targetReviewRevisionHash ===
+                targetRevision.reviewRevisionHash &&
+              payload.targetCheckoutTreeOid === targetCheckoutTreeOid &&
+              payload.replayResultHash ===
+                sha256(stringValue(payload.replayResultCanonicalJson)) &&
+              manifest.manifestVersion === 3 &&
+              manifest.checkoutTreeOid === targetCheckoutTreeOid &&
+              manifest.gatewayPolicyVersion ===
+                CONTEXT_GATEWAY_V4_POLICY_VERSION &&
+              manifest.gatewayBinaryHash === sha256('gateway-v4-e2e') &&
+              manifest.complete === true &&
+              manifest.confinementTainted === false &&
+              manifest.terminalFailureClass === null &&
+              manifest.events.length === 1 &&
+              manifest.events[0]?.operationKind === 'file_read' &&
+              manifest.events[0]?.outcome === 'succeeded' &&
               manifest.events[0]?.result?.contentHash === expectedContentHash;
             return {
               status: receiptMatched
@@ -118,7 +138,11 @@ describe('cross-revision investigation replay E2E', () => {
             const proofs = JSON.parse(
               stringValue(payload.replayProofsCanonicalJson)
             );
-            const reused = receiptMatched && proofs.length === 1;
+            const reused =
+              receiptMatched &&
+              proofs.length === 1 &&
+              proofs[0]?.obligationId === sha256('obligation-e2e') &&
+              proofs[0]?.replayProofId === 'proof-e2e';
             return investigationResult(reused);
           }
           throw new Error(`unexpected_operation:${operation}`);
@@ -151,7 +175,10 @@ describe('cross-revision investigation replay E2E', () => {
       runtimeProfile: 'gateway_attested_agent_v1',
       coverageContract: {},
       investigationPolicy: {},
-      seedObligations: [],
+      seedEnvelope: {
+        canonicalJson: '{}',
+        hash: sha256('{}'),
+      },
       initialReceipts: [],
     };
 
@@ -224,12 +251,8 @@ describe('cross-revision investigation replay E2E', () => {
   }
 
   function investigationResult(reused: boolean) {
-    const state = reused
-      ? ReviewInvestigationState.AwaitingCritic
-      : ReviewInvestigationState.AwaitingTurn;
-    const nextAction = reused
-      ? DomainNextAction.RunCritic
-      : DomainNextAction.RunTurn;
+    const state = ReviewInvestigationState.AwaitingTurn;
+    const nextAction = DomainNextAction.RunTurn;
     const readModel = {
       investigationId: 'target-investigation-e2e',
       version: 1,
@@ -257,13 +280,9 @@ describe('cross-revision investigation replay E2E', () => {
       status: ReviewInvestigationMutationResultStatus.Applied,
       investigationId: readModel.investigationId,
       investigationVersion: '1',
-      investigationState: reused
-        ? ReviewInvestigationPublishedState.AwaitingCritic
-        : ReviewInvestigationPublishedState.AwaitingTurn,
+      investigationState: ReviewInvestigationPublishedState.AwaitingTurn,
       dossierDigest: readModel.dossierDigest,
-      nextAction: reused
-        ? ReviewInvestigationNextAction.RunCritic
-        : ReviewInvestigationNextAction.RunTurn,
+      nextAction: ReviewInvestigationNextAction.RunTurn,
       investigationCanonicalJson: canonicalJson(readModel),
       certificateId: null,
       certificateHash: null,

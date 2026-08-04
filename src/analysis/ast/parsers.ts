@@ -1,10 +1,5 @@
 export type Language =
-  | 'typescript'
-  | 'javascript'
-  | 'python'
-  | 'go'
-  | 'rust'
-  | 'unknown';
+  'typescript' | 'javascript' | 'python' | 'go' | 'rust' | 'unknown';
 
 export function detectLanguage(filename: string): Language {
   if (filename.endsWith('.ts') || filename.endsWith('.tsx'))

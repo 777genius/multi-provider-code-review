@@ -115,16 +115,31 @@ export class ContextGatewayV4Recorder {
     readonly operationReceiptId: string;
   }): Promise<ContextGatewayV4TranscriptEvent> {
     requireSha256(input.operationReceiptId, 'operation_receipt_id');
-    return this.serializeMutation(() =>
-      this.append({
+    return this.serializeMutation(async () => {
+      const existing = this.events.find(
+        (event) => event.operationReceiptId === input.operationReceiptId
+      );
+      if (existing) {
+        if (
+          existing.outcome !== ContextOperationOutcomeKind.Succeeded ||
+          existing.failureClass !== null ||
+          canonicalJson(existing.operation) !==
+            canonicalJson(input.operation) ||
+          canonicalJson(existing.result) !== canonicalJson(input.result)
+        ) {
+          throw new Error('context_gateway_v4_operation_receipt_collision');
+        }
+        return existing;
+      }
+      return this.append({
         outcome: ContextOperationOutcomeKind.Succeeded,
         failureClass: null,
         operation: input.operation,
         result: input.result,
         operationReceiptId: input.operationReceiptId,
         sanitizedReason: null,
-      })
-    );
+      });
+    });
   }
 
   recordRejected(input: {

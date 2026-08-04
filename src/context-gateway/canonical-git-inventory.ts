@@ -1,10 +1,11 @@
 import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { promisify, TextDecoder } from 'util';
 import {
   canonicalJson,
   requireGitOid,
   sha256,
 } from './context-gateway-contract';
+import { classifyUtf8Content } from './utf8-content';
 
 const execFileAsync = promisify(execFile);
 const RAW_RECORD = /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])$/u;
@@ -38,6 +39,13 @@ export type CanonicalInventoryEntry = Readonly<{
   afterMode: string;
   beforeOid: string;
   afterOid: string;
+  beforeContentKind: CanonicalInventoryContentKind;
+  beforeByteCount: number | null;
+  beforeLineCount: number | null;
+  afterContentKind: CanonicalInventoryContentKind;
+  afterByteCount: number | null;
+  afterLineCount: number | null;
+  // Compatibility projection for consumers that display the active-side object.
   contentKind: CanonicalInventoryContentKind;
   byteCount: number | null;
   lineCount: number | null;
@@ -46,7 +54,7 @@ export type CanonicalInventoryEntry = Readonly<{
 }>;
 
 export type CanonicalGitInventory = Readonly<{
-  inventoryVersion: 1;
+  inventoryVersion: 2;
   mergeBaseTreeOid: string;
   headTreeOid: string;
   entries: readonly CanonicalInventoryEntry[];
@@ -93,8 +101,9 @@ export async function buildCanonicalGitInventory(input: {
     throw new Error('canonical_inventory_entry_limit_exceeded');
   }
   const paired = pairExactRenames(rawEntries);
+  const metadata = new Map<string, Promise<CanonicalObjectMetadata>>();
   const entries = await Promise.all(
-    paired.map((entry) => materializeEntry(input.root, entry))
+    paired.map((entry) => materializeEntry(input.root, entry, metadata))
   );
   entries.sort(compareInventoryEntries);
   const normalizedMergeBaseTreeOid = requireGitOid(
@@ -107,14 +116,14 @@ export async function buildCanonicalGitInventory(input: {
   );
   const inventoryHash = sha256(
     canonicalJson({
-      inventoryVersion: 1,
+      inventoryVersion: 2,
       mergeBaseTreeOid: normalizedMergeBaseTreeOid,
       headTreeOid: normalizedHeadTreeOid,
       entries,
     })
   );
   return Object.freeze({
-    inventoryVersion: 1,
+    inventoryVersion: 2,
     mergeBaseTreeOid: normalizedMergeBaseTreeOid,
     headTreeOid: normalizedHeadTreeOid,
     entries: Object.freeze(entries),
@@ -124,15 +133,20 @@ export async function buildCanonicalGitInventory(input: {
 }
 
 function parseRawInventory(raw: Buffer): RawInventoryEntry[] {
-  const tokens = raw.toString('utf8').split('\0');
-  if (tokens.at(-1) === '') tokens.pop();
+  const tokens = splitNulTerminated(raw);
   if (tokens.length % 2 !== 0) {
     throw new Error('canonical_inventory_raw_shape_invalid');
   }
   const entries: RawInventoryEntry[] = [];
   for (let index = 0; index < tokens.length; index += 2) {
-    const record = tokens[index];
-    const path = tokens[index + 1];
+    const record = decodeUtf8(
+      tokens[index]!,
+      'canonical_inventory_raw_record_encoding_invalid'
+    );
+    const path = decodeUtf8(
+      tokens[index + 1]!,
+      'canonical_inventory_path_encoding_invalid'
+    );
     const match = RAW_RECORD.exec(record);
     if (!match || !path || path.includes('\0')) {
       throw new Error('canonical_inventory_raw_record_invalid');
@@ -149,6 +163,32 @@ function parseRawInventory(raw: Buffer): RawInventoryEntry[] {
     );
   }
   return entries;
+}
+
+function splitNulTerminated(raw: Buffer): readonly Buffer[] {
+  if (raw.length === 0) return [];
+  if (raw.at(-1) !== 0) {
+    throw new Error('canonical_inventory_raw_shape_invalid');
+  }
+  const tokens: Buffer[] = [];
+  let start = 0;
+  for (let index = 0; index < raw.length; index += 1) {
+    if (raw[index] !== 0) continue;
+    tokens.push(raw.subarray(start, index));
+    start = index + 1;
+  }
+  return tokens;
+}
+
+function decodeUtf8(value: Buffer, errorCode: string): string {
+  try {
+    return new TextDecoder('utf-8', {
+      fatal: true,
+      ignoreBOM: true,
+    }).decode(value);
+  } catch {
+    throw new Error(errorCode);
+  }
 }
 
 function pairExactRenames(entries: readonly RawInventoryEntry[]): Array<
@@ -223,7 +263,7 @@ function groupRenameCandidates(
     groups.set(candidateOid, group);
   }
   for (const group of groups.values()) {
-    group.sort((left, right) => left.path.localeCompare(right.path));
+    group.sort((left, right) => compareCodeUnits(left.path, right.path));
   }
   return groups;
 }
@@ -240,7 +280,8 @@ async function materializeEntry(
         afterMode: string;
         beforeOid: string;
         afterOid: string;
-      }>
+      }>,
+  metadata: Map<string, Promise<CanonicalObjectMetadata>>
 ): Promise<CanonicalInventoryEntry> {
   const deleted = entry.status === CanonicalInventoryStatus.Deleted;
   const beforePath =
@@ -255,9 +296,11 @@ async function materializeEntry(
       : deleted
         ? null
         : entry.path;
-  const activeMode = deleted ? entry.beforeMode : entry.afterMode;
-  const activeOid = deleted ? entry.beforeOid : entry.afterOid;
-  const metadata = await classifyObject(root, activeMode, activeOid);
+  const [beforeMetadata, afterMetadata] = await Promise.all([
+    classifyObjectCached(root, entry.beforeMode, entry.beforeOid, metadata),
+    classifyObjectCached(root, entry.afterMode, entry.afterOid, metadata),
+  ]);
+  const activeMetadata = deleted ? beforeMetadata : afterMetadata;
   const generatedPath = afterPath ?? beforePath ?? '';
   const generated = isGeneratedPath(generatedPath);
   return Object.freeze({
@@ -268,21 +311,43 @@ async function materializeEntry(
     afterMode: entry.afterMode,
     beforeOid: entry.beforeOid,
     afterOid: entry.afterOid,
-    ...metadata,
+    beforeContentKind: beforeMetadata.contentKind,
+    beforeByteCount: beforeMetadata.byteCount,
+    beforeLineCount: beforeMetadata.lineCount,
+    afterContentKind: afterMetadata.contentKind,
+    afterByteCount: afterMetadata.byteCount,
+    afterLineCount: afterMetadata.lineCount,
+    ...activeMetadata,
     generated,
     generatedPolicySource: generated ? 'path_heuristic_v1' : null,
   });
+}
+
+type CanonicalObjectMetadata = Readonly<{
+  contentKind: CanonicalInventoryContentKind;
+  byteCount: number | null;
+  lineCount: number | null;
+}>;
+
+function classifyObjectCached(
+  root: string,
+  mode: string,
+  oid: string,
+  cache: Map<string, Promise<CanonicalObjectMetadata>>
+): Promise<CanonicalObjectMetadata> {
+  const key = `${mode}\0${oid}`;
+  const existing = cache.get(key);
+  if (existing) return existing;
+  const classified = classifyObject(root, mode, oid);
+  cache.set(key, classified);
+  return classified;
 }
 
 async function classifyObject(
   root: string,
   mode: string,
   oid: string
-): Promise<{
-  contentKind: CanonicalInventoryContentKind;
-  byteCount: number | null;
-  lineCount: number | null;
-}> {
+): Promise<CanonicalObjectMetadata> {
   if (/^0+$/u.test(oid)) {
     return {
       contentKind: CanonicalInventoryContentKind.Absent,
@@ -323,25 +388,26 @@ async function classifyObject(
       lineCount: null,
     };
   }
-  if (content.includes(0)) {
+  const classified = classifyUtf8Content(content);
+  if (classified.kind === 'binary') {
     return {
       contentKind: CanonicalInventoryContentKind.Binary,
       byteCount: content.byteLength,
       lineCount: null,
     };
   }
-  const text = content.toString('utf8');
+  const text = classified.text;
   if (text.startsWith('version https://git-lfs.github.com/spec/v1\n')) {
     return {
       contentKind: CanonicalInventoryContentKind.LfsPointer,
       byteCount: content.byteLength,
-      lineCount: lineCount(text),
+      lineCount: classified.lineCount,
     };
   }
   return {
     contentKind: CanonicalInventoryContentKind.Text,
     byteCount: content.byteLength,
-    lineCount: lineCount(text),
+    lineCount: classified.lineCount,
   };
 }
 
@@ -371,20 +437,22 @@ function compareInventoryEntries(
   left: CanonicalInventoryEntry,
   right: CanonicalInventoryEntry
 ): number {
-  return `${left.afterPath ?? left.beforePath}\0${left.status}\0${left.beforePath ?? ''}`.localeCompare(
+  return compareCodeUnits(
+    `${left.afterPath ?? left.beforePath}\0${left.status}\0${left.beforePath ?? ''}`,
     `${right.afterPath ?? right.beforePath}\0${right.status}\0${right.beforePath ?? ''}`
   );
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function isGeneratedPath(value: string): boolean {
   return /(?:^|\/)(?:generated|gen|dist|vendor)\/|(?:\.generated\.|\.g\.|\.pb\.)/u.test(
     value
   );
-}
-
-function lineCount(value: string): number {
-  if (value.length === 0) return 0;
-  return value.split('\n').length - (value.endsWith('\n') ? 1 : 0);
 }
 
 async function gitText(root: string, args: readonly string[]): Promise<string> {

@@ -7,9 +7,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ARTIFACT_KIND = 'reviewrouter-context-gateway';
-const METADATA_VERSION = 1;
+const LEGACY_METADATA_VERSION = 1;
+const INVESTIGATION_METADATA_VERSION = 2;
 const DEFAULT_ENTRYPOINT = 'dist/context-gateway.js';
 const DEFAULT_OUTPUT = 'dist/context-gateway.release.json';
+const DEFAULT_CAPABILITY_FIXTURE =
+  'src/review-investigation/fixtures/review-investigation-capability-v1.golden.json';
+const LEGACY_POLICY_VERSION = 'context-gateway-v3';
+const INVESTIGATION_POLICY_VERSION = 'context-gateway-v4';
+const REVIEW_INVESTIGATION_CAPABILITY = 'review_investigation_v1';
 const POLICY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 
@@ -25,14 +31,20 @@ export function generateContextGatewayReleaseMetadata(input = {}) {
   );
   const entrypoint = path.join(cwd, entrypointPath);
   const description = describeGateway(entrypoint);
+  if (description.metadataVersion === INVESTIGATION_METADATA_VERSION) {
+    const capabilityFixturePath = normalizeRelativePath(
+      input.capabilityFixturePath ?? DEFAULT_CAPABILITY_FIXTURE,
+      'capabilityFixturePath'
+    );
+    assertInvestigationDescriptionMatchesFixture(
+      description,
+      readCapabilityFixture(path.join(cwd, capabilityFixturePath))
+    );
+  }
   const metadata = Object.freeze({
-    artifactKind: ARTIFACT_KIND,
+    ...description,
     contextGatewayEntrypointDigest: sha256(readFileSync(entrypoint)),
     contextGatewayEntrypointPath: entrypointPath,
-    contextGatewayPolicyVersion: description.contextGatewayPolicyVersion,
-    supportedContextGatewayPolicyVersions:
-      description.supportedContextGatewayPolicyVersions,
-    metadataVersion: METADATA_VERSION,
   });
   const bytes = canonicalJson(metadata);
   const output = path.join(cwd, outputPath);
@@ -69,36 +81,134 @@ function describeGateway(entrypoint) {
   } catch (error) {
     throw new Error('context_gateway_description_invalid', { cause: error });
   }
-  const expectedKeys = [
-    'artifactKind',
-    'contextGatewayPolicyVersion',
-    'metadataVersion',
-    'supportedContextGatewayPolicyVersions',
-  ];
   if (
     !isRecord(value) ||
-    JSON.stringify(Object.keys(value).sort()) !==
-      JSON.stringify(expectedKeys) ||
     value.artifactKind !== ARTIFACT_KIND ||
-    value.metadataVersion !== METADATA_VERSION ||
     typeof value.contextGatewayPolicyVersion !== 'string' ||
     !POLICY_PATTERN.test(value.contextGatewayPolicyVersion) ||
-    !Array.isArray(value.supportedContextGatewayPolicyVersions) ||
-    value.supportedContextGatewayPolicyVersions.length < 1 ||
-    value.supportedContextGatewayPolicyVersions.length > 16 ||
-    !value.supportedContextGatewayPolicyVersions.every(
-      (policy) => typeof policy === 'string' && POLICY_PATTERN.test(policy)
-    ) ||
-    new Set(value.supportedContextGatewayPolicyVersions).size !==
-      value.supportedContextGatewayPolicyVersions.length ||
-    !value.supportedContextGatewayPolicyVersions.includes(
+    !isSupportedPolicyList(
+      value.supportedContextGatewayPolicyVersions,
       value.contextGatewayPolicyVersion
     ) ||
     result.stdout !== `${JSON.stringify(value)}\n`
   ) {
     throw new Error('context_gateway_description_invalid');
   }
+  if (value.metadataVersion === LEGACY_METADATA_VERSION) {
+    if (
+      !hasExactKeys(value, [
+        'artifactKind',
+        'contextGatewayPolicyVersion',
+        'metadataVersion',
+        'supportedContextGatewayPolicyVersions',
+      ]) ||
+      value.contextGatewayPolicyVersion !== LEGACY_POLICY_VERSION
+    ) {
+      throw new Error('context_gateway_description_invalid');
+    }
+    return value;
+  }
+  if (
+    value.metadataVersion !== INVESTIGATION_METADATA_VERSION ||
+    !hasExactKeys(value, [
+      'artifactKind',
+      'contextGatewayPolicyVersion',
+      'metadataVersion',
+      'reviewInvestigationCapability',
+      'reviewInvestigationCoverageProfileHash',
+      'reviewInvestigationPolicyHash',
+      'supportedContextGatewayPolicyVersions',
+    ]) ||
+    value.contextGatewayPolicyVersion !== INVESTIGATION_POLICY_VERSION ||
+    JSON.stringify(value.supportedContextGatewayPolicyVersions) !==
+      JSON.stringify([LEGACY_POLICY_VERSION, INVESTIGATION_POLICY_VERSION]) ||
+    value.reviewInvestigationCapability !== REVIEW_INVESTIGATION_CAPABILITY ||
+    !DIGEST_PATTERN.test(value.reviewInvestigationCoverageProfileHash) ||
+    !DIGEST_PATTERN.test(value.reviewInvestigationPolicyHash)
+  ) {
+    throw new Error('context_gateway_description_invalid');
+  }
   return value;
+}
+
+function isSupportedPolicyList(value, primaryPolicy) {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > 16 ||
+    !value.every(
+      (policy) =>
+        typeof policy === 'string' &&
+        POLICY_PATTERN.test(policy) &&
+        [LEGACY_POLICY_VERSION, INVESTIGATION_POLICY_VERSION].includes(policy)
+    ) ||
+    new Set(value).size !== value.length ||
+    !value.includes(primaryPolicy)
+  ) {
+    return false;
+  }
+  const canonicalOrder = [
+    LEGACY_POLICY_VERSION,
+    INVESTIGATION_POLICY_VERSION,
+  ].filter((policy) => value.includes(policy));
+  return JSON.stringify(value) === JSON.stringify(canonicalOrder);
+}
+
+function readCapabilityFixture(fixturePath) {
+  const bytes = readFileSync(fixturePath);
+  if (bytes.byteLength > 16 * 1_024) {
+    throw new Error('context_gateway_release_capability_fixture_invalid');
+  }
+  let value;
+  try {
+    value = JSON.parse(bytes.toString('utf8'));
+  } catch (error) {
+    throw new Error('context_gateway_release_capability_fixture_invalid', {
+      cause: error,
+    });
+  }
+  if (
+    !hasExactKeys(value, ['coverageProfile', 'policy']) ||
+    !isRecord(value.coverageProfile) ||
+    !isRecord(value.policy) ||
+    value.coverageProfile.value?.gatewayPolicyVersion !==
+      INVESTIGATION_POLICY_VERSION
+  ) {
+    throw new Error('context_gateway_release_capability_fixture_invalid');
+  }
+  return Object.freeze({
+    coverageProfileHash: readGoldenHash(
+      value.coverageProfile,
+      'coverage_profile'
+    ),
+    policyHash: readGoldenHash(value.policy, 'policy'),
+  });
+}
+
+function readGoldenHash(value, field) {
+  if (
+    !hasExactKeys(value, ['canonicalJson', 'sha256', 'value']) ||
+    typeof value.canonicalJson !== 'string' ||
+    typeof value.sha256 !== 'string' ||
+    !DIGEST_PATTERN.test(value.sha256)
+  ) {
+    throw new Error(`context_gateway_release_${field}_fixture_invalid`);
+  }
+  const canonical = compactCanonicalJson(value.value);
+  if (canonical !== value.canonicalJson || sha256(canonical) !== value.sha256) {
+    throw new Error(`context_gateway_release_${field}_fixture_invalid`);
+  }
+  return value.sha256;
+}
+
+function assertInvestigationDescriptionMatchesFixture(description, fixture) {
+  if (
+    description.reviewInvestigationCoverageProfileHash !==
+      fixture.coverageProfileHash ||
+    description.reviewInvestigationPolicyHash !== fixture.policyHash
+  ) {
+    throw new Error('context_gateway_release_capability_fixture_mismatch');
+  }
 }
 
 function normalizeRelativePath(value, field) {
@@ -128,6 +238,34 @@ function canonicalJson(value) {
   )}\n`;
 }
 
+function compactCanonicalJson(value) {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean'
+  ) {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new Error('context_gateway_release_capability_fixture_invalid');
+    }
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(compactCanonicalJson).join(',')}]`;
+  }
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map(
+        (key) => `${JSON.stringify(key)}:${compactCanonicalJson(value[key])}`
+      )
+      .join(',')}}`;
+  }
+  throw new Error('context_gateway_release_capability_fixture_invalid');
+}
+
 function sha256(value) {
   const digest = createHash('sha256').update(value).digest('hex');
   if (!DIGEST_PATTERN.test(digest)) {
@@ -138,6 +276,16 @@ function sha256(value) {
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value, expectedKeys) {
+  if (!isRecord(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  return (
+    actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index])
+  );
 }
 
 function main() {

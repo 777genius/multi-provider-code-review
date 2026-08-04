@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { createHash, createHmac } from 'crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -32,6 +32,71 @@ import {
 const execFileAsync = promisify(execFile);
 
 describe('ContextGatewayInvocationSessionFactory', () => {
+  it('rejects an unknown provider before opening runtime resources', async () => {
+    const factory = new ContextGatewayInvocationSessionFactory(
+      {} as ReviewContextAttestationPort,
+      {
+        checkoutRoot: '/tmp',
+        gatewayBundlePath: '/tmp/context-gateway.cjs',
+      },
+      {} as RequiredContextWitnessRunnerPort
+    );
+
+    await expect(
+      factory.open({
+        invocationLease: {
+          leaseId: 'lease-1',
+          attemptId: 'attempt-1',
+          leaseCapability: 'lease-capability',
+          fencingToken: '1',
+          expiresAt: '2026-08-04T10:05:00.000Z',
+          resultReportUntil: '2026-08-04T10:10:00.000Z',
+          renewalCeilingReached: false,
+        },
+        sourceExecutionId: 'execution-1',
+        sourceWorkSlotId: 'slot-1',
+        sourceReviewRevisionHash: hash('revision'),
+        providerKind: 'unknown-provider',
+        requestedModel: 'model',
+        executionProfile: 'context_gateway_v1',
+        providerInvocationKey: hash('provider-invocation'),
+        toolPolicyHash: hash('tool-policy'),
+        revision: {
+          baseSha: 'b'.repeat(40),
+          mergeBaseSha: 'c'.repeat(40),
+          headSha: 'd'.repeat(40),
+        },
+      })
+    ).rejects.toThrow('context_gateway_provider_kind_invalid');
+
+    await expect(
+      factory.open({
+        invocationLease: {
+          leaseId: 'lease-1',
+          attemptId: 'attempt-1',
+          leaseCapability: 'lease-capability',
+          fencingToken: '1',
+          expiresAt: '2026-08-04T10:05:00.000Z',
+          resultReportUntil: '2026-08-04T10:10:00.000Z',
+          renewalCeilingReached: false,
+        },
+        sourceExecutionId: 'execution-1',
+        sourceWorkSlotId: 'slot-1',
+        sourceReviewRevisionHash: hash('revision'),
+        providerKind: 'codex',
+        requestedModel: 'model',
+        executionProfile: 'unknown-profile',
+        providerInvocationKey: hash('provider-invocation'),
+        toolPolicyHash: hash('tool-policy'),
+        revision: {
+          baseSha: 'b'.repeat(40),
+          mergeBaseSha: 'c'.repeat(40),
+          headSha: 'd'.repeat(40),
+        },
+      })
+    ).rejects.toThrow('context_gateway_execution_profile_invalid');
+  });
+
   it('seals an authenticated v4 transcript with bound replay material', async () => {
     const fixture = await openSessionFixture(CONTEXT_GATEWAY_V4_POLICY_VERSION);
     try {
@@ -51,6 +116,7 @@ describe('ContextGatewayInvocationSessionFactory', () => {
         replayMaterialPath:
           fixture.session.providerConfig.runtimeEnvironment
             .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!,
+        secret: fixture.secret,
       });
       await replay.initialize();
       const event = await recorder.recordSucceeded({
@@ -80,6 +146,12 @@ describe('ContextGatewayInvocationSessionFactory', () => {
 
       const sealInput =
         fixture.attestations.sealGatewaySession.mock.calls[0][0];
+      await expect(
+        access(
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!
+        )
+      ).rejects.toThrow();
       expect(JSON.parse(sealInput.transcriptCanonicalJson)).toMatchObject({
         manifestVersion: 3,
         gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,

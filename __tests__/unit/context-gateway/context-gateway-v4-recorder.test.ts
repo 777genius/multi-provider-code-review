@@ -80,6 +80,38 @@ describe('ContextGatewayV4Recorder', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('folds an identical successful receipt and rejects receipt collisions', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'rr-gateway-v4-retry-'));
+    const transcriptPath = path.join(root, 'transcript.json');
+    try {
+      const recorder = createRecorder(transcriptPath);
+      await recorder.initialize();
+      const input = {
+        operation: {
+          kind: ContextGatewayV4OperationKind.FileRead,
+          pathHash: sha256('stable'),
+        },
+        result: { blobOid: 'b'.repeat(40), complete: true },
+        operationReceiptId: sha256('stable-receipt'),
+      } as const;
+
+      const first = await recorder.recordSucceeded(input);
+      const retried = await recorder.recordSucceeded(input);
+
+      expect(retried).toBe(first);
+      expect(recorder.snapshot().events).toHaveLength(1);
+      await expect(
+        recorder.recordSucceeded({
+          ...input,
+          result: { blobOid: 'c'.repeat(40), complete: true },
+        })
+      ).rejects.toThrow('context_gateway_v4_operation_receipt_collision');
+      expect(recorder.snapshot().events).toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function createRecorder(transcriptPath: string) {

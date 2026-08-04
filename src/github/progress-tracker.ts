@@ -15,11 +15,7 @@ import {
 } from './pr-head-guard';
 
 export type ProgressStatus =
-  | 'pending'
-  | 'in_progress'
-  | 'completed'
-  | 'failed'
-  | 'skipped';
+  'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
 
 export interface ProgressItem {
   id: string;

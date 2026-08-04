@@ -1,7 +1,9 @@
 import {
   ReviewAgentExecutionError,
+  ReviewAgentExecutionSessionKind,
   ReviewAgentFailureClass,
   type ReviewAgentPort,
+  type ReviewAgentSelectionPort,
 } from '../../../src/review-investigation/application/review-agent-port';
 import {
   ReviewInvestigationControlPlaneError,
@@ -15,9 +17,17 @@ import {
 import type {
   ReviewInvestigationGatewaySessionFactoryPort,
   ReviewInvestigationGatewaySessionPort,
+  ReviewInvestigationTurnExecutionAuthority,
 } from '../../../src/review-investigation/application/investigation-gateway-port';
 import { RunInvestigationTurn } from '../../../src/review-investigation/application/run-investigation-turn';
-import { RunInvestigationWorkSlot } from '../../../src/review-investigation/application/run-investigation-work-slot';
+import {
+  ReviewInvestigationOperationalFailurePhase,
+  type ReviewInvestigationOperationalDiagnosticPort,
+} from '../../../src/review-investigation/application/investigation-operational-diagnostic-port';
+import {
+  ReviewInvestigationLegacyFallbackSignal,
+  RunInvestigationWorkSlot,
+} from '../../../src/review-investigation/application/run-investigation-work-slot';
 import {
   ReviewAgentExecutionProfile,
   ReviewAgentProviderKind,
@@ -25,13 +35,17 @@ import {
   type ReviewAgentRuntimeProfile,
 } from '../../../src/review-investigation/domain/runtime-profile';
 import {
+  ReviewInvestigationAbortReason,
   ReviewInvestigationNextAction,
   ReviewInvestigationConclusion,
+  ReviewInvestigationObligationOrigin,
   ReviewInvestigationRunStatus,
   ReviewInvestigationState,
   type ReviewInvestigationSnapshot,
 } from '../../../src/review-investigation/domain/investigation-state';
 import {
+  ReviewTurnCriticDecision,
+  ReviewTurnObligationKind,
   ReviewTurnPurpose,
   type ReviewTurnObservation,
 } from '../../../src/review-investigation/domain/turn-observation';
@@ -132,6 +146,44 @@ describe('RunInvestigationWorkSlot', () => {
     expect(restartedAgent.executeTurn).not.toHaveBeenCalled();
   });
 
+  it('preserves a committed outcome when gateway disposal fails', async () => {
+    const planned = plannedSnapshot();
+    const committed = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.commitTurn.mockImplementation(async () => {
+      controlPlane.current = committed;
+      return committed;
+    });
+    const gateway = gatewayFixture();
+    gateway.session.dispose.mockRejectedValue(
+      new Error('dispose failed with secret=cleanup-private-material')
+    );
+    const diagnostics = {
+      record: jest.fn(async () => undefined),
+    };
+
+    const result = await runnerFixture(
+      controlPlane,
+      agentFixture(observation()),
+      { gateway, diagnostics }
+    ).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: committed,
+    });
+    expect(controlPlane.commitTurn).toHaveBeenCalledTimes(1);
+    expect(gateway.session.dispose).toHaveBeenCalledTimes(1);
+    expect(diagnostics.record).toHaveBeenCalledWith({
+      investigationId: 'investigation-1',
+      turnId: 'turn-1',
+      phase: ReviewInvestigationOperationalFailurePhase.GatewayCleanup,
+      failureClass: ReviewAgentFailureClass.ProcessFailure,
+      code: 'review_investigation_gateway_cleanup_failure',
+      retryAfterMs: null,
+    });
+  });
+
   it('uses the orchestration-managed lease without acquiring or releasing it', async () => {
     const planned = plannedSnapshot();
     const committed = terminalSnapshot(3);
@@ -184,6 +236,88 @@ describe('RunInvestigationWorkSlot', () => {
     expect(controlPlane.commitTurn).toHaveBeenCalledTimes(1);
   });
 
+  it('reconciles a rejected commit before stopping for recovery', async () => {
+    const planned = plannedSnapshot();
+    const controlPlane = controlPlaneFixture(planned);
+    const rejected = new ReviewInvestigationControlPlaneError(
+      ReviewInvestigationControlPlaneFailureClass.Rejected,
+      'investigation_turn_observation_rejected'
+    );
+    controlPlane.commitTurn.mockRejectedValue(rejected);
+    const agent = agentFixture(observation());
+
+    const result = await runnerFixture(controlPlane, agent).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.RecoveryRequired,
+      snapshot: planned,
+    });
+    expect(agent.executeTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.commitTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.restore).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed on a commit conflict without attempting legacy recovery', async () => {
+    const planned = plannedSnapshot();
+    const controlPlane = controlPlaneFixture(planned);
+    const conflict = new ReviewInvestigationControlPlaneError(
+      ReviewInvestigationControlPlaneFailureClass.Conflict,
+      'investigation_turn_fencing_conflict'
+    );
+    controlPlane.commitTurn.mockRejectedValue(conflict);
+    const agent = agentFixture(observation());
+
+    await expect(
+      runnerFixture(controlPlane, agent).execute(runInput())
+    ).rejects.toBe(conflict);
+    expect(controlPlane.restore).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ReviewAgentFailureClass.SchemaInvalidOutput,
+    ReviewAgentFailureClass.StreamIncomplete,
+    ReviewAgentFailureClass.ModelAttributionMissing,
+    ReviewAgentFailureClass.UsageAttributionMissing,
+  ])(
+    'aborts %s once without an immediate provider retry loop',
+    async (failureClass) => {
+      const planned = plannedSnapshot();
+      const aborted = Object.freeze({
+        ...planned,
+        version: 3,
+        state: ReviewInvestigationState.AwaitingTurn,
+        turn: null,
+      });
+      const controlPlane = controlPlaneFixture(planned);
+      controlPlane.abortTurn.mockImplementation(async (input) => {
+        expect(input.reason).toBe(
+          ReviewInvestigationAbortReason.SchemaInvalidOutput
+        );
+        controlPlane.current = aborted;
+        return aborted;
+      });
+      const agent = agentFixture(
+        new ReviewAgentExecutionError(
+          failureClass,
+          null,
+          'provider_output_rejected'
+        )
+      );
+
+      const result = await runnerFixture(controlPlane, agent).execute(
+        runInput()
+      );
+
+      expect(result).toEqual({
+        status: ReviewInvestigationRunStatus.RecoveryRequired,
+        snapshot: aborted,
+      });
+      expect(agent.executeTurn).toHaveBeenCalledTimes(1);
+      expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+      expect(controlPlane.planTurn).not.toHaveBeenCalled();
+    }
+  );
+
   it('cancels and aborts a turn when the revision becomes superseded', async () => {
     const planned = plannedSnapshot();
     const superseded = Object.freeze({
@@ -211,6 +345,39 @@ describe('RunInvestigationWorkSlot', () => {
     expect(result.status).toBe(ReviewInvestigationRunStatus.Superseded);
     expect(agent.cancel).toHaveBeenCalledTimes(1);
     expect(gateway.session.seal).not.toHaveBeenCalled();
+    expect(controlPlane.commitTurn).not.toHaveBeenCalled();
+  });
+
+  it('preserves supersession when fenced cancellation fails', async () => {
+    const planned = plannedSnapshot();
+    const superseded = Object.freeze({
+      ...planned,
+      version: 3,
+      state: ReviewInvestigationState.Superseded,
+      nextAction: ReviewInvestigationNextAction.Terminal,
+      turn: null,
+    });
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.abortTurn.mockImplementation(async () => {
+      controlPlane.current = superseded;
+      return superseded;
+    });
+    const currency = jest
+      .fn()
+      .mockResolvedValueOnce(ReviewInvestigationCurrency.Current)
+      .mockResolvedValueOnce(ReviewInvestigationCurrency.Superseded);
+    const agent = agentFixture(observation());
+    agent.cancel.mockRejectedValue(
+      new Error('cancel failed with token=provider-private-material')
+    );
+
+    const result = await runnerFixture(controlPlane, agent, {
+      currency,
+    }).execute(runInput());
+
+    expect(result.status).toBe(ReviewInvestigationRunStatus.Superseded);
+    expect(agent.cancel).toHaveBeenCalledTimes(1);
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
     expect(controlPlane.commitTurn).not.toHaveBeenCalled();
   });
 
@@ -243,6 +410,405 @@ describe('RunInvestigationWorkSlot', () => {
 
     expect(result.status).toBe(ReviewInvestigationRunStatus.Parked);
     expect(agent.executeTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.planTurn).not.toHaveBeenCalled();
+  });
+
+  it.each(['open', 'seal'] as const)(
+    'preserves typed retry semantics for gateway %s failures',
+    async (phase) => {
+      const planned = plannedSnapshot();
+      const parked = Object.freeze({
+        ...planned,
+        version: 3,
+        state: ReviewInvestigationState.AwaitingTurn,
+        nextAction: ReviewInvestigationNextAction.AwaitCapacity,
+        nextEligibleAt: '2026-08-02T10:02:00.000Z',
+        turn: null,
+      });
+      const controlPlane = controlPlaneFixture(planned);
+      controlPlane.abortTurn.mockImplementation(async (input) => {
+        expect(input.reason).toBe(
+          ReviewInvestigationAbortReason.CapacityUnavailable
+        );
+        expect(input.nextEligibleAt).toBe('2026-08-02T10:02:00.000Z');
+        controlPlane.current = parked;
+        return parked;
+      });
+      const failure = new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.CapacityUnavailable,
+        120_000,
+        'provider output must not cross the gateway boundary'
+      );
+      const gateway = gatewayFixture();
+      if (phase === 'open') {
+        const open = gateway.factory.open as jest.MockedFunction<
+          ReviewInvestigationGatewaySessionFactoryPort['open']
+        >;
+        open.mockRejectedValue(failure);
+      } else {
+        gateway.session.seal.mockRejectedValue(failure);
+      }
+
+      const result = await runnerFixture(
+        controlPlane,
+        agentFixture(observation()),
+        { gateway }
+      ).execute(runInput());
+
+      expect(result.status).toBe(ReviewInvestigationRunStatus.Parked);
+      expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+      expect(controlPlane.commitTurn).not.toHaveBeenCalled();
+    }
+  );
+
+  it('preserves an aborted outcome when gateway disposal fails', async () => {
+    const planned = plannedSnapshot();
+    const parked = Object.freeze({
+      ...planned,
+      version: 3,
+      state: ReviewInvestigationState.AwaitingTurn,
+      nextAction: ReviewInvestigationNextAction.AwaitCapacity,
+      nextEligibleAt: '2026-08-02T10:01:00.000Z',
+      turn: null,
+    });
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.abortTurn.mockImplementation(async () => {
+      controlPlane.current = parked;
+      return parked;
+    });
+    const gateway = gatewayFixture();
+    gateway.session.dispose.mockRejectedValue(
+      new Error('dispose failed with source=private-source-code')
+    );
+    const agent = agentFixture(
+      new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.CapacityUnavailable,
+        1_000,
+        'review_agent_capacity_unavailable'
+      )
+    );
+
+    const result = await runnerFixture(controlPlane, agent, {
+      gateway,
+    }).execute(runInput());
+
+    expect(result.status).toBe(ReviewInvestigationRunStatus.Parked);
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+    expect(gateway.session.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps a typed gateway open confinement failure to a terminal security abort', async () => {
+    const planned = plannedSnapshot();
+    const inconclusive = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.abortTurn.mockImplementation(async (input) => {
+      expect(input.reason).toBe(
+        ReviewInvestigationAbortReason.ConfinementViolation
+      );
+      expect(input.nextEligibleAt).toBeNull();
+      controlPlane.current = inconclusive;
+      return inconclusive;
+    });
+    const gateway = gatewayFixture();
+    const open = gateway.factory.open as jest.MockedFunction<
+      ReviewInvestigationGatewaySessionFactoryPort['open']
+    >;
+    open.mockRejectedValue(
+      new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.ConfinementViolation,
+        null,
+        'context_gateway_open_confinement_violation'
+      )
+    );
+    const agent = agentFixture(observation());
+    const diagnostics = {
+      record: jest.fn(async () => undefined),
+    };
+
+    const result = await runnerFixture(controlPlane, agent, {
+      gateway,
+      diagnostics,
+    }).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: inconclusive,
+    });
+    expect(agent.executeTurn).not.toHaveBeenCalled();
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.commitTurn).not.toHaveBeenCalled();
+    expect(diagnostics.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: ReviewInvestigationOperationalFailurePhase.GatewayOpen,
+        failureClass: ReviewAgentFailureClass.ConfinementViolation,
+        code: 'review_investigation_gateway_open_confinement_failure',
+      })
+    );
+  });
+
+  it('preserves terminal security semantics when gateway seal reports taint', async () => {
+    const planned = plannedSnapshot();
+    const inconclusive = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.abortTurn.mockImplementation(async (input) => {
+      expect(input.reason).toBe(
+        ReviewInvestigationAbortReason.ConfinementViolation
+      );
+      expect(input.nextEligibleAt).toBeNull();
+      controlPlane.current = inconclusive;
+      return inconclusive;
+    });
+    const gateway = gatewayFixture();
+    gateway.session.seal.mockRejectedValue(
+      new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.ConfinementViolation,
+        null,
+        'context_gateway_v4_session_tainted'
+      )
+    );
+    const agent = agentFixture(observation());
+
+    const result = await runnerFixture(controlPlane, agent, {
+      gateway,
+    }).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: inconclusive,
+    });
+    expect(agent.executeTurn).toHaveBeenCalledTimes(1);
+    expect(gateway.session.dispose).toHaveBeenCalledTimes(1);
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.commitTurn).not.toHaveBeenCalled();
+  });
+
+  it('allows legacy fallback only when capability is disabled before open', async () => {
+    const controlPlane = controlPlaneFixture(plannedSnapshot());
+    controlPlane.open.mockRejectedValue(
+      new ReviewInvestigationControlPlaneError(
+        ReviewInvestigationControlPlaneFailureClass.CapabilityDisabled,
+        'capability_disabled'
+      )
+    );
+    const agent = agentFixture(observation());
+
+    await expect(
+      runnerFixture(controlPlane, agent).execute(runInput())
+    ).rejects.toBeInstanceOf(ReviewInvestigationLegacyFallbackSignal);
+    expect(agent.executeTurn).not.toHaveBeenCalled();
+    expect(controlPlane.planTurn).not.toHaveBeenCalled();
+  });
+
+  it('preserves capability-disabled failures after open for recovery', async () => {
+    const opened = Object.freeze({
+      ...plannedSnapshot(),
+      state: ReviewInvestigationState.AwaitingTurn,
+      turn: null,
+    });
+    const controlPlane = controlPlaneFixture(opened);
+    const postOpenError = new ReviewInvestigationControlPlaneError(
+      ReviewInvestigationControlPlaneFailureClass.CapabilityDisabled,
+      'capability_disabled_after_open'
+    );
+    controlPlane.planTurn.mockRejectedValue(postOpenError);
+
+    await expect(
+      runnerFixture(controlPlane, agentFixture(observation())).execute(
+        runInput()
+      )
+    ).rejects.toBe(postOpenError);
+  });
+
+  it('executes an independent critic only with matching prepared authority', async () => {
+    const critic = Object.freeze({
+      ...plannedSnapshot(),
+      nextAction: ReviewInvestigationNextAction.RunCritic,
+      turn: Object.freeze({
+        ...plannedSnapshot().turn!,
+        purpose: ReviewTurnPurpose.Critic,
+        obligationIds: Object.freeze([]),
+        brief: Object.freeze({
+          briefVersion: 1 as const,
+          investigationId: 'investigation-1',
+          investigationVersion: 2,
+          dossierDigest: digest,
+          turnId: 'turn-1',
+          purpose: ReviewTurnPurpose.Critic,
+          maximumSemanticRiskPriority: 900_000,
+          obligations: Object.freeze([]),
+        }),
+      }),
+    });
+    const terminal = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(critic);
+    controlPlane.commitTurn.mockResolvedValue(terminal);
+    const claude = agentFixture({
+      ...observation(),
+      purpose: ReviewTurnPurpose.Critic,
+      actualProviderKind: ReviewAgentProviderKind.ClaudeCode,
+      criticDecision: ReviewTurnCriticDecision.Accept,
+    });
+    const resolve = jest.fn(() => ({
+      agent: claude,
+      providerKind: ReviewAgentProviderKind.ClaudeCode,
+      requestedModel: 'claude-critic',
+    }));
+    const gateway = gatewayFixture({
+      ...gatewayAuthority(),
+      preparedManifestKey: 'critic-manifest-key',
+      providerInvocationKey: 'claude-critic-invocation',
+      providerKind: ReviewAgentProviderKind.ClaudeCode,
+      requestedModel: 'claude-critic',
+    });
+
+    await runnerFixture(controlPlane, claude, {
+      agents: { resolve },
+      gateway,
+    }).execute(runInput());
+
+    expect(resolve).toHaveBeenCalledWith({
+      primaryProviderKind: ReviewAgentProviderKind.Codex,
+      primaryRequestedModel: 'gpt-5.6-sol',
+      executionAuthority: gateway.factory.executionAuthority,
+      purpose: ReviewTurnPurpose.Critic,
+      maximumSemanticRiskPriority: 900_000,
+    });
+    expect(claude.executeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedModel: 'claude-critic',
+        executionSession: gateway.session.agentSession,
+      })
+    );
+    expect(gateway.factory.open).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        providerKind: expect.anything(),
+        requestedModel: expect.anything(),
+      })
+    );
+  });
+
+  it('fails an independent critic closed when only the parent manifest is authorized', async () => {
+    const critic = Object.freeze({
+      ...plannedSnapshot(),
+      nextAction: ReviewInvestigationNextAction.RunCritic,
+      turn: Object.freeze({
+        ...plannedSnapshot().turn!,
+        purpose: ReviewTurnPurpose.Critic,
+        obligationIds: Object.freeze([]),
+        brief: Object.freeze({
+          briefVersion: 1 as const,
+          investigationId: 'investigation-1',
+          investigationVersion: 2,
+          dossierDigest: digest,
+          turnId: 'turn-1',
+          purpose: ReviewTurnPurpose.Critic,
+          maximumSemanticRiskPriority: 900_000,
+          obligations: Object.freeze([]),
+        }),
+      }),
+    });
+    const inconclusive = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(critic);
+    controlPlane.abortTurn.mockImplementation(async (input) => {
+      expect(input.reason).toBe(
+        ReviewInvestigationAbortReason.ConfinementViolation
+      );
+      expect(input.nextEligibleAt).toBeNull();
+      controlPlane.current = inconclusive;
+      return inconclusive;
+    });
+    const claude = agentFixture({
+      ...observation(),
+      purpose: ReviewTurnPurpose.Critic,
+      actualProviderKind: ReviewAgentProviderKind.ClaudeCode,
+      criticDecision: ReviewTurnCriticDecision.Accept,
+    });
+    const resolve = jest.fn(() => ({
+      agent: claude,
+      providerKind: ReviewAgentProviderKind.ClaudeCode,
+      requestedModel: 'claude-critic',
+    }));
+    const gateway = gatewayFixture();
+
+    const result = await runnerFixture(controlPlane, claude, {
+      agents: { resolve },
+      gateway,
+    }).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: inconclusive,
+    });
+    expect(resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionAuthority: gateway.factory.executionAuthority,
+        purpose: ReviewTurnPurpose.Critic,
+      })
+    );
+    expect(gateway.factory.open).not.toHaveBeenCalled();
+    expect(claude.negotiate).not.toHaveBeenCalled();
+    expect(claude.executeTurn).not.toHaveBeenCalled();
+    expect(controlPlane.commitTurn).not.toHaveBeenCalled();
+  });
+
+  it('concludes inconclusive when a high-risk critic has no execution authority', async () => {
+    const critic = Object.freeze({
+      ...plannedSnapshot(),
+      state: ReviewInvestigationState.TurnLeased,
+      nextAction: ReviewInvestigationNextAction.RunCritic,
+      turn: Object.freeze({
+        ...plannedSnapshot().turn!,
+        purpose: ReviewTurnPurpose.Critic,
+        obligationIds: Object.freeze([]),
+        brief: Object.freeze({
+          briefVersion: 1 as const,
+          investigationId: 'investigation-1',
+          investigationVersion: 2,
+          dossierDigest: digest,
+          turnId: 'turn-1',
+          purpose: ReviewTurnPurpose.Critic,
+          maximumSemanticRiskPriority: 900_000,
+          obligations: Object.freeze([]),
+        }),
+      }),
+    });
+    const inconclusive = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(critic);
+    controlPlane.abortTurn.mockImplementation(async (input) => {
+      expect(input.reason).toBe(
+        ReviewInvestigationAbortReason.ConfinementViolation
+      );
+      expect(input.nextEligibleAt).toBeNull();
+      controlPlane.current = inconclusive;
+      return inconclusive;
+    });
+    const resolve = jest.fn(() => {
+      throw new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.ConfinementViolation,
+        null,
+        'review_agent_critic_execution_authority_unavailable'
+      );
+    });
+    const gateway = gatewayFixture();
+
+    const result = await runnerFixture(
+      controlPlane,
+      agentFixture(observation()),
+      { agents: { resolve }, gateway }
+    ).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: inconclusive,
+    });
+    expect(resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        purpose: ReviewTurnPurpose.Critic,
+        maximumSemanticRiskPriority: 900_000,
+      })
+    );
+    expect(gateway.factory.open).not.toHaveBeenCalled();
     expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
     expect(controlPlane.planTurn).not.toHaveBeenCalled();
   });
@@ -306,9 +872,12 @@ function agentFixture(
   };
 }
 
-function gatewayFixture(): {
+function gatewayFixture(
+  executionAuthority: ReviewInvestigationTurnExecutionAuthority = gatewayAuthority()
+): {
   factory: ReviewInvestigationGatewaySessionFactoryPort;
   session: {
+    agentSession: ReviewInvestigationGatewaySessionPort['agentSession'];
     seal: jest.MockedFunction<ReviewInvestigationGatewaySessionPort['seal']>;
     dispose: jest.MockedFunction<
       ReviewInvestigationGatewaySessionPort['dispose']
@@ -325,23 +894,30 @@ function gatewayFixture(): {
     ReviewInvestigationGatewaySessionPort['dispose']
   > = jest.fn(async () => undefined);
   const session = {
-    providerConfig: Object.freeze({
-      policyVersion: 'context-gateway-v4' as const,
-      binaryHash: digest,
-      command: '/usr/bin/node',
-      args: Object.freeze(['/tmp/context-gateway.cjs']),
-      cwd: '/tmp/sandbox-review',
-      enabledTools: Object.freeze(['review_read_file']),
-      runtimeEnvironment: Object.freeze({}),
-      credentialEnvironment: Object.freeze({}),
+    agentSession: Object.freeze({
+      kind: ReviewAgentExecutionSessionKind.ContextGatewayV4,
     }),
     seal,
     dispose,
   };
   return {
-    factory: { open: jest.fn(async () => session) },
+    factory: {
+      executionAuthority,
+      open: jest.fn(async () => session),
+    },
     session,
   };
+}
+
+function gatewayAuthority(): ReviewInvestigationTurnExecutionAuthority {
+  return Object.freeze({
+    preparedManifestKey: 'parent-manifest-key',
+    providerInvocationKey: 'codex-primary',
+    providerKind: ReviewAgentProviderKind.Codex,
+    requestedModel: 'gpt-5.6-sol',
+    executionProfile: ReviewAgentExecutionProfile.InvestigationGatewayV1,
+    toolPolicyHash: digest,
+  });
 }
 
 function runnerFixture(
@@ -350,7 +926,9 @@ function runnerFixture(
   overrides: {
     currency?: jest.Mock;
     gateway?: ReturnType<typeof gatewayFixture>;
+    diagnostics?: ReviewInvestigationOperationalDiagnosticPort;
     leases?: ReviewInvestigationLeasePort;
+    agents?: ReviewAgentSelectionPort;
   } = {}
 ): RunInvestigationWorkSlot {
   const gateway = overrides.gateway ?? gatewayFixture();
@@ -362,7 +940,16 @@ function runnerFixture(
         jest.fn(async () => ReviewInvestigationCurrency.Current),
     },
     gateway: gateway.factory,
-    agent,
+    agents: overrides.agents ?? {
+      resolve: jest.fn((input) => ({
+        agent,
+        providerKind: input.primaryProviderKind,
+        requestedModel: input.primaryRequestedModel,
+      })),
+    },
+    ...(overrides.diagnostics === undefined
+      ? {}
+      : { diagnostics: overrides.diagnostics }),
     now: () => new Date('2026-08-02T10:00:00.000Z'),
   });
   const leases: ReviewInvestigationLeasePort = overrides.leases ?? {
@@ -388,13 +975,15 @@ function runInput() {
     runtimeProfile: ReviewAgentExecutionProfile.GatewayAttestedAgentV1,
     coverageContract: { version: 1 },
     investigationPolicy: { version: 1 },
-    seedObligations: [],
+    seedEnvelope: {
+      canonicalJson: '{}',
+      hash: 'b'.repeat(64),
+    },
     initialReceipts: [],
     requestedModel: 'gpt-5.6-sol',
     providerKind: ReviewAgentProviderKind.Codex,
     promptFor: () => 'Review the current work slot.',
     workingDirectory: '/tmp/sandbox-review',
-    providerCredentialEnvironment: {},
     turnBudget: { maxOperations: 32 },
     leaseDurationMs: 300_000,
     maxObligationsForTurn: 16,
@@ -432,7 +1021,25 @@ function plannedSnapshot(): ReviewInvestigationSnapshot {
       leasedAt: '2026-08-02T10:00:00.000Z',
       expiresAt: '2026-08-02T10:05:00.000Z',
       turnCapability: 'turn.capability.value',
-      brief: null,
+      brief: Object.freeze({
+        briefVersion: 1 as const,
+        investigationId: 'investigation-1',
+        investigationVersion: 2,
+        dossierDigest: digest,
+        turnId: 'turn-1',
+        purpose: ReviewTurnPurpose.Discovery,
+        maximumSemanticRiskPriority: 500_000,
+        obligations: Object.freeze([
+          Object.freeze({
+            obligationId: 'd'.repeat(64),
+            kind: ReviewTurnObligationKind.ChangedContent,
+            canonicalSubject: 'src/review.ts@head',
+            canonicalRequirement: 'inspect complete changed content',
+            riskPriority: 500_000,
+            origin: ReviewInvestigationObligationOrigin.CoverageContract,
+          }),
+        ]),
+      }),
     }),
     certificateId: null,
     certificateHash: null,
@@ -466,13 +1073,14 @@ function terminalSnapshot(version: number): ReviewInvestigationSnapshot {
 
 function observation(): ReviewTurnObservation {
   return Object.freeze({
-    outputVersion: 1,
+    outputVersion: 2,
     findings: Object.freeze([]),
-    obligationProposals: Object.freeze([]),
+    obligationProposals: Object.freeze([]) as readonly [],
     closureClaims: Object.freeze([]),
+    operationBackedDiscoveryClaims: Object.freeze([]),
     unresolvableClaims: Object.freeze([]),
     criticDecision: null,
-    observationVersion: 1,
+    observationVersion: 2,
     invocationId: 'investigation-1:turn-1:attempt-1',
     turnId: 'turn-1',
     dossierVersion: 2,

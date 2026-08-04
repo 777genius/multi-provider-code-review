@@ -1,3 +1,5 @@
+import type { ReviewInvestigationProbePlan } from '../../review-investigation/domain/deterministic-context-probe-plan';
+
 export enum PreparedPromptPathCoverageKind {
   FullPatch = 'full_patch',
   TrustedRead = 'trusted_read',
@@ -18,4 +20,5 @@ export type PreparedReviewPromptV2 = Readonly<{
   version: 'prepared_review_prompt.v2';
   prompt: string;
   pathCoverage: readonly PreparedPromptPathCoverage[];
+  investigationProbePlan: ReviewInvestigationProbePlan;
 }>;

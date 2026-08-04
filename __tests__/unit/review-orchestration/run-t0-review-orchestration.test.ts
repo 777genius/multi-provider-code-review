@@ -28,6 +28,7 @@ import {
   ReviewOrchestrationPhase,
   ReviewPromptPathCoverageKind,
 } from '../../../src/review-orchestration/domain';
+import { ReviewInvestigationLegacyFallbackSignal } from '../../../src/review-investigation/application/run-investigation-work-slot';
 
 describe('RunT0ReviewOrchestration', () => {
   it('completes a fresh exact-revision observation and publication', async () => {
@@ -134,6 +135,43 @@ describe('RunT0ReviewOrchestration', () => {
         }),
       })
     );
+  });
+
+  it('falls back to legacy after a pre-open capability-disabled rejection', async () => {
+    const fixture = createFixture({
+      executionProfile: 'investigation_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationError: new ReviewInvestigationLegacyFallbackSignal(),
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: expect.objectContaining({
+          payloadHash: observationPayload.payloadHash,
+        }),
+      })
+    );
+  });
+
+  it('does not silently fall back after investigation has mutated', async () => {
+    const fixture = createFixture({
+      executionProfile: 'investigation_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationError: new Error('capability_disabled_after_open'),
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'required_work_exhausted',
+    });
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
   });
 
   it('treats publication request conflicts as not applied instead of failing the run', async () => {
@@ -1140,6 +1178,7 @@ function createFixture(
     maxAttempts?: number;
     investigationMode?: ReviewInvestigationRecordingMode;
     investigationVerifiedCleanEffectsEnabled?: boolean;
+    investigationError?: unknown;
     executionProfile?:
       | 'prompt_only_envelope_v1'
       | 'agentic_unbounded_v1'
@@ -1324,7 +1363,10 @@ function createFixture(
         verifiedCleanEffectsEnabled:
           options.investigationVerifiedCleanEffectsEnabled ?? false,
         supports: jest.fn().mockReturnValue(true),
-        execute: jest.fn().mockResolvedValue(investigationObservationPayload),
+        execute:
+          options.investigationError === undefined
+            ? jest.fn().mockResolvedValue(investigationObservationPayload)
+            : jest.fn().mockRejectedValue(options.investigationError),
       }
     : undefined;
   if (investigationRecording) {

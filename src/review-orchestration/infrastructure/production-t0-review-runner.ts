@@ -31,7 +31,6 @@ import {
 } from '../../codex-oauth/runtime';
 import {
   ReviewExecutionProviderKind,
-  ReviewInvestigationRecordingMode,
   ReviewOrchestrationResultStatus,
   ReviewTaskKind,
   RunT0ReviewOrchestration,
@@ -66,17 +65,33 @@ import { ReviewActionV2ControlPlaneAdapter } from './review-action-v2-control-pl
 import {
   CodexReviewAgentAdapter,
   ContextGatewayV4InvestigationAdapter,
+  LoggingInvestigationOperationalDiagnostics,
   NodeReviewAgentProcessRunner,
+  ReviewInvestigationControlPlaneError,
+  ReviewInvestigationControlPlaneFailureClass,
+  ReviewInvestigationLegacyFallbackSignal,
+  ReviewAgentProviderKind,
   ReviewActionV2InvestigationAdapter,
   ReplayInvestigationOnRevision,
   RunInvestigationTurn,
   RunInvestigationWorkSlot,
+  type ReviewAgentExecutionSessionResolverPort,
+  type ReviewInvestigationControlPlanePort,
+  type ReviewInvestigationReplayControlPlanePort,
 } from '../../review-investigation';
 import {
   ManagedOnlyInvestigationLeaseAdapter,
+  REVIEW_INVESTIGATION_PRODUCTION_POLICY,
   ReviewInvestigationRecordingAdapter,
   RevisionGuardInvestigationCurrencyAdapter,
 } from './review-investigation-recording-adapter';
+import {
+  createProductionReviewInvestigationAgentSelector,
+  productionReviewInvestigationRecordingMode,
+  readProductionReviewInvestigationRolloutFlags,
+  resolveProductionReviewInvestigationRollout,
+  type ConfiguredProductionReviewAgent,
+} from './production-review-investigation-composition';
 
 const execFileAsync = promisify(execFile);
 const CODEX_RETRY_POLICY_VERSION = 'codex-semantic-retry.v1';
@@ -155,44 +170,13 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     const codexProviderName = selectCodexProvider(config);
     const model = codexProviderName.slice('codex/'.length);
     const agenticContext = config.codexAgenticContext ?? true;
-    const investigationRecordingRequested = readBooleanFlag(
-      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED
-    );
-    const investigationEffectsEnabled = readBooleanFlag(
-      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED
-    );
-    const investigationCrossRevisionReplayEnabled = readBooleanFlag(
-      process.env
-        .REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED
-    );
-    const investigationContextCriticEnabled = readBooleanFlag(
-      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED
-    );
-    const investigationVerifiedCleanEnabled = readBooleanFlag(
-      process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_VERIFIED_CLEAN_ENABLED
-    );
-    if (investigationEffectsEnabled && !investigationRecordingRequested) {
-      throw new Error('review_investigation_effects_require_shadow');
-    }
-    if (investigationRecordingRequested && !agenticContext) {
-      throw new Error('review_investigation_requires_agentic_context');
-    }
-    if (
-      investigationCrossRevisionReplayEnabled &&
-      !investigationEffectsEnabled
-    ) {
-      throw new Error('review_investigation_replay_requires_effects');
-    }
-    if (
-      investigationVerifiedCleanEnabled &&
-      (!investigationEffectsEnabled || !investigationContextCriticEnabled)
-    ) {
-      throw new Error(
-        'review_investigation_verified_clean_requires_effects_and_critic'
-      );
-    }
-    const investigationRecordingEnabled =
-      investigationRecordingRequested && agenticContext;
+    const investigationRollout = resolveProductionReviewInvestigationRollout({
+      flags: readProductionReviewInvestigationRolloutFlags(),
+      agenticContext,
+      authorization,
+      primaryProviderKind: ReviewExecutionProviderKind.Codex,
+    });
+    const investigationRecordingEnabled = investigationRollout.recordingEnabled;
     const provider = new CodexProvider(model, {
       agenticContext,
       eventAudit: config.codexEventAudit,
@@ -241,31 +225,58 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       Math.max(1_000, config.runTimeoutSeconds * 1_000),
       agenticContext,
       contextGateway,
-      investigationEffectsEnabled
+      investigationRecordingEnabled
     );
     const identities = new DeterministicReviewOrchestrationIdentity();
-    const investigationControlPlane = investigationRecordingEnabled
+    const investigationProtocol = investigationRecordingEnabled
       ? new ReviewActionV2InvestigationAdapter(reviewActionClient)
       : undefined;
-    const investigationAgent = investigationRecordingEnabled
-      ? new CodexReviewAgentAdapter(new NodeReviewAgentProcessRunner(), {
-          ...(input.codexBinaryPath ? { binary: input.codexBinaryPath } : {}),
-          reasoningEffort: 'xhigh',
-        })
+    const investigationControlPlane = investigationProtocol
+      ? new LegacyFallbackBeforeInvestigationAuthorityControlPlane(
+          investigationProtocol
+        )
       : undefined;
     const investigationRecording =
-      investigationControlPlane &&
-      investigationAgent &&
-      investigationGatewayFactory
+      investigationControlPlane && investigationGatewayFactory
         ? new ReviewInvestigationRecordingAdapter(
             (recordingInput) => {
               const currency = new RevisionGuardInvestigationCurrencyAdapter(
                 revisionGuard
               );
+              const gateway = new ContextGatewayV4InvestigationAdapter(
+                investigationGatewayFactory,
+                {
+                  revision: {
+                    baseSha: authorization.facts.baseSha,
+                    mergeBaseSha: authorization.facts.mergeBaseSha,
+                    headSha: authorization.facts.headSha,
+                  },
+                  preparedManifestKey: recordingInput.manifest.manifestKey,
+                  providerKind:
+                    recordingInput.invocation.manifestFacts.providerKind,
+                  requestedModel: recordingInput.invocation.requestedModel,
+                  executionProfile:
+                    recordingInput.invocation.manifestFacts.executionProfile,
+                  providerInvocationKey:
+                    recordingInput.manifest.providerInvocationKey,
+                  toolPolicyHash:
+                    recordingInput.invocation.manifestFacts.toolPolicyHash,
+                }
+              );
+              const agents = createProductionReviewInvestigationAgentSelector({
+                authorization,
+                primaryProviderKind: ReviewAgentProviderKind.Codex,
+                contextCriticEnabled: investigationRollout.contextCriticEnabled,
+                agents: createConfiguredProductionInvestigationAgents({
+                  codexModel: model,
+                  codexBinaryPath: input.codexBinaryPath,
+                  executionSessions: gateway,
+                }),
+              });
               return new RunInvestigationWorkSlot({
                 controlPlane: investigationControlPlane,
                 leases: new ManagedOnlyInvestigationLeaseAdapter(),
-                ...(investigationCrossRevisionReplayEnabled &&
+                ...(investigationRollout.crossRevisionReplayEnabled &&
                 contextReplayRunner
                   ? {
                       replay: new ReplayInvestigationOnRevision({
@@ -278,33 +289,17 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
                 turnRunner: new RunInvestigationTurn({
                   controlPlane: investigationControlPlane,
                   currency,
-                  gateway: new ContextGatewayV4InvestigationAdapter(
-                    investigationGatewayFactory,
-                    {
-                      revision: {
-                        baseSha: authorization.facts.baseSha,
-                        mergeBaseSha: authorization.facts.mergeBaseSha,
-                        headSha: authorization.facts.headSha,
-                      },
-                      providerKind:
-                        recordingInput.invocation.manifestFacts.providerKind,
-                      executionProfile:
-                        recordingInput.invocation.manifestFacts
-                          .executionProfile,
-                      providerInvocationKey:
-                        recordingInput.manifest.providerInvocationKey,
-                      toolPolicyHash:
-                        recordingInput.invocation.manifestFacts.toolPolicyHash,
-                    }
+                  gateway,
+                  agents,
+                  diagnostics: new LoggingInvestigationOperationalDiagnostics(
+                    logger
                   ),
-                  agent: investigationAgent,
                   now: () => new Date(),
                 }),
               });
             },
             {
               workingDirectory: path.resolve(input.workspacePath),
-              providerCredentialEnvironment: codexCredentialEnvironment,
               leaseDurationMs: 5 * 60_000,
               providerTimeoutMs: Math.max(
                 1_000,
@@ -314,19 +309,10 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
               minimumCapacityParkMs: 60_000,
               maxObligationsForTurn: 64,
               maxStateTransitions: 128,
-              maxSemanticTurns: 12,
-              maxOperationalAttempts: 24,
-              maxCriticCycles: 3,
-              maxObligations: 1_024,
-              maxFindings: 256,
-              maxProposalsPerTurn: 128,
-              maxReceiptsPerTurn: 256,
-              maxExpansionDepth: 8,
+              policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
             },
-            investigationEffectsEnabled
-              ? ReviewInvestigationRecordingMode.Authoritative
-              : ReviewInvestigationRecordingMode.RecordOnly,
-            investigationVerifiedCleanEnabled
+            productionReviewInvestigationRecordingMode(investigationRollout),
+            investigationRollout.verifiedCleanEnabled
           )
         : undefined;
     const useCase = new RunT0ReviewOrchestration({
@@ -408,17 +394,87 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
   }
 }
 
-function readBooleanFlag(value: string | undefined): boolean {
-  if (
-    value === undefined ||
-    value === '' ||
-    value === '0' ||
-    value === 'false'
-  ) {
-    return false;
+type ProductionInvestigationControlPlanePort =
+  ReviewInvestigationControlPlanePort &
+    ReviewInvestigationReplayControlPlanePort;
+
+export class LegacyFallbackBeforeInvestigationAuthorityControlPlane implements ProductionInvestigationControlPlanePort {
+  constructor(
+    private readonly delegate: ProductionInvestigationControlPlanePort
+  ) {}
+
+  open(input: Parameters<ReviewInvestigationControlPlanePort['open']>[0]) {
+    return this.openWithLegacyFallback(() => this.delegate.open(input));
   }
-  if (value === '1' || value === 'true') return true;
-  throw new Error('review_investigation_shadow_flag_invalid');
+
+  restore(
+    input: Parameters<ReviewInvestigationControlPlanePort['restore']>[0]
+  ) {
+    return this.delegate.restore(input);
+  }
+
+  planTurn(
+    input: Parameters<ReviewInvestigationControlPlanePort['planTurn']>[0]
+  ) {
+    return this.delegate.planTurn(input);
+  }
+
+  commitTurn(
+    input: Parameters<ReviewInvestigationControlPlanePort['commitTurn']>[0]
+  ) {
+    return this.delegate.commitTurn(input);
+  }
+
+  abortTurn(
+    input: Parameters<ReviewInvestigationControlPlanePort['abortTurn']>[0]
+  ) {
+    return this.delegate.abortTurn(input);
+  }
+
+  conclude(
+    input: Parameters<ReviewInvestigationControlPlanePort['conclude']>[0]
+  ) {
+    return this.delegate.conclude(input);
+  }
+
+  prepareReplay(
+    input: Parameters<
+      ReviewInvestigationReplayControlPlanePort['prepareReplay']
+    >[0]
+  ) {
+    return this.delegate.prepareReplay(input);
+  }
+
+  commitReceiptReplay(
+    input: Parameters<
+      ReviewInvestigationReplayControlPlanePort['commitReceiptReplay']
+    >[0]
+  ) {
+    return this.delegate.commitReceiptReplay(input);
+  }
+
+  replay(
+    input: Parameters<ReviewInvestigationReplayControlPlanePort['replay']>[0]
+  ) {
+    return this.delegate.replay(input);
+  }
+
+  private async openWithLegacyFallback<T>(
+    execute: () => Promise<T>
+  ): Promise<T> {
+    try {
+      return await execute();
+    } catch (error) {
+      if (
+        error instanceof ReviewInvestigationControlPlaneError &&
+        error.failureClass ===
+          ReviewInvestigationControlPlaneFailureClass.CapabilityDisabled
+      ) {
+        throw new ReviewInvestigationLegacyFallbackSignal();
+      }
+      throw error;
+    }
+  }
 }
 
 function codexCredentialEnvironment(): Readonly<NodeJS.ProcessEnv> {
@@ -431,6 +487,26 @@ function codexCredentialEnvironment(): Readonly<NodeJS.ProcessEnv> {
         )
     )
   );
+}
+
+function createConfiguredProductionInvestigationAgents(input: {
+  readonly codexModel: string;
+  readonly codexBinaryPath: string | undefined;
+  readonly executionSessions: ReviewAgentExecutionSessionResolverPort;
+}): readonly ConfiguredProductionReviewAgent[] {
+  const processRunner = new NodeReviewAgentProcessRunner();
+  return Object.freeze([
+    {
+      providerKind: ReviewAgentProviderKind.Codex,
+      requestedModel: input.codexModel,
+      agent: new CodexReviewAgentAdapter(processRunner, {
+        executionSessions: input.executionSessions,
+        providerCredentialEnvironment: codexCredentialEnvironment,
+        ...(input.codexBinaryPath ? { binary: input.codexBinaryPath } : {}),
+        reasoningEffort: 'xhigh',
+      }),
+    },
+  ] satisfies readonly ConfiguredProductionReviewAgent[]);
 }
 
 export function mapOrchestrationResultToCodexOutcome(result: {

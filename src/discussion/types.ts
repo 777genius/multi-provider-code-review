@@ -1,16 +1,10 @@
 export type DiscussionMode = 'off' | 'suggest';
 
 export type DiscussionIntent =
-  | 'question'
-  | 'disagreement'
-  | 'dismiss_request'
-  | 'fix_claim'
-  | 'other';
+  'question' | 'disagreement' | 'dismiss_request' | 'fix_claim' | 'other';
 
 export type DiscussionSuggestedAction =
-  | 'none'
-  | 'suggest_rr_skip'
-  | 'ask_for_details';
+  'none' | 'suggest_rr_skip' | 'ask_for_details';
 
 export interface DiscussionComment {
   id: number;

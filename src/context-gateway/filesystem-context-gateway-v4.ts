@@ -14,15 +14,18 @@ import {
 } from './context-gateway-contract';
 import {
   CONTEXT_GATEWAY_V4_POLICY_VERSION,
+  CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS,
   ContextGatewayV4OperationKind,
   ContextGatewayV4Revision,
   ContextOperationFailureClass,
   classifyContextGatewayV4Failure,
   createContextGatewayV4PageReceipt,
   decodeContextGatewayV4Cursor,
+  type ContextGatewayV4PageReceipt,
 } from './context-gateway-v4-contract';
 import { ContextGatewayV4Recorder } from './context-gateway-v4-recorder';
 import { ContextGatewayV4ReplayMaterialRecorder } from './context-gateway-v4-replay-material';
+import { classifyUtf8Content } from './utf8-content';
 
 const execFileAsync = promisify(execFile);
 const MAX_FILE_RANGE_BYTES = 2 * 1024 * 1024;
@@ -104,10 +107,11 @@ export class FilesystemContextGatewayV4 {
     readonly startByte?: number;
     readonly maxBytes?: number;
   }) {
+    const replayInput = normalizeFileReadInput(input);
     const operation = this.operation(ContextGatewayV4OperationKind.FileRead, {
-      inputHash: sha256(canonicalJson(input)),
+      inputHash: sha256(canonicalJson(replayInput)),
     });
-    return this.execute(operation, input, async () => {
+    return this.execute(operation, replayInput, async () => {
       const relativePath = normalizeRelativePath(input.path);
       const revision = input.revision ?? ContextGatewayV4Revision.Head;
       const revisionSha = this.revisionSha(revision);
@@ -132,6 +136,7 @@ export class FilesystemContextGatewayV4 {
             ? 'symlink'
             : 'regular';
       let content = Buffer.alloc(0);
+      let fullContent: Buffer<ArrayBufferLike> = Buffer.alloc(0);
       let blobSize = 0;
       if (fileKind !== 'gitlink') {
         blobSize = Number.parseInt(
@@ -145,13 +150,17 @@ export class FilesystemContextGatewayV4 {
         ) {
           throw new Error('context_gateway_blob_size_invalid');
         }
-        const blob = await gitBuffer(
+        fullContent = await gitBuffer(
           this.root,
           ['cat-file', 'blob', entry.oid],
           MAX_FILE_TOTAL_BYTES + 1
         );
-        content = Buffer.from(blob.subarray(startByte, startByte + maxBytes));
+        content = Buffer.from(
+          fullContent.subarray(startByte, startByte + maxBytes)
+        );
       }
+      const classified = classifyUtf8Content(fullContent);
+      const responseClassified = classifyUtf8Content(content);
       const eof =
         fileKind === 'gitlink' || startByte + content.byteLength >= blobSize;
       const receiptIdentity = {
@@ -175,12 +184,14 @@ export class FilesystemContextGatewayV4 {
         response: Object.freeze({
           path: relativePath,
           revision,
-          content: content.includes(0)
-            ? content.toString('base64')
-            : content.toString('utf8'),
-          encoding: content.includes(0)
-            ? ('base64' as const)
-            : ('utf8' as const),
+          content:
+            responseClassified.kind === 'binary'
+              ? content.toString('base64')
+              : responseClassified.text,
+          encoding:
+            responseClassified.kind === 'binary'
+              ? ('base64' as const)
+              : ('utf8' as const),
           byteCount: content.byteLength,
           startByte,
           eof,
@@ -195,6 +206,8 @@ export class FilesystemContextGatewayV4 {
           mode: entry.mode,
           blobOid: entry.oid,
           contentHash: sha256(content),
+          contentKind: classified.kind,
+          lineCount: classified.lineCount,
           byteCount: content.byteLength,
           startByte,
           eof,
@@ -213,18 +226,19 @@ export class FilesystemContextGatewayV4 {
     readonly pageSize?: number;
     readonly cursor?: string;
   }) {
+    const replayInput = normalizeDirectoryListInput(input);
     const operation = this.operation(
       ContextGatewayV4OperationKind.DirectoryList,
       {
         inputHash: sha256(
           canonicalJson({
-            ...input,
-            cursor: input.cursor ? sha256(input.cursor) : null,
+            ...replayInput,
+            cursor: hashCursor(replayInput.cursor),
           })
         ),
       }
     );
-    return this.execute(operation, input, async () => {
+    return this.execute(operation, replayInput, async () => {
       const relativePath = normalizeRelativePath(input.path);
       const revision = input.revision ?? ContextGatewayV4Revision.Head;
       const revisionSha = this.revisionSha(revision);
@@ -285,6 +299,7 @@ export class FilesystemContextGatewayV4 {
         pageSize,
         offset,
         allItems: entries,
+        cursorInputHash: input.cursor ? sha256(input.cursor) : null,
         responseField: 'entries',
         operation,
       });
@@ -299,16 +314,17 @@ export class FilesystemContextGatewayV4 {
     readonly pageSize?: number;
     readonly cursor?: string;
   }) {
+    const replayInput = normalizeTextSearchInput(input);
     const operation = this.operation(ContextGatewayV4OperationKind.TextSearch, {
       inputHash: sha256(
         canonicalJson({
-          ...input,
-          query: sha256(String(input.query)),
-          cursor: input.cursor ? sha256(input.cursor) : null,
+          ...replayInput,
+          query: sha256(String(replayInput.query)),
+          cursor: hashCursor(replayInput.cursor),
         })
       ),
     });
-    return this.execute(operation, input, async () => {
+    return this.execute(operation, replayInput, async () => {
       if (
         typeof input.query !== 'string' ||
         input.query.length < 1 ||
@@ -348,6 +364,7 @@ export class FilesystemContextGatewayV4 {
           [
             'grep',
             '-n',
+            '-F',
             '-I',
             '--full-name',
             ...(caseSensitive ? [] : ['-i']),
@@ -364,6 +381,32 @@ export class FilesystemContextGatewayV4 {
       if (matches.length > MAX_SEARCH_RESULTS) {
         throw new Error('context_gateway_search_limit_exceeded');
       }
+      const matchedPaths = (
+        await gitNullSeparated(
+          this.root,
+          [
+            'grep',
+            '-l',
+            '-z',
+            '-F',
+            '-I',
+            '--full-name',
+            ...(caseSensitive ? [] : ['-i']),
+            '-e',
+            input.query,
+            revisionSha,
+            '--',
+            ...paths,
+          ],
+          new Set([0, 1])
+        )
+      )
+        .map((value) =>
+          value.startsWith(`${revisionSha}:`)
+            ? value.slice(revisionSha.length + 1)
+            : value
+        )
+        .sort();
       return this.pageResult({
         operationKind: ContextGatewayV4OperationKind.TextSearch,
         treeOid,
@@ -371,6 +414,8 @@ export class FilesystemContextGatewayV4 {
         pageSize,
         offset,
         allItems: matches,
+        allPathHashes: matchedPaths.map((value) => sha256(value)),
+        cursorInputHash: input.cursor ? sha256(input.cursor) : null,
         responseField: 'matches',
         operation,
       });
@@ -381,24 +426,29 @@ export class FilesystemContextGatewayV4 {
     readonly pageSize?: number;
     readonly cursor?: string;
   }) {
+    const replayInput = normalizeCanonicalInventoryInput(input);
     const operation = this.operation(
       ContextGatewayV4OperationKind.CanonicalInventory,
       {
         inputHash: sha256(
           canonicalJson({
-            ...input,
-            cursor: input.cursor ? sha256(input.cursor) : null,
+            ...replayInput,
+            cursor: hashCursor(replayInput.cursor),
           })
         ),
       }
     );
-    return this.execute(operation, input, async () => {
+    return this.execute(operation, replayInput, async () => {
       const inventory = await this.inventory();
-      const pageSize = boundedInteger(
+      const requestedPageSize = boundedInteger(
         input.pageSize ?? 500,
         1,
         2_000,
         'inventory_page_size'
+      );
+      const pageSize = canonicalInventoryPageSize(
+        inventory.entries,
+        requestedPageSize
       );
       const queryDigest = keyedSha256(
         this.secret,
@@ -422,6 +472,9 @@ export class FilesystemContextGatewayV4 {
         pageSize,
         offset,
         allItems: inventory.entries,
+        pathHashesThroughItem: (end) =>
+          canonicalInventoryPathHashes(inventory.entries.slice(0, end)),
+        cursorInputHash: input.cursor ? sha256(input.cursor) : null,
         responseField: 'entries',
         operation,
         extraResponse: {
@@ -437,10 +490,11 @@ export class FilesystemContextGatewayV4 {
   async gitFact(input: {
     readonly fact: 'merge_base' | 'changed_paths' | 'diff_stat';
   }) {
+    const replayInput = Object.freeze({ fact: input.fact });
     const operation = this.operation(ContextGatewayV4OperationKind.GitFact, {
       fact: input.fact,
     });
-    return this.execute(operation, input, async () => {
+    return this.execute(operation, replayInput, async () => {
       let values: string[];
       switch (input.fact) {
         case 'merge_base':
@@ -504,11 +558,16 @@ export class FilesystemContextGatewayV4 {
     readonly pageSize: number;
     readonly offset: number;
     readonly allItems: readonly T[];
+    readonly allPathHashes?: readonly string[];
+    readonly pathHashesThroughItem?: (
+      exclusiveEnd: number
+    ) => readonly string[];
+    readonly cursorInputHash: string | null;
     readonly responseField: 'entries' | 'matches';
     readonly operation: ReturnType<FilesystemContextGatewayV4['operation']>;
     readonly extraResponse?: Readonly<Record<string, unknown>>;
   }) {
-    const receipt = createContextGatewayV4PageReceipt({
+    const baseReceipt = createContextGatewayV4PageReceipt({
       secret: this.secret,
       sessionId: this.sessionId,
       operationKind: input.operationKind,
@@ -517,8 +576,22 @@ export class FilesystemContextGatewayV4 {
       pageSize: input.pageSize,
       offset: input.offset,
       allItems: input.allItems,
+      cursorInputHash: input.cursorInputHash,
+      allItemPathHashes: input.allPathHashes ?? [],
       nowMs: this.now(),
     });
+    const receipt = input.pathHashesThroughItem
+      ? withCanonicalPathWitness({
+          base: baseReceipt,
+          secret: this.secret,
+          sessionId: this.sessionId,
+          operationKind: input.operationKind,
+          queryDigest: input.queryDigest,
+          treeOid: input.treeOid,
+          pageSize: input.pageSize,
+          pathHashesThroughItem: input.pathHashesThroughItem,
+        })
+      : baseReceipt;
     const pageItems = input.allItems.slice(
       input.offset,
       input.offset + input.pageSize
@@ -536,9 +609,13 @@ export class FilesystemContextGatewayV4 {
       result: Object.freeze({
         treeOid: input.treeOid,
         queryDigest: input.queryDigest,
+        cursorInputHash: receipt.cursorInputHash,
         pageOrdinal: receipt.pageOrdinal,
         pageItemCount: receipt.pageItemCount,
         pageItemsHash: receipt.pageItemsHash,
+        pagePathHashes: receipt.pagePathHashes,
+        aggregatePathCount: receipt.aggregatePathCount,
+        aggregatePathSetHash: receipt.aggregatePathSetHash,
         aggregateItemCount: receipt.aggregateItemCount,
         aggregateHash: receipt.aggregateHash,
         complete: receipt.complete,
@@ -651,6 +728,171 @@ export class FilesystemContextGatewayV4 {
   }
 }
 
+function normalizeFileReadInput(input: {
+  readonly path: string;
+  readonly revision?: ContextGatewayV4Revision;
+  readonly startByte?: number;
+  readonly maxBytes?: number;
+}): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    path: normalizePathForOperation(input.path),
+    revision: input.revision ?? ContextGatewayV4Revision.Head,
+    startByte: input.startByte ?? 0,
+    maxBytes: input.maxBytes ?? 256 * 1024,
+  });
+}
+
+function normalizeDirectoryListInput(input: {
+  readonly path: string;
+  readonly revision?: ContextGatewayV4Revision;
+  readonly maxDepth?: number;
+  readonly includeHidden?: boolean;
+  readonly pageSize?: number;
+  readonly cursor?: string;
+}): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    path: normalizePathForOperation(input.path),
+    revision: input.revision ?? ContextGatewayV4Revision.Head,
+    maxDepth: input.maxDepth ?? 4,
+    includeHidden: input.includeHidden ?? false,
+    pageSize: input.pageSize ?? 500,
+    cursor: normalizeCursor(input.cursor),
+  });
+}
+
+function normalizeTextSearchInput(input: {
+  readonly query: string;
+  readonly paths?: readonly string[];
+  readonly revision?: ContextGatewayV4Revision;
+  readonly caseSensitive?: boolean;
+  readonly pageSize?: number;
+  readonly cursor?: string;
+}): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    query: input.query,
+    paths: Object.freeze(
+      (input.paths ?? ['.']).map(normalizePathForOperation).sort()
+    ),
+    revision: input.revision ?? ContextGatewayV4Revision.Head,
+    caseSensitive: input.caseSensitive ?? true,
+    pageSize: input.pageSize ?? 500,
+    cursor: normalizeCursor(input.cursor),
+  });
+}
+
+function normalizeCanonicalInventoryInput(input: {
+  readonly pageSize?: number;
+  readonly cursor?: string;
+}): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    pageSize: input.pageSize ?? 500,
+    cursor: normalizeCursor(input.cursor),
+  });
+}
+
+function normalizePathForOperation(value: string): string {
+  try {
+    return normalizeRelativePath(value);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeCursor(value: string | undefined): string | null {
+  return value ? value : null;
+}
+
+function hashCursor(value: unknown): string | null {
+  return typeof value === 'string' ? sha256(value) : null;
+}
+
+function canonicalInventoryPageSize(
+  entries: readonly CanonicalInventoryEntry[],
+  requestedPageSize: number
+): number {
+  const includesTwoPathEntry = entries.some(
+    (entry) =>
+      entry.beforePath !== null &&
+      entry.afterPath !== null &&
+      entry.beforePath !== entry.afterPath
+  );
+  return includesTwoPathEntry
+    ? Math.min(
+        requestedPageSize,
+        Math.floor(CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS / 2)
+      )
+    : requestedPageSize;
+}
+
+function canonicalInventoryPathHashes(
+  entries: readonly CanonicalInventoryEntry[]
+): readonly string[] {
+  const paths = new Set<string>();
+  for (const entry of entries) {
+    if (entry.beforePath !== null) paths.add(entry.beforePath);
+    if (entry.afterPath !== null) paths.add(entry.afterPath);
+  }
+  return [...paths].map(sha256).sort();
+}
+
+function withCanonicalPathWitness(input: {
+  readonly base: ContextGatewayV4PageReceipt;
+  readonly secret: Buffer;
+  readonly sessionId: string;
+  readonly operationKind: ContextGatewayV4OperationKind;
+  readonly queryDigest: string;
+  readonly treeOid: string;
+  readonly pageSize: number;
+  readonly pathHashesThroughItem: (exclusiveEnd: number) => readonly string[];
+}): ContextGatewayV4PageReceipt {
+  const previousItemCount =
+    input.base.aggregateItemCount - input.base.pageItemCount;
+  const previousPathHashes = new Set(
+    input.pathHashesThroughItem(previousItemCount)
+  );
+  const aggregatePathHashes = input.pathHashesThroughItem(
+    input.base.aggregateItemCount
+  );
+  const pagePathHashes = aggregatePathHashes.filter(
+    (pathHash) => !previousPathHashes.has(pathHash)
+  );
+  if (
+    pagePathHashes.length > CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS ||
+    aggregatePathHashes.some((value) => !/^[a-f0-9]{64}$/u.test(value)) ||
+    new Set(aggregatePathHashes).size !== aggregatePathHashes.length
+  ) {
+    throw new Error('context_gateway_page_path_hashes_invalid');
+  }
+  const aggregatePathSetHash = sha256(canonicalJson(aggregatePathHashes));
+  const receiptIdentity = {
+    sessionId: input.sessionId,
+    operationKind: input.operationKind,
+    queryDigest: input.queryDigest,
+    treeOid: input.treeOid,
+    pageSize: input.pageSize,
+    pageOrdinal: input.base.pageOrdinal,
+    cursorInputHash: input.base.cursorInputHash,
+    pageItemCount: input.base.pageItemCount,
+    pageItemsHash: input.base.pageItemsHash,
+    pagePathHashes,
+    aggregatePathCount: aggregatePathHashes.length,
+    aggregatePathSetHash,
+    aggregateItemCount: input.base.aggregateItemCount,
+    aggregateHash: input.base.aggregateHash,
+    complete: input.base.complete,
+  };
+  return Object.freeze({
+    ...input.base,
+    operationReceiptId: keyedSha256(
+      input.secret,
+      canonicalJson(receiptIdentity)
+    ),
+    pagePathHashes: Object.freeze(pagePathHashes),
+    aggregatePathCount: aggregatePathHashes.length,
+    aggregatePathSetHash,
+  });
+}
+
 async function gitTreeEntry(
   root: string,
   revision: string,
@@ -712,8 +954,14 @@ function sanitizedReason(error: unknown): string {
   return /^[a-z0-9_]{1,160}$/u.test(message) ? message : 'operation_failed';
 }
 
-async function gitNullSeparated(root: string, args: readonly string[]) {
-  return (await gitText(root, args)).split('\0').filter(Boolean);
+async function gitNullSeparated(
+  root: string,
+  args: readonly string[],
+  acceptedExitCodes = new Set([0])
+) {
+  return (await gitText(root, args, acceptedExitCodes))
+    .split('\0')
+    .filter(Boolean);
 }
 
 async function gitText(

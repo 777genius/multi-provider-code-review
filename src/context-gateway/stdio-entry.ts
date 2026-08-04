@@ -17,6 +17,10 @@ import {
   ContextGatewayV4Revision,
   ContextOperationFailureClass,
 } from './context-gateway-v4-contract';
+import {
+  CONTEXT_GATEWAY_OMITTED_POLICY_FALLBACK_VERSION,
+  CONTEXT_GATEWAY_RELEASE_DESCRIPTION,
+} from './context-gateway-release-contract';
 import { ContextGatewayRecorder } from './context-gateway-recorder';
 import { ContextGatewayV4Recorder } from './context-gateway-v4-recorder';
 import { ContextGatewayV4ReplayMaterialRecorder } from './context-gateway-v4-replay-material';
@@ -33,15 +37,7 @@ async function main(): Promise<void> {
   const mode = readMode(process.argv.slice(2));
   if (mode === ContextGatewayMode.Describe) {
     process.stdout.write(
-      `${JSON.stringify({
-        artifactKind: 'reviewrouter-context-gateway',
-        contextGatewayPolicyVersion: CONTEXT_GATEWAY_POLICY_VERSION,
-        supportedContextGatewayPolicyVersions: [
-          CONTEXT_GATEWAY_POLICY_VERSION,
-          CONTEXT_GATEWAY_V4_POLICY_VERSION,
-        ],
-        metadataVersion: 1,
-      })}\n`
+      `${JSON.stringify(CONTEXT_GATEWAY_RELEASE_DESCRIPTION)}\n`
     );
     return;
   }
@@ -148,6 +144,7 @@ async function runV4(
   const replayMaterial = new ContextGatewayV4ReplayMaterialRecorder({
     sessionId: config.sessionId,
     replayMaterialPath: config.replayMaterialPath,
+    secret,
   });
   if (preflightOnly) {
     await recorder.initialize();
@@ -344,7 +341,10 @@ function readPolicyVersion(
 ):
   | typeof CONTEXT_GATEWAY_POLICY_VERSION
   | typeof CONTEXT_GATEWAY_V4_POLICY_VERSION {
-  if (value === undefined || value === CONTEXT_GATEWAY_POLICY_VERSION) {
+  if (value === undefined) {
+    return CONTEXT_GATEWAY_OMITTED_POLICY_FALLBACK_VERSION;
+  }
+  if (value === CONTEXT_GATEWAY_POLICY_VERSION) {
     return CONTEXT_GATEWAY_POLICY_VERSION;
   }
   if (value === CONTEXT_GATEWAY_V4_POLICY_VERSION) {

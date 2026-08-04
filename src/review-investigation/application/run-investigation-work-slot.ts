@@ -7,6 +7,8 @@ import {
   type ReviewInvestigationSnapshot,
 } from '../domain/investigation-state';
 import {
+  ReviewInvestigationControlPlaneError,
+  ReviewInvestigationControlPlaneFailureClass,
   ReviewInvestigationLeaseAcquireStatus,
   type ReviewInvestigationControlPlanePort,
   type ReviewInvestigationLeasePort,
@@ -21,6 +23,13 @@ import {
   RunInvestigationTurnStatus,
 } from './run-investigation-turn';
 import type { ReviewAgentProviderKind } from '../domain/runtime-profile';
+
+export class ReviewInvestigationLegacyFallbackSignal extends Error {
+  constructor() {
+    super('review_investigation_capability_disabled_before_open');
+    this.name = 'ReviewInvestigationLegacyFallbackSignal';
+  }
+}
 
 export class RunInvestigationWorkSlot {
   constructor(
@@ -38,7 +47,6 @@ export class RunInvestigationWorkSlot {
       readonly providerKind: ReviewAgentProviderKind;
       readonly promptFor: (snapshot: ReviewInvestigationSnapshot) => string;
       readonly workingDirectory: string;
-      readonly providerCredentialEnvironment: Readonly<NodeJS.ProcessEnv>;
       readonly turnBudget: CanonicalJsonValue;
       readonly leaseDurationMs: number;
       readonly maxObligationsForTurn: number;
@@ -73,8 +81,23 @@ export class RunInvestigationWorkSlot {
         providerManifestHash: input.providerManifestHash,
       });
     }
-    let snapshot =
-      replayed ?? (await this.dependencies.controlPlane.open(input));
+    let snapshot: ReviewInvestigationSnapshot;
+    if (replayed !== null) {
+      snapshot = replayed;
+    } else {
+      try {
+        snapshot = await this.dependencies.controlPlane.open(input);
+      } catch (error) {
+        if (
+          error instanceof ReviewInvestigationControlPlaneError &&
+          error.failureClass ===
+            ReviewInvestigationControlPlaneFailureClass.CapabilityDisabled
+        ) {
+          throw new ReviewInvestigationLegacyFallbackSignal();
+        }
+        throw error;
+      }
+    }
     for (
       let transition = 0;
       transition < input.maxStateTransitions;
@@ -134,7 +157,6 @@ export class RunInvestigationWorkSlot {
           executionId: input.executionId,
           workSlotId: input.workSlotId,
           reviewRevisionHash: input.reviewRevisionHash,
-          providerStrategyId: input.providerStrategyId,
           requestedModel: input.requestedModel,
           providerKind: input.providerKind,
           prompt: input.promptFor(snapshot),
@@ -144,7 +166,6 @@ export class RunInvestigationWorkSlot {
           minimumCapacityParkMs: input.minimumCapacityParkMs,
           snapshot,
           lease,
-          providerCredentialEnvironment: input.providerCredentialEnvironment,
           ...(input.signal === undefined ? {} : { signal: input.signal }),
         });
         snapshot = result.snapshot;

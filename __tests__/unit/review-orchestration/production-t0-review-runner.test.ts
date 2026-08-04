@@ -1,15 +1,40 @@
 import {
+  LegacyFallbackBeforeInvestigationAuthorityControlPlane,
   mapOrchestrationResultToCodexOutcome,
   planAssignments,
   resolveT0AttemptBudget,
 } from '../../../src/review-orchestration/infrastructure/production-t0-review-runner';
 import {
+  ReviewCapabilityKind,
   ReviewExecutionProviderKind,
+  ReviewInvestigationAuthorizationDescriptorVersion,
+  ReviewInvestigationRecordingMode,
+  ReviewInvestigationRolloutCapability,
   ReviewOrchestrationResultStatus,
+  type ReviewRunAuthorization,
 } from '../../../src/review-orchestration/application';
 import { CodexOAuthV2ReviewOutcome } from '../../../src/codex-oauth/runtime';
 import type { PRContext, ReviewConfig } from '../../../src/types';
 import { compareCodeUnits } from '../../../src/review-orchestration/infrastructure/production-review-projection';
+import {
+  reviewInvestigationCoverageProfileHash,
+  reviewInvestigationPolicyHash,
+} from '../../../src/review-orchestration/infrastructure/review-investigation-recording-adapter';
+import {
+  ReviewAgentProviderKind,
+  ReviewInvestigationControlPlaneError,
+  ReviewInvestigationControlPlaneFailureClass,
+  ReviewInvestigationLegacyFallbackSignal,
+  ReviewTurnPurpose,
+  type ReviewAgentPort,
+} from '../../../src/review-investigation';
+import {
+  createProductionReviewInvestigationAgentSelector,
+  productionReviewInvestigationRecordingMode,
+  readProductionReviewInvestigationRolloutFlags,
+  resolveProductionReviewInvestigationRollout,
+  type ProductionReviewInvestigationRolloutFlags,
+} from '../../../src/review-orchestration/infrastructure/production-review-investigation-composition';
 
 describe('ProductionT0ReviewRunner policy', () => {
   it('treats providerRetries as the total provider attempt budget', () => {
@@ -87,7 +112,658 @@ describe('ProductionT0ReviewRunner policy', () => {
       blockingFailure: 'provider_failed',
     });
   });
+
+  it('keeps a locally requested investigation on legacy with old authorization facts', () => {
+    expect(
+      resolveProductionReviewInvestigationRollout({
+        flags: rolloutFlags({ recordingEnabled: true }),
+        agenticContext: true,
+        authorization: authorization(1),
+        primaryProviderKind: ReviewExecutionProviderKind.Codex,
+      }).recordingEnabled
+    ).toBe(false);
+  });
+
+  it('keeps all rollout flags disabled by default', () => {
+    expect(readProductionReviewInvestigationRolloutFlags({})).toEqual(
+      rolloutFlags()
+    );
+  });
+
+  it.each([
+    [undefined, false],
+    ['', false],
+    ['0', false],
+    ['1', true],
+  ])('parses the strict recording flag value %p', (value, expected) => {
+    expect(
+      readProductionReviewInvestigationRolloutFlags({
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: value,
+      }).recordingEnabled
+    ).toBe(expected);
+  });
+
+  it.each(['true', 'false', '2', ' ', '01'])(
+    'rejects non-canonical rollout flag value %p',
+    (value) => {
+      expect(() =>
+        readProductionReviewInvestigationRolloutFlags({
+          REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: value,
+        })
+      ).toThrow('review_investigation_rollout_flag_invalid:recording');
+    }
+  );
+
+  it('enables record-only execution without shadow or critic', () => {
+    const rollout = resolveProductionReviewInvestigationRollout({
+      flags: rolloutFlags({ recordingEnabled: true }),
+      agenticContext: true,
+      authorization: authorizationWithInvestigation(),
+      primaryProviderKind: ReviewExecutionProviderKind.Codex,
+    });
+
+    expect(rollout).toEqual(
+      rolloutFlags({
+        recordingEnabled: true,
+      })
+    );
+    expect(productionReviewInvestigationRecordingMode(rollout)).toBe(
+      ReviewInvestigationRecordingMode.RecordOnly
+    );
+  });
+
+  it.each([
+    {
+      capability: ReviewInvestigationRolloutCapability.Recording,
+      grants: [ReviewInvestigationRolloutCapability.Recording],
+      expected: rolloutFlags({ recordingEnabled: true }),
+    },
+    {
+      capability: ReviewInvestigationRolloutCapability.Shadow,
+      grants: [
+        ReviewInvestigationRolloutCapability.Recording,
+        ReviewInvestigationRolloutCapability.Shadow,
+      ],
+      expected: rolloutFlags({
+        recordingEnabled: true,
+        shadowEnabled: true,
+      }),
+    },
+    {
+      capability: ReviewInvestigationRolloutCapability.ContextCritic,
+      grants: [
+        ReviewInvestigationRolloutCapability.ContextCritic,
+        ReviewInvestigationRolloutCapability.Recording,
+        ReviewInvestigationRolloutCapability.Shadow,
+      ],
+      expected: rolloutFlags({
+        recordingEnabled: true,
+        shadowEnabled: true,
+        contextCriticEnabled: true,
+      }),
+    },
+    {
+      capability: ReviewInvestigationRolloutCapability.CrossRevisionReplay,
+      grants: [
+        ReviewInvestigationRolloutCapability.CrossRevisionReplay,
+        ReviewInvestigationRolloutCapability.Recording,
+        ReviewInvestigationRolloutCapability.Shadow,
+      ],
+      expected: rolloutFlags({
+        recordingEnabled: true,
+        shadowEnabled: true,
+        crossRevisionReplayEnabled: true,
+      }),
+    },
+    {
+      capability: ReviewInvestigationRolloutCapability.ProductionEffects,
+      grants: [
+        ReviewInvestigationRolloutCapability.ContextCritic,
+        ReviewInvestigationRolloutCapability.ProductionEffects,
+        ReviewInvestigationRolloutCapability.Recording,
+        ReviewInvestigationRolloutCapability.Shadow,
+      ],
+      expected: rolloutFlags({
+        recordingEnabled: true,
+        shadowEnabled: true,
+        contextCriticEnabled: true,
+        productionEffectsEnabled: true,
+      }),
+    },
+    {
+      capability: ReviewInvestigationRolloutCapability.VerifiedClean,
+      grants: [
+        ReviewInvestigationRolloutCapability.ContextCritic,
+        ReviewInvestigationRolloutCapability.ProductionEffects,
+        ReviewInvestigationRolloutCapability.Recording,
+        ReviewInvestigationRolloutCapability.Shadow,
+        ReviewInvestigationRolloutCapability.VerifiedClean,
+      ],
+      expected: rolloutFlags({
+        recordingEnabled: true,
+        shadowEnabled: true,
+        contextCriticEnabled: true,
+        productionEffectsEnabled: true,
+        verifiedCleanEnabled: true,
+      }),
+    },
+  ])(
+    'isolates the $capability server grant from locally enabled capabilities',
+    ({ grants, expected }) => {
+      const rollout = resolveProductionReviewInvestigationRollout({
+        flags: rolloutFlags({
+          recordingEnabled: true,
+          shadowEnabled: true,
+          contextCriticEnabled: true,
+          verifiedCleanEnabled: true,
+          crossRevisionReplayEnabled: true,
+          productionEffectsEnabled: true,
+        }),
+        agenticContext: true,
+        authorization: authorizationWithInvestigationCapabilities([
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: grants,
+          },
+        ]),
+        primaryProviderKind: ReviewExecutionProviderKind.Codex,
+      });
+
+      expect(rollout).toEqual(expected);
+    }
+  );
+
+  it('keeps all investigation capabilities disabled for V1 authorization', () => {
+    const rollout = resolveProductionReviewInvestigationRollout({
+      flags: rolloutFlags({
+        recordingEnabled: true,
+        shadowEnabled: true,
+        contextCriticEnabled: true,
+        verifiedCleanEnabled: true,
+        crossRevisionReplayEnabled: true,
+        productionEffectsEnabled: true,
+      }),
+      agenticContext: true,
+      authorization: authorizationWithLegacyInvestigation(),
+      primaryProviderKind: ReviewExecutionProviderKind.Codex,
+    });
+
+    expect(rollout).toEqual(rolloutFlags());
+  });
+
+  it('applies provider-specific grants independently', () => {
+    const authorization = authorizationWithInvestigationCapabilities([
+      {
+        providerKind: ReviewExecutionProviderKind.Codex,
+        capabilities: allInvestigationCapabilities,
+      },
+      {
+        providerKind: ReviewExecutionProviderKind.ClaudeCode,
+        capabilities: [ReviewInvestigationRolloutCapability.Recording],
+      },
+    ]);
+    const flags = rolloutFlags({
+      recordingEnabled: true,
+      shadowEnabled: true,
+      contextCriticEnabled: true,
+      verifiedCleanEnabled: true,
+      crossRevisionReplayEnabled: true,
+      productionEffectsEnabled: true,
+    });
+
+    expect(
+      resolveProductionReviewInvestigationRollout({
+        flags,
+        agenticContext: true,
+        authorization,
+        primaryProviderKind: ReviewExecutionProviderKind.Codex,
+      })
+    ).toEqual(flags);
+    expect(
+      resolveProductionReviewInvestigationRollout({
+        flags,
+        agenticContext: true,
+        authorization,
+        primaryProviderKind: ReviewExecutionProviderKind.ClaudeCode,
+      })
+    ).toEqual(rolloutFlags({ recordingEnabled: true }));
+  });
+
+  it('allows cross-revision replay in shadow without production effects', () => {
+    const rollout = resolveProductionReviewInvestigationRollout({
+      flags: rolloutFlags({
+        recordingEnabled: true,
+        shadowEnabled: true,
+        crossRevisionReplayEnabled: true,
+      }),
+      agenticContext: true,
+      authorization: authorizationWithInvestigation(),
+      primaryProviderKind: ReviewExecutionProviderKind.Codex,
+    });
+
+    expect(rollout.crossRevisionReplayEnabled).toBe(true);
+    expect(rollout.productionEffectsEnabled).toBe(false);
+    expect(productionReviewInvestigationRecordingMode(rollout)).toBe(
+      ReviewInvestigationRecordingMode.RecordOnly
+    );
+  });
+
+  it('keeps authoritative effects separate from shadow execution', () => {
+    const base = {
+      agenticContext: true,
+      authorization: authorizationWithInvestigation(),
+      primaryProviderKind: ReviewExecutionProviderKind.Codex,
+    } as const;
+    const shadow = resolveProductionReviewInvestigationRollout({
+      ...base,
+      flags: rolloutFlags({
+        recordingEnabled: true,
+        shadowEnabled: true,
+        contextCriticEnabled: true,
+      }),
+    });
+    const authoritative = resolveProductionReviewInvestigationRollout({
+      ...base,
+      flags: rolloutFlags({
+        recordingEnabled: true,
+        shadowEnabled: true,
+        contextCriticEnabled: true,
+        productionEffectsEnabled: true,
+      }),
+    });
+
+    expect(productionReviewInvestigationRecordingMode(shadow)).toBe(
+      ReviewInvestigationRecordingMode.RecordOnly
+    );
+    expect(productionReviewInvestigationRecordingMode(authoritative)).toBe(
+      ReviewInvestigationRecordingMode.Authoritative
+    );
+  });
+
+  it('rejects shadow without independently enabled recording', () => {
+    expect(() =>
+      resolveProductionReviewInvestigationRollout({
+        flags: rolloutFlags({ shadowEnabled: true }),
+        agenticContext: true,
+        authorization: authorizationWithInvestigation(),
+        primaryProviderKind: ReviewExecutionProviderKind.Codex,
+      })
+    ).toThrow('rollout_dependency_missing:shadow:recording');
+  });
+
+  it('enables investigation only for exact hashes and an allowed provider', () => {
+    const negotiated = authorizationWithInvestigation();
+    const descriptor = negotiated.facts.reviewInvestigation;
+    if (
+      descriptor === undefined ||
+      !('authorizationDescriptorVersion' in descriptor)
+    ) {
+      throw new Error('expected V2 investigation descriptor');
+    }
+    const enabled = (
+      authorizationOverride: ReviewRunAuthorization = negotiated
+    ) =>
+      resolveProductionReviewInvestigationRollout({
+        flags: rolloutFlags({ recordingEnabled: true }),
+        agenticContext: true,
+        authorization: authorizationOverride,
+        primaryProviderKind: ReviewExecutionProviderKind.Codex,
+      }).recordingEnabled;
+
+    expect(enabled()).toBe(true);
+    expect(
+      enabled({
+        ...negotiated,
+        facts: {
+          ...negotiated.facts,
+          reviewInvestigation: {
+            ...descriptor,
+            coverageProfileHash: 'e'.repeat(64),
+          },
+        },
+      })
+    ).toBe(false);
+    expect(
+      enabled({
+        ...negotiated,
+        facts: {
+          ...negotiated.facts,
+          reviewInvestigation: {
+            ...descriptor,
+            policyHash: 'f'.repeat(64),
+          },
+        },
+      })
+    ).toBe(false);
+    expect(
+      enabled({
+        ...negotiated,
+        facts: {
+          ...negotiated.facts,
+          reviewInvestigation: {
+            ...descriptor,
+            providerCapabilities: [
+              {
+                providerKind: ReviewExecutionProviderKind.ClaudeCode,
+                capabilities: allInvestigationCapabilities,
+              },
+            ],
+          },
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('selects a configured and authorized Claude critic', () => {
+    const codex = agent();
+    const claude = agent();
+    const selector = createProductionReviewInvestigationAgentSelector({
+      authorization: authorizationWithInvestigation([
+        ReviewExecutionProviderKind.Codex,
+        ReviewExecutionProviderKind.ClaudeCode,
+      ]),
+      primaryProviderKind: ReviewAgentProviderKind.Codex,
+      contextCriticEnabled: true,
+      agents: [
+        {
+          providerKind: ReviewAgentProviderKind.Codex,
+          requestedModel: 'gpt-5.6-terra',
+          agent: codex,
+        },
+        {
+          providerKind: ReviewAgentProviderKind.ClaudeCode,
+          requestedModel: 'claude-sonnet-4-5',
+          agent: claude,
+        },
+      ],
+    });
+
+    expect(
+      selector.resolve({
+        primaryProviderKind: ReviewAgentProviderKind.Codex,
+        primaryRequestedModel: 'gpt-5.6-terra',
+        executionAuthority: {
+          providerKind: ReviewAgentProviderKind.ClaudeCode,
+          requestedModel: 'claude-sonnet-4-5',
+        },
+        purpose: ReviewTurnPurpose.Critic,
+        maximumSemanticRiskPriority: 900_000,
+      })
+    ).toEqual({
+      agent: claude,
+      providerKind: ReviewAgentProviderKind.ClaudeCode,
+      requestedModel: 'claude-sonnet-4-5',
+    });
+  });
+
+  it('does not let recording authority imply critic authority for another provider', () => {
+    const selector = createProductionReviewInvestigationAgentSelector({
+      authorization: authorizationWithInvestigationCapabilities([
+        {
+          providerKind: ReviewExecutionProviderKind.Codex,
+          capabilities: [
+            ReviewInvestigationRolloutCapability.ContextCritic,
+            ReviewInvestigationRolloutCapability.Recording,
+            ReviewInvestigationRolloutCapability.Shadow,
+          ],
+        },
+        {
+          providerKind: ReviewExecutionProviderKind.ClaudeCode,
+          capabilities: [ReviewInvestigationRolloutCapability.Recording],
+        },
+      ]),
+      primaryProviderKind: ReviewAgentProviderKind.Codex,
+      contextCriticEnabled: true,
+      agents: [
+        {
+          providerKind: ReviewAgentProviderKind.Codex,
+          requestedModel: 'gpt-5.6-terra',
+          agent: agent(),
+        },
+        {
+          providerKind: ReviewAgentProviderKind.ClaudeCode,
+          requestedModel: 'claude-sonnet-4-5',
+          agent: agent(),
+        },
+      ],
+    });
+
+    expect(() =>
+      selector.resolve({
+        primaryProviderKind: ReviewAgentProviderKind.Codex,
+        primaryRequestedModel: 'gpt-5.6-terra',
+        executionAuthority: {
+          providerKind: ReviewAgentProviderKind.ClaudeCode,
+          requestedModel: 'claude-sonnet-4-5',
+        },
+        purpose: ReviewTurnPurpose.Critic,
+        maximumSemanticRiskPriority: 900_000,
+      })
+    ).toThrow('review_agent_independent_critic_unavailable');
+  });
+
+  it('does not silently use the primary provider for a high-risk clean critic', () => {
+    const selector = createProductionReviewInvestigationAgentSelector({
+      authorization: authorizationWithInvestigation(),
+      primaryProviderKind: ReviewAgentProviderKind.Codex,
+      contextCriticEnabled: true,
+      agents: [
+        {
+          providerKind: ReviewAgentProviderKind.Codex,
+          requestedModel: 'gpt-5.6-terra',
+          agent: agent(),
+        },
+      ],
+    });
+
+    expect(() =>
+      selector.resolve({
+        primaryProviderKind: ReviewAgentProviderKind.Codex,
+        primaryRequestedModel: 'gpt-5.6-terra',
+        purpose: ReviewTurnPurpose.Critic,
+        maximumSemanticRiskPriority: 900_000,
+      })
+    ).toThrow('review_agent_critic_execution_authority_unavailable');
+  });
+
+  it('fails closed when authorized independent critic capacity is unavailable', () => {
+    const selector = createProductionReviewInvestigationAgentSelector({
+      authorization: authorizationWithInvestigation([
+        ReviewExecutionProviderKind.Codex,
+        ReviewExecutionProviderKind.ClaudeCode,
+      ]),
+      primaryProviderKind: ReviewAgentProviderKind.Codex,
+      contextCriticEnabled: true,
+      agents: [
+        {
+          providerKind: ReviewAgentProviderKind.Codex,
+          requestedModel: 'gpt-5.6-terra',
+          agent: agent(),
+        },
+      ],
+    });
+
+    expect(() =>
+      selector.resolve({
+        primaryProviderKind: ReviewAgentProviderKind.Codex,
+        primaryRequestedModel: 'gpt-5.6-terra',
+        executionAuthority: {
+          providerKind: ReviewAgentProviderKind.ClaudeCode,
+          requestedModel: 'claude-sonnet-4-5',
+        },
+        purpose: ReviewTurnPurpose.Critic,
+        maximumSemanticRiskPriority: 900_000,
+      })
+    ).toThrow('review_agent_independent_critic_unavailable');
+  });
+
+  it('rejects critic turns when the critic rollout is disabled', () => {
+    const selector = createProductionReviewInvestigationAgentSelector({
+      authorization: authorizationWithInvestigation(),
+      primaryProviderKind: ReviewAgentProviderKind.Codex,
+      contextCriticEnabled: false,
+      agents: [
+        {
+          providerKind: ReviewAgentProviderKind.Codex,
+          requestedModel: 'gpt-5.6-terra',
+          agent: agent(),
+        },
+      ],
+    });
+
+    expect(() =>
+      selector.resolve({
+        primaryProviderKind: ReviewAgentProviderKind.Codex,
+        primaryRequestedModel: 'gpt-5.6-terra',
+        purpose: ReviewTurnPurpose.Critic,
+        maximumSemanticRiskPriority: 500_000,
+      })
+    ).toThrow('review_agent_context_critic_disabled');
+  });
+
+  it('falls back only when capability is disabled before investigation admission', async () => {
+    const preOpenError = new ReviewInvestigationControlPlaneError(
+      ReviewInvestigationControlPlaneFailureClass.CapabilityDisabled,
+      'investigation_rollout_disabled_before_open'
+    );
+    const postOpenError = new ReviewInvestigationControlPlaneError(
+      ReviewInvestigationControlPlaneFailureClass.CapabilityDisabled,
+      'investigation_rollout_disabled_after_open'
+    );
+    const delegate = {
+      open: jest
+        .fn()
+        .mockRejectedValueOnce(preOpenError)
+        .mockResolvedValueOnce({
+          investigationId: 'investigation-1',
+        }),
+      planTurn: jest.fn().mockRejectedValue(postOpenError),
+    } as never;
+    const controlPlane =
+      new LegacyFallbackBeforeInvestigationAuthorityControlPlane(delegate);
+
+    await expect(controlPlane.open({} as never)).rejects.toBeInstanceOf(
+      ReviewInvestigationLegacyFallbackSignal
+    );
+    await expect(controlPlane.open({} as never)).resolves.toMatchObject({
+      investigationId: 'investigation-1',
+    });
+    await expect(controlPlane.planTurn({} as never)).rejects.toBe(
+      postOpenError
+    );
+  });
 });
+
+function authorizationWithInvestigation(
+  providerKinds: readonly (
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
+  )[] = [ReviewExecutionProviderKind.Codex]
+): ReviewRunAuthorization {
+  return authorizationWithInvestigationCapabilities(
+    providerKinds.map((providerKind) => ({
+      providerKind,
+      capabilities: allInvestigationCapabilities,
+    }))
+  );
+}
+
+function authorizationWithInvestigationCapabilities(
+  providerCapabilities: readonly {
+    readonly providerKind:
+      | ReviewExecutionProviderKind.Codex
+      | ReviewExecutionProviderKind.ClaudeCode;
+    readonly capabilities: readonly ReviewInvestigationRolloutCapability[];
+  }[]
+): ReviewRunAuthorization {
+  const base = authorization(1);
+  const canonicalProviderCapabilities = [...providerCapabilities]
+    .sort((left, right) =>
+      left.providerKind < right.providerKind
+        ? -1
+        : left.providerKind > right.providerKind
+          ? 1
+          : 0
+    )
+    .map((row) => ({
+      providerKind: row.providerKind,
+      capabilities: [...row.capabilities].sort(),
+    }));
+  return {
+    ...base,
+    facts: {
+      ...base.facts,
+      providerVoteLanes: canonicalProviderCapabilities.map(
+        ({ providerKind }, index) => ({
+          providerKind,
+          providerVoteIdentityHash: `${index + 6}`.repeat(64),
+        })
+      ),
+      reviewInvestigation: {
+        authorizationDescriptorVersion:
+          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: reviewInvestigationCoverageProfileHash(),
+        policyHash: reviewInvestigationPolicyHash(),
+        providerCapabilities: canonicalProviderCapabilities,
+      },
+    },
+  };
+}
+
+function authorizationWithLegacyInvestigation(
+  providerKinds: readonly (
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
+  )[] = [ReviewExecutionProviderKind.Codex]
+): ReviewRunAuthorization {
+  const base = authorization(1);
+  return {
+    ...base,
+    facts: {
+      ...base.facts,
+      providerVoteLanes: providerKinds.map((providerKind, index) => ({
+        providerKind,
+        providerVoteIdentityHash: `${index + 6}`.repeat(64),
+      })),
+      reviewInvestigation: {
+        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+        coverageProfileHash: reviewInvestigationCoverageProfileHash(),
+        policyHash: reviewInvestigationPolicyHash(),
+        providerKinds,
+      },
+    },
+  } as unknown as ReviewRunAuthorization;
+}
+
+const allInvestigationCapabilities = Object.freeze([
+  ReviewInvestigationRolloutCapability.ContextCritic,
+  ReviewInvestigationRolloutCapability.CrossRevisionReplay,
+  ReviewInvestigationRolloutCapability.ProductionEffects,
+  ReviewInvestigationRolloutCapability.Recording,
+  ReviewInvestigationRolloutCapability.Shadow,
+  ReviewInvestigationRolloutCapability.VerifiedClean,
+]);
+
+function rolloutFlags(
+  overrides: Partial<ProductionReviewInvestigationRolloutFlags> = {}
+): ProductionReviewInvestigationRolloutFlags {
+  return {
+    recordingEnabled: false,
+    shadowEnabled: false,
+    contextCriticEnabled: false,
+    verifiedCleanEnabled: false,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: false,
+    ...overrides,
+  };
+}
+
+function agent(): ReviewAgentPort {
+  return {
+    negotiate: jest.fn(),
+    executeTurn: jest.fn(),
+    cancel: jest.fn(),
+  };
+}
 
 function authorization(maxWorkSlots: number) {
   return {

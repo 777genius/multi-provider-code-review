@@ -280,8 +280,7 @@ export interface SynthesizedDiffSizeLimitOmission {
 }
 
 export type PullRequestLoadOmission =
-  | GitHubFileLimitOmission
-  | SynthesizedDiffSizeLimitOmission;
+  GitHubFileLimitOmission | SynthesizedDiffSizeLimitOmission;
 
 export type PullRequestLoadCompleteness =
   | {
@@ -368,11 +367,7 @@ export interface AIAnalysis {
 }
 
 export type ReviewCoverageFileStatus =
-  | 'full'
-  | 'compacted'
-  | 'metadata-only'
-  | 'skipped'
-  | 'unreviewed';
+  'full' | 'compacted' | 'metadata-only' | 'skipped' | 'unreviewed';
 
 export interface ReviewCoverageFile {
   path: string;

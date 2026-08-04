@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'fs/promises';
 import {
   REVIEW_INVESTIGATION_GATEWAY_TOOLS,
+  ReviewAgentExecutionSessionKind,
   ReviewAgentFailureClass,
   type ReviewAgentPort,
   type ReviewTurnRequest,
@@ -11,20 +12,29 @@ import {
   ReviewAgentProviderKind,
   ReviewTurnCriticDecision,
   ReviewTurnFindingSeverity,
+  ReviewTurnObligationKind,
   ReviewTurnPurpose,
 } from '../../../src/review-investigation/domain';
+import {
+  canonicalJson,
+  sha256,
+} from '../../../src/review-investigation/domain/canonical-json';
 import {
   ClaudeReviewAgentAdapter,
   CodexReviewAgentAdapter,
   ReviewAgentProcessTermination,
+  type ReviewAgentExecutionSessionResolverPort,
+  type ReviewAgentGatewayLaunchBinding,
   type ReviewAgentProcessRequest,
   type ReviewAgentProcessResult,
   type ReviewAgentProcessRunnerPort,
 } from '../../../src/review-investigation/infrastructure';
 
 const digest = (character: string) => character.repeat(64);
+const proposedPath = 'src/service.ts';
+const proposedPathHash = sha256(proposedPath);
 const turnOutput = Object.freeze({
-  outputVersion: 1 as const,
+  outputVersion: 2 as const,
   findings: Object.freeze([
     Object.freeze({
       severity: ReviewTurnFindingSeverity.Major,
@@ -35,11 +45,36 @@ const turnOutput = Object.freeze({
       evidenceOperationReceiptIds: Object.freeze([digest('a')]),
     }),
   ]),
-  obligationProposals: Object.freeze([]),
+  obligationProposals: Object.freeze([
+    Object.freeze({
+      kind: ReviewTurnObligationKind.DirectCaller,
+      canonicalSubject: canonicalJson({
+        kind: 'file_read',
+        pathHash: proposedPathHash,
+        revision: 'head',
+        subjectVersion: 1,
+      }),
+      canonicalRequirement: canonicalJson({
+        kind: 'complete_file',
+        path: proposedPath,
+        pathHash: proposedPathHash,
+        requirementVersion: 1,
+        revision: 'head',
+      }),
+      riskPriority: 800_000,
+    }),
+  ]),
   closureClaims: Object.freeze([
     Object.freeze({
       obligationId: digest('b'),
       operationReceiptIds: Object.freeze([digest('a')]),
+    }),
+  ]),
+  operationBackedDiscoveryClaims: Object.freeze([
+    Object.freeze({
+      sourceObligationId: digest('c'),
+      query: 'sharedContract',
+      operationReceiptIds: Object.freeze([digest('d')]),
     }),
   ]),
   unresolvableClaims: Object.freeze([]),
@@ -72,6 +107,8 @@ describe.each([
     const { adapter, runner, request } = fixture(providerKind);
     const observation = await adapter.executeTurn(request);
     expect(observation).toMatchObject({
+      outputVersion: 2,
+      observationVersion: 2,
       invocationId: 'invocation-1',
       turnId: 'turn-1',
       dossierVersion: 3,
@@ -82,10 +119,14 @@ describe.each([
         inputTokens: 100,
         cachedInputTokens: 20,
         outputTokens: 10,
-        totalTokens: 110,
+        reasoningOutputTokens:
+          providerKind === ReviewAgentProviderKind.Codex ? 3 : 0,
+        totalTokens: providerKind === ReviewAgentProviderKind.Codex ? 113 : 110,
       },
       findings: turnOutput.findings,
+      obligationProposals: turnOutput.obligationProposals,
       closureClaims: turnOutput.closureClaims,
+      operationBackedDiscoveryClaims: turnOutput.operationBackedDiscoveryClaims,
       schemaComplete: true,
       streamComplete: true,
       contextAttestationReference: null,
@@ -113,6 +154,21 @@ describe.each([
     ]);
   });
 
+  it('sanitizes cancellation failures from the process runner', async () => {
+    const { adapter, runner } = fixture(providerKind);
+    runner.cancelError = new Error(
+      'cancel failed auth=provider-cancellation-private-material'
+    );
+
+    await expect(
+      adapter.cancel('invocation-1', 'fence-7')
+    ).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.ProcessFailure,
+      retryAfterMs: null,
+      message: 'review_agent_cancel_failure',
+    });
+  });
+
   it('classifies revoked auth once without retrying or exposing diagnostics', async () => {
     const { adapter, runner, request } = fixture(providerKind, {
       termination: ReviewAgentProcessTermination.Exited,
@@ -126,6 +182,39 @@ describe.each([
       message: 'review_agent_authentication_unavailable',
     });
     expect(runner.requests).toHaveLength(1);
+  });
+
+  it('maps unknown CLI output to an allowlisted error without leaking material', async () => {
+    const secret = 'credential-secret-private-material';
+    const query = 'select * from private_accounts';
+    const source = 'const customerToken = "private-source-token";';
+    const { adapter, request } = fixture(providerKind, {
+      termination: ReviewAgentProcessTermination.Exited,
+      exitCode: 1,
+      stdout: `${source}\n${secret}`,
+      stderr: `unknown provider failure query=${query}`,
+      durationMs: 4,
+    });
+
+    let failure: unknown;
+    try {
+      await adapter.executeTurn(request);
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({
+      failureClass: ReviewAgentFailureClass.ProcessFailure,
+      retryAfterMs: null,
+      message: 'review_agent_process_failure',
+    });
+    const rendered =
+      failure instanceof Error
+        ? `${failure.name}\n${failure.message}\n${failure.stack ?? ''}`
+        : JSON.stringify(failure);
+    expect(rendered).not.toContain(secret);
+    expect(rendered).not.toContain(query);
+    expect(rendered).not.toContain(source);
   });
 
   it('fails closed when actual model attribution is absent', async () => {
@@ -144,6 +233,16 @@ describe.each([
     });
   });
 
+  it('rejects an oversized Codex output file before JSON parsing', async () => {
+    const { adapter, runner, request } = fixture(ReviewAgentProviderKind.Codex);
+    runner.rawCodexOutput = Buffer.alloc(4 * 1024 * 1024 + 1, 97);
+
+    await expect(adapter.executeTurn(request)).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.SchemaInvalidOutput,
+      message: 'review_agent_output_invalid',
+    });
+  });
+
   it('keeps critic decisions out of discovery turns and requires them for critic turns', async () => {
     const discovery = fixture(providerKind);
     discovery.runner.output = {
@@ -159,6 +258,7 @@ describe.each([
     const critic = fixture(providerKind);
     critic.runner.output = {
       ...turnOutput,
+      obligationProposals: Object.freeze([]),
       criticDecision: ReviewTurnCriticDecision.Accept,
     };
     await expect(
@@ -289,6 +389,110 @@ describe('strict provider command shapes', () => {
   });
 });
 
+describe('review agent environment allowlists', () => {
+  it.each([
+    [ReviewAgentProviderKind.Codex, 'GITHUB_TOKEN'],
+    [ReviewAgentProviderKind.Codex, 'AWS_SECRET_ACCESS_KEY'],
+    [ReviewAgentProviderKind.Codex, 'BROWSER_SESSION_COOKIE'],
+    [ReviewAgentProviderKind.Codex, 'CLAUDE_CODE_OAUTH_TOKEN'],
+    [ReviewAgentProviderKind.ClaudeCode, 'GITHUB_TOKEN'],
+    [ReviewAgentProviderKind.ClaudeCode, 'AWS_SECRET_ACCESS_KEY'],
+    [ReviewAgentProviderKind.ClaudeCode, 'BROWSER_SESSION_COOKIE'],
+    [ReviewAgentProviderKind.ClaudeCode, 'OPENAI_API_KEY'],
+  ])(
+    'rejects %s provider environment key %s before process launch',
+    async (providerKind, key) => {
+      const { adapter, credentials, runner, request } = fixture(providerKind);
+      credentials.environment = { [key]: 'secret-canary' };
+
+      await expect(adapter.executeTurn(request)).rejects.toThrow(
+        'review_agent_provider_credential_environment_invalid'
+      );
+      expect(runner.requests).toHaveLength(0);
+    }
+  );
+
+  it.each(['GITHUB_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'SESSION_COOKIE'])(
+    'rejects gateway credential key %s before process launch',
+    async (key) => {
+      const { adapter, runner, request, sessions } = fixture(
+        ReviewAgentProviderKind.Codex
+      );
+      sessions.binding = Object.freeze({
+        ...sessions.binding,
+        credentialEnvironment: Object.freeze({ [key]: 'secret-canary' }),
+      });
+
+      await expect(adapter.executeTurn(request)).rejects.toThrow(
+        'review_agent_gateway_credential_environment_invalid'
+      );
+      expect(runner.requests).toHaveLength(0);
+    }
+  );
+
+  it('rejects arbitrary gateway runtime keys before process launch', async () => {
+    const { adapter, runner, request, sessions } = fixture(
+      ReviewAgentProviderKind.Codex
+    );
+    sessions.binding = Object.freeze({
+      ...sessions.binding,
+      runtimeEnvironment: Object.freeze({
+        ...sessions.binding.runtimeEnvironment,
+        AWS_REGION: 'us-east-1',
+      }),
+    });
+
+    await expect(adapter.executeTurn(request)).rejects.toThrow(
+      'review_agent_runtime_environment_invalid'
+    );
+    expect(runner.requests).toHaveLength(0);
+  });
+
+  it('rejects a workspace outside the adapter-bound gateway authority', async () => {
+    const { adapter, runner, request, sessions } = fixture(
+      ReviewAgentProviderKind.Codex
+    );
+    sessions.binding = Object.freeze({
+      ...sessions.binding,
+      cwd: '/tmp/different-review-workspace',
+    });
+
+    await expect(adapter.executeTurn(request)).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.ConfinementViolation,
+      message: 'review_agent_workspace_authority_mismatch',
+    });
+    expect(runner.requests).toHaveLength(0);
+  });
+
+  it.each([
+    [
+      ReviewAgentProviderKind.Codex,
+      {
+        CODEX_HOME: '/tmp/codex-home',
+        OPENAI_API_KEY: 'openai-canary',
+        OPENROUTER_API_KEY: 'openrouter-canary',
+      },
+    ],
+    [
+      ReviewAgentProviderKind.ClaudeCode,
+      {
+        CLAUDE_CODE_OAUTH_TOKEN: 'claude-canary',
+        CLAUDE_CONFIG_DIR: '/tmp/claude-config',
+      },
+    ],
+  ])(
+    'retains only supported %s credentials and configuration',
+    async (providerKind, providerEnvironment) => {
+      const { adapter, credentials, runner, request } = fixture(providerKind);
+      credentials.environment = providerEnvironment;
+
+      await adapter.executeTurn(request);
+
+      expect(runner.requests[0].environment).toMatchObject(providerEnvironment);
+    }
+  );
+});
+
 class FakeRunner implements ReviewAgentProcessRunnerPort {
   readonly requests: ReviewAgentProcessRequest[] = [];
   readonly cancellations: Array<{
@@ -299,7 +503,9 @@ class FakeRunner implements ReviewAgentProcessRunnerPort {
   omitModel = false;
   omitUsage = false;
   incompleteStream = false;
+  cancelError: unknown = null;
   claudeMcpConfig: unknown;
+  rawCodexOutput: string | Buffer | null = null;
 
   constructor(
     private readonly providerKind: ReviewAgentProviderKind,
@@ -313,7 +519,10 @@ class FakeRunner implements ReviewAgentProcessRunnerPort {
     if (this.forcedResult) return this.forcedResult;
     if (this.providerKind === ReviewAgentProviderKind.Codex) {
       const outputPath = argumentAfter(request.args, '--output-last-message');
-      await writeFile(outputPath, JSON.stringify(this.output));
+      await writeFile(
+        outputPath,
+        this.rawCodexOutput ?? JSON.stringify(this.output)
+      );
       return {
         termination: ReviewAgentProcessTermination.Exited,
         exitCode: 0,
@@ -378,6 +587,37 @@ class FakeRunner implements ReviewAgentProcessRunnerPort {
 
   async cancel(invocationId: string, fencingToken: string): Promise<void> {
     this.cancellations.push({ invocationId, fencingToken });
+    if (this.cancelError) throw this.cancelError;
+  }
+}
+
+class FakeExecutionSessions implements ReviewAgentExecutionSessionResolverPort {
+  readonly session = Object.freeze({
+    kind: ReviewAgentExecutionSessionKind.ContextGatewayV4,
+  });
+  binding: ReviewAgentGatewayLaunchBinding = Object.freeze({
+    policyVersion: 'context-gateway-v4',
+    binaryHash: digest('e'),
+    command: process.execPath,
+    args: Object.freeze(['/tmp/context-gateway.cjs']),
+    cwd: process.cwd(),
+    enabledTools: REVIEW_INVESTIGATION_GATEWAY_TOOLS,
+    runtimeEnvironment: Object.freeze({
+      REVIEWROUTER_CONTEXT_SESSION_ID: 'session-1',
+    }),
+    credentialEnvironment: Object.freeze({
+      REVIEWROUTER_CONTEXT_GATEWAY_SECRET: 'gateway-secret',
+    }),
+  });
+
+  resolve(
+    session: ReviewTurnRequest['executionSession'],
+    _providerKind: ReviewAgentProviderKind
+  ): ReviewAgentGatewayLaunchBinding {
+    if (session !== this.session) {
+      throw new Error('test_execution_session_unavailable');
+    }
+    return this.binding;
   }
 }
 
@@ -386,17 +626,36 @@ function fixture(
   forcedResult?: ReviewAgentProcessResult
 ): {
   adapter: ReviewAgentPort;
+  credentials: { environment: Readonly<NodeJS.ProcessEnv> };
   runner: FakeRunner;
   request: ReviewTurnRequest;
+  sessions: FakeExecutionSessions;
 } {
   const runner = new FakeRunner(providerKind, forcedResult);
+  const sessions = new FakeExecutionSessions();
+  const credentials = {
+    environment:
+      providerKind === ReviewAgentProviderKind.Codex
+        ? { CODEX_HOME: '/tmp/codex-home' }
+        : { CLAUDE_CODE_OAUTH_TOKEN: 'oauth-secret' },
+  };
   const adapter =
     providerKind === ReviewAgentProviderKind.Codex
-      ? new CodexReviewAgentAdapter(runner, { binary: 'codex-test' })
-      : new ClaudeReviewAgentAdapter(runner, { binary: 'claude-test' });
+      ? new CodexReviewAgentAdapter(runner, {
+          executionSessions: sessions,
+          providerCredentialEnvironment: () => credentials.environment,
+          binary: 'codex-test',
+        })
+      : new ClaudeReviewAgentAdapter(runner, {
+          executionSessions: sessions,
+          providerCredentialEnvironment: () => credentials.environment,
+          binary: 'claude-test',
+        });
   return {
     adapter,
+    credentials,
     runner,
+    sessions,
     request: {
       invocationId: 'invocation-1',
       fencingToken: 'fence-1',
@@ -405,31 +664,14 @@ function fixture(
       dossierDigest: digest('d'),
       purpose: ReviewTurnPurpose.Discovery,
       prompt: 'Inspect the durable dossier using only ReviewRouter tools.',
-      workingDirectory: process.cwd(),
+      workspaceRoot: process.cwd(),
       requestedModel:
         providerKind === ReviewAgentProviderKind.Codex
           ? 'gpt-5.6-codex'
           : 'claude-sonnet-5',
       timeoutMs: 30_000,
       maxTurns: 8,
-      gateway: {
-        policyVersion: 'context-gateway-v4',
-        binaryHash: digest('e'),
-        command: process.execPath,
-        args: ['/tmp/context-gateway.cjs'],
-        cwd: process.cwd(),
-        enabledTools: REVIEW_INVESTIGATION_GATEWAY_TOOLS,
-        runtimeEnvironment: {
-          REVIEWROUTER_CONTEXT_SESSION_ID: 'session-1',
-        },
-        credentialEnvironment: {
-          REVIEWROUTER_CONTEXT_GATEWAY_SECRET: 'gateway-secret',
-        },
-      },
-      providerCredentialEnvironment:
-        providerKind === ReviewAgentProviderKind.Codex
-          ? { CODEX_HOME: '/tmp/codex-home' }
-          : { CLAUDE_CODE_OAUTH_TOKEN: 'oauth-secret' },
+      executionSession: sessions.session,
     },
   };
 }

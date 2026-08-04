@@ -40,6 +40,10 @@ describe('ReplayInvestigationOnRevision', () => {
     expect(receipts.replayReceipt).toHaveBeenCalledTimes(2);
     expect(controlPlane.replay).toHaveBeenCalledWith(
       expect.objectContaining({
+        open: expect.objectContaining({
+          seedEnvelope: input().open.seedEnvelope,
+          initialReceipts: [],
+        }),
         replayProofs: [
           {
             obligationId: prepared.obligations[0]!.obligationId,
@@ -148,7 +152,10 @@ function input(): {
       runtimeProfile: 'gateway_attested_agent_v1',
       coverageContract: {},
       investigationPolicy: {},
-      seedObligations: [],
+      seedEnvelope: {
+        canonicalJson: '{}',
+        hash: sha256('{}'),
+      },
       initialReceipts: [],
     },
     scope: {

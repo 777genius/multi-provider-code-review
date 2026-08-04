@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
+import { mkdtemp, open, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { TextDecoder } from 'util';
 import type { ReviewTurnRequest } from '../application/review-agent-port';
 import {
   ReviewAgentEventStreamSupport,
@@ -13,6 +14,10 @@ import {
   type ReviewTurnObservation,
 } from '../domain/turn-observation';
 import type { ReviewAgentProcessRunnerPort } from './review-agent-process-runner';
+import type {
+  ReviewAgentExecutionSessionResolverPort,
+  ReviewAgentGatewayLaunchBinding,
+} from './review-agent-execution-session';
 import {
   StrictCliReviewAgent,
   parseUsage,
@@ -37,9 +42,11 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
   constructor(
     runner: ReviewAgentProcessRunnerPort,
     private readonly options: Readonly<{
+      executionSessions: ReviewAgentExecutionSessionResolverPort;
+      providerCredentialEnvironment?: () => Readonly<NodeJS.ProcessEnv>;
       binary?: string;
       reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
-    }> = {}
+    }>
   ) {
     super(
       createGatewayAttestedRuntimeProfile({
@@ -47,14 +54,16 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
         eventStream: ReviewAgentEventStreamSupport.JsonLines,
         maxPromptBytes: 8 * 1024 * 1024,
       }),
-      runner
+      runner,
+      options.executionSessions,
+      options.providerCredentialEnvironment ?? (() => ({}))
     );
   }
 
   async executeTurn(
     request: ReviewTurnRequest
   ): Promise<ReviewTurnObservation> {
-    this.validateRequest(request);
+    const execution = this.prepareExecution(request);
     const directory = await mkdtemp(
       path.join(os.tmpdir(), 'review-agent-codex-')
     );
@@ -71,13 +80,20 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
         ),
         writeFile(outputPath, '', { mode: 0o600 }),
       ]);
-      const result = await this.runProcess(request, {
+      const result = await this.runProcess(request, execution, {
         binary: this.options.binary ?? 'codex',
-        args: this.buildArguments(request, schemaPath, outputPath),
+        args: this.buildArguments(
+          request,
+          execution.gateway,
+          schemaPath,
+          outputPath
+        ),
       });
       try {
         const output = parseReviewAgentTurnOutput(
-          JSON.parse(await readFile(outputPath, 'utf8'))
+          JSON.parse(
+            await readBoundedUtf8File(outputPath, this.profile.maxOutputBytes)
+          )
         );
         const events = parseJsonLines(result.stdout);
         const models = new Set<string>();
@@ -124,6 +140,7 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
 
   private buildArguments(
     request: ReviewTurnRequest,
+    gateway: ReviewAgentGatewayLaunchBinding,
     schemaPath: string,
     outputPath: string
   ): readonly string[] {
@@ -154,16 +171,16 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
       '-c',
       'mcp_servers={}',
       '-c',
-      `mcp_servers.reviewrouter.command=${tomlString(request.gateway.command)}`,
+      `mcp_servers.reviewrouter.command=${tomlString(gateway.command)}`,
       '-c',
-      `mcp_servers.reviewrouter.args=${tomlStringArray(request.gateway.args)}`,
+      `mcp_servers.reviewrouter.args=${tomlStringArray(gateway.args)}`,
       '-c',
-      `mcp_servers.reviewrouter.cwd=${tomlString(request.gateway.cwd)}`,
+      `mcp_servers.reviewrouter.cwd=${tomlString(gateway.cwd)}`,
       '-c',
       `mcp_servers.reviewrouter.env_vars=${tomlStringArray(
         Object.keys({
-          ...request.gateway.runtimeEnvironment,
-          ...request.gateway.credentialEnvironment,
+          ...gateway.runtimeEnvironment,
+          ...gateway.credentialEnvironment,
           REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v4',
         }).sort()
       )}`,
@@ -175,7 +192,7 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
       'mcp_servers.reviewrouter.tool_timeout_sec=30',
       '-c',
       `mcp_servers.reviewrouter.enabled_tools=${tomlStringArray(
-        request.gateway.enabledTools
+        gateway.enabledTools
       )}`,
       '-c',
       `model_reasoning_effort=${tomlString(
@@ -184,6 +201,29 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
       '-'
     );
     return Object.freeze(args);
+  }
+}
+
+async function readBoundedUtf8File(
+  filePath: string,
+  maxBytes: number
+): Promise<string> {
+  const handle = await open(filePath, 'r');
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isFile() || metadata.size > maxBytes) {
+      throw new Error('review_agent_output_file_size_invalid');
+    }
+    const buffer = Buffer.alloc(metadata.size + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
+    if (bytesRead > maxBytes || bytesRead !== metadata.size) {
+      throw new Error('review_agent_output_file_size_invalid');
+    }
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+      buffer.subarray(0, bytesRead)
+    );
+  } finally {
+    await handle.close();
   }
 }
 

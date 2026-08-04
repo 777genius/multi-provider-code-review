@@ -13,6 +13,10 @@ import {
   type ReviewTurnObservation,
 } from '../domain/turn-observation';
 import type { ReviewAgentProcessRunnerPort } from './review-agent-process-runner';
+import type {
+  ReviewAgentExecutionSessionResolverPort,
+  ReviewAgentGatewayLaunchBinding,
+} from './review-agent-execution-session';
 import {
   StrictCliReviewAgent,
   parseUsage,
@@ -43,9 +47,11 @@ export class ClaudeReviewAgentAdapter extends StrictCliReviewAgent {
   constructor(
     runner: ReviewAgentProcessRunnerPort,
     private readonly options: Readonly<{
+      executionSessions: ReviewAgentExecutionSessionResolverPort;
+      providerCredentialEnvironment?: () => Readonly<NodeJS.ProcessEnv>;
       binary?: string;
       effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-    }> = {}
+    }>
   ) {
     super(
       createGatewayAttestedRuntimeProfile({
@@ -53,14 +59,16 @@ export class ClaudeReviewAgentAdapter extends StrictCliReviewAgent {
         eventStream: ReviewAgentEventStreamSupport.SingleEnvelope,
         maxPromptBytes: 8 * 1024 * 1024,
       }),
-      runner
+      runner,
+      options.executionSessions,
+      options.providerCredentialEnvironment ?? (() => ({}))
     );
   }
 
   async executeTurn(
     request: ReviewTurnRequest
   ): Promise<ReviewTurnObservation> {
-    this.validateRequest(request);
+    const execution = this.prepareExecution(request);
     const directory = await mkdtemp(
       path.join(os.tmpdir(), 'review-agent-claude-')
     );
@@ -72,23 +80,23 @@ export class ClaudeReviewAgentAdapter extends StrictCliReviewAgent {
           mcpServers: {
             reviewrouter: {
               type: 'stdio',
-              command: request.gateway.command,
-              args: request.gateway.args,
+              command: execution.gateway.command,
+              args: execution.gateway.args,
               env: {
-                ...request.gateway.runtimeEnvironment,
+                ...execution.gateway.runtimeEnvironment,
                 REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION:
                   'context-gateway-v4',
-                ...request.gateway.credentialEnvironment,
+                ...execution.gateway.credentialEnvironment,
               },
             },
           },
         }),
         { mode: 0o600 }
       );
-      const result = await this.runProcess(request, {
+      const result = await this.runProcess(request, execution, {
         binary: this.options.binary ?? 'claude',
-        args: this.buildArguments(request, mcpConfigPath),
-        environment: this.providerOnlyExecutionEnvironment(request),
+        args: this.buildArguments(request, execution.gateway, mcpConfigPath),
+        environment: this.providerOnlyExecutionEnvironment(execution),
       });
       try {
         const envelope = requireRecord(
@@ -148,9 +156,10 @@ export class ClaudeReviewAgentAdapter extends StrictCliReviewAgent {
 
   private buildArguments(
     request: ReviewTurnRequest,
+    gateway: ReviewAgentGatewayLaunchBinding,
     mcpConfigPath: string
   ): readonly string[] {
-    const tools = request.gateway.enabledTools.map(
+    const tools = gateway.enabledTools.map(
       (tool) => `mcp__reviewrouter__${tool}`
     );
     return Object.freeze([

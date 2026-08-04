@@ -56,6 +56,7 @@ export type ReviewInvestigationTurnBrief = Readonly<{
   dossierDigest: string;
   turnId: string;
   purpose: ReviewTurnPurpose;
+  maximumSemanticRiskPriority: number;
   obligations: readonly Readonly<{
     obligationId: string;
     kind: ReviewTurnObligationKind;

@@ -51,7 +51,10 @@ export type ReviewInvestigationOpenInput = Readonly<{
   runtimeProfile: string;
   coverageContract: CanonicalJsonValue;
   investigationPolicy: CanonicalJsonValue;
-  seedObligations: CanonicalJsonValue;
+  seedEnvelope: Readonly<{
+    canonicalJson: string;
+    hash: string;
+  }>;
   initialReceipts: CanonicalJsonValue;
 }>;
 

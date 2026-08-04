@@ -1,13 +1,41 @@
-import type { ReviewAgentGatewayConfig } from './review-agent-port';
+import type { ReviewAgentExecutionSession } from './review-agent-port';
 import type { ReviewInvestigationLease } from './investigation-control-plane-port';
+import type {
+  ReviewAgentExecutionProfile,
+  ReviewAgentProviderKind,
+} from '../domain/runtime-profile';
+
+export type ReviewInvestigationTurnExecutionAuthority = Readonly<{
+  preparedManifestKey: string;
+  providerInvocationKey: string;
+  providerKind: ReviewAgentProviderKind;
+  requestedModel: string;
+  executionProfile: ReviewAgentExecutionProfile;
+  toolPolicyHash: string;
+}>;
 
 export type AcceptedInvestigationAttestation = Readonly<{
   attestationId: string;
   attestationHash: string;
 }>;
 
+export type ReviewInvestigationGatewayRevision = Readonly<{
+  baseSha: string;
+  mergeBaseSha: string;
+  headSha: string;
+}>;
+
+export type ReviewInvestigationGatewayOpenInput = Readonly<{
+  executionId: string;
+  workSlotId: string;
+  reviewRevisionHash: string;
+  investigationId: string;
+  turnId: string;
+  lease: ReviewInvestigationLease;
+}>;
+
 export interface ReviewInvestigationGatewaySessionPort {
-  readonly providerConfig: ReviewAgentGatewayConfig;
+  readonly agentSession: ReviewAgentExecutionSession;
   seal(input: {
     readonly actualModel: string;
     readonly terminalOutcomeHash: string;
@@ -16,14 +44,8 @@ export interface ReviewInvestigationGatewaySessionPort {
 }
 
 export interface ReviewInvestigationGatewaySessionFactoryPort {
-  open(input: {
-    readonly executionId: string;
-    readonly workSlotId: string;
-    readonly reviewRevisionHash: string;
-    readonly investigationId: string;
-    readonly turnId: string;
-    readonly lease: ReviewInvestigationLease;
-    readonly requestedModel: string;
-    readonly providerStrategyId: string;
-  }): Promise<ReviewInvestigationGatewaySessionPort>;
+  readonly executionAuthority: ReviewInvestigationTurnExecutionAuthority;
+  open(
+    input: ReviewInvestigationGatewayOpenInput
+  ): Promise<ReviewInvestigationGatewaySessionPort>;
 }
