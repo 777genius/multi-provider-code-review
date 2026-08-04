@@ -180,12 +180,24 @@ export function checkContextWindowFit(
 /**
  * Estimate tokens for a file change
  */
-export function estimateTokensForFile(file: FileChange): number {
+export interface FileTokenEstimationOptions {
+  readonly maxFullFileBytes?: number;
+  readonly maxFullFileChanges?: number;
+}
+
+export function estimateTokensForFile(
+  file: FileChange,
+  options: FileTokenEstimationOptions = {}
+): number {
   const patchBytes = file.patch ? Buffer.byteLength(file.patch, 'utf8') : 0;
   const summaryOnlyReason = getSummaryOnlyDiffReason(
     file.filename,
     patchBytes,
-    file.changes
+    file.changes,
+    {
+      maxFullFileBytes: options.maxFullFileBytes,
+      maxFullFileChanges: options.maxFullFileChanges,
+    }
   );
   const lowSignalSummary =
     summaryOnlyReason &&

@@ -13,6 +13,8 @@ export interface BatchOrchestratorOptions {
   maxBatchSize?: number;
   enableTokenAwareBatching?: boolean;
   targetTokensPerBatch?: number;
+  maxFullFileBytes?: number;
+  maxFullFileChanges?: number;
 }
 
 /**
@@ -122,7 +124,11 @@ export class BatchOrchestrator {
       files,
       maxFiles,
       targetTokens,
-      estimateTokensForFile
+      (file) =>
+        estimateTokensForFile(file, {
+          maxFullFileBytes: this.options.maxFullFileBytes,
+          maxFullFileChanges: this.options.maxFullFileChanges,
+        })
     );
 
     const averageFiles =

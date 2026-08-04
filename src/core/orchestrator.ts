@@ -671,6 +671,8 @@ export class ReviewOrchestrator {
             enableTokenAwareBatching: config.enableTokenAwareBatching,
             targetTokensPerBatch: config.targetTokensPerBatch,
             maxBatchSize: config.batchMaxFiles,
+            maxFullFileBytes: config.maxFullDiffFileBytes,
+            maxFullFileChanges: config.maxFullDiffFileChanges,
           });
 
         // Health check providers, retrying discovery if we don't hit minimum healthy targets
