@@ -294,6 +294,14 @@ describe.each([
     ['usage quota exceeded', ReviewAgentFailureClass.QuotaUnavailable],
     ['429 capacity_unavailable', ReviewAgentFailureClass.CapacityUnavailable],
     [
+      "invalid_json_schema: Invalid schema for response_format 'codex_output_schema'",
+      ReviewAgentFailureClass.SchemaInvalidOutput,
+    ],
+    [
+      '429 while submitting structured output schema',
+      ReviewAgentFailureClass.CapacityUnavailable,
+    ],
+    [
       'model cache failed during startup',
       ReviewAgentFailureClass.StartupFailure,
     ],

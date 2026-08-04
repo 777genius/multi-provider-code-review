@@ -144,7 +144,6 @@ export function buildReviewAgentTurnOutputSchema(): Readonly<
   const receiptIds = {
     type: 'array',
     maxItems: MAX_COLLECTION_ITEMS,
-    uniqueItems: true,
     items: { type: 'string', pattern: '^[a-f0-9]{64}$' },
   };
   return Object.freeze({
@@ -160,7 +159,10 @@ export function buildReviewAgentTurnOutputSchema(): Readonly<
       'criticDecision',
     ],
     properties: {
-      outputVersion: { const: REVIEW_TURN_OUTPUT_VERSION },
+      outputVersion: {
+        type: 'integer',
+        const: REVIEW_TURN_OUTPUT_VERSION,
+      },
       findings: {
         type: 'array',
         maxItems: MAX_COLLECTION_ITEMS,
@@ -176,7 +178,10 @@ export function buildReviewAgentTurnOutputSchema(): Readonly<
             'evidenceOperationReceiptIds',
           ],
           properties: {
-            severity: { enum: Object.values(ReviewTurnFindingSeverity) },
+            severity: {
+              type: 'string',
+              enum: Object.values(ReviewTurnFindingSeverity),
+            },
             title: { type: 'string', minLength: 1, maxLength: 240 },
             body: { type: 'string', minLength: 1, maxLength: 16_000 },
             path: { type: 'string', minLength: 1, maxLength: 2_000 },
@@ -199,6 +204,7 @@ export function buildReviewAgentTurnOutputSchema(): Readonly<
           ],
           properties: {
             kind: {
+              type: 'string',
               enum: REVIEW_TURN_PROVIDER_PROPOSABLE_OBLIGATION_KINDS,
             },
             canonicalSubject: {
@@ -272,7 +278,10 @@ export function buildReviewAgentTurnOutputSchema(): Readonly<
       criticDecision: {
         anyOf: [
           { type: 'null' },
-          { enum: Object.values(ReviewTurnCriticDecision) },
+          {
+            type: 'string',
+            enum: Object.values(ReviewTurnCriticDecision),
+          },
         ],
       },
     },
