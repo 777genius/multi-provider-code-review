@@ -34,8 +34,8 @@ describe('committed production review runtime bundle', () => {
     const bundle = readFileSync('dist/index.js', 'utf8');
 
     expect(bundle).toContain('authoritativeObservationIds');
-    expect(bundle).toContain('GATEWAY_RUNTIME_ENV_KEYS');
-    expect(bundle).toContain('PROVIDER_ENV_KEYS');
+    expect(bundle).toContain('REVIEWROUTER_CONTEXT_GATEWAY_SECRET');
+    expect(bundle).toContain('CLAUDE_CONFIG_DIR');
     expect(bundle).toContain('review_agent_runtime_environment_invalid');
     expect(bundle).toContain('//# sourceMappingURL=index.js.map');
   });
