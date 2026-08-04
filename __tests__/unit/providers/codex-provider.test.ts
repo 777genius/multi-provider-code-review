@@ -57,6 +57,7 @@ function contextGatewayConfig(
       'review_git_fact',
     ],
     runtimeEnvironment: {
+      REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v3',
       REVIEWROUTER_CONTEXT_SESSION_ID: `session-${suffix}`,
       REVIEWROUTER_CONTEXT_ROOT: '/tmp/reviewrouter-checkout',
       REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH: `/tmp/transcript-${suffix}.json`,
@@ -68,6 +69,25 @@ function contextGatewayConfig(
       REVIEWROUTER_CONTEXT_BASE_SHA: 'd'.repeat(40),
       REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: 'f'.repeat(40),
       REVIEWROUTER_CONTEXT_HEAD_SHA: 'e'.repeat(40),
+    },
+  };
+}
+
+function contextGatewayV4Config(): CodexContextGatewayInvocationConfig {
+  const gateway = contextGatewayConfig('v4');
+  return {
+    ...gateway,
+    gatewayPolicyVersion: 'context-gateway-v4',
+    enabledTools: [
+      'review_read_file',
+      'review_list_directory',
+      'review_search_text',
+      'review_canonical_inventory',
+      'review_git_fact',
+    ],
+    runtimeEnvironment: {
+      ...gateway.runtimeEnvironment,
+      REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v4',
     },
   };
 }
@@ -302,6 +322,65 @@ describe('CodexProvider', () => {
     );
     expect(args.join('\n')).not.toContain('must-not-appear-in-cli-args');
     expect(args).not.toContain('--dangerously-bypass-approvals-and-sandbox');
+  });
+
+  it('accepts the versioned v4 context-gateway tool and environment contract', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const gateway = contextGatewayV4Config();
+
+    expect(() =>
+      (provider as any).validateContextGatewayConfig(gateway)
+    ).not.toThrow();
+  });
+
+  it('rejects a context-gateway tool set from a different policy version', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const v4 = contextGatewayV4Config();
+    const mismatched = {
+      ...v4,
+      gatewayPolicyVersion: 'context-gateway-v3',
+      runtimeEnvironment: {
+        ...v4.runtimeEnvironment,
+        REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v3',
+      },
+    };
+
+    expect(() =>
+      (provider as any).validateContextGatewayConfig(mismatched)
+    ).toThrow('codex_context_gateway_tool_policy_invalid');
+  });
+
+  it('rejects a context-gateway runtime policy mismatch', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const v4 = contextGatewayV4Config();
+    const mismatched = {
+      ...v4,
+      runtimeEnvironment: {
+        ...v4.runtimeEnvironment,
+        REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v3',
+      },
+    };
+
+    expect(() =>
+      (provider as any).validateContextGatewayConfig(mismatched)
+    ).toThrow('codex_context_gateway_environment_incomplete');
+  });
+
+  it('rejects an unknown context-gateway policy version', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const v4 = contextGatewayV4Config();
+    const unknown = {
+      ...v4,
+      gatewayPolicyVersion: 'context-gateway-v5',
+      runtimeEnvironment: {
+        ...v4.runtimeEnvironment,
+        REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v5',
+      },
+    };
+
+    expect(() =>
+      (provider as any).validateContextGatewayConfig(unknown)
+    ).toThrow('codex_context_gateway_config_invalid');
   });
 
   it('does not delegate the required changed-paths witness to the model', () => {

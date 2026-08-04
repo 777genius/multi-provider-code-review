@@ -21923,6 +21923,330 @@ function safeOutput(value) {
   return value.replace(/ghs_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/gh[pousr]_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/github_pat_[A-Za-z0-9_]+/g, "[redacted-github-token]").slice(0, 200);
 }
 
+// src/context-gateway/context-gateway-contract.ts
+var import_crypto = require("crypto");
+var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v3";
+var CONTEXT_GATEWAY_MAX_OPERATIONS = 2e3;
+var CONTEXT_GIT_DIFF_POLICY_VERSION = "git-diff-stat-v2";
+var CONTEXT_GATEWAY_V3_ENABLED_TOOLS = Object.freeze([
+  "review_read_file",
+  "review_list_directory",
+  "review_search_text",
+  "review_git_fact"
+]);
+var CONTEXT_GATEWAY_RUNTIME_ENV_KEYS = Object.freeze([
+  "REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION",
+  "REVIEWROUTER_CONTEXT_SESSION_ID",
+  "REVIEWROUTER_CONTEXT_ROOT",
+  "REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH",
+  "REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH",
+  "REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH",
+  "REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID",
+  "REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID",
+  "REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH",
+  "REVIEWROUTER_CONTEXT_BASE_SHA",
+  "REVIEWROUTER_CONTEXT_MERGE_BASE_SHA",
+  "REVIEWROUTER_CONTEXT_HEAD_SHA"
+]);
+function contextGitFactOperandsHash(input) {
+  switch (input.fact) {
+    case "changed_paths":
+      return sha256(
+        canonicalJson({
+          mergeBaseTreeOid: requireGitOid(
+            input.mergeBaseTreeOid,
+            "merge_base_tree_oid"
+          ),
+          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
+        })
+      );
+    case "diff_stat":
+      return sha256(
+        canonicalJson({
+          diffPolicyHash: requireSha256(
+            input.diffPolicyHash,
+            "diff_policy_hash"
+          ),
+          mergeBaseTreeOid: requireGitOid(
+            input.mergeBaseTreeOid,
+            "merge_base_tree_oid"
+          ),
+          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
+        })
+      );
+    case "merge_base":
+      return sha256(
+        canonicalJson({
+          mergeBaseSha: requireGitOid(input.mergeBaseSha, "merge_base_sha")
+        })
+      );
+  }
+}
+function contextGitDiffPolicyHash(infoAttributesHash) {
+  return sha256(
+    canonicalJson({
+      infoAttributesHash: infoAttributesHash === null ? null : requireSha256(infoAttributesHash, "info_attributes_hash"),
+      policyVersion: CONTEXT_GIT_DIFF_POLICY_VERSION
+    })
+  );
+}
+function changedPathsWitnessStatus(transcript, expectedOperandsHash) {
+  let foundCandidate = false;
+  for (const dependency of transcript.dependencies) {
+    const operation = dependency.operation;
+    if (operation.kind !== "git_fact" || operation.fact !== "changed_paths") {
+      continue;
+    }
+    foundCandidate = true;
+    const result2 = dependency.result;
+    if (hasExactKeys(operation, ["kind", "fact", "operandsHash"]) && hasExactKeys(result2, [
+      "kind",
+      "resultHash",
+      "itemCount",
+      "byteCount",
+      "complete",
+      "truncated"
+    ]) && operation.operandsHash === expectedOperandsHash && result2.kind === "git_fact" && isSha256(result2.resultHash) && isNonNegativeSafeInteger(result2.itemCount) && isNonNegativeSafeInteger(result2.byteCount) && result2.complete === true && result2.truncated === false) {
+      return "present" /* Present */;
+    }
+  }
+  return foundCandidate ? "invalid" /* Invalid */ : "missing" /* Missing */;
+}
+function canonicalJson(value) {
+  if (value === void 0) return '{"$undefined":true}';
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error("context_gateway_non_finite_number");
+    }
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const record = value;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  throw new Error("context_gateway_canonical_value_invalid");
+}
+function sha256(value) {
+  return (0, import_crypto.createHash)("sha256").update(value).digest("hex");
+}
+function keyedSha256(secret, value) {
+  return (0, import_crypto.createHmac)("sha256", secret).update(value).digest("hex");
+}
+function requireSha256(value, field) {
+  if (!/^[a-f0-9]{64}$/u.test(value)) {
+    throw new Error(`${field}_invalid`);
+  }
+  return value;
+}
+function requireGitOid(value, field) {
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value)) {
+    throw new Error(`${field}_invalid`);
+  }
+  return value;
+}
+function hasExactKeys(value, expected) {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length && actual.every((key, index) => key === sortedExpected[index]);
+}
+function isSha256(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}
+function isNonNegativeSafeInteger(value) {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+// src/context-gateway/context-gateway-v4-contract.ts
+var import_crypto2 = require("crypto");
+var CONTEXT_GATEWAY_V4_POLICY_VERSION = "context-gateway-v4";
+var CONTEXT_GATEWAY_V4_CURSOR_VERSION = 1;
+var CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS = 2e3;
+var CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS = 15 * 60 * 1e3;
+var CONTEXT_GATEWAY_V4_ENABLED_TOOLS = Object.freeze([
+  "review_read_file",
+  "review_list_directory",
+  "review_search_text",
+  "review_canonical_inventory",
+  "review_git_fact"
+]);
+var ContextGatewayV4OperationKind = /* @__PURE__ */ ((ContextGatewayV4OperationKind3) => {
+  ContextGatewayV4OperationKind3["FileRead"] = "file_read";
+  ContextGatewayV4OperationKind3["DirectoryList"] = "directory_list";
+  ContextGatewayV4OperationKind3["TextSearch"] = "text_search";
+  ContextGatewayV4OperationKind3["CanonicalInventory"] = "canonical_inventory";
+  ContextGatewayV4OperationKind3["GitFact"] = "git_fact";
+  ContextGatewayV4OperationKind3["UnsupportedTool"] = "unsupported_tool";
+  return ContextGatewayV4OperationKind3;
+})(ContextGatewayV4OperationKind || {});
+function encodeContextGatewayV4Cursor(input) {
+  assertSecret(input.secret);
+  assertCursorPayload(input.payload);
+  const encoded = Buffer.from(canonicalJson(input.payload), "utf8").toString(
+    "base64url"
+  );
+  return `${encoded}.${keyedSha256(input.secret, encoded)}`;
+}
+function decodeContextGatewayV4Cursor(input) {
+  assertSecret(input.secret);
+  if (typeof input.cursor !== "string" || input.cursor.length < 80 || input.cursor.length > 2048) {
+    throw new Error("context_gateway_cursor_invalid");
+  }
+  const [encoded, signature, extra] = input.cursor.split(".");
+  if (!encoded || !signature || extra !== void 0 || !isSha2562(signature)) {
+    throw new Error("context_gateway_cursor_invalid");
+  }
+  const expectedSignature = keyedSha256(input.secret, encoded);
+  if (!(0, import_crypto2.timingSafeEqual)(
+    Buffer.from(signature, "hex"),
+    Buffer.from(expectedSignature, "hex")
+  )) {
+    throw new Error("context_gateway_cursor_tampered");
+  }
+  let parsed;
+  try {
+    const decoded = Buffer.from(encoded, "base64url").toString("utf8");
+    parsed = JSON.parse(decoded);
+    if (canonicalJson(parsed) !== decoded) {
+      throw new Error("non_canonical");
+    }
+  } catch {
+    throw new Error("context_gateway_cursor_invalid");
+  }
+  const payload = parsed;
+  assertCursorPayload(payload);
+  if (payload.sessionId !== input.expected.sessionId || payload.operationKind !== input.expected.operationKind || payload.treeOid !== input.expected.treeOid || payload.policyVersion !== input.expected.policyVersion || payload.queryDigest !== input.expected.queryDigest || payload.pageSize !== input.expected.pageSize) {
+    throw new Error("context_gateway_cursor_scope_mismatch");
+  }
+  if (payload.expiresAtMs <= input.nowMs) {
+    throw new Error("context_gateway_cursor_expired");
+  }
+  return Object.freeze({ ...payload });
+}
+function createContextGatewayV4PageReceipt(input) {
+  assertSecret(input.secret);
+  requireGitOid(input.treeOid, "context_gateway_page_tree_oid");
+  requireSha256(input.queryDigest, "context_gateway_page_query_digest");
+  assertPageSize(input.pageSize);
+  if (!Number.isSafeInteger(input.offset) || input.offset < 0) {
+    throw new Error("context_gateway_page_offset_invalid");
+  }
+  if (input.cursorInputHash !== null && !/^[a-f0-9]{64}$/u.test(input.cursorInputHash)) {
+    throw new Error("context_gateway_page_cursor_hash_invalid");
+  }
+  const allItemPathHashes = [...new Set(input.allItemPathHashes)].sort();
+  if (allItemPathHashes.length > 25e4 || allItemPathHashes.length > input.allItems.length || allItemPathHashes.some((value) => !/^[a-f0-9]{64}$/u.test(value))) {
+    throw new Error("context_gateway_page_path_hashes_invalid");
+  }
+  const page = input.allItems.slice(
+    input.offset,
+    input.offset + input.pageSize
+  );
+  const nextOffset = input.offset + page.length;
+  const complete = nextOffset >= input.allItems.length;
+  const pageOrdinal = Math.floor(input.offset / input.pageSize);
+  const aggregateItems = input.allItems.slice(0, nextOffset);
+  const pagePathHashes = allItemPathHashes.slice(
+    input.offset,
+    input.offset + input.pageSize
+  );
+  const aggregatePathHashes = allItemPathHashes.slice(0, nextOffset);
+  const receiptIdentity = {
+    sessionId: input.sessionId,
+    operationKind: input.operationKind,
+    queryDigest: input.queryDigest,
+    treeOid: input.treeOid,
+    pageSize: input.pageSize,
+    pageOrdinal,
+    cursorInputHash: input.cursorInputHash,
+    pageItemCount: page.length,
+    pageItemsHash: sha256(canonicalJson(page)),
+    pagePathHashes,
+    aggregatePathCount: aggregatePathHashes.length,
+    aggregatePathSetHash: sha256(canonicalJson(aggregatePathHashes)),
+    aggregateItemCount: aggregateItems.length,
+    aggregateHash: sha256(canonicalJson(aggregateItems)),
+    complete
+  };
+  return Object.freeze({
+    operationReceiptId: keyedSha256(
+      input.secret,
+      canonicalJson(receiptIdentity)
+    ),
+    operationKind: input.operationKind,
+    cursorInputHash: input.cursorInputHash,
+    pageOrdinal,
+    pageItemCount: page.length,
+    pageItemsHash: receiptIdentity.pageItemsHash,
+    pagePathHashes: Object.freeze(pagePathHashes),
+    aggregatePathCount: receiptIdentity.aggregatePathCount,
+    aggregatePathSetHash: receiptIdentity.aggregatePathSetHash,
+    aggregateItemCount: aggregateItems.length,
+    aggregateHash: receiptIdentity.aggregateHash,
+    complete,
+    nextCursor: complete ? null : encodeContextGatewayV4Cursor({
+      secret: input.secret,
+      payload: {
+        cursorVersion: CONTEXT_GATEWAY_V4_CURSOR_VERSION,
+        sessionId: input.sessionId,
+        operationKind: input.operationKind,
+        treeOid: input.treeOid,
+        policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+        queryDigest: input.queryDigest,
+        pageSize: input.pageSize,
+        nextOffset,
+        expiresAtMs: input.nowMs + CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS
+      }
+    })
+  });
+}
+function classifyContextGatewayV4Failure(error2) {
+  const message = error2 instanceof Error ? error2.message : String(error2);
+  if (/(?:path_invalid|cursor_(?:tampered|scope_mismatch)|tool_unknown|unauthorized|escape)/u.test(
+    message
+  )) {
+    return "confinement_violation" /* ConfinementViolation */;
+  }
+  if (/(?:limit_exceeded|budget|too_large)/u.test(message)) {
+    return "budget_exceeded" /* BudgetExceeded */;
+  }
+  if (/(?:truncated|incomplete|cursor_expired)/u.test(message)) {
+    return "incomplete_result" /* IncompleteResult */;
+  }
+  if (/(?:invalid|missing|not_in_.*tree)/u.test(message)) {
+    return "recoverable_request" /* RecoverableRequest */;
+  }
+  return "infrastructure_failure" /* InfrastructureFailure */;
+}
+function assertCursorPayload(payload) {
+  if (payload.cursorVersion !== CONTEXT_GATEWAY_V4_CURSOR_VERSION || payload.policyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION || typeof payload.sessionId !== "string" || payload.sessionId.length < 1 || payload.sessionId.length > 255 || !Object.values(ContextGatewayV4OperationKind).includes(
+    payload.operationKind
+  ) || !Number.isSafeInteger(payload.nextOffset) || payload.nextOffset < 0 || !Number.isSafeInteger(payload.expiresAtMs) || payload.expiresAtMs < 0) {
+    throw new Error("context_gateway_cursor_payload_invalid");
+  }
+  requireGitOid(payload.treeOid, "context_gateway_cursor_tree_oid");
+  requireSha256(payload.queryDigest, "context_gateway_cursor_query_digest");
+  assertPageSize(payload.pageSize);
+}
+function assertSecret(secret) {
+  if (!Buffer.isBuffer(secret) || secret.byteLength < 32) {
+    throw new Error("context_gateway_cursor_secret_invalid");
+  }
+}
+function assertPageSize(value) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS) {
+    throw new Error("context_gateway_page_size_invalid");
+  }
+}
+function isSha2562(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}
+
 // src/providers/codex.ts
 var MAX_OPTIONAL_AGENTIC_RETRY_PROMPT_TOKENS = 24e3;
 var REVIEW_OUTPUT_CONTRACT = [
@@ -21942,28 +22266,12 @@ var REVIEW_OUTPUT_CONTRACT = [
 ];
 var CODEX_OUTPUT_FILE_PLACEHOLDER = "{reviewrouter_output_file}";
 var CODEX_SCHEMA_FILE_PLACEHOLDER = "{reviewrouter_schema_file}";
-var CONTEXT_GATEWAY_TOOLS = Object.freeze([
-  "review_git_fact",
-  "review_list_directory",
-  "review_read_file",
-  "review_search_text"
-]);
-var CONTEXT_GATEWAY_RUNTIME_ENV_KEYS = /* @__PURE__ */ new Set([
-  "REVIEWROUTER_CONTEXT_SESSION_ID",
-  "REVIEWROUTER_CONTEXT_ROOT",
-  "REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH",
-  "REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH",
-  "REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH",
-  "REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID",
-  "REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID",
-  "REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH",
-  "REVIEWROUTER_CONTEXT_BASE_SHA",
-  "REVIEWROUTER_CONTEXT_MERGE_BASE_SHA",
-  "REVIEWROUTER_CONTEXT_HEAD_SHA"
-]);
+var CONTEXT_GATEWAY_RUNTIME_ENV_KEY_SET = new Set(
+  CONTEXT_GATEWAY_RUNTIME_ENV_KEYS
+);
 var CONTEXT_GATEWAY_MCP_ENV_VARS = Object.freeze(
   [
-    ...CONTEXT_GATEWAY_RUNTIME_ENV_KEYS,
+    ...CONTEXT_GATEWAY_RUNTIME_ENV_KEY_SET,
     "REVIEWROUTER_CONTEXT_GATEWAY_SECRET"
   ].sort()
 );
@@ -22723,17 +23031,30 @@ var CodexProvider = class _CodexProvider extends Provider {
     if (!path5.isAbsolute(gateway.command) || gateway.args.length !== 1 || !path5.isAbsolute(gateway.args[0]) || !path5.isAbsolute(gateway.cwd) || !/^[a-f0-9]{64}$/u.test(gateway.gatewayBinaryHash) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(gateway.gatewayPolicyVersion)) {
       throw new Error("codex_context_gateway_config_invalid");
     }
+    const expectedTools = this.contextGatewayTools(
+      gateway.gatewayPolicyVersion
+    );
     const tools = [...gateway.enabledTools].sort();
-    if (tools.length !== CONTEXT_GATEWAY_TOOLS.length || tools.some((tool, index) => tool !== CONTEXT_GATEWAY_TOOLS[index])) {
+    if (tools.length !== expectedTools.length || tools.some((tool, index) => tool !== expectedTools[index])) {
       throw new Error("codex_context_gateway_tool_policy_invalid");
     }
     for (const [key, value] of Object.entries(gateway.runtimeEnvironment)) {
-      if (!CONTEXT_GATEWAY_RUNTIME_ENV_KEYS.has(key) || typeof value !== "string" || value.length === 0) {
+      if (!CONTEXT_GATEWAY_RUNTIME_ENV_KEY_SET.has(key) || typeof value !== "string" || value.length === 0) {
         throw new Error("codex_context_gateway_environment_invalid");
       }
     }
-    if (Object.keys(gateway.runtimeEnvironment).length !== CONTEXT_GATEWAY_RUNTIME_ENV_KEYS.size) {
+    if (Object.keys(gateway.runtimeEnvironment).length !== CONTEXT_GATEWAY_RUNTIME_ENV_KEY_SET.size || gateway.runtimeEnvironment.REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION !== gateway.gatewayPolicyVersion) {
       throw new Error("codex_context_gateway_environment_incomplete");
+    }
+  }
+  contextGatewayTools(policyVersion) {
+    switch (policyVersion) {
+      case CONTEXT_GATEWAY_POLICY_VERSION:
+        return [...CONTEXT_GATEWAY_V3_ENABLED_TOOLS].sort();
+      case CONTEXT_GATEWAY_V4_POLICY_VERSION:
+        return [...CONTEXT_GATEWAY_V4_ENABLED_TOOLS].sort();
+      default:
+        throw new Error("codex_context_gateway_config_invalid");
     }
   }
   wrapContextGatewayReviewPrompt(prompt) {
@@ -24732,7 +25053,7 @@ var ProviderRegistry = class {
 };
 
 // src/analysis/llm/prompt-builder.ts
-var import_crypto2 = require("crypto");
+var import_crypto4 = require("crypto");
 
 // src/analysis/context/validation-detector.ts
 var ValidationDetector = class {
@@ -25434,8 +25755,8 @@ var PreparedPromptPathCoverageKind = /* @__PURE__ */ ((PreparedPromptPathCoverag
 })(PreparedPromptPathCoverageKind || {});
 
 // src/review-investigation/domain/canonical-json.ts
-var import_crypto = require("crypto");
-function canonicalJson(value) {
+var import_crypto3 = require("crypto");
+function canonicalJson2(value) {
   if (value === null || typeof value !== "object") {
     if (typeof value === "number" && !Number.isFinite(value)) {
       throw new Error("canonical_json_number_invalid");
@@ -25443,13 +25764,13 @@ function canonicalJson(value) {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+    return `[${value.map((item) => canonicalJson2(item)).join(",")}]`;
   }
   const record = value;
-  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson2(record[key])}`).join(",")}}`;
 }
-function sha256(value) {
-  return (0, import_crypto.createHash)("sha256").update(value, "utf8").digest("hex");
+function sha2562(value) {
+  return (0, import_crypto3.createHash)("sha256").update(value, "utf8").digest("hex");
 }
 
 // src/review-investigation/domain/semantic-risk-policy.ts
@@ -25895,7 +26216,7 @@ function parseReviewTurnObligationProposals(value) {
     REVIEW_TURN_MAX_OBLIGATION_PROPOSALS
   ).map((item) => {
     const proposal = parseReviewTurnObligationProposal(item);
-    const identity = canonicalJson({
+    const identity = canonicalJson2({
       kind: proposal.kind,
       canonicalSubject: proposal.canonicalSubject,
       canonicalRequirement: proposal.canonicalRequirement
@@ -25923,7 +26244,7 @@ function parseReviewTurnObligationProposal(value) {
     MAX_CANONICAL_REQUIREMENT_LENGTH
   );
   const requirement = parseCanonicalCompleteFileRequirement(canonicalRequirement);
-  const expectedSubject = canonicalJson({
+  const expectedSubject = canonicalJson2({
     kind: FILE_READ_SUBJECT_KIND,
     pathHash: requirement.pathHash,
     revision: requirement.revision,
@@ -25974,7 +26295,7 @@ function parseCanonicalCompleteFileRequirement(value) {
     requirement.pathHash,
     "obligation_requirement_path_hash"
   );
-  if (pathHash !== sha256(path28)) {
+  if (pathHash !== sha2562(path28)) {
     throw new Error("review_agent_obligation_requirement_path_hash_mismatch");
   }
   const revision = requireEnum(
@@ -25989,7 +26310,7 @@ function parseCanonicalCompleteFileRequirement(value) {
     pathHash,
     revision
   });
-  if (value !== canonicalJson(normalized)) {
+  if (value !== canonicalJson2(normalized)) {
     throw new Error("review_agent_obligation_requirement_non_canonical");
   }
   return normalized;
@@ -26304,7 +26625,7 @@ function createReviewInvestigationProbePlan(input) {
   });
   return Object.freeze({
     ...payload,
-    planHash: sha256(canonicalJson(payload))
+    planHash: sha2562(canonicalJson2(payload))
   });
 }
 function reviewInvestigationSearchOperationInputHash(query) {
@@ -26312,13 +26633,13 @@ function reviewInvestigationSearchOperationInputHash(query) {
   if (normalized === null || normalized !== query) {
     throw new Error("review_investigation_probe_query_invalid");
   }
-  return sha256(
-    canonicalJson({
+  return sha2562(
+    canonicalJson2({
       caseSensitive: true,
       cursor: null,
       pageSize: 500,
       paths: ["."],
-      query: sha256(query),
+      query: sha2562(query),
       revision: "head"
     })
   );
@@ -26333,12 +26654,12 @@ function reviewInvestigationBasenameFallbackQuery(path28) {
 }
 function createProbe(candidate) {
   const obligationKind = obligationKindFor(candidate);
-  const queryHash = sha256(candidate.query);
-  const sourcePathHash = sha256(candidate.sourcePath);
+  const queryHash = sha2562(candidate.query);
+  const sourcePathHash = sha2562(candidate.sourcePath);
   const initialOperationInputHash = reviewInvestigationSearchOperationInputHash(
     candidate.query
   );
-  const canonicalSubject = canonicalJson({
+  const canonicalSubject = canonicalJson2({
     initialOperationInputHash,
     kind: "text_search",
     matchMode: "fixed_string",
@@ -26347,7 +26668,7 @@ function createProbe(candidate) {
     queryHash,
     subjectVersion: 1
   });
-  const canonicalRequirement = canonicalJson({
+  const canonicalRequirement = canonicalJson2({
     initialOperationInputHash,
     kind: "complete_page_chain",
     matchMode: "fixed_string",
@@ -26381,7 +26702,7 @@ function incompletePlan(input) {
     maximum: input.maximum,
     observedCount: input.observedCount,
     sourcePath: input.sourcePath,
-    sourcePathHash: input.sourcePath === null ? null : sha256(input.sourcePath)
+    sourcePathHash: input.sourcePath === null ? null : sha2562(input.sourcePath)
   });
   const payload = Object.freeze({
     planVersion: REVIEW_INVESTIGATION_PROBE_PLAN_VERSION,
@@ -26395,7 +26716,7 @@ function incompletePlan(input) {
   });
   return Object.freeze({
     ...payload,
-    planHash: sha256(canonicalJson(payload))
+    planHash: sha2562(canonicalJson2(payload))
   });
 }
 function extractDeclarationIdentifiers(line, add) {
@@ -27079,14 +27400,14 @@ function classifyPreparedPromptCoverage(input) {
         return Object.freeze({
           path: file.filename,
           kind: "policy_excluded" /* PolicyExcluded */,
-          contentHash: finalChunk === void 0 ? null : sha2562(finalChunk)
+          contentHash: finalChunk === void 0 ? null : sha2563(finalChunk)
         });
       }
       if (finalChunk !== void 0) {
         return Object.freeze({
           path: file.filename,
           kind: input.summaryOnlyPaths.has(file.filename) ? "summary_only" /* SummaryOnly */ : "full_patch" /* FullPatch */,
-          contentHash: sha2562(finalChunk)
+          contentHash: sha2563(finalChunk)
         });
       }
       if (compacted.has(file.filename)) {
@@ -27138,8 +27459,8 @@ function compareCodePoints(left, right) {
   if (left > right) return 1;
   return 0;
 }
-function sha2562(value) {
-  return (0, import_crypto2.createHash)("sha256").update(value).digest("hex");
+function sha2563(value) {
+  return (0, import_crypto4.createHash)("sha256").update(value).digest("hex");
 }
 
 // node_modules/p-retry/index.js
@@ -29229,7 +29550,7 @@ var CacheStorage = class {
 };
 
 // src/cache/key-builder.ts
-var import_crypto3 = require("crypto");
+var import_crypto5 = require("crypto");
 
 // src/cache/version.ts
 var CACHE_VERSION = 8;
@@ -29266,7 +29587,7 @@ function unversionCache(cached, maxAge) {
 
 // src/cache/key-builder.ts
 function buildCacheKey(pr2, configHash) {
-  const hash = (0, import_crypto3.createHash)("sha1").update(`${pr2.baseSha}:${pr2.headSha}`).digest("hex").slice(0, 12);
+  const hash = (0, import_crypto5.createHash)("sha1").update(`${pr2.baseSha}:${pr2.headSha}`).digest("hex").slice(0, 12);
   const suffix = configHash ? `-${configHash}` : "";
   return `mpr-${hash}${suffix}`;
 }
@@ -29292,7 +29613,7 @@ function hashConfig(config) {
     pathDefaultIntensity: config.pathDefaultIntensity
   };
   const stableJson = JSON.stringify(sortObject(relevantConfig));
-  const hash = (0, import_crypto3.createHash)("sha256").update(stableJson).digest("hex");
+  const hash = (0, import_crypto5.createHash)("sha256").update(stableJson).digest("hex");
   return hash.slice(0, 16);
 }
 function hashIncrementalCompatibility(config, runtimeConfigVersion) {
@@ -29303,7 +29624,7 @@ function hashIncrementalCompatibility(config, runtimeConfigVersion) {
       runtimeConfigVersion: runtimeConfigVersion?.trim() || null
     })
   );
-  return (0, import_crypto3.createHash)("sha256").update(stableJson).digest("hex");
+  return (0, import_crypto5.createHash)("sha256").update(stableJson).digest("hex");
 }
 function sortObject(value) {
   if (Array.isArray(value)) return value.map(sortObject);
@@ -30948,7 +31269,7 @@ function shouldPostSuggestion(finding, confidence, config) {
 }
 
 // src/github/comment-fingerprint.ts
-var import_crypto4 = require("crypto");
+var import_crypto6 = require("crypto");
 var INLINE_MARKER_RE = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/i;
 var INLINE_MARKER_RE_GLOBAL = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
 var FINDING_MARKER_RE = /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/i;
@@ -30973,7 +31294,7 @@ function signatureFromInlineComment(path28, line, body) {
   ].join(":");
 }
 function fingerprintFromInlineComment(path28, line, body) {
-  return (0, import_crypto4.createHash)("sha256").update(signatureFromInlineComment(path28, line, body)).digest("hex").slice(0, 16);
+  return (0, import_crypto6.createHash)("sha256").update(signatureFromInlineComment(path28, line, body)).digest("hex").slice(0, 16);
 }
 function inlineFingerprintMarker(fingerprint) {
   return `<!-- review-router-inline:${fingerprint} -->`;
@@ -31097,7 +31418,7 @@ function stableFindingFingerprint(input) {
     normalizeForSignature(stripSeverityPrefix(input.title)),
     normalizeForSignature(input.message).slice(0, 800)
   ].join("\n");
-  return (0, import_crypto4.createHash)("sha256").update(canonical).digest("hex").slice(0, 32);
+  return (0, import_crypto6.createHash)("sha256").update(canonical).digest("hex").slice(0, 32);
 }
 function semanticText(body) {
   return body.replace(/```[\s\S]*?```/g, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/\*\*Severity:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, " ");
@@ -34771,7 +35092,7 @@ function locationKey(path28, line) {
 }
 
 // src/github/ledger.ts
-var import_crypto5 = require("crypto");
+var import_crypto7 = require("crypto");
 var LEDGER_MARKER = "reviewrouter-ledger:v1";
 var LEDGER_RE = /<!--\s*reviewrouter-ledger:v1\s+payload=([A-Za-z0-9_-]+)\s+signature=([a-f0-9]{64})\s*-->/;
 var MAX_LEDGER_ENTRIES = 200;
@@ -34938,7 +35259,7 @@ var ReviewLedger = class {
     }
   }
   render(payload) {
-    const payloadText = canonicalJson2(payload);
+    const payloadText = canonicalJson3(payload);
     const encoded = Buffer.from(payloadText, "utf8").toString("base64url");
     const signature = this.sign(payload);
     const status = this.statusText(payload);
@@ -34959,7 +35280,7 @@ var ReviewLedger = class {
     ].join("\n");
   }
   sign(payload) {
-    return (0, import_crypto5.createHmac)("sha256", this.secret || "").update(canonicalJson2(payload)).digest("hex");
+    return (0, import_crypto7.createHmac)("sha256", this.secret || "").update(canonicalJson3(payload)).digest("hex");
   }
   emptyPayload(prNumber) {
     return {
@@ -34979,15 +35300,15 @@ function shouldExpireSkipOnPush(currentHeadSha, entryHeadSha) {
   }
   return process.env.REVIEW_ROUTER_KEEP_SKIPS_ACROSS_PUSHES === "false";
 }
-function canonicalJson2(value) {
+function canonicalJson3(value) {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalJson2(item)).join(",")}]`;
+    return `[${value.map((item) => canonicalJson3(item)).join(",")}]`;
   }
   const record = value;
-  return `{${Object.keys(record).sort().filter((key) => record[key] !== void 0).map((key) => `${JSON.stringify(key)}:${canonicalJson2(record[key])}`).join(",")}}`;
+  return `{${Object.keys(record).sort().filter((key) => record[key] !== void 0).map((key) => `${JSON.stringify(key)}:${canonicalJson3(record[key])}`).join(",")}}`;
 }
 function safeEqualHex(a2, b2) {
   if (!/^[a-f0-9]{64}$/i.test(a2) || !/^[a-f0-9]{64}$/i.test(b2)) {
@@ -34995,7 +35316,7 @@ function safeEqualHex(a2, b2) {
   }
   const aBuffer = Buffer.from(a2, "hex");
   const bBuffer = Buffer.from(b2, "hex");
-  return aBuffer.length === bBuffer.length && (0, import_crypto5.timingSafeEqual)(aBuffer, bBuffer);
+  return aBuffer.length === bBuffer.length && (0, import_crypto7.timingSafeEqual)(aBuffer, bBuffer);
 }
 
 // src/learning/feedback-tracker.ts
@@ -36269,7 +36590,7 @@ var PromptGenerator = class {
 };
 
 // src/utils/sanitize.ts
-var import_crypto6 = require("crypto");
+var import_crypto8 = require("crypto");
 function encodeURIComponentSafe(value) {
   if (typeof value !== "string") {
     return "invalid";
@@ -36278,7 +36599,7 @@ function encodeURIComponentSafe(value) {
   const normalized = encoded.replace(/[+]/g, "_").replace(/%/g, "_").replace(/[<>:"|?*]/g, "_");
   const MAX_PREFIX = 120;
   const prefix = normalized.length > MAX_PREFIX ? normalized.slice(0, MAX_PREFIX) : normalized;
-  const hashSuffix = (0, import_crypto6.createHash)("sha256").update(value).digest("hex").slice(0, 16);
+  const hashSuffix = (0, import_crypto8.createHash)("sha256").update(value).digest("hex").slice(0, 16);
   return `${prefix}-${hashSuffix}`;
 }
 
@@ -37370,10 +37691,10 @@ var PluginLoader = class {
 };
 
 // src/core/batch-orchestrator.ts
-var import_crypto8 = require("crypto");
+var import_crypto10 = require("crypto");
 
 // src/review-orchestration/domain/content-defined-review-batches.ts
-var import_crypto7 = require("crypto");
+var import_crypto9 = require("crypto");
 var ROUTE_HASH_BITS = 256;
 function createContentDefinedReviewBatches(units, limits) {
   requirePositiveInteger(limits.maxFilesPerBatch, "max_files_per_batch");
@@ -37401,7 +37722,7 @@ function createContentDefinedReviewBatches(units, limits) {
     schedulingPriorities.add(unit.schedulingPriority);
     return Object.freeze({
       ...unit,
-      routeHash: sha2563(`rr.review-unit-route.v1\0${unit.routeKey}`)
+      routeHash: sha2564(`rr.review-unit-route.v1\0${unit.routeKey}`)
     });
   });
   const batches = splitBucket(routed, "", limits).sort(compareBatchSchedulingPriority).map(
@@ -37472,8 +37793,8 @@ function routeBit(hash, bitIndex) {
   const shift = 3 - bitIndex % 4;
   return nibble >> shift & 1;
 }
-function sha2563(value) {
-  return (0, import_crypto7.createHash)("sha256").update(value).digest("hex");
+function sha2564(value) {
+  return (0, import_crypto9.createHash)("sha256").update(value).digest("hex");
 }
 function compareCodePoints2(left, right) {
   if (left < right) return -1;
@@ -37609,7 +37930,7 @@ var BatchOrchestrator = class {
   }
 };
 function fileIdentity(file) {
-  return (0, import_crypto8.createHash)("sha256").update(
+  return (0, import_crypto10.createHash)("sha256").update(
     JSON.stringify({
       additions: file.additions,
       changes: file.changes,
@@ -37624,7 +37945,7 @@ function fileIdentity(file) {
 }
 
 // src/learning/suppression-tracker.ts
-var import_crypto9 = require("crypto");
+var import_crypto11 = require("crypto");
 var SuppressionTracker = class _SuppressionTracker {
   constructor(storage, repoKey) {
     this.storage = storage;
@@ -37647,7 +37968,7 @@ var SuppressionTracker = class _SuppressionTracker {
     const ttl = scope === "pr" ? _SuppressionTracker.PR_TTL_MS : _SuppressionTracker.REPO_TTL_MS;
     const timestamp3 = Date.now();
     const pattern = {
-      id: (0, import_crypto9.randomUUID)(),
+      id: (0, import_crypto11.randomUUID)(),
       category: finding.category,
       file: finding.file,
       line: finding.line,
@@ -38116,7 +38437,7 @@ var AcceptanceDetector = class {
 };
 
 // src/github/review-thread-inventory.ts
-var import_crypto10 = require("crypto");
+var import_crypto12 = require("crypto");
 var DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS = ["review-router-ai[bot]"];
 var GITHUB_ACTIONS_BOT_AUTHOR = "github-actions[bot]";
 var RESOLUTION_REPLY_MARKER = "reviewrouter-lifecycle-resolution:v1";
@@ -38440,7 +38761,7 @@ function shouldTrustGitHubActionsBot(env) {
   return env.REVIEW_ROUTER_COMMENT_TOKEN_STATUS === "fallback";
 }
 function targetIdFor(threadId, parentCommentId, fingerprint) {
-  return `rrt_${(0, import_crypto10.createHash)("sha256").update(`${threadId}
+  return `rrt_${(0, import_crypto12.createHash)("sha256").update(`${threadId}
 ${parentCommentId}
 ${fingerprint}`).digest("hex").slice(0, 16)}`;
 }
@@ -39080,7 +39401,7 @@ function safeReason(message) {
 }
 
 // src/control-plane/memory.ts
-var import_crypto11 = require("crypto");
+var import_crypto13 = require("crypto");
 var ControlPlaneMemoryClient = class {
   constructor(runtimeConfig, env = process.env, fetchImpl = fetch, memoryLogger = logger) {
     this.runtimeConfig = runtimeConfig;
@@ -39211,7 +39532,7 @@ function buildSafeMemoryRetrievalQuery(pr2) {
   return normalized.length > 0 ? normalized : null;
 }
 function memorySourceHash(value) {
-  return (0, import_crypto11.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto13.createHash)("sha256").update(value).digest("hex");
 }
 function parseActionMemoryBundle(value) {
   if (!value || typeof value !== "object") {
@@ -39372,7 +39693,7 @@ var ExecutionDeadline = class {
 
 // src/review-execution/infrastructure/http-review-checkpoint-client.ts
 var fs14 = __toESM(require("fs/promises"));
-var import_crypto12 = require("crypto");
+var import_crypto14 = require("crypto");
 
 // src/review-execution/domain/review-checkpoint.ts
 var REVIEW_CHECKPOINT_PROTOCOL_VERSION = 1;
@@ -40456,7 +40777,7 @@ var FileReviewCheckpointFinalizationMarkerWriter = class _FileReviewCheckpointFi
   }
   async write(marker) {
     const validated = reviewCheckpointFinalizationMarkerSchema.parse(marker);
-    const temporaryPath = `${this.path}.tmp-${process.pid}-${(0, import_crypto12.randomUUID)()}`;
+    const temporaryPath = `${this.path}.tmp-${process.pid}-${(0, import_crypto14.randomUUID)()}`;
     try {
       await fs14.writeFile(temporaryPath, JSON.stringify(validated), {
         encoding: "utf8",
@@ -44935,7 +45256,7 @@ function prioritizeFilesByRisk(files) {
 }
 
 // src/review-execution/domain/review-batch-plan.ts
-var import_crypto13 = require("crypto");
+var import_crypto15 = require("crypto");
 function compareCodePoints3(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
@@ -44980,10 +45301,10 @@ function createReviewBatchPlan(input) {
     providerNames,
     batches: canonicalBatches
   };
-  const planHash = (0, import_crypto13.createHash)("sha256").update(JSON.stringify(payload)).digest("hex");
+  const planHash = (0, import_crypto15.createHash)("sha256").update(JSON.stringify(payload)).digest("hex");
   const batches = Object.freeze(
     input.batches.map((batch, index) => {
-      const id = (0, import_crypto13.createHash)("sha256").update(
+      const id = (0, import_crypto15.createHash)("sha256").update(
         JSON.stringify({
           version: "v1" /* V1 */,
           planHash,
@@ -48954,7 +49275,7 @@ function sanitizeNoticeError(error2) {
 }
 
 // src/github/discussion.ts
-var import_crypto14 = require("crypto");
+var import_crypto16 = require("crypto");
 var DISCUSSION_MARKER = "reviewrouter-discussion:v1";
 var DISCUSSION_MARKER_RE = /<!--\s*reviewrouter-discussion:v1\s+user_comment_id=(\d+)\s+body_sha=([a-f0-9]{64})\s*-->/;
 var ReviewDiscussionHandler = class {
@@ -49199,7 +49520,7 @@ function isBotUser(user) {
   return user?.type === "Bot" || login.endsWith("[bot]");
 }
 function bodyHash(body) {
-  return (0, import_crypto14.createHash)("sha256").update(body.trim()).digest("hex");
+  return (0, import_crypto16.createHash)("sha256").update(body.trim()).digest("hex");
 }
 function sanitizeError(error2) {
   const message = error2 instanceof Error ? error2.message : String(error2);
@@ -50344,15 +50665,15 @@ function isCodexRotatingPreleaseResponse(value) {
   const input = asRecord2(value);
   if (input?.protocolVersion !== 1) return false;
   if (input.status === "skipped") {
-    return input.reason === "max_changed_lines_exceeded" && isNonNegativeSafeInteger(input.changedLines) && isNonNegativeSafeInteger(input.maxChangedLines) && input.maxChangedLines > 0 && input.changedLines > input.maxChangedLines && isSha256(input.decisionHash) && input.leaseId === void 0 && input.providerInstanceId === void 0 && input.repository === void 0 && input.generationHashSalt === void 0 && input.currentGeneration === void 0 && input.currentGenerationHash === void 0 && input.expiresAt === void 0;
+    return input.reason === "max_changed_lines_exceeded" && isNonNegativeSafeInteger2(input.changedLines) && isNonNegativeSafeInteger2(input.maxChangedLines) && input.maxChangedLines > 0 && input.changedLines > input.maxChangedLines && isSha2563(input.decisionHash) && input.leaseId === void 0 && input.providerInstanceId === void 0 && input.repository === void 0 && input.generationHashSalt === void 0 && input.currentGeneration === void 0 && input.currentGenerationHash === void 0 && input.expiresAt === void 0;
   }
   if (input.status !== void 0) return false;
   return isNonEmptyString(input.leaseId) && isNonEmptyString(input.providerInstanceId) && isNonEmptyString(input.repository) && isNonEmptyString(input.generationHashSalt) && typeof input.currentGeneration === "number" && Number.isInteger(input.currentGeneration) && input.currentGeneration > 0 && isNonEmptyString(input.expiresAt);
 }
-function isNonNegativeSafeInteger(value) {
+function isNonNegativeSafeInteger2(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
-function isSha256(value) {
+function isSha2563(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 function isCodexRotatingFinalizeResponse(value) {
@@ -50815,7 +51136,7 @@ function safeOidcErrorCode(payload) {
 }
 
 // src/codex-oauth/crypto.ts
-var import_crypto15 = require("crypto");
+var import_crypto17 = require("crypto");
 
 // node_modules/libsodium/dist/modules-esm/libsodium.mjs
 var import_meta = {};
@@ -54269,7 +54590,7 @@ function compactCodexAuthJsonBytes(input) {
   return {
     compactAuthJsonBytes,
     byteLength: compactByteLength,
-    exactBytesSha256: (0, import_crypto15.createHash)("sha256").update(input.authJsonBytes, "utf8").digest("hex")
+    exactBytesSha256: (0, import_crypto17.createHash)("sha256").update(input.authJsonBytes, "utf8").digest("hex")
   };
 }
 function computeCodexAuthGenerationHash(input) {
@@ -54277,7 +54598,7 @@ function computeCodexAuthGenerationHash(input) {
   if (salt.length < 16) {
     throw new Error("generation_hash_salt_too_short");
   }
-  return (0, import_crypto15.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
+  return (0, import_crypto17.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
 }
 async function encryptCodexAuthForGitHubSecret(input) {
   const compact = compactCodexAuthJsonBytes({
@@ -54315,7 +54636,7 @@ function buildCodexRotatingWritebackRequest(input) {
     latestGenerationHash: input.latestGenerationHash,
     encryptedValue: input.encryptedValue,
     keyId: input.keyId,
-    idempotencyKey: input.idempotencyKey ?? `wrb:${(0, import_crypto15.randomUUID)()}`
+    idempotencyKey: input.idempotencyKey ?? `wrb:${(0, import_crypto17.randomUUID)()}`
   };
 }
 function assertCodexChatGptAuth(value) {
@@ -54922,7 +55243,7 @@ function safeGitError(value) {
 }
 
 // src/control-plane/review-action-v2-contract.ts
-var import_crypto17 = require("crypto");
+var import_crypto19 = require("crypto");
 var import_fs = require("fs");
 var import_path2 = __toESM(require("path"));
 
@@ -59228,25 +59549,25 @@ var reviewContextReplayHandleDomain = "rr.context-replay-handle.v1";
 var reviewContextReplayChainSeedDomain = "rr.context-replay-chain-seed.v1";
 var reviewContextReplayEventDomain = "rr.context-replay-event.v1";
 function canonicalizeReviewContextConfinementEvidence(input) {
-  return canonicalJson3({ evidenceVersion: 1, ...input });
+  return canonicalJson4({ evidenceVersion: 1, ...input });
 }
 function canonicalizeReviewContextGatewayEvent(input) {
-  return canonicalJson3({ domain: reviewContextGatewayEventDomain, ...input });
+  return canonicalJson4({ domain: reviewContextGatewayEventDomain, ...input });
 }
 function canonicalizeReviewContextSearchQuery(query) {
-  return canonicalJson3({ domain: reviewContextSearchQueryDomain, query });
+  return canonicalJson4({ domain: reviewContextSearchQueryDomain, query });
 }
 function canonicalizeReviewContextReplayHandle(input) {
-  return canonicalJson3({ domain: reviewContextReplayHandleDomain, ...input });
+  return canonicalJson4({ domain: reviewContextReplayHandleDomain, ...input });
 }
 function canonicalizeReviewContextReplayChainSeed(input) {
-  return canonicalJson3({
+  return canonicalJson4({
     domain: reviewContextReplayChainSeedDomain,
     ...input
   });
 }
 function canonicalizeReviewContextReplayEvent(input) {
-  return canonicalJson3({ domain: reviewContextReplayEventDomain, ...input });
+  return canonicalJson4({ domain: reviewContextReplayEventDomain, ...input });
 }
 function parseReviewActionV2Request(operationId, input) {
   const descriptor = reviewActionV2Operations.find(
@@ -59328,7 +59649,7 @@ function canonicalizeReviewActionV2Request(operationId, request) {
       request[field.name]
     ])
   );
-  return canonicalJson3(body);
+  return canonicalJson4(body);
 }
 var digestPattern = /^[a-f0-9]{64}$/;
 var gitOidPattern = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
@@ -59408,15 +59729,15 @@ function readRequestId(value) {
 }
 function isCanonicalJson(value) {
   try {
-    return canonicalJson3(JSON.parse(value)) === value;
+    return canonicalJson4(JSON.parse(value)) === value;
   } catch {
     return false;
   }
 }
-function canonicalJson3(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson3).join(",")}]`;
+function canonicalJson4(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson4).join(",")}]`;
   if (isRecord2(value))
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson3(value[key])}`).join(",")}}`;
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson4(value[key])}`).join(",")}}`;
   return JSON.stringify(value);
 }
 function isRecord2(value) {
@@ -59480,7 +59801,7 @@ function verifyReviewActionV2Handoff(generatedRoot) {
   }
   for (const file of actualFiles) {
     const expectedDigest = value.generatedFileDigests[file];
-    if (typeof expectedDigest !== "string" || !DIGEST_PATTERN.test(expectedDigest) || sha2564((0, import_fs.readFileSync)(import_path2.default.join(generatedRoot, ...file.split("/")))) !== expectedDigest) {
+    if (typeof expectedDigest !== "string" || !DIGEST_PATTERN.test(expectedDigest) || sha2565((0, import_fs.readFileSync)(import_path2.default.join(generatedRoot, ...file.split("/")))) !== expectedDigest) {
       throw new Error("review_action_v2_handoff_file_digest_mismatch");
     }
   }
@@ -59527,12 +59848,12 @@ function parseCanonicalObject(raw) {
   } catch (error2) {
     throw new Error("review_action_v2_handoff_json_invalid", { cause: error2 });
   }
-  if (!isRecord3(value) || canonicalJson4(value) !== raw) {
+  if (!isRecord3(value) || canonicalJson5(value) !== raw) {
     throw new Error("review_action_v2_handoff_not_canonical");
   }
   return value;
 }
-function canonicalJson4(value) {
+function canonicalJson5(value) {
   return `${JSON.stringify(canonicalize2(value), null, 2)}
 `;
 }
@@ -59555,8 +59876,8 @@ function assertExactKeys(value, expected) {
     throw new Error("review_action_v2_handoff_fields_invalid");
   }
 }
-function sha2564(value) {
-  return (0, import_crypto17.createHash)("sha256").update(value).digest("hex");
+function sha2565(value) {
+  return (0, import_crypto19.createHash)("sha256").update(value).digest("hex");
 }
 function isRecord3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -59569,7 +59890,7 @@ var path26 = __toESM(require("path"));
 var import_util13 = require("util");
 
 // src/control-plane/review-action-v2-client.ts
-var import_crypto18 = require("crypto");
+var import_crypto20 = require("crypto");
 var import__ = __toESM(require__());
 var import_ajv_formats = __toESM(require_dist());
 
@@ -84652,7 +84973,7 @@ var ReviewActionV2Client = class {
   constructor(options) {
     this.apiUrl = parseApiUrl(options.apiUrl, options.allowInsecureLocalhost);
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.requestIdFactory = options.requestIdFactory ?? (() => `rr:${(0, import_crypto18.randomUUID)()}`);
+    this.requestIdFactory = options.requestIdFactory ?? (() => `rr:${(0, import_crypto20.randomUUID)()}`);
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve5) => setTimeout(resolve5, delayMs)));
     this.maxAttempts = clampInteger(options.maxAttempts ?? 2, 1, 3);
     this.maxResponseBytes = clampInteger(
@@ -84705,7 +85026,7 @@ var ReviewActionV2Client = class {
     };
     const request = descriptor.mutability === "read" || operationId === "review_run_authorize" /* ReviewRunAuthorize */ ? base : {
       ...base,
-      requestBodyHash: sha2565(
+      requestBodyHash: sha2566(
         canonicalizeReviewActionV2Request(operationId, {
           ...base,
           requestBodyHash: "0".repeat(64)
@@ -84936,313 +85257,14 @@ function readRetryAfterMs(response) {
   if (!Number.isFinite(at2)) return void 0;
   return Math.min(Math.max(0, at2 - Date.now()), 3e4);
 }
-function sha2565(value) {
-  return (0, import_crypto18.createHash)("sha256").update(value).digest("hex");
+function sha2566(value) {
+  return (0, import_crypto20.createHash)("sha256").update(value).digest("hex");
 }
 function clampInteger(value, minimum, maximum) {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new Error("review_action_v2_client_limit_invalid");
   }
   return value;
-}
-
-// src/context-gateway/context-gateway-v4-contract.ts
-var import_crypto20 = require("crypto");
-
-// src/context-gateway/context-gateway-contract.ts
-var import_crypto19 = require("crypto");
-var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v3";
-var CONTEXT_GATEWAY_MAX_OPERATIONS = 2e3;
-var CONTEXT_GIT_DIFF_POLICY_VERSION = "git-diff-stat-v2";
-function contextGitFactOperandsHash(input) {
-  switch (input.fact) {
-    case "changed_paths":
-      return sha2566(
-        canonicalJson5({
-          mergeBaseTreeOid: requireGitOid(
-            input.mergeBaseTreeOid,
-            "merge_base_tree_oid"
-          ),
-          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
-        })
-      );
-    case "diff_stat":
-      return sha2566(
-        canonicalJson5({
-          diffPolicyHash: requireSha256(
-            input.diffPolicyHash,
-            "diff_policy_hash"
-          ),
-          mergeBaseTreeOid: requireGitOid(
-            input.mergeBaseTreeOid,
-            "merge_base_tree_oid"
-          ),
-          headTreeOid: requireGitOid(input.headTreeOid, "head_tree_oid")
-        })
-      );
-    case "merge_base":
-      return sha2566(
-        canonicalJson5({
-          mergeBaseSha: requireGitOid(input.mergeBaseSha, "merge_base_sha")
-        })
-      );
-  }
-}
-function contextGitDiffPolicyHash(infoAttributesHash) {
-  return sha2566(
-    canonicalJson5({
-      infoAttributesHash: infoAttributesHash === null ? null : requireSha256(infoAttributesHash, "info_attributes_hash"),
-      policyVersion: CONTEXT_GIT_DIFF_POLICY_VERSION
-    })
-  );
-}
-function changedPathsWitnessStatus(transcript, expectedOperandsHash) {
-  let foundCandidate = false;
-  for (const dependency of transcript.dependencies) {
-    const operation = dependency.operation;
-    if (operation.kind !== "git_fact" || operation.fact !== "changed_paths") {
-      continue;
-    }
-    foundCandidate = true;
-    const result2 = dependency.result;
-    if (hasExactKeys(operation, ["kind", "fact", "operandsHash"]) && hasExactKeys(result2, [
-      "kind",
-      "resultHash",
-      "itemCount",
-      "byteCount",
-      "complete",
-      "truncated"
-    ]) && operation.operandsHash === expectedOperandsHash && result2.kind === "git_fact" && isSha2562(result2.resultHash) && isNonNegativeSafeInteger2(result2.itemCount) && isNonNegativeSafeInteger2(result2.byteCount) && result2.complete === true && result2.truncated === false) {
-      return "present" /* Present */;
-    }
-  }
-  return foundCandidate ? "invalid" /* Invalid */ : "missing" /* Missing */;
-}
-function canonicalJson5(value) {
-  if (value === void 0) return '{"$undefined":true}';
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
-    return JSON.stringify(value);
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new Error("context_gateway_non_finite_number");
-    }
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson5).join(",")}]`;
-  }
-  if (typeof value === "object") {
-    const record = value;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson5(record[key])}`).join(",")}}`;
-  }
-  throw new Error("context_gateway_canonical_value_invalid");
-}
-function sha2566(value) {
-  return (0, import_crypto19.createHash)("sha256").update(value).digest("hex");
-}
-function keyedSha256(secret, value) {
-  return (0, import_crypto19.createHmac)("sha256", secret).update(value).digest("hex");
-}
-function requireSha256(value, field) {
-  if (!/^[a-f0-9]{64}$/u.test(value)) {
-    throw new Error(`${field}_invalid`);
-  }
-  return value;
-}
-function requireGitOid(value, field) {
-  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value)) {
-    throw new Error(`${field}_invalid`);
-  }
-  return value;
-}
-function hasExactKeys(value, expected) {
-  const actual = Object.keys(value).sort();
-  const sortedExpected = [...expected].sort();
-  return actual.length === sortedExpected.length && actual.every((key, index) => key === sortedExpected[index]);
-}
-function isSha2562(value) {
-  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
-}
-function isNonNegativeSafeInteger2(value) {
-  return Number.isSafeInteger(value) && Number(value) >= 0;
-}
-
-// src/context-gateway/context-gateway-v4-contract.ts
-var CONTEXT_GATEWAY_V4_POLICY_VERSION = "context-gateway-v4";
-var CONTEXT_GATEWAY_V4_CURSOR_VERSION = 1;
-var CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS = 2e3;
-var CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS = 15 * 60 * 1e3;
-var ContextGatewayV4OperationKind = /* @__PURE__ */ ((ContextGatewayV4OperationKind3) => {
-  ContextGatewayV4OperationKind3["FileRead"] = "file_read";
-  ContextGatewayV4OperationKind3["DirectoryList"] = "directory_list";
-  ContextGatewayV4OperationKind3["TextSearch"] = "text_search";
-  ContextGatewayV4OperationKind3["CanonicalInventory"] = "canonical_inventory";
-  ContextGatewayV4OperationKind3["GitFact"] = "git_fact";
-  ContextGatewayV4OperationKind3["UnsupportedTool"] = "unsupported_tool";
-  return ContextGatewayV4OperationKind3;
-})(ContextGatewayV4OperationKind || {});
-function encodeContextGatewayV4Cursor(input) {
-  assertSecret(input.secret);
-  assertCursorPayload(input.payload);
-  const encoded = Buffer.from(canonicalJson5(input.payload), "utf8").toString(
-    "base64url"
-  );
-  return `${encoded}.${keyedSha256(input.secret, encoded)}`;
-}
-function decodeContextGatewayV4Cursor(input) {
-  assertSecret(input.secret);
-  if (typeof input.cursor !== "string" || input.cursor.length < 80 || input.cursor.length > 2048) {
-    throw new Error("context_gateway_cursor_invalid");
-  }
-  const [encoded, signature, extra] = input.cursor.split(".");
-  if (!encoded || !signature || extra !== void 0 || !isSha2563(signature)) {
-    throw new Error("context_gateway_cursor_invalid");
-  }
-  const expectedSignature = keyedSha256(input.secret, encoded);
-  if (!(0, import_crypto20.timingSafeEqual)(
-    Buffer.from(signature, "hex"),
-    Buffer.from(expectedSignature, "hex")
-  )) {
-    throw new Error("context_gateway_cursor_tampered");
-  }
-  let parsed;
-  try {
-    const decoded = Buffer.from(encoded, "base64url").toString("utf8");
-    parsed = JSON.parse(decoded);
-    if (canonicalJson5(parsed) !== decoded) {
-      throw new Error("non_canonical");
-    }
-  } catch {
-    throw new Error("context_gateway_cursor_invalid");
-  }
-  const payload = parsed;
-  assertCursorPayload(payload);
-  if (payload.sessionId !== input.expected.sessionId || payload.operationKind !== input.expected.operationKind || payload.treeOid !== input.expected.treeOid || payload.policyVersion !== input.expected.policyVersion || payload.queryDigest !== input.expected.queryDigest || payload.pageSize !== input.expected.pageSize) {
-    throw new Error("context_gateway_cursor_scope_mismatch");
-  }
-  if (payload.expiresAtMs <= input.nowMs) {
-    throw new Error("context_gateway_cursor_expired");
-  }
-  return Object.freeze({ ...payload });
-}
-function createContextGatewayV4PageReceipt(input) {
-  assertSecret(input.secret);
-  requireGitOid(input.treeOid, "context_gateway_page_tree_oid");
-  requireSha256(input.queryDigest, "context_gateway_page_query_digest");
-  assertPageSize(input.pageSize);
-  if (!Number.isSafeInteger(input.offset) || input.offset < 0) {
-    throw new Error("context_gateway_page_offset_invalid");
-  }
-  if (input.cursorInputHash !== null && !/^[a-f0-9]{64}$/u.test(input.cursorInputHash)) {
-    throw new Error("context_gateway_page_cursor_hash_invalid");
-  }
-  const allItemPathHashes = [...new Set(input.allItemPathHashes)].sort();
-  if (allItemPathHashes.length > 25e4 || allItemPathHashes.length > input.allItems.length || allItemPathHashes.some((value) => !/^[a-f0-9]{64}$/u.test(value))) {
-    throw new Error("context_gateway_page_path_hashes_invalid");
-  }
-  const page = input.allItems.slice(
-    input.offset,
-    input.offset + input.pageSize
-  );
-  const nextOffset = input.offset + page.length;
-  const complete = nextOffset >= input.allItems.length;
-  const pageOrdinal = Math.floor(input.offset / input.pageSize);
-  const aggregateItems = input.allItems.slice(0, nextOffset);
-  const pagePathHashes = allItemPathHashes.slice(
-    input.offset,
-    input.offset + input.pageSize
-  );
-  const aggregatePathHashes = allItemPathHashes.slice(0, nextOffset);
-  const receiptIdentity = {
-    sessionId: input.sessionId,
-    operationKind: input.operationKind,
-    queryDigest: input.queryDigest,
-    treeOid: input.treeOid,
-    pageSize: input.pageSize,
-    pageOrdinal,
-    cursorInputHash: input.cursorInputHash,
-    pageItemCount: page.length,
-    pageItemsHash: sha2566(canonicalJson5(page)),
-    pagePathHashes,
-    aggregatePathCount: aggregatePathHashes.length,
-    aggregatePathSetHash: sha2566(canonicalJson5(aggregatePathHashes)),
-    aggregateItemCount: aggregateItems.length,
-    aggregateHash: sha2566(canonicalJson5(aggregateItems)),
-    complete
-  };
-  return Object.freeze({
-    operationReceiptId: keyedSha256(
-      input.secret,
-      canonicalJson5(receiptIdentity)
-    ),
-    operationKind: input.operationKind,
-    cursorInputHash: input.cursorInputHash,
-    pageOrdinal,
-    pageItemCount: page.length,
-    pageItemsHash: receiptIdentity.pageItemsHash,
-    pagePathHashes: Object.freeze(pagePathHashes),
-    aggregatePathCount: receiptIdentity.aggregatePathCount,
-    aggregatePathSetHash: receiptIdentity.aggregatePathSetHash,
-    aggregateItemCount: aggregateItems.length,
-    aggregateHash: receiptIdentity.aggregateHash,
-    complete,
-    nextCursor: complete ? null : encodeContextGatewayV4Cursor({
-      secret: input.secret,
-      payload: {
-        cursorVersion: CONTEXT_GATEWAY_V4_CURSOR_VERSION,
-        sessionId: input.sessionId,
-        operationKind: input.operationKind,
-        treeOid: input.treeOid,
-        policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
-        queryDigest: input.queryDigest,
-        pageSize: input.pageSize,
-        nextOffset,
-        expiresAtMs: input.nowMs + CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS
-      }
-    })
-  });
-}
-function classifyContextGatewayV4Failure(error2) {
-  const message = error2 instanceof Error ? error2.message : String(error2);
-  if (/(?:path_invalid|cursor_(?:tampered|scope_mismatch)|tool_unknown|unauthorized|escape)/u.test(
-    message
-  )) {
-    return "confinement_violation" /* ConfinementViolation */;
-  }
-  if (/(?:limit_exceeded|budget|too_large)/u.test(message)) {
-    return "budget_exceeded" /* BudgetExceeded */;
-  }
-  if (/(?:truncated|incomplete|cursor_expired)/u.test(message)) {
-    return "incomplete_result" /* IncompleteResult */;
-  }
-  if (/(?:invalid|missing|not_in_.*tree)/u.test(message)) {
-    return "recoverable_request" /* RecoverableRequest */;
-  }
-  return "infrastructure_failure" /* InfrastructureFailure */;
-}
-function assertCursorPayload(payload) {
-  if (payload.cursorVersion !== CONTEXT_GATEWAY_V4_CURSOR_VERSION || payload.policyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION || typeof payload.sessionId !== "string" || payload.sessionId.length < 1 || payload.sessionId.length > 255 || !Object.values(ContextGatewayV4OperationKind).includes(
-    payload.operationKind
-  ) || !Number.isSafeInteger(payload.nextOffset) || payload.nextOffset < 0 || !Number.isSafeInteger(payload.expiresAtMs) || payload.expiresAtMs < 0) {
-    throw new Error("context_gateway_cursor_payload_invalid");
-  }
-  requireGitOid(payload.treeOid, "context_gateway_cursor_tree_oid");
-  requireSha256(payload.queryDigest, "context_gateway_cursor_query_digest");
-  assertPageSize(payload.pageSize);
-}
-function assertSecret(secret) {
-  if (!Buffer.isBuffer(secret) || secret.byteLength < 32) {
-    throw new Error("context_gateway_cursor_secret_invalid");
-  }
-}
-function assertPageSize(value) {
-  if (!Number.isSafeInteger(value) || value < 1 || value > CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS) {
-    throw new Error("context_gateway_page_size_invalid");
-  }
-}
-function isSha2563(value) {
-  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }
 
 // src/review-orchestration/application/review-orchestration-ports.ts
@@ -86087,8 +86109,8 @@ function requireActiveTurn(snapshot) {
   return snapshot.turn;
 }
 function hashObservation(observation) {
-  return sha256(
-    canonicalJson({
+  return sha2562(
+    canonicalJson2({
       ...observation,
       contextAttestationReference: null
     })
@@ -87849,7 +87871,7 @@ function buildReviewInvestigationSeedEnvelope(input) {
     }
     for (const target of changedContentEvidenceTargets(fact)) {
       changedContentTargets.set(
-        canonicalJson({ path: target.path, revision: target.revision }),
+        canonicalJson2({ path: target.path, revision: target.revision }),
         target
       );
     }
@@ -87858,7 +87880,7 @@ function buildReviewInvestigationSeedEnvelope(input) {
   const obligations = Object.freeze([
     Object.freeze({
       kind: "inventory_witness" /* InventoryWitness */,
-      canonicalSubject: canonicalJson({
+      canonicalSubject: canonicalJson2({
         aggregateHash: inventory.aggregateHash,
         aggregateItemCount: inventory.aggregateItemCount,
         aggregatePathCount: inventory.aggregatePathCount,
@@ -87868,7 +87890,7 @@ function buildReviewInvestigationSeedEnvelope(input) {
         subjectVersion: 2,
         treeOid: inventory.treeOid
       }),
-      canonicalRequirement: canonicalJson({
+      canonicalRequirement: canonicalJson2({
         aggregateHash: inventory.aggregateHash,
         aggregateItemCount: inventory.aggregateItemCount,
         aggregatePathCount: inventory.aggregatePathCount,
@@ -87881,16 +87903,16 @@ function buildReviewInvestigationSeedEnvelope(input) {
       riskPriority: REVIEW_INVESTIGATION_RISK_PRIORITY.InventoryWitness
     }),
     ...[...changedContentTargets.values()].map((target) => {
-      const pathHash = sha256(target.path);
+      const pathHash = sha2562(target.path);
       return Object.freeze({
         kind: "changed_content" /* ChangedContent */,
-        canonicalSubject: canonicalJson({
+        canonicalSubject: canonicalJson2({
           kind: "file_read",
           pathHash,
           revision: target.revision,
           subjectVersion: 1
         }),
-        canonicalRequirement: canonicalJson({
+        canonicalRequirement: canonicalJson2({
           kind: "complete_changed_file",
           path: target.path,
           pathHash,
@@ -87918,13 +87940,13 @@ function buildReviewInvestigationSeedEnvelope(input) {
     obligations,
     probePlanHash: input.probePlan.planHash,
     requestedModel: input.requestedModel,
-    reviewPromptHash: sha256(input.reviewPrompt)
+    reviewPromptHash: sha2562(input.reviewPrompt)
   });
-  const serialized = canonicalJson(envelope);
+  const serialized = canonicalJson2(envelope);
   return Object.freeze({
     envelope,
     canonicalJson: serialized,
-    hash: sha256(serialized)
+    hash: sha2562(serialized)
   });
 }
 function prepareCanonicalInventory(inventory) {
@@ -87950,8 +87972,8 @@ function prepareCanonicalInventory(inventory) {
       (entry) => normalizeInventoryEntry(entry, headTreeOid.length)
     )
   );
-  const expectedInventoryHash = sha256(
-    canonicalJson({
+  const expectedInventoryHash = sha2562(
+    canonicalJson2({
       inventoryVersion: 2,
       mergeBaseTreeOid,
       headTreeOid,
@@ -87966,9 +87988,9 @@ function prepareCanonicalInventory(inventory) {
     entries,
     treeOid: headTreeOid,
     aggregateItemCount: entries.length,
-    aggregateHash: sha256(canonicalJson(entries)),
+    aggregateHash: sha2562(canonicalJson2(entries)),
     aggregatePathCount: pathHashes.length,
-    aggregatePathSetHash: sha256(canonicalJson(pathHashes))
+    aggregatePathSetHash: sha2562(canonicalJson2(pathHashes))
   });
 }
 function normalizeInventoryEntry(entry, oidWidth) {
@@ -88213,10 +88235,10 @@ function binaryArtifactBoundaryTargets(entry) {
 }
 function binaryArtifactBoundaryObligation(target) {
   requirePresentOid(target.objectOid);
-  const pathHash = sha256(target.path);
+  const pathHash = sha2562(target.path);
   return Object.freeze({
     kind: "binary_artifact" /* BinaryArtifact */,
-    canonicalSubject: canonicalJson({
+    canonicalSubject: canonicalJson2({
       contentKind: target.metadata.contentKind,
       kind: "binary_artifact" /* BinaryArtifact */,
       objectOid: target.objectOid,
@@ -88224,7 +88246,7 @@ function binaryArtifactBoundaryObligation(target) {
       revision: target.revision,
       subjectVersion: 1
     }),
-    canonicalRequirement: canonicalJson({
+    canonicalRequirement: canonicalJson2({
       byteCount: target.metadata.byteCount,
       contentKind: target.metadata.contentKind,
       kind: "binary_artifact_boundary",
@@ -88258,7 +88280,7 @@ function canonicalInventoryPathHashes(entries) {
     if (entry.beforePath !== null) paths.add(entry.beforePath);
     if (entry.afterPath !== null) paths.add(entry.afterPath);
   }
-  return [...paths].map(sha256).sort(compareCodeUnits2);
+  return [...paths].map(sha2562).sort(compareCodeUnits2);
 }
 function compareObligations(left, right) {
   return compareCodeUnits2(left.canonicalSubject, right.canonicalSubject) || compareCodeUnits2(left.canonicalRequirement, right.canonicalRequirement);
@@ -88304,7 +88326,7 @@ function inventoryEntries(index, status, beforePath, afterPath) {
   return index.get(inventoryPathKey(status, beforePath, afterPath)) ?? [];
 }
 function inventoryPathKey(status, beforePath, afterPath) {
-  return canonicalJson({ status, beforePath, afterPath });
+  return canonicalJson2({ status, beforePath, afterPath });
 }
 function exactlyOne(matches) {
   if (matches.length !== 1) throw changedPathMismatch();
@@ -88982,8 +89004,8 @@ async function buildCanonicalGitInventory(input) {
     headTreeOid.trim().toLowerCase(),
     "canonical_inventory_head_tree_oid"
   );
-  const inventoryHash = sha2566(
-    canonicalJson5({
+  const inventoryHash = sha256(
+    canonicalJson({
       inventoryVersion: 2,
       mergeBaseTreeOid: normalizedMergeBaseTreeOid,
       headTreeOid: normalizedHeadTreeOid,
@@ -89285,7 +89307,7 @@ function decryptContextGatewayV4ReplayMaterial(input) {
   } catch {
     throw new Error("context_gateway_v4_replay_envelope_invalid");
   }
-  if (canonicalJson5(envelope) !== input.encryptedCanonicalJson || !isRecord5(envelope) || Object.keys(envelope).sort().join(",") !== "algorithm,authTag,ciphertext,encryptionVersion,nonce,sessionId" || envelope.encryptionVersion !== REPLAY_ENCRYPTION_VERSION || envelope.algorithm !== REPLAY_ENCRYPTION_ALGORITHM || envelope.sessionId !== input.sessionId || typeof envelope.nonce !== "string" || typeof envelope.authTag !== "string" || typeof envelope.ciphertext !== "string") {
+  if (canonicalJson(envelope) !== input.encryptedCanonicalJson || !isRecord5(envelope) || Object.keys(envelope).sort().join(",") !== "algorithm,authTag,ciphertext,encryptionVersion,nonce,sessionId" || envelope.encryptionVersion !== REPLAY_ENCRYPTION_VERSION || envelope.algorithm !== REPLAY_ENCRYPTION_ALGORITHM || envelope.sessionId !== input.sessionId || typeof envelope.nonce !== "string" || typeof envelope.authTag !== "string" || typeof envelope.ciphertext !== "string") {
     throw new Error("context_gateway_v4_replay_envelope_invalid");
   }
   try {
@@ -89306,7 +89328,7 @@ function decryptContextGatewayV4ReplayMaterial(input) {
       decipher.update(ciphertext),
       decipher.final()
     ]).toString("utf8");
-    if (Buffer.byteLength(plaintext, "utf8") > MAX_STATE_BYTES || canonicalJson5(JSON.parse(plaintext)) !== plaintext) {
+    if (Buffer.byteLength(plaintext, "utf8") > MAX_STATE_BYTES || canonicalJson(JSON.parse(plaintext)) !== plaintext) {
       throw new Error("invalid_plaintext");
     }
     return plaintext;
@@ -89319,7 +89341,7 @@ function replayEncryptionKey(secret, sessionId) {
 }
 function replayAssociatedData(sessionId) {
   return Buffer.from(
-    canonicalJson5({
+    canonicalJson({
       encryptionVersion: REPLAY_ENCRYPTION_VERSION,
       algorithm: REPLAY_ENCRYPTION_ALGORITHM,
       sessionId
@@ -89388,7 +89410,7 @@ var ContextGatewayV4Recorder = class {
     } catch {
       throw new Error("context_gateway_v4_recorder_json_invalid");
     }
-    if (canonicalJson5(parsed) !== raw) {
+    if (canonicalJson(parsed) !== raw) {
       throw new Error("context_gateway_v4_recorder_canonical_invalid");
     }
     this.restore(parsed);
@@ -89400,7 +89422,7 @@ var ContextGatewayV4Recorder = class {
         (event) => event.operationReceiptId === input.operationReceiptId
       );
       if (existing) {
-        if (existing.outcome !== "succeeded" /* Succeeded */ || existing.failureClass !== null || canonicalJson5(existing.operation) !== canonicalJson5(input.operation) || canonicalJson5(existing.result) !== canonicalJson5(input.result)) {
+        if (existing.outcome !== "succeeded" /* Succeeded */ || existing.failureClass !== null || canonicalJson(existing.operation) !== canonicalJson(input.operation) || canonicalJson(existing.result) !== canonicalJson(input.result)) {
           throw new Error("context_gateway_v4_operation_receipt_collision");
         }
         return existing;
@@ -89456,7 +89478,7 @@ var ContextGatewayV4Recorder = class {
     }
     const sequence = this.events.length + 1;
     const previousEventHash = this.events.at(-1)?.eventHash ?? this.config.eventChainSeedHash;
-    const operationKey = sha2566(canonicalJson5(input.operation));
+    const operationKey = sha256(canonicalJson(input.operation));
     const eventIdentity = {
       sessionId: this.config.sessionId,
       sequence,
@@ -89472,7 +89494,7 @@ var ContextGatewayV4Recorder = class {
     const event = Object.freeze({
       sequence,
       previousEventHash,
-      eventHash: keyedSha256(this.config.secret, canonicalJson5(eventIdentity)),
+      eventHash: keyedSha256(this.config.secret, canonicalJson(eventIdentity)),
       operationKey,
       operationKind: input.operation.kind,
       outcome: input.outcome,
@@ -89513,7 +89535,7 @@ var ContextGatewayV4Recorder = class {
         operationReceiptId: event.operationReceiptId,
         sanitizedReason: event.sanitizedReason
       };
-      if (event.sequence !== index + 1 || event.previousEventHash !== previousEventHash || event.operationKind !== event.operation.kind || event.operationKey !== sha2566(canonicalJson5(event.operation)) || event.eventHash !== keyedSha256(this.config.secret, canonicalJson5(eventIdentity))) {
+      if (event.sequence !== index + 1 || event.previousEventHash !== previousEventHash || event.operationKind !== event.operation.kind || event.operationKey !== sha256(canonicalJson(event.operation)) || event.eventHash !== keyedSha256(this.config.secret, canonicalJson(eventIdentity))) {
         throw new Error("context_gateway_v4_recorder_chain_invalid");
       }
       if (event.failureClass === "confinement_violation" /* ConfinementViolation */) {
@@ -89557,7 +89579,7 @@ var ContextGatewayV4Recorder = class {
   async flush() {
     await atomicPrivateWrite(
       this.config.transcriptPath,
-      canonicalJson5(this.toTranscript())
+      canonicalJson(this.toTranscript())
     );
   }
 };
@@ -89579,19 +89601,6 @@ var execFileAsync3 = (0, import_util8.promisify)(import_child_process13.execFile
 var MAX_TRANSCRIPT_BYTES = 2 * 1024 * 1024;
 var MAX_REPLAY_MATERIAL_BYTES = 2 * 1024 * 1024;
 var MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES = Math.ceil(MAX_REPLAY_MATERIAL_BYTES * 4 / 3) + 4096;
-var ENABLED_TOOLS = Object.freeze([
-  "review_read_file",
-  "review_list_directory",
-  "review_search_text",
-  "review_git_fact"
-]);
-var V4_ENABLED_TOOLS = Object.freeze([
-  "review_read_file",
-  "review_list_directory",
-  "review_search_text",
-  "review_canonical_inventory",
-  "review_git_fact"
-]);
 var SubprocessRequiredContextWitnessRunner = class {
   async capture(input) {
     await execFileAsync3(
@@ -89754,7 +89763,7 @@ var ContextGatewayInvocationSessionFactory = class {
       cwd: this.options.checkoutRoot,
       gatewayBinaryHash: input.gatewayBinaryHash,
       gatewayPolicyVersion: policyVersion,
-      enabledTools: policyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION ? V4_ENABLED_TOOLS : ENABLED_TOOLS,
+      enabledTools: policyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION ? CONTEXT_GATEWAY_V4_ENABLED_TOOLS : CONTEXT_GATEWAY_V3_ENABLED_TOOLS,
       runtimeEnvironment: Object.freeze({
         REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: policyVersion,
         REVIEWROUTER_CONTEXT_SESSION_ID: input.sessionId,
@@ -89966,7 +89975,7 @@ async function readBoundedCanonicalJson(file, maximumBytes) {
     throw new Error("context_gateway_output_size_invalid");
   }
   const parsed = JSON.parse(await (0, import_promises2.readFile)(file, "utf8"));
-  return canonicalJson5(parsed);
+  return canonicalJson(parsed);
 }
 async function readBoundedText(file, maximumBytes) {
   const metadata = await (0, import_promises2.stat)(file);
@@ -89987,7 +89996,7 @@ function verifyTranscript(input) {
   let previousEventHash = input.eventChainSeedHash;
   for (let index = 0; index < transcript.dependencies.length; index += 1) {
     const entry = transcript.dependencies[index];
-    if (entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha25612(canonicalJson5(entry.operation))) {
+    if (entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha25612(canonicalJson(entry.operation))) {
       throw new Error("context_gateway_transcript_chain_invalid");
     }
     const eventHash = keyedSha2562(
@@ -90049,7 +90058,7 @@ function createWireSealPayload(transcript, replayMaterial) {
   const replayQueriesByOperationKey = new Map(
     replayMaterial.entries.map((entry) => [entry.operationKey, entry.query])
   );
-  const transcriptCanonicalJson = canonicalJson5({
+  const transcriptCanonicalJson = canonicalJson({
     manifestVersion: 2,
     gatewayPolicyVersion: transcript.gatewayPolicyVersion,
     gatewayBinaryHash: transcript.gatewayBinaryHash,
@@ -90058,7 +90067,7 @@ function createWireSealPayload(transcript, replayMaterial) {
     complete: !transcript.hadFailure,
     dependencies: transcript.dependencies
   });
-  const replayMaterialCanonicalJson = canonicalJson5({
+  const replayMaterialCanonicalJson = canonicalJson({
     materialVersion: 1,
     sourceDependencies: transcript.dependencies.map((dependency) => ({
       sequence: dependency.sequence,
@@ -90072,7 +90081,7 @@ function createWireSealPayload(transcript, replayMaterial) {
   });
 }
 function createV4WireSealPayload(transcript) {
-  return canonicalJson5({
+  return canonicalJson({
     manifestVersion: 3,
     gatewayPolicyVersion: transcript.gatewayPolicyVersion,
     gatewayBinaryHash: transcript.gatewayBinaryHash,
@@ -90227,10 +90236,10 @@ var ContextGatewayRecorder = class {
           this.config.secret,
           canonicalizeReviewContextSearchQuery(replayQuery)
         ),
-        replayHandleHash: sha2566(replayHandle)
+        replayHandleHash: sha256(replayHandle)
       });
     }
-    const operationKey = sha2566(canonicalJson5(operation));
+    const operationKey = sha256(canonicalJson(operation));
     if (replayHandle !== void 0 && replayQuery !== void 0) {
       this.replayEntries.push(
         Object.freeze({
@@ -90284,7 +90293,7 @@ var ContextGatewayRecorder = class {
     let previousEventHash = this.config.eventChainSeedHash;
     for (let index = 0; index < transcript.dependencies.length; index += 1) {
       const entry = transcript.dependencies[index];
-      if (!entry || entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha2566(canonicalJson5(entry.operation)) || entry.eventHash !== keyedSha256(
+      if (!entry || entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha256(canonicalJson(entry.operation)) || entry.eventHash !== keyedSha256(
         this.config.secret,
         canonicalizeReviewContextGatewayEvent({
           sessionId: this.config.sessionId,
@@ -90350,8 +90359,8 @@ var ContextGatewayRecorder = class {
       entries: Object.freeze([...this.replayEntries])
     });
     await Promise.all([
-      atomicPrivateWrite2(this.config.transcriptPath, canonicalJson5(transcript)),
-      atomicPrivateWrite2(this.config.replayMaterialPath, canonicalJson5(replay))
+      atomicPrivateWrite2(this.config.transcriptPath, canonicalJson(transcript)),
+      atomicPrivateWrite2(this.config.replayMaterialPath, canonicalJson(replay))
     ]);
   }
 };
@@ -90369,7 +90378,7 @@ function parseCanonicalState(raw, kind) {
   } catch {
     throw new Error(`context_gateway_recorder_${kind}_json_invalid`);
   }
-  if (canonicalJson5(parsed) !== raw) {
+  if (canonicalJson(parsed) !== raw) {
     throw new Error(`context_gateway_recorder_${kind}_canonical_invalid`);
   }
   return parsed;
@@ -90463,7 +90472,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         const blob = await this.gitBuffer(["cat-file", "blob", treeEntry.oid]);
         content = blob.subarray(startByte, startByte + maxBytes);
         eof = startByte + content.byteLength >= blobSize;
-        if (fileKind === "symlink") symlinkTargetHash = sha2566(blob);
+        if (fileKind === "symlink") symlinkTargetHash = sha256(blob);
       }
       const binary2 = content.includes(0);
       const operation = Object.freeze({
@@ -90478,7 +90487,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         mode,
         blobOid: treeEntry.oid,
         symlinkTargetHash,
-        contentHash: sha2566(content),
+        contentHash: sha256(content),
         byteCount: content.byteLength,
         eof,
         complete: true,
@@ -90540,15 +90549,15 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         maxDepth,
         includeHidden,
         maxEntries,
-        ignorePolicyHash: sha2566("git-index-ignore-policy.v1"),
+        ignorePolicyHash: sha256("git-index-ignore-policy.v1"),
         caseSensitive: true
       });
       const result2 = Object.freeze({
         kind: "directory_list",
         treeOid,
-        orderedEntriesHash: sha2566(canonicalJson5(entries)),
+        orderedEntriesHash: sha256(canonicalJson(entries)),
         itemCount: entries.length,
-        byteCount: Buffer.byteLength(canonicalJson5(entries), "utf8"),
+        byteCount: Buffer.byteLength(canonicalJson(entries), "utf8"),
         complete: !truncated,
         truncated
       });
@@ -90600,17 +90609,17 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
         includeGlobs: [],
         excludeGlobs: [],
         maxResults,
-        ignorePolicyHash: sha2566("git-grep-ignore-policy.v1"),
+        ignorePolicyHash: sha256("git-grep-ignore-policy.v1"),
         binaryPolicy: "exclude",
         caseSensitive,
         encoding: "utf8"
       });
       const result2 = Object.freeze({
         kind: "text_search",
-        orderedMatchesHash: sha2566(canonicalJson5(matches)),
+        orderedMatchesHash: sha256(canonicalJson(matches)),
         scannedTreeHash: await this.scannedTreeHash(paths),
         itemCount: matches.length,
-        byteCount: Buffer.byteLength(canonicalJson5(matches), "utf8"),
+        byteCount: Buffer.byteLength(canonicalJson(matches), "utf8"),
         complete: !truncated,
         truncated
       });
@@ -90700,9 +90709,9 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       });
       const result2 = Object.freeze({
         kind: "git_fact",
-        resultHash: sha2566(canonicalJson5(values)),
+        resultHash: sha256(canonicalJson(values)),
         itemCount: values.length,
-        byteCount: Buffer.byteLength(canonicalJson5(values), "utf8"),
+        byteCount: Buffer.byteLength(canonicalJson(values), "utf8"),
         complete: true,
         truncated: false
       });
@@ -90741,7 +90750,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     const witnesses = await Promise.all(
       paths.map(async (entry) => [entry, await this.treeOrBlobOid(entry)])
     );
-    return sha2566(canonicalJson5(witnesses));
+    return sha256(canonicalJson(witnesses));
   }
   async treeOrBlobOid(relativePath) {
     const spec = relativePath === "." ? `${this.headSha}^{tree}` : `${this.headSha}:${relativePath}`;
@@ -90806,7 +90815,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     }
     return Object.freeze({
       hash: contextGitDiffPolicyHash(
-        infoAttributes === null ? null : sha2566(infoAttributes)
+        infoAttributes === null ? null : sha256(infoAttributes)
       ),
       infoAttributes
     });
@@ -91037,7 +91046,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
   async readFile(input) {
     const replayInput = normalizeFileReadInput(input);
     const operation = this.operation("file_read" /* FileRead */, {
-      inputHash: sha2566(canonicalJson5(replayInput))
+      inputHash: sha256(canonicalJson(replayInput))
     });
     return this.execute(operation, replayInput, async () => {
       const relativePath = normalizeRelativePath2(input.path);
@@ -91091,12 +91100,12 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         blobOid: entry.oid,
         startByte,
         byteCount: content.byteLength,
-        contentHash: sha2566(content),
+        contentHash: sha256(content),
         eof
       };
       const operationReceiptId = keyedSha256(
         this.secret,
-        canonicalJson5(receiptIdentity)
+        canonicalJson(receiptIdentity)
       );
       return {
         response: Object.freeze({
@@ -91114,10 +91123,10 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         result: Object.freeze({
           revision,
           treeOid,
-          pathHash: sha2566(relativePath),
+          pathHash: sha256(relativePath),
           mode: entry.mode,
           blobOid: entry.oid,
-          contentHash: sha2566(content),
+          contentHash: sha256(content),
           contentKind: classified.kind,
           lineCount: classified.lineCount,
           byteCount: content.byteLength,
@@ -91134,8 +91143,8 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     const operation = this.operation(
       "directory_list" /* DirectoryList */,
       {
-        inputHash: sha2566(
-          canonicalJson5({
+        inputHash: sha256(
+          canonicalJson({
             ...replayInput,
             cursor: hashCursor(replayInput.cursor)
           })
@@ -91162,7 +91171,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       );
       const queryDigest = keyedSha256(
         this.secret,
-        canonicalJson5({ relativePath, revision, maxDepth, includeHidden })
+        canonicalJson({ relativePath, revision, maxDepth, includeHidden })
       );
       const offset = this.cursorOffset({
         cursor: input.cursor,
@@ -91197,7 +91206,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         pageSize,
         offset,
         allItems: entries,
-        cursorInputHash: input.cursor ? sha2566(input.cursor) : null,
+        cursorInputHash: input.cursor ? sha256(input.cursor) : null,
         responseField: "entries",
         operation
       });
@@ -91206,10 +91215,10 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
   async searchText(input) {
     const replayInput = normalizeTextSearchInput(input);
     const operation = this.operation("text_search" /* TextSearch */, {
-      inputHash: sha2566(
-        canonicalJson5({
+      inputHash: sha256(
+        canonicalJson({
           ...replayInput,
-          query: sha2566(String(replayInput.query)),
+          query: sha256(String(replayInput.query)),
           cursor: hashCursor(replayInput.cursor)
         })
       )
@@ -91234,7 +91243,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       );
       const queryDigest = keyedSha256(
         this.secret,
-        canonicalJson5({ query: input.query, paths, revision, caseSensitive })
+        canonicalJson({ query: input.query, paths, revision, caseSensitive })
       );
       const offset = this.cursorOffset({
         cursor: input.cursor,
@@ -91291,8 +91300,8 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         pageSize,
         offset,
         allItems: matches,
-        allPathHashes: matchedPaths.map((value) => sha2566(value)),
-        cursorInputHash: input.cursor ? sha2566(input.cursor) : null,
+        allPathHashes: matchedPaths.map((value) => sha256(value)),
+        cursorInputHash: input.cursor ? sha256(input.cursor) : null,
         responseField: "matches",
         operation
       });
@@ -91303,8 +91312,8 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     const operation = this.operation(
       "canonical_inventory" /* CanonicalInventory */,
       {
-        inputHash: sha2566(
-          canonicalJson5({
+        inputHash: sha256(
+          canonicalJson({
             ...replayInput,
             cursor: hashCursor(replayInput.cursor)
           })
@@ -91325,7 +91334,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       );
       const queryDigest = keyedSha256(
         this.secret,
-        canonicalJson5({
+        canonicalJson({
           inventoryVersion: inventory.inventoryVersion,
           mergeBaseTreeOid: inventory.mergeBaseTreeOid,
           headTreeOid: inventory.headTreeOid
@@ -91346,7 +91355,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         offset,
         allItems: inventory.entries,
         pathHashesThroughItem: (end) => canonicalInventoryPathHashes2(inventory.entries.slice(0, end)),
-        cursorInputHash: input.cursor ? sha2566(input.cursor) : null,
+        cursorInputHash: input.cursor ? sha256(input.cursor) : null,
         responseField: "entries",
         operation,
         extraResponse: {
@@ -91392,10 +91401,10 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
           ])).sort();
           break;
       }
-      const resultHash = sha2566(canonicalJson5(values));
+      const resultHash = sha256(canonicalJson(values));
       const operationReceiptId = keyedSha256(
         this.secret,
-        canonicalJson5({
+        canonicalJson({
           sessionId: this.sessionId,
           fact: input.fact,
           resultHash
@@ -91468,7 +91477,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         aggregateItemCount: receipt.aggregateItemCount,
         aggregateHash: receipt.aggregateHash,
         complete: receipt.complete,
-        nextCursorHash: receipt.nextCursor ? sha2566(receipt.nextCursor) : null
+        nextCursorHash: receipt.nextCursor ? sha256(receipt.nextCursor) : null
       }),
       operationReceiptId: receipt.operationReceiptId
     };
@@ -91597,7 +91606,7 @@ function normalizeCursor(value) {
   return value ? value : null;
 }
 function hashCursor(value) {
-  return typeof value === "string" ? sha2566(value) : null;
+  return typeof value === "string" ? sha256(value) : null;
 }
 function canonicalInventoryPageSize(entries, requestedPageSize) {
   const includesTwoPathEntry = entries.some(
@@ -91614,7 +91623,7 @@ function canonicalInventoryPathHashes2(entries) {
     if (entry.beforePath !== null) paths.add(entry.beforePath);
     if (entry.afterPath !== null) paths.add(entry.afterPath);
   }
-  return [...paths].map(sha2566).sort();
+  return [...paths].map(sha256).sort();
 }
 function withCanonicalPathWitness(input) {
   const previousItemCount = input.base.aggregateItemCount - input.base.pageItemCount;
@@ -91630,7 +91639,7 @@ function withCanonicalPathWitness(input) {
   if (pagePathHashes.length > CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS || aggregatePathHashes.some((value) => !/^[a-f0-9]{64}$/u.test(value)) || new Set(aggregatePathHashes).size !== aggregatePathHashes.length) {
     throw new Error("context_gateway_page_path_hashes_invalid");
   }
-  const aggregatePathSetHash = sha2566(canonicalJson5(aggregatePathHashes));
+  const aggregatePathSetHash = sha256(canonicalJson(aggregatePathHashes));
   const receiptIdentity = {
     sessionId: input.sessionId,
     operationKind: input.operationKind,
@@ -91652,7 +91661,7 @@ function withCanonicalPathWitness(input) {
     ...input.base,
     operationReceiptId: keyedSha256(
       input.secret,
-      canonicalJson5(receiptIdentity)
+      canonicalJson(receiptIdentity)
     ),
     pagePathHashes: Object.freeze(pagePathHashes),
     aggregatePathCount: aggregatePathHashes.length,
@@ -91761,7 +91770,7 @@ var ContextAttestationReplayRunner = class {
     const plan = parseReplayPlan(candidate);
     const [targetCheckoutTreeOid, gatewayBinaryHash] = await Promise.all([
       this.checkoutTreeOid(targetRevision.headSha),
-      (0, import_promises6.readFile)(this.options.gatewayBundlePath).then(sha2566)
+      (0, import_promises6.readFile)(this.options.gatewayBundlePath).then(sha256)
     ]);
     if (plan.gatewayBinaryHash !== gatewayBinaryHash) {
       return null;
@@ -91783,7 +91792,7 @@ var ContextAttestationReplayRunner = class {
     );
     const secret = (0, import_crypto30.randomBytes)(32);
     try {
-      const eventChainSeedHash = sha2566(
+      const eventChainSeedHash = sha256(
         canonicalizeReviewContextReplayChainSeed({
           planHash: candidate.replayPlanHash,
           attestationId: candidate.attestationId,
@@ -91826,7 +91835,7 @@ var ContextAttestationReplayRunner = class {
           return null;
         }
         const operation = source.operation.kind === "git_fact" ? observed.operation : source.operation;
-        const operationKey = sha2566(canonicalJson5(operation));
+        const operationKey = sha256(canonicalJson(operation));
         const eventWithoutHash = {
           sequence: source.sequence,
           previousEventHash,
@@ -91834,13 +91843,13 @@ var ContextAttestationReplayRunner = class {
           operation,
           result: observed.result
         };
-        const eventHash = sha2566(
+        const eventHash = sha256(
           canonicalizeReviewContextReplayEvent(eventWithoutHash)
         );
         dependencies.push(Object.freeze({ ...eventWithoutHash, eventHash }));
         previousEventHash = eventHash;
       }
-      const replayResultCanonicalJson = canonicalJson5({
+      const replayResultCanonicalJson = canonicalJson({
         manifestVersion: 2,
         gatewayPolicyVersion: plan.gatewayPolicyVersion,
         gatewayBinaryHash,
@@ -91852,7 +91861,7 @@ var ContextAttestationReplayRunner = class {
       return Object.freeze({
         targetCheckoutTreeOid,
         replayResultCanonicalJson,
-        replayResultHash: sha2566(replayResultCanonicalJson)
+        replayResultHash: sha256(replayResultCanonicalJson)
       });
     } finally {
       secret.fill(0);
@@ -91865,7 +91874,7 @@ var ContextAttestationReplayRunner = class {
     );
     const secret = (0, import_crypto30.randomBytes)(32);
     try {
-      const eventChainSeedHash = sha2566(
+      const eventChainSeedHash = sha256(
         canonicalizeReviewContextReplayChainSeed({
           planHash: input.candidate.replayPlanHash,
           attestationId: input.candidate.attestationId,
@@ -91920,7 +91929,7 @@ var ContextAttestationReplayRunner = class {
           operation: event.operation,
           result: event.result
         };
-        const eventHash = sha2566(
+        const eventHash = sha256(
           canonicalizeReviewContextReplayEvent(identity)
         );
         const synthetic = Object.freeze({
@@ -91935,7 +91944,7 @@ var ContextAttestationReplayRunner = class {
         previousEventHash = eventHash;
         return synthetic;
       });
-      const replayResultCanonicalJson = canonicalJson5({
+      const replayResultCanonicalJson = canonicalJson({
         manifestVersion: 3,
         gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
         gatewayBinaryHash: input.gatewayBinaryHash,
@@ -91950,7 +91959,7 @@ var ContextAttestationReplayRunner = class {
       return Object.freeze({
         targetCheckoutTreeOid: input.targetCheckoutTreeOid,
         replayResultCanonicalJson,
-        replayResultHash: sha2566(replayResultCanonicalJson)
+        replayResultHash: sha256(replayResultCanonicalJson)
       });
     } finally {
       secret.fill(0);
@@ -91995,7 +92004,7 @@ async function replayOperation(gateway, source) {
     case "directory_list":
       requireNoReplayQuery(source);
       requireExactReplayPolicy(operation, {
-        ignorePolicyHash: sha2566("git-index-ignore-policy.v1"),
+        ignorePolicyHash: sha256("git-index-ignore-policy.v1"),
         caseSensitive: true
       });
       await gateway.listDirectory({
@@ -92013,7 +92022,7 @@ async function replayOperation(gateway, source) {
       requireExactReplayPolicy(operation, {
         includeGlobs: [],
         excludeGlobs: [],
-        ignorePolicyHash: sha2566("git-grep-ignore-policy.v1"),
+        ignorePolicyHash: sha256("git-grep-ignore-policy.v1"),
         binaryPolicy: "exclude",
         encoding: "utf8"
       });
@@ -92157,12 +92166,12 @@ function gitFactInput(input) {
   });
 }
 function parseReplayPlan(candidate) {
-  if (Buffer.byteLength(candidate.replayPlanCanonicalJson, "utf8") > MAX_REPLAY_PLAN_BYTES || sha2566(candidate.replayPlanCanonicalJson) !== candidate.replayPlanHash) {
+  if (Buffer.byteLength(candidate.replayPlanCanonicalJson, "utf8") > MAX_REPLAY_PLAN_BYTES || sha256(candidate.replayPlanCanonicalJson) !== candidate.replayPlanHash) {
     throw new Error("context_replay_plan_identity_invalid");
   }
   const parsed = JSON.parse(candidate.replayPlanCanonicalJson);
   if (!isRecord6(parsed)) throw new Error("context_replay_plan_invalid");
-  if (canonicalJson5(parsed) !== candidate.replayPlanCanonicalJson) {
+  if (canonicalJson(parsed) !== candidate.replayPlanCanonicalJson) {
     throw new Error("context_replay_plan_not_canonical");
   }
   if (parsed.planVersion === 2) {
@@ -92194,7 +92203,7 @@ function parseReplayPlan(candidate) {
       stringField(value, "operationKey"),
       "source_operation_key"
     );
-    if (operationKey !== sha2566(canonicalJson5(value.operation))) {
+    if (operationKey !== sha256(canonicalJson(value.operation))) {
       throw new Error("context_replay_operation_identity_invalid");
     }
     return Object.freeze({
@@ -92241,8 +92250,8 @@ function parseReplayPlanV4(parsed, candidate) {
     stringField(parsed, "sourceOperationReceiptIdsHash"),
     "source_operation_receipt_ids_hash"
   );
-  if (parsed.planVersion !== 2 || parsed.attestationId !== candidate.attestationId || parsed.attestationHash !== candidate.attestationHash || parsed.gatewayPolicyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION || sourceOperationReceiptIdsHash !== sha2566(
-    canonicalJson5({ operationReceiptIds: sourceOperationReceiptIds })
+  if (parsed.planVersion !== 2 || parsed.attestationId !== candidate.attestationId || parsed.attestationHash !== candidate.attestationHash || parsed.gatewayPolicyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION || sourceOperationReceiptIdsHash !== sha256(
+    canonicalJson({ operationReceiptIds: sourceOperationReceiptIds })
   ) || candidate.sourceOperationReceiptIdsHash !== void 0 && candidate.sourceOperationReceiptIdsHash !== sourceOperationReceiptIdsHash || !Array.isArray(parsed.operations) || parsed.operations.length === 0 || parsed.operations.length > CONTEXT_GATEWAY_MAX_OPERATIONS) {
     throw new Error("context_replay_v4_plan_scope_invalid");
   }
@@ -92304,7 +92313,7 @@ function requireNoReplayQuery(source) {
 }
 function requireExactReplayPolicy(operation, expected) {
   for (const [key, value] of Object.entries(expected)) {
-    if (canonicalJson5(operation[key]) !== canonicalJson5(value)) {
+    if (canonicalJson(operation[key]) !== canonicalJson(value)) {
       throw new Error("context_replay_policy_unsupported");
     }
   }
@@ -92329,7 +92338,7 @@ function requireDigestArray2(value, field, maximum) {
   }
   const result2 = value.map((entry) => requireSha256(entry, field));
   const sorted = [...result2].sort(compareCodeUnits5);
-  if (new Set(result2).size !== result2.length || canonicalJson5(result2) !== canonicalJson5(sorted)) {
+  if (new Set(result2).size !== result2.length || canonicalJson(result2) !== canonicalJson(sorted)) {
     throw new Error(`context_replay_${field}_invalid`);
   }
   return Object.freeze(result2);
@@ -92378,7 +92387,7 @@ function enumField(value, field, values) {
 }
 function requireExactKeys2(value, expected) {
   const actual = Object.keys(value).sort();
-  if (canonicalJson5(actual) !== canonicalJson5([...expected].sort())) {
+  if (canonicalJson(actual) !== canonicalJson([...expected].sort())) {
     throw new Error("context_replay_object_shape_invalid");
   }
 }
@@ -96938,7 +96947,7 @@ var ReviewActionV2InvestigationAdapter = class {
   async commitTurn(input) {
     const turn = requireTurn(input.snapshot);
     const observationCanonicalJson = canonicalObservation(input.observation);
-    const observationHash = sha256(observationCanonicalJson);
+    const observationHash = sha2562(observationCanonicalJson);
     const result2 = await this.mutation(
       "review_investigation_turn_commit" /* ReviewInvestigationTurnCommit */,
       () => this.client.execute(
@@ -97168,15 +97177,15 @@ var ReviewActionV2InvestigationAdapter = class {
   }
 };
 function document(value) {
-  const serialized = canonicalJson(value);
-  return Object.freeze({ canonicalJson: serialized, hash: sha256(serialized) });
+  const serialized = canonicalJson2(value);
+  return Object.freeze({ canonicalJson: serialized, hash: sha2562(serialized) });
 }
 function parseReplayPreparation(result2) {
   const raw = requireCanonicalDocumentString(
     result2.replayPreparationCanonicalJson,
     "replay_preparation"
   );
-  if (sha256(raw) !== requireDigest5(result2.replayPreparationHash, "replay_preparation_hash")) {
+  if (sha2562(raw) !== requireDigest5(result2.replayPreparationHash, "replay_preparation_hash")) {
     throw invalidResponse("replay_preparation_hash_mismatch");
   }
   const parsed = requireRecord3(JSON.parse(raw), "replay_preparation");
@@ -97205,7 +97214,7 @@ function parseReplayPreparation(result2) {
       obligation.replayPlanHash,
       "replay_plan_hash"
     );
-    if (sha256(replayPlanCanonicalJson) !== replayPlanHash) {
+    if (sha2562(replayPlanCanonicalJson) !== replayPlanHash) {
       throw invalidResponse("replay_plan_hash_mismatch");
     }
     return Object.freeze({
@@ -97250,10 +97259,10 @@ function parseReplayPreparation(result2) {
   });
 }
 function idempotencyKey(operation, preimage) {
-  return `rr:investigation:${operation}:${sha256(canonicalJson(preimage))}`;
+  return `rr:investigation:${operation}:${sha2562(canonicalJson2(preimage))}`;
 }
 function canonicalObservation(observation) {
-  return canonicalJson(observation);
+  return canonicalJson2(observation);
 }
 function runtimeProfile(value) {
   if (value === "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */) {
@@ -97291,7 +97300,7 @@ function snapshotFromResult(result2, turnCapability) {
   } catch {
     throw invalidResponse("investigation_canonical_json_invalid");
   }
-  if (canonicalJson(value) !== raw) {
+  if (canonicalJson2(value) !== raw) {
     throw invalidResponse("investigation_canonical_json_not_canonical");
   }
   const root = requireRecord3(value, "investigation");
@@ -97429,7 +97438,7 @@ function attachTurnBrief(snapshot, result2) {
     "turn_brief_canonical_json"
   );
   const expectedHash = requireDigest5(result2.turnBriefHash, "turn_brief_hash");
-  if (sha256(raw) !== expectedHash) {
+  if (sha2562(raw) !== expectedHash) {
     throw invalidResponse("turn_brief_hash_mismatch");
   }
   let parsed;
@@ -97438,7 +97447,7 @@ function attachTurnBrief(snapshot, result2) {
   } catch {
     throw invalidResponse("turn_brief_json_invalid");
   }
-  if (canonicalJson(parsed) !== raw) {
+  if (canonicalJson2(parsed) !== raw) {
     throw invalidResponse("turn_brief_not_canonical");
   }
   if (snapshot.turn === null) {
@@ -97562,7 +97571,7 @@ function verifyTerminalArtifact(snapshot) {
   if (snapshot.conclusion === null || ![
     "concluded" /* Concluded */,
     "inconclusive" /* Inconclusive */
-  ].includes(snapshot.state) || snapshot.nextAction !== "terminal" /* Terminal */ || snapshot.turn !== null || sha256(snapshot.terminalObservationCanonicalJson) !== snapshot.terminalOutcomeHash || snapshot.conclusion !== "inconclusive" /* Inconclusive */ && !provenancePresent) {
+  ].includes(snapshot.state) || snapshot.nextAction !== "terminal" /* Terminal */ || snapshot.turn !== null || sha2562(snapshot.terminalObservationCanonicalJson) !== snapshot.terminalOutcomeHash || snapshot.conclusion !== "inconclusive" /* Inconclusive */ && !provenancePresent) {
     throw invalidResponse("investigation_terminal_artifact_invalid");
   }
   verifyTerminalPayload(snapshot);
@@ -97752,7 +97761,7 @@ function nullableCanonicalJson(value, field) {
   } catch {
     throw invalidResponse(`${field}_invalid`);
   }
-  if (canonicalJson(parsed) !== value) {
+  if (canonicalJson2(parsed) !== value) {
     throw invalidResponse(`${field}_not_canonical`);
   }
   return value;
@@ -97789,7 +97798,7 @@ function requireCanonicalDocumentString(value, field, maximumBytes = 2 * 1024 * 
   } catch {
     throw invalidResponse(`${field}_invalid`);
   }
-  if (canonicalJson(parsed) !== value) {
+  if (canonicalJson2(parsed) !== value) {
     throw invalidResponse(`${field}_not_canonical`);
   }
   return value;
@@ -98093,8 +98102,8 @@ var ReviewInvestigationRecordingAdapter = class {
         scmRepositoryIdentityId: input.authorization.facts.scmRepositoryIdentityId,
         pullRequestNumber: input.authorization.facts.pullRequestNumber,
         trustDomain: input.authorization.facts.trustDomain,
-        authorizationScopeHash: sha256(
-          canonicalJson({
+        authorizationScopeHash: sha2562(
+          canonicalJson2({
             workspaceId: input.authorization.facts.workspaceId,
             repositoryConnectionId: input.authorization.facts.repositoryConnectionId,
             scmRepositoryIdentityId: input.authorization.facts.scmRepositoryIdentityId,
@@ -98109,7 +98118,7 @@ var ReviewInvestigationRecordingAdapter = class {
         reviewRevisionHash: input.authorization.facts.reviewRevisionHash
       },
       providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
-      providerManifestHash: sha256(input.manifest.manifestCanonicalJson),
+      providerManifestHash: sha2562(input.manifest.manifestCanonicalJson),
       requestedModel: input.invocation.requestedModel,
       providerKind: requireReviewAgentProviderKind(input.workSlot.providerKind),
       promptFor: (snapshot) => investigationPrompt(input.invocation.reviewPrompt, snapshot),
@@ -98162,10 +98171,10 @@ function reviewInvestigationCoverageContract(producerReleaseId) {
   });
 }
 function reviewInvestigationCoverageProfileHash() {
-  return sha256(canonicalJson(REVIEW_INVESTIGATION_COVERAGE_PROFILE));
+  return sha2562(canonicalJson2(REVIEW_INVESTIGATION_COVERAGE_PROFILE));
 }
 function reviewInvestigationPolicyHash(policy = REVIEW_INVESTIGATION_PRODUCTION_POLICY) {
-  return sha256(canonicalJson(policy));
+  return sha2562(canonicalJson2(policy));
 }
 function matchesReviewInvestigationCapability(input) {
   const descriptor = input.facts.reviewInvestigation;
@@ -98212,7 +98221,7 @@ function investigationPrompt(reviewPrompt, snapshot) {
     throw new Error("review_investigation_turn_brief_missing");
   }
   const encodedBrief = Buffer.from(
-    canonicalJson(snapshot.turn.brief),
+    canonicalJson2(snapshot.turn.brief),
     "utf8"
   ).toString("base64url");
   return [

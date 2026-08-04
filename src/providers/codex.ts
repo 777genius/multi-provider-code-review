@@ -26,6 +26,15 @@ import {
   ProviderKind,
   requirePreparedProviderInvocation,
 } from './prepared-invocation';
+import {
+  CONTEXT_GATEWAY_POLICY_VERSION,
+  CONTEXT_GATEWAY_RUNTIME_ENV_KEYS,
+  CONTEXT_GATEWAY_V3_ENABLED_TOOLS,
+} from '../context-gateway/context-gateway-contract';
+import {
+  CONTEXT_GATEWAY_V4_ENABLED_TOOLS,
+  CONTEXT_GATEWAY_V4_POLICY_VERSION,
+} from '../context-gateway/context-gateway-v4-contract';
 
 export interface CodexProviderOptions {
   agenticContext?: boolean;
@@ -137,28 +146,12 @@ type CodexFrozenCliConfig = {
 
 const CODEX_OUTPUT_FILE_PLACEHOLDER = '{reviewrouter_output_file}';
 const CODEX_SCHEMA_FILE_PLACEHOLDER = '{reviewrouter_schema_file}';
-const CONTEXT_GATEWAY_TOOLS = Object.freeze([
-  'review_git_fact',
-  'review_list_directory',
-  'review_read_file',
-  'review_search_text',
-]);
-const CONTEXT_GATEWAY_RUNTIME_ENV_KEYS = new Set([
-  'REVIEWROUTER_CONTEXT_SESSION_ID',
-  'REVIEWROUTER_CONTEXT_ROOT',
-  'REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH',
-  'REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH',
-  'REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH',
-  'REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID',
-  'REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID',
-  'REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH',
-  'REVIEWROUTER_CONTEXT_BASE_SHA',
-  'REVIEWROUTER_CONTEXT_MERGE_BASE_SHA',
-  'REVIEWROUTER_CONTEXT_HEAD_SHA',
-]);
+const CONTEXT_GATEWAY_RUNTIME_ENV_KEY_SET = new Set(
+  CONTEXT_GATEWAY_RUNTIME_ENV_KEYS
+);
 const CONTEXT_GATEWAY_MCP_ENV_VARS = Object.freeze(
   [
-    ...CONTEXT_GATEWAY_RUNTIME_ENV_KEYS,
+    ...CONTEXT_GATEWAY_RUNTIME_ENV_KEY_SET,
     'REVIEWROUTER_CONTEXT_GATEWAY_SECRET',
   ].sort()
 );
@@ -1151,16 +1144,19 @@ export class CodexProvider extends Provider {
     ) {
       throw new Error('codex_context_gateway_config_invalid');
     }
+    const expectedTools = this.contextGatewayTools(
+      gateway.gatewayPolicyVersion
+    );
     const tools = [...gateway.enabledTools].sort();
     if (
-      tools.length !== CONTEXT_GATEWAY_TOOLS.length ||
-      tools.some((tool, index) => tool !== CONTEXT_GATEWAY_TOOLS[index])
+      tools.length !== expectedTools.length ||
+      tools.some((tool, index) => tool !== expectedTools[index])
     ) {
       throw new Error('codex_context_gateway_tool_policy_invalid');
     }
     for (const [key, value] of Object.entries(gateway.runtimeEnvironment)) {
       if (
-        !CONTEXT_GATEWAY_RUNTIME_ENV_KEYS.has(key) ||
+        !CONTEXT_GATEWAY_RUNTIME_ENV_KEY_SET.has(key) ||
         typeof value !== 'string' ||
         value.length === 0
       ) {
@@ -1169,9 +1165,22 @@ export class CodexProvider extends Provider {
     }
     if (
       Object.keys(gateway.runtimeEnvironment).length !==
-      CONTEXT_GATEWAY_RUNTIME_ENV_KEYS.size
+        CONTEXT_GATEWAY_RUNTIME_ENV_KEY_SET.size ||
+      gateway.runtimeEnvironment.REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION !==
+        gateway.gatewayPolicyVersion
     ) {
       throw new Error('codex_context_gateway_environment_incomplete');
+    }
+  }
+
+  private contextGatewayTools(policyVersion: string): readonly string[] {
+    switch (policyVersion) {
+      case CONTEXT_GATEWAY_POLICY_VERSION:
+        return [...CONTEXT_GATEWAY_V3_ENABLED_TOOLS].sort();
+      case CONTEXT_GATEWAY_V4_POLICY_VERSION:
+        return [...CONTEXT_GATEWAY_V4_ENABLED_TOOLS].sort();
+      default:
+        throw new Error('codex_context_gateway_config_invalid');
     }
   }
 

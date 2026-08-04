@@ -13985,6 +13985,26 @@ var import_crypto = require("crypto");
 var CONTEXT_GATEWAY_POLICY_VERSION = "context-gateway-v3";
 var CONTEXT_GATEWAY_MAX_OPERATIONS = 2e3;
 var CONTEXT_GIT_DIFF_POLICY_VERSION = "git-diff-stat-v2";
+var CONTEXT_GATEWAY_V3_ENABLED_TOOLS = Object.freeze([
+  "review_read_file",
+  "review_list_directory",
+  "review_search_text",
+  "review_git_fact"
+]);
+var CONTEXT_GATEWAY_RUNTIME_ENV_KEYS = Object.freeze([
+  "REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION",
+  "REVIEWROUTER_CONTEXT_SESSION_ID",
+  "REVIEWROUTER_CONTEXT_ROOT",
+  "REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH",
+  "REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH",
+  "REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH",
+  "REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID",
+  "REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID",
+  "REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH",
+  "REVIEWROUTER_CONTEXT_BASE_SHA",
+  "REVIEWROUTER_CONTEXT_MERGE_BASE_SHA",
+  "REVIEWROUTER_CONTEXT_HEAD_SHA"
+]);
 function contextGitFactOperandsHash(input) {
   switch (input.fact) {
     case "changed_paths":
@@ -14072,6 +14092,13 @@ var CONTEXT_GATEWAY_V4_POLICY_VERSION = "context-gateway-v4";
 var CONTEXT_GATEWAY_V4_CURSOR_VERSION = 1;
 var CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS = 2e3;
 var CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS = 15 * 60 * 1e3;
+var CONTEXT_GATEWAY_V4_ENABLED_TOOLS = Object.freeze([
+  "review_read_file",
+  "review_list_directory",
+  "review_search_text",
+  "review_canonical_inventory",
+  "review_git_fact"
+]);
 var ContextGatewayV4OperationKind = /* @__PURE__ */ ((ContextGatewayV4OperationKind4) => {
   ContextGatewayV4OperationKind4["FileRead"] = "file_read";
   ContextGatewayV4OperationKind4["DirectoryList"] = "directory_list";

@@ -4,9 +4,32 @@ export const CONTEXT_GATEWAY_MANIFEST_VERSION = 2 as const;
 export const CONTEXT_GATEWAY_POLICY_VERSION = 'context-gateway-v3' as const;
 export const CONTEXT_GATEWAY_MAX_OPERATIONS = 2_000;
 export const CONTEXT_GIT_DIFF_POLICY_VERSION = 'git-diff-stat-v2' as const;
+export const CONTEXT_GATEWAY_V3_ENABLED_TOOLS = Object.freeze([
+  'review_read_file',
+  'review_list_directory',
+  'review_search_text',
+  'review_git_fact',
+]);
+export const CONTEXT_GATEWAY_RUNTIME_ENV_KEYS = Object.freeze([
+  'REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION',
+  'REVIEWROUTER_CONTEXT_SESSION_ID',
+  'REVIEWROUTER_CONTEXT_ROOT',
+  'REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH',
+  'REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH',
+  'REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH',
+  'REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID',
+  'REVIEWROUTER_CONTEXT_MERGE_BASE_TREE_OID',
+  'REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH',
+  'REVIEWROUTER_CONTEXT_BASE_SHA',
+  'REVIEWROUTER_CONTEXT_MERGE_BASE_SHA',
+  'REVIEWROUTER_CONTEXT_HEAD_SHA',
+]);
 
 export type ContextDependencyKind =
-  'file_read' | 'directory_list' | 'text_search' | 'git_fact';
+  | 'file_read'
+  | 'directory_list'
+  | 'text_search'
+  | 'git_fact';
 
 export type ContextGitFactKind = 'changed_paths' | 'diff_stat' | 'merge_base';
 

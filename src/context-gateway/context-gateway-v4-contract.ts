@@ -11,6 +11,13 @@ export const CONTEXT_GATEWAY_V4_POLICY_VERSION = 'context-gateway-v4' as const;
 export const CONTEXT_GATEWAY_V4_CURSOR_VERSION = 1 as const;
 export const CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS = 2_000;
 export const CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS = 15 * 60 * 1_000;
+export const CONTEXT_GATEWAY_V4_ENABLED_TOOLS = Object.freeze([
+  'review_read_file',
+  'review_list_directory',
+  'review_search_text',
+  'review_canonical_inventory',
+  'review_git_fact',
+]);
 
 export enum ContextOperationOutcomeKind {
   Succeeded = 'succeeded',
