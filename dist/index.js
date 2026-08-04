@@ -86139,6 +86139,7 @@ function abortReason(failure) {
 }
 function requiresBoundedParking(failure) {
   return [
+    "authentication_unavailable" /* AuthenticationUnavailable */,
     "quota_unavailable" /* QuotaUnavailable */,
     "capacity_unavailable" /* CapacityUnavailable */,
     "capability_unavailable" /* CapabilityUnavailable */
