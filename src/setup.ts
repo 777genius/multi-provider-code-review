@@ -249,6 +249,8 @@ async function createComponentsForCLI(
     enableTokenAwareBatching: config.enableTokenAwareBatching,
     targetTokensPerBatch: config.targetTokensPerBatch,
     maxBatchSize: config.batchMaxFiles,
+    maxFullFileBytes: config.maxFullDiffFileBytes,
+    maxFullFileChanges: config.maxFullDiffFileChanges,
   });
 
   // Mock GitHub components for CLI mode
@@ -484,6 +486,8 @@ export async function createComponents(
     enableTokenAwareBatching: config.enableTokenAwareBatching,
     targetTokensPerBatch: config.targetTokensPerBatch,
     maxBatchSize: config.batchMaxFiles,
+    maxFullFileBytes: config.maxFullDiffFileBytes,
+    maxFullFileChanges: config.maxFullDiffFileChanges,
   });
 
   return {

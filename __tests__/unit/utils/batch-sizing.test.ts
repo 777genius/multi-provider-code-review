@@ -70,6 +70,28 @@ describe('Dynamic Batch Sizing', () => {
       expect(largeTokens).toBeGreaterThan(smallTokens);
       expect(largeTokens).toBe(largeFile.changes * 20); // 1500 * 20 = 30000
     });
+
+    it('uses the same full-patch thresholds as prompt compaction', () => {
+      const file = {
+        ...createMockFileWithPatch('large-policy.ts', 'x'.repeat(45_000)),
+        additions: 900,
+        deletions: 0,
+        changes: 900,
+      };
+
+      expect(
+        estimateTokensForFile(file, {
+          maxFullFileBytes: 60_000,
+          maxFullFileChanges: 1_000,
+        })
+      ).toBeGreaterThan(120);
+      expect(
+        estimateTokensForFile(file, {
+          maxFullFileBytes: 40_000,
+          maxFullFileChanges: 800,
+        })
+      ).toBe(120);
+    });
   });
 
   describe('estimateTokensForFiles', () => {

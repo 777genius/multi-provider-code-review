@@ -38,7 +38,7 @@ export const DEFAULT_CONFIG: ReviewConfig = {
   minChangedLines: 0,
   maxChangedFiles: 0,
 
-  diffMaxBytes: 120_000,
+  diffMaxBytes: 240_000,
   runTimeoutSeconds: 600,
   openrouterTimeoutSeconds: 300,
 
@@ -58,8 +58,8 @@ export const DEFAULT_CONFIG: ReviewConfig = {
   enableTokenAwareBatching: true,
   targetTokensPerBatch: 50000, // ~50k tokens per batch
   smartDiffCompaction: true,
-  maxFullDiffFileBytes: 40_000,
-  maxFullDiffFileChanges: 800,
+  maxFullDiffFileBytes: 60_000,
+  maxFullDiffFileChanges: 1_000,
 
   graphEnabled: false,
   graphCacheEnabled: true,

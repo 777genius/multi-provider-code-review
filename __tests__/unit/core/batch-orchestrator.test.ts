@@ -165,6 +165,42 @@ describe('BatchOrchestrator', () => {
       )
     ).toBeGreaterThanOrEqual(before.length - 1);
   });
+
+  it('does not undercount files that prompt compaction keeps in full', () => {
+    const largeFiles: FileChange[] = ['large-a.ts', 'large-b.ts'].map(
+      (filename) => ({
+        filename,
+        status: 'modified',
+        additions: 900,
+        deletions: 0,
+        changes: 900,
+        patch: 'x'.repeat(45_000),
+      })
+    );
+    const compacted = new BatchOrchestrator({
+      defaultBatchSize: 10,
+      maxBatchSize: 10,
+      enableTokenAwareBatching: true,
+      targetTokensPerBatch: 20_000,
+      maxFullFileBytes: 40_000,
+      maxFullFileChanges: 800,
+    });
+    const fullPatch = new BatchOrchestrator({
+      defaultBatchSize: 10,
+      maxBatchSize: 10,
+      enableTokenAwareBatching: true,
+      targetTokensPerBatch: 20_000,
+      maxFullFileBytes: 60_000,
+      maxFullFileChanges: 1_000,
+    });
+
+    expect(
+      compacted.createTokenAwareBatches(largeFiles, ['codex/test'])
+    ).toHaveLength(1);
+    expect(
+      fullPatch.createTokenAwareBatches(largeFiles, ['codex/test'])
+    ).toHaveLength(2);
+  });
 });
 
 function batchIds(batches: readonly FileChange[][]): string[] {

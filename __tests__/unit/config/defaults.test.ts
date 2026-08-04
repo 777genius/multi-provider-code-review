@@ -31,4 +31,10 @@ describe('DEFAULT_CONFIG', () => {
   it('keeps required healthy providers opt-in for raw action usage', () => {
     expect(DEFAULT_CONFIG.requiredHealthyProviders).toEqual([]);
   });
+
+  it('keeps full-patch and prompt budgets aligned for large review batches', () => {
+    expect(DEFAULT_CONFIG.diffMaxBytes).toBe(240_000);
+    expect(DEFAULT_CONFIG.maxFullDiffFileBytes).toBe(60_000);
+    expect(DEFAULT_CONFIG.maxFullDiffFileChanges).toBe(1_000);
+  });
 });

@@ -716,6 +716,8 @@ export function planAssignments(input: {
     maxBatchSize: input.config.batchMaxFiles ?? 200,
     enableTokenAwareBatching: input.config.enableTokenAwareBatching,
     targetTokensPerBatch: input.config.targetTokensPerBatch,
+    maxFullFileBytes: input.config.maxFullDiffFileBytes,
+    maxFullFileChanges: input.config.maxFullDiffFileChanges,
   });
   const files = prioritizeFilesByRisk(input.pr.files);
   const tokenSafeBatches = batcher.createTokenAwareBatches(files, [

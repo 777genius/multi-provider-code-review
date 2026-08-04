@@ -15216,7 +15216,7 @@ var DEFAULT_CONFIG = {
   skipBots: true,
   minChangedLines: 0,
   maxChangedFiles: 0,
-  diffMaxBytes: 12e4,
+  diffMaxBytes: 24e4,
   runTimeoutSeconds: 600,
   openrouterTimeoutSeconds: 300,
   budgetMaxUsd: 0,
@@ -15234,8 +15234,8 @@ var DEFAULT_CONFIG = {
   targetTokensPerBatch: 5e4,
   // ~50k tokens per batch
   smartDiffCompaction: true,
-  maxFullDiffFileBytes: 4e4,
-  maxFullDiffFileChanges: 800,
+  maxFullDiffFileBytes: 6e4,
+  maxFullDiffFileChanges: 1e3,
   graphEnabled: false,
   graphCacheEnabled: true,
   graphMaxDepth: 5,
@@ -21292,12 +21292,16 @@ function checkContextWindowFit(prompt, modelId, reservedTokensForResponse = 2e3)
     recommendation
   };
 }
-function estimateTokensForFile(file) {
+function estimateTokensForFile(file, options = {}) {
   const patchBytes = file.patch ? Buffer.byteLength(file.patch, "utf8") : 0;
   const summaryOnlyReason = getSummaryOnlyDiffReason(
     file.filename,
     patchBytes,
-    file.changes
+    file.changes,
+    {
+      maxFullFileBytes: options.maxFullFileBytes,
+      maxFullFileChanges: options.maxFullFileChanges
+    }
   );
   const lowSignalSummary = summaryOnlyReason && /dependency lock|generated file|migration artifact/.test(summaryOnlyReason);
   if (lowSignalSummary || patchBytes > 0 && summaryOnlyReason) {
@@ -37885,7 +37889,10 @@ var BatchOrchestrator = class {
       files,
       maxFiles,
       targetTokens,
-      estimateTokensForFile
+      (file) => estimateTokensForFile(file, {
+        maxFullFileBytes: this.options.maxFullFileBytes,
+        maxFullFileChanges: this.options.maxFullFileChanges
+      })
     );
     const averageFiles = batches.length === 0 ? 0 : Math.ceil(files.length / batches.length);
     logger.info(
@@ -41006,7 +41013,9 @@ async function createComponents(config, githubToken, options = {}) {
     providerOverrides: config.providerBatchOverrides,
     enableTokenAwareBatching: config.enableTokenAwareBatching,
     targetTokensPerBatch: config.targetTokensPerBatch,
-    maxBatchSize: config.batchMaxFiles
+    maxBatchSize: config.batchMaxFiles,
+    maxFullFileBytes: config.maxFullDiffFileBytes,
+    maxFullFileChanges: config.maxFullDiffFileChanges
   });
   return {
     config,
@@ -45909,7 +45918,9 @@ var ReviewOrchestrator = class {
           providerOverrides: config.providerBatchOverrides,
           enableTokenAwareBatching: config.enableTokenAwareBatching,
           targetTokensPerBatch: config.targetTokensPerBatch,
-          maxBatchSize: config.batchMaxFiles
+          maxBatchSize: config.batchMaxFiles,
+          maxFullFileBytes: config.maxFullDiffFileBytes,
+          maxFullFileChanges: config.maxFullDiffFileChanges
         });
         let allHealthResults = [];
         let healthy = [];
@@ -98960,7 +98971,9 @@ function planAssignments(input) {
     providerOverrides: input.config.providerBatchOverrides,
     maxBatchSize: input.config.batchMaxFiles ?? 200,
     enableTokenAwareBatching: input.config.enableTokenAwareBatching,
-    targetTokensPerBatch: input.config.targetTokensPerBatch
+    targetTokensPerBatch: input.config.targetTokensPerBatch,
+    maxFullFileBytes: input.config.maxFullDiffFileBytes,
+    maxFullFileChanges: input.config.maxFullDiffFileChanges
   });
   const files = prioritizeFilesByRisk(input.pr.files);
   const tokenSafeBatches = batcher.createTokenAwareBatches(files, [
