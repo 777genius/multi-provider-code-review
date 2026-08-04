@@ -414,6 +414,41 @@ describe('RunInvestigationWorkSlot', () => {
     expect(controlPlane.planTurn).not.toHaveBeenCalled();
   });
 
+  it('parks authentication failures for the minimum capacity parking window', async () => {
+    const planned = plannedSnapshot();
+    const parked = Object.freeze({
+      ...planned,
+      version: 3,
+      state: ReviewInvestigationState.AwaitingTurn,
+      nextAction: ReviewInvestigationNextAction.AwaitCapacity,
+      nextEligibleAt: '2026-08-02T10:01:00.000Z',
+      turn: null,
+    });
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.abortTurn.mockImplementation(async (input) => {
+      expect(input.reason).toBe(
+        ReviewInvestigationAbortReason.AuthenticationUnavailable
+      );
+      expect(input.nextEligibleAt).toBe('2026-08-02T10:01:00.000Z');
+      controlPlane.current = parked;
+      return parked;
+    });
+    const agent = agentFixture(
+      new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.AuthenticationUnavailable,
+        null,
+        'authentication_unavailable'
+      )
+    );
+
+    const result = await runnerFixture(controlPlane, agent).execute(runInput());
+
+    expect(result.status).toBe(ReviewInvestigationRunStatus.Parked);
+    expect(agent.executeTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.planTurn).not.toHaveBeenCalled();
+  });
+
   it.each(['open', 'seal'] as const)(
     'preserves typed retry semantics for gateway %s failures',
     async (phase) => {

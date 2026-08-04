@@ -481,6 +481,7 @@ function abortReason(
 
 function requiresBoundedParking(failure: ReviewAgentFailureClass): boolean {
   return [
+    ReviewAgentFailureClass.AuthenticationUnavailable,
     ReviewAgentFailureClass.QuotaUnavailable,
     ReviewAgentFailureClass.CapacityUnavailable,
     ReviewAgentFailureClass.CapabilityUnavailable,
