@@ -224,20 +224,20 @@ jobs:
 
       - name: Checkout exact T0 review revision
         if: ${{ inputs.review_action_lane == 't0' && steps.runtime.outputs.can_run == 'true' }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.review_head_sha }}
           persist-credentials: false
 
       - name: Checkout pull request code
         if: ${{ inputs.review_action_lane == 'legacy' && steps.runtime.outputs.can_run == 'true' }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Checkout ReviewRouter runtime
         if: ${{ steps.runtime.outputs.can_run == 'true' }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ steps.runtime.outputs.runtime_repository }}
           ref: ${{ steps.runtime.outputs.runtime_ref }}
@@ -246,7 +246,7 @@ jobs:
 
       - name: Setup Node.js
         if: ${{ steps.runtime.outputs.can_run == 'true' }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
 
@@ -261,7 +261,7 @@ jobs:
       - name: Create ReviewRouter GitHub App token
         id: app-token
         if: ${{ inputs.review_action_lane == 'legacy' && steps.runtime.outputs.can_run == 'true' && steps.runtime.outputs.app_token_needed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ inputs.review_app_client_id }}
           private-key: ${{ secrets.REVIEW_APP_PRIVATE_KEY }}

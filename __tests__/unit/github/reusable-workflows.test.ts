@@ -164,6 +164,11 @@ describe('production reusable workflows', () => {
     const codexAuthRestore = steps.find(
       (step) => step.name === 'Restore Codex subscription auth'
     );
+    const externalActionUses = steps
+      .map((step) => step.uses)
+      .filter((value): value is string =>
+        Boolean(value && !value.startsWith('./'))
+      );
 
     expect(workflowSource).toContain('workflow_call:');
     expect(workflowSource).toContain('runtime_ref:');
@@ -199,7 +204,11 @@ describe('production reusable workflows', () => {
     expect(workflowSource).toContain('ReviewRouter merge queue check passed');
     expect(workflowSource).toContain('path: .reviewrouter-runtime');
     expect(workflowSource).toContain('persist-credentials: false');
-    expect(workflowSource).toContain('uses: actions/setup-node@v6');
+    expect(
+      externalActionUses.some((value) =>
+        value.startsWith('actions/setup-node@')
+      )
+    ).toBe(true);
     expect(workflowSource).toContain("node-version: '24'");
     expect(workflowSource).toContain(
       'Resolve ReviewRouter runtime provider tooling'
@@ -216,9 +225,14 @@ describe('production reusable workflows', () => {
     );
     expect(workflowSource).toContain('review_app_client_id:');
     expect(workflowSource).toContain('REVIEW_APP_PRIVATE_KEY:');
-    expect(workflowSource).toContain(
-      'uses: actions/create-github-app-token@v3'
-    );
+    expect(
+      externalActionUses.some((value) =>
+        value.startsWith('actions/create-github-app-token@')
+      )
+    ).toBe(true);
+    for (const actionUses of externalActionUses) {
+      expect(actionUses).toMatch(/@[0-9a-f]{40}$/u);
+    }
     expect(workflowSource).toContain("const crypto = require('node:crypto');");
     expect(workflowSource).toContain(
       "staticEnv.FAIL_ON_NO_HEALTHY_PROVIDERS = 'true';"

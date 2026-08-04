@@ -21945,6 +21945,21 @@ function safeOutput(value) {
 
 // src/providers/codex.ts
 var MAX_OPTIONAL_AGENTIC_RETRY_PROMPT_TOKENS = 24e3;
+var REVIEW_OUTPUT_CONTRACT = [
+  "FINAL OUTPUT CONTRACT:",
+  'Return exactly one JSON object with exactly two top-level arrays: "findings" and "revalidations".',
+  'Each finding object must contain exactly these fields: "file", "startLine", "line", "endLine", "severity", "title", "message", and "suggestion".',
+  'Each revalidation object must contain exactly these fields: "targetId", "fingerprint", "verdict", "confidence", "evidence", and "rationale".',
+  'Each revalidation evidence object must contain exactly these fields: "path", "startLine", "endLine", and "reason".',
+  "Return ONLY one valid JSON object.",
+  "No markdown, no prose, no code fences, comments, trailing commas, or text before/after the JSON.",
+  'If there are no findings and no lifecycle targets to revalidate, return exactly {"findings":[],"revalidations":[]}.',
+  "Do not invent example findings or revalidations, and never copy schema descriptions or field names as field values.",
+  'The "findings" array may be empty. "severity" must be one of "critical", "major", or "minor".',
+  'The "revalidations" array may be empty. Include entries only for targetId values listed in the deterministic prompt.',
+  'When a finding covers a changed block, set "startLine" and "endLine" to its RIGHT-side range and keep "line" equal to "endLine". For a single line, use null for both range fields.',
+  'The "suggestion" field is required; use null unless there is an exact safe replacement.'
+];
 var CODEX_OUTPUT_FILE_PLACEHOLDER = "{reviewrouter_output_file}";
 var CODEX_SCHEMA_FILE_PLACEHOLDER = "{reviewrouter_schema_file}";
 var CONTEXT_GATEWAY_TOOLS = Object.freeze([
@@ -22275,6 +22290,7 @@ var CodexProvider = class _CodexProvider extends Provider {
       request.cwd
     );
     const parsed = this.parseNonEmptyReviewContent(content, runResult.stderr);
+    this.assertNoPlaceholderFindings(parsed.findings);
     const actualModel = this.resolveEffectiveActualModel(
       runResult.actualModelObservation,
       prepared.requestedModel
@@ -22760,15 +22776,7 @@ var CodexProvider = class _CodexProvider extends Provider {
       prompt,
       "</deterministic_review_prompt>",
       "",
-      "FINAL OUTPUT CONTRACT:",
-      'Return exactly one JSON object matching this shape: {"findings":[{"file":"path","startLine":null,"line":1,"endLine":null,"severity":"major","title":"short","message":"specific evidence","suggestion":null}],"revalidations":[{"targetId":"rrt_example","fingerprint":"abc","verdict":"resolved","confidence":0.9,"evidence":[{"path":"src/file.ts","startLine":1,"endLine":2,"reason":"why current code fixes it"}],"rationale":"short reason"}]}',
-      "Return ONLY one valid JSON object.",
-      "No markdown, prose, code fences, comments, trailing commas, or text before/after the JSON.",
-      'If no findings, return exactly {"findings":[],"revalidations":[]}.',
-      'The "findings" array may be empty. "severity" must be one of "critical", "major", or "minor".',
-      'The "revalidations" array may be empty. Include entries only for targetId values listed in the deterministic prompt.',
-      'When a finding covers a changed block, set "startLine" and "endLine" to its RIGHT-side range and keep "line" equal to "endLine". For a single line, use null for both range fields.',
-      'The "suggestion" field is required; use null unless there is an exact safe replacement.'
+      ...REVIEW_OUTPUT_CONTRACT
     ].join("\n");
   }
   async wrapAgenticReviewPrompt(prompt) {
@@ -22808,16 +22816,7 @@ var CodexProvider = class _CodexProvider extends Provider {
       prompt,
       "</deterministic_review_prompt>",
       "",
-      "FINAL OUTPUT CONTRACT:",
-      'Return exactly one JSON object matching this shape: {"findings":[{"file":"path","startLine":null,"line":1,"endLine":null,"severity":"major","title":"short","message":"specific evidence","suggestion":null}],"revalidations":[{"targetId":"rrt_example","fingerprint":"abc","verdict":"resolved","confidence":0.9,"evidence":[{"path":"src/file.ts","startLine":1,"endLine":2,"reason":"why current code fixes it"}],"rationale":"short reason"}]}',
-      "Return ONLY one valid JSON object.",
-      "No markdown, no prose, no code fences, comments, trailing commas, or text before/after the JSON.",
-      'If no findings, return exactly {"findings":[],"revalidations":[]}.',
-      'The "findings" array may be empty. "severity" must be one of "critical", "major", or "minor".',
-      'The "revalidations" array may be empty. Include entries only for targetId values listed in the deterministic prompt.',
-      'When the issue covers a changed block, set "startLine" to the first affected RIGHT-side line and "endLine" to the last affected RIGHT-side line; keep "line" equal to "endLine". For single-line findings, set "startLine" and "endLine" to null.',
-      'The "suggestion" field is required by schema; use null unless there is an exact safe replacement.',
-      "Do not return markdown, prose, or a bare JSON array."
+      ...REVIEW_OUTPUT_CONTRACT
     ].filter((line) => line !== void 0).join("\n");
   }
   wrapPromptOnlyReviewPrompt(prompt) {
@@ -22828,15 +22827,7 @@ var CodexProvider = class _CodexProvider extends Provider {
       prompt,
       "</deterministic_review_prompt>",
       "",
-      "FINAL OUTPUT CONTRACT:",
-      'Return exactly one JSON object matching this shape: {"findings":[{"file":"path","startLine":null,"line":1,"endLine":null,"severity":"major","title":"short","message":"specific evidence","suggestion":null}],"revalidations":[{"targetId":"rrt_example","fingerprint":"abc","verdict":"resolved","confidence":0.9,"evidence":[{"path":"src/file.ts","startLine":1,"endLine":2,"reason":"why current code fixes it"}],"rationale":"short reason"}]}',
-      "Return ONLY one valid JSON object.",
-      "No markdown, no prose, no code fences, comments, trailing commas, or text before/after the JSON.",
-      'If no findings, return exactly {"findings":[],"revalidations":[]}.',
-      'The "findings" array may be empty. The "suggestion" field is required and may be null.',
-      'The "revalidations" array may be empty. Include entries only for targetId values listed in the deterministic prompt.',
-      'When the issue covers a changed block, set "startLine" to the first affected RIGHT-side line and "endLine" to the last affected RIGHT-side line; keep "line" equal to "endLine". For single-line findings, set "startLine" and "endLine" to null.',
-      "Do not return markdown, prose, or a bare JSON array."
+      ...REVIEW_OUTPUT_CONTRACT
     ].join("\n");
   }
   buildFindingsSchema() {
@@ -23342,6 +23333,11 @@ var CodexProvider = class _CodexProvider extends Provider {
       return false;
     }
   }
+  assertNoPlaceholderFindings(findings) {
+    if (findings.some((finding) => this.isPlaceholderFinding(finding))) {
+      throw new Error("Codex CLI returned placeholder review JSON");
+    }
+  }
   isPlaceholderFinding(finding) {
     return finding.file === "path" || finding.title === "short" || finding.message.trim().toLowerCase() === "specific evidence";
   }
@@ -23575,13 +23571,18 @@ var CodexProvider = class _CodexProvider extends Provider {
     return [...matches].map((match2) => match2[1]).filter(Boolean);
   }
   formatCliError(stderr, stdout) {
-    const input = stderr || stdout || "no output";
-    const jsonMessages = this.extractCliErrorMessages(input).map((message) => this.sanitizeCliErrorText(message)).map((message) => message.trim()).filter(Boolean);
+    const input = [stderr, stdout].filter(Boolean).join("\n") || "no output";
+    const jsonMessages = this.extractCliErrorMessages(input).map((message) => this.sanitizeCliErrorText(message)).map((message) => message.trim()).filter(Boolean).filter((message) => !this.isPlaceholderCliDiagnostic(message));
     if (jsonMessages.length > 0) {
       return this.truncateCliError([...new Set(jsonMessages)].join(" "));
     }
     const raw = this.sanitizeCliErrorText(input);
-    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).filter(
+    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).filter((line) => {
+      const nestedDiagnostics = this.extractCliErrorMessages(line);
+      return nestedDiagnostics.length === 0 || nestedDiagnostics.some(
+        (message) => !this.isPlaceholderCliDiagnostic(message)
+      );
+    }).filter(
       (line) => !line.startsWith("user") && !line.includes("Respond with exactly:")
     );
     const important = lines.filter(
@@ -23591,6 +23592,11 @@ var CodexProvider = class _CodexProvider extends Provider {
     );
     const summary = (important.length > 0 ? important : lines).join(" ");
     return this.truncateCliError(summary);
+  }
+  isPlaceholderCliDiagnostic(message) {
+    return /^(?:\.\.\.\s*)?(?:warning\s+)?specific evidence$/i.test(
+      message.trim()
+    );
   }
   sanitizeCliErrorText(value) {
     return redactSensitiveText(value).replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "").replace(
@@ -23672,7 +23678,8 @@ var CodexProvider = class _CodexProvider extends Provider {
     return values;
   }
   truncateCliError(message) {
-    return message.length > 800 ? `${message.slice(0, 800)}...` : message;
+    if (message.length <= 800) return message;
+    return `[leading output truncated] ...${message.slice(-768)}`;
   }
   normalizeCodexError(error2) {
     const err = error2 instanceof Error ? error2 : new Error(String(error2));
@@ -33029,7 +33036,11 @@ var GitHubClient = class {
   repo;
   rateLimitTracker = new GitHubRateLimitTracker();
   constructor(token, options = {}) {
-    this.octokit = createResilientOctokit(token, options.tokenProvider);
+    this.octokit = createResilientOctokit(
+      token,
+      options.tokenProvider,
+      options.sleep
+    );
     const repoEnv = process.env.GITHUB_REPOSITORY || getRepositoryFromEventPayload() || "/";
     const [owner, repo] = repoEnv.split("/");
     this.owner = owner || "";
@@ -33139,7 +33150,7 @@ var GitHubClient = class {
     }
   }
 };
-function createResilientOctokit(initialToken, tokenProvider) {
+function createResilientOctokit(initialToken, tokenProvider, sleep2 = (delayMs) => new Promise((resolve5) => setTimeout(resolve5, delayMs))) {
   const octokit = new import_rest.Octokit();
   octokit.hook.wrap("request", async (request, options) => {
     const requestWithToken = (token2) => {
@@ -33159,10 +33170,11 @@ function createResilientOctokit(initialToken, tokenProvider) {
           authRefreshAttempted = true;
           continue;
         }
-        if (isTransientGitHubStatus(status) && transientFailures < 2) {
-          const delayMs = transientFailures === 0 ? 250 : 1e3;
+        if (isSafeRetryMethod(options.method) && isTransientGitHubRequestError(error2) && transientFailures < 2) {
+          const delayMs = githubRetryDelayMs(error2, transientFailures);
+          if (delayMs === void 0) throw error2;
           transientFailures += 1;
-          await new Promise((resolve5) => setTimeout(resolve5, delayMs));
+          await sleep2(delayMs);
           continue;
         }
         throw error2;
@@ -33178,8 +33190,96 @@ function getHttpStatus(error2) {
   const status = error2.status;
   return typeof status === "number" ? status : void 0;
 }
-function isTransientGitHubStatus(status) {
-  return status === 502 || status === 503 || status === 504;
+var MAX_GITHUB_RETRY_DELAY_MS = 1e4;
+var TRANSIENT_GITHUB_NETWORK_ERROR_CODES = [
+  "EAI_AGAIN",
+  "ECONNABORTED",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENETDOWN",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET"
+];
+function isSafeRetryMethod(method) {
+  return typeof method === "string" && ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+function isTransientGitHubRequestError(error2) {
+  const status = getHttpStatus(error2);
+  if (status === 408 || status === 429 || status !== void 0 && status >= 500 && status <= 599) {
+    return true;
+  }
+  const message = error2 instanceof Error ? error2.message : void 0;
+  if (status === 403 && typeof message === "string" && /rate limit|secondary rate limit|abuse detection/i.test(message)) {
+    return true;
+  }
+  return hasTransientNetworkErrorCode(error2);
+}
+function githubRetryDelayMs(error2, transientFailures) {
+  const serverDelayMs = githubServerRetryDelayMs(error2);
+  if (serverDelayMs !== void 0) {
+    return serverDelayMs <= MAX_GITHUB_RETRY_DELAY_MS ? serverDelayMs : void 0;
+  }
+  return transientFailures === 0 ? 250 : 1e3;
+}
+function githubServerRetryDelayMs(error2) {
+  if (!error2 || typeof error2 !== "object") return void 0;
+  const response = readOwnDataProperty(error2, "response");
+  if (!response || typeof response !== "object") return void 0;
+  const headers = readOwnDataProperty(response, "headers");
+  if (!headers || typeof headers !== "object") return void 0;
+  const retryAfter = readHeader(headers, "retry-after");
+  if (retryAfter !== void 0) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.ceil(seconds * 1e3);
+    }
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) return Math.max(0, retryAt - Date.now());
+  }
+  if (!isRateLimitResponse(error2, headers)) return void 0;
+  const reset = readHeader(headers, "x-ratelimit-reset");
+  const resetSeconds = reset === void 0 ? NaN : Number(reset);
+  return Number.isFinite(resetSeconds) ? Math.max(0, Math.ceil(resetSeconds * 1e3 - Date.now())) : void 0;
+}
+function isRateLimitResponse(error2, headers) {
+  const status = getHttpStatus(error2);
+  return (status === 403 || status === 429) && readHeader(headers, "x-ratelimit-remaining") === "0";
+}
+function readHeader(headers, expectedName) {
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() !== expectedName) continue;
+    const value = readOwnDataProperty(headers, key);
+    if (typeof value === "string" || typeof value === "number") {
+      return String(value);
+    }
+  }
+  return void 0;
+}
+function hasTransientNetworkErrorCode(error2, visited = /* @__PURE__ */ new Set(), depth = 0) {
+  if (!error2 || typeof error2 !== "object" || depth > 4 || visited.has(error2)) {
+    return false;
+  }
+  visited.add(error2);
+  const code = readOwnDataProperty(error2, "code");
+  if (typeof code === "string" && TRANSIENT_GITHUB_NETWORK_ERROR_CODES.some(
+    (transientCode) => transientCode === code
+  )) {
+    return true;
+  }
+  const cause = readOwnDataProperty(error2, "cause");
+  if (hasTransientNetworkErrorCode(cause, visited, depth + 1)) return true;
+  const errors = readOwnDataProperty(error2, "errors");
+  return Array.isArray(errors) && errors.some(
+    (nested) => hasTransientNetworkErrorCode(nested, visited, depth + 1)
+  );
+}
+function readOwnDataProperty(value, property) {
+  const descriptor = Object.getOwnPropertyDescriptor(value, property);
+  return descriptor && "value" in descriptor ? descriptor.value : void 0;
 }
 function getRepositoryFromEventPayload() {
   const eventPath = process.env.GITHUB_EVENT_PATH;
@@ -54439,6 +54539,18 @@ async function runCodexOAuthRotatingRuntime(input, ports) {
         codexHome: refreshed.codexHome,
         scmReadToken,
         scmReadTokenExpiresAt: checkoutToken.expiresAt,
+        refreshScmReadToken: async () => {
+          const refreshedToken = await ports.controlPlane.checkoutToken({
+            leaseId: prelease.leaseId,
+            providerInstanceId: input.providerInstanceId
+          });
+          assertScmReadToken(refreshedToken, input.repository);
+          scmReadToken = refreshedToken.token;
+          return {
+            token: refreshedToken.token,
+            expiresAt: refreshedToken.expiresAt
+          };
+        },
         ...preparedCodexCli ? { codexBinaryPath: preparedCodexCli.binaryPath } : {}
       });
       await clearAuth();
@@ -54665,6 +54777,15 @@ function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
 }
 function isTerminalOutcomeCommentMatch(body, input) {
   if (body.includes(input.marker)) return true;
+  const revisionMarker = input.marker.match(
+    /<!--\s*reviewrouter:codex-oauth:terminal:([a-f0-9]{40}):[^\s>]+\s*-->/i
+  );
+  if (revisionMarker && new RegExp(
+    `<!--\\s*reviewrouter:codex-oauth:terminal:${revisionMarker[1]}:[^\\s>]+\\s*-->`,
+    "i"
+  ).test(body)) {
+    return true;
+  }
   if (input.dedupeKey === "max_changed_lines_exceeded") {
     return isLegacyMaxChangedLinesSkippedComment(body);
   }
@@ -92772,36 +92893,51 @@ var GitHubReviewRevisionGuard = class {
     return this.toRevision(after, await this.loadMergeBase(after));
   }
   async loadPointer() {
-    const response = await this.readGitHubRevisionFact(
-      () => this.client.octokit.rest.pulls.get({
+    return await this.readGitHubRevisionFact(async () => {
+      const response = await this.client.octokit.rest.pulls.get({
         owner: this.client.owner,
         repo: this.client.repo,
         pull_number: this.scope.pullRequestNumber
-      })
-    );
-    return {
-      baseSha: requireCommitSha(response.data.base?.sha, "base_sha"),
-      headSha: requireCommitSha(response.data.head?.sha, "head_sha")
-    };
+      });
+      return {
+        baseSha: requireCommitSha(response.data.base?.sha, "base_sha"),
+        headSha: requireCommitSha(response.data.head?.sha, "head_sha")
+      };
+    });
   }
   async loadMergeBase(pointer) {
-    const response = await this.readGitHubRevisionFact(
-      () => this.client.octokit.rest.repos.compareCommitsWithBasehead({
+    return await this.readGitHubRevisionFact(async () => {
+      const response = await this.client.octokit.rest.repos.compareCommitsWithBasehead({
         owner: this.client.owner,
         repo: this.client.repo,
         basehead: `${pointer.baseSha}...${pointer.headSha}`
-      })
-    );
-    return requireCommitSha(response.data.merge_base_commit?.sha, "merge_base");
+      });
+      return requireCommitSha(
+        response.data.merge_base_commit?.sha,
+        "merge_base"
+      );
+    });
   }
   async readGitHubRevisionFact(read) {
     try {
       return await read();
     } catch (error2) {
-      if (!isTransientGitHubReadError(error2)) throw error2;
-      throw new Error("review_action_v2_revision_guard_unavailable", {
-        cause: error2
-      });
+      if (isTransientGitHubReadError(error2)) {
+        throw new Error("review_action_v2_revision_guard_unavailable", {
+          cause: error2
+        });
+      }
+      if (isGitHubHttpReadError(error2)) {
+        throw new Error("review_action_v2_revision_guard_failed", {
+          cause: error2
+        });
+      }
+      if (isRevisionFactValidationError(error2)) {
+        throw new Error("review_action_v2_revision_guard_failed", {
+          cause: error2
+        });
+      }
+      throw error2;
     }
   }
   toRevision(pointer, mergeBaseSha) {
@@ -92937,7 +93073,7 @@ function requireCommitSha(value, field) {
   }
   return value.toLowerCase();
 }
-var TRANSIENT_GITHUB_NETWORK_ERROR_CODES = [
+var TRANSIENT_GITHUB_NETWORK_ERROR_CODES2 = [
   "EAI_AGAIN",
   "ECONNABORTED",
   "ECONNREFUSED",
@@ -92959,7 +93095,38 @@ function isTransientGitHubReadError(error2) {
   if (status === 403 && typeof candidate.message === "string" && /rate limit|secondary rate limit|abuse detection/i.test(candidate.message)) {
     return true;
   }
-  return typeof candidate?.code === "string" && TRANSIENT_GITHUB_NETWORK_ERROR_CODES.some((code) => code === candidate.code);
+  return hasTransientNetworkErrorCode2(error2);
+}
+function isGitHubHttpReadError(error2) {
+  const status = error2?.status;
+  return typeof status === "number" && status >= 400 && status <= 599;
+}
+function isRevisionFactValidationError(error2) {
+  return error2 instanceof Error && /^review_action_v2_(?:base_sha|head_sha|merge_base)_invalid$/.test(
+    error2.message
+  );
+}
+function hasTransientNetworkErrorCode2(error2, visited = /* @__PURE__ */ new Set(), depth = 0) {
+  if (!error2 || typeof error2 !== "object" || depth > 4 || visited.has(error2)) {
+    return false;
+  }
+  visited.add(error2);
+  const code = readOwnDataProperty2(error2, "code");
+  if (typeof code === "string" && TRANSIENT_GITHUB_NETWORK_ERROR_CODES2.some(
+    (transientCode) => transientCode === code
+  )) {
+    return true;
+  }
+  const cause = readOwnDataProperty2(error2, "cause");
+  if (hasTransientNetworkErrorCode2(cause, visited, depth + 1)) return true;
+  const errors = readOwnDataProperty2(error2, "errors");
+  return Array.isArray(errors) && errors.some(
+    (nested) => hasTransientNetworkErrorCode2(nested, visited, depth + 1)
+  );
+}
+function readOwnDataProperty2(value, property) {
+  const descriptor = Object.getOwnPropertyDescriptor(value, property);
+  return descriptor && "value" in descriptor ? descriptor.value : void 0;
 }
 function canonicalJson11(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson11).join(",")}]`;
@@ -98357,12 +98524,21 @@ function capabilityUnavailable(message) {
 // src/review-orchestration/infrastructure/production-t0-review-runner.ts
 var execFileAsync8 = (0, import_util13.promisify)(import_child_process18.execFile);
 var CODEX_RETRY_POLICY_VERSION = "codex-semantic-retry.v1";
+var SCM_READ_TOKEN_EXPIRY_MARGIN_MS = 3e4;
 var ProductionT0ReviewRunner = class {
   constructor(fetchImpl = fetch) {
     this.fetchImpl = fetchImpl;
   }
   async run(input) {
-    return withRunnerEnvironment(input, () => this.runInWorkspace(input));
+    return withRunnerEnvironment(input, async () => {
+      try {
+        return await this.runInWorkspace(input);
+      } catch (error2) {
+        const revisionFailure = mapRevisionGuardErrorToCodexOutcome(error2);
+        if (revisionFailure) return revisionFailure;
+        throw error2;
+      }
+    });
   }
   async runInWorkspace(input) {
     validateInput(input);
@@ -98382,7 +98558,14 @@ var ProductionT0ReviewRunner = class {
       oidcToken: await oidc.requestToken(input.audience)
     });
     validateAuthorizationInput(input, authorization);
-    const github = new GitHubClient(input.scmReadToken);
+    const scmReadTokenProvider = createScmReadTokenProvider({
+      token: input.scmReadToken,
+      expiresAt: input.scmReadTokenExpiresAt,
+      refresh: input.refreshScmReadToken
+    });
+    const github = new GitHubClient(input.scmReadToken, {
+      tokenProvider: scmReadTokenProvider
+    });
     const revisionGuard = new GitHubReviewRevisionGuard(github, {
       workspaceId: authorization.facts.workspaceId,
       repositoryConnectionId: authorization.facts.repositoryConnectionId,
@@ -98406,7 +98589,7 @@ var ProductionT0ReviewRunner = class {
     await new GitReviewRevisionMaterializer().ensureAvailable({
       checkoutRoot: path26.resolve(input.workspacePath),
       repository: input.repository,
-      scmReadToken: input.scmReadToken,
+      scmReadToken: await scmReadTokenProvider.getToken(),
       commitShas: [
         authorization.facts.baseSha,
         authorization.facts.mergeBaseSha,
@@ -98709,6 +98892,83 @@ function mapOrchestrationResultToCodexOutcome(result2) {
       };
   }
 }
+function mapRevisionGuardErrorToCodexOutcome(error2) {
+  const code = error2 instanceof Error ? error2.message : void 0;
+  if (code !== "review_action_v2_revision_guard_unavailable" && code !== "review_action_v2_revision_guard_failed") {
+    return void 0;
+  }
+  return {
+    outcome: "partial_completed" /* PartialCompleted */,
+    blockingFailure: code
+  };
+}
+function createScmReadTokenProvider(input) {
+  let capability = validateScmReadCapability({
+    token: input.token,
+    expiresAt: input.expiresAt
+  });
+  let refreshInFlight;
+  const refresh = async () => {
+    if (refreshInFlight) return await refreshInFlight;
+    refreshInFlight = (async () => {
+      let refreshed;
+      try {
+        refreshed = await input.refresh();
+      } catch (error2) {
+        if (isScmReadCapabilityFailure(error2)) {
+          throw new Error("review_action_v2_revision_guard_failed", {
+            cause: error2
+          });
+        }
+        throw new Error("review_action_v2_revision_guard_unavailable", {
+          cause: error2
+        });
+      }
+      let validated;
+      try {
+        validated = validateScmReadCapability(refreshed);
+      } catch (error2) {
+        throw new Error("review_action_v2_revision_guard_failed", {
+          cause: error2
+        });
+      }
+      if (Date.parse(validated.expiresAt) <= Date.now() + SCM_READ_TOKEN_EXPIRY_MARGIN_MS) {
+        throw new Error("review_action_v2_revision_guard_unavailable");
+      }
+      capability = validated;
+      return capability.token;
+    })();
+    try {
+      return await refreshInFlight;
+    } finally {
+      refreshInFlight = void 0;
+    }
+  };
+  return {
+    async getToken() {
+      return Date.parse(capability.expiresAt) <= Date.now() + SCM_READ_TOKEN_EXPIRY_MARGIN_MS ? await refresh() : capability.token;
+    },
+    refreshToken: refresh
+  };
+}
+function isScmReadCapabilityFailure(error2) {
+  if (!(error2 instanceof Error)) return false;
+  if (error2.message === "review_action_v2_scm_read_token_scope_invalid" || error2.message === "review_action_v2_scm_read_token_invalid" || error2.message === "codex_oauth_control_plane_invalid_response") {
+    return true;
+  }
+  const statusMatch = error2.message.match(
+    /^codex_oauth_control_plane_error:(\d{3}):/
+  );
+  if (!statusMatch) return false;
+  const status = Number(statusMatch[1]);
+  return status >= 400 && status <= 499 && status !== 408 && status !== 429;
+}
+function validateScmReadCapability(input) {
+  if (input.token.length === 0 || !Number.isFinite(Date.parse(input.expiresAt))) {
+    throw new Error("review_action_v2_scm_read_token_invalid");
+  }
+  return Object.freeze({ ...input });
+}
 function resolveContextGatewayBundlePath() {
   const entrypoint = process.argv[1];
   if (!entrypoint) {
@@ -98891,9 +99151,10 @@ async function withRunnerEnvironment(input, operation) {
   }
 }
 function validateInput(input) {
-  if (Date.parse(input.scmReadTokenExpiresAt) <= Date.now() + 3e4) {
-    throw new Error("review_action_v2_scm_read_token_expired");
-  }
+  validateScmReadCapability({
+    token: input.scmReadToken,
+    expiresAt: input.scmReadTokenExpiresAt
+  });
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(input.repository)) {
     throw new Error("review_action_v2_repository_invalid");
   }
@@ -99166,22 +99427,23 @@ function buildV2TerminalOutcomeReport(inputs, review) {
   }
   const laneBusy = review.blockingFailure === "required_provider_lane_busy";
   const revisionUnavailable = review.blockingFailure === "review_action_v2_revision_guard_unavailable";
+  const revisionFailed = review.blockingFailure === "review_action_v2_revision_guard_failed";
   const delayed = laneBusy || revisionUnavailable;
   return terminalOutcomeReport({
     inputs,
-    kind: laneBusy ? "lane-busy" : revisionUnavailable ? "revision-unavailable" : "partial",
-    title: delayed ? "Review delayed \u26A0\uFE0F" : "Review incomplete \u26A0\uFE0F",
-    summary: laneBusy ? "ReviewRouter could not complete required coverage because all required provider lanes were busy." : revisionUnavailable ? "ReviewRouter temporarily could not verify the current pull request revision." : "ReviewRouter completed only partial coverage for this revision.",
+    kind: laneBusy ? "lane-busy" : revisionUnavailable ? "revision-unavailable" : revisionFailed ? "revision-failed" : "partial",
+    title: delayed ? "Review delayed \u26A0\uFE0F" : revisionFailed ? "Review failed \u26A0\uFE0F" : "Review incomplete \u26A0\uFE0F",
+    summary: laneBusy ? "ReviewRouter could not complete required coverage because all required provider lanes were busy." : revisionUnavailable ? "ReviewRouter temporarily could not verify the current pull request revision." : revisionFailed ? "ReviewRouter could not verify the current pull request revision." : "ReviewRouter completed only partial coverage for this revision.",
     rows: [
-      ["Outcome", "partial"],
+      ["Outcome", revisionFailed ? "failed" : "partial"],
       [
         "Reason",
-        laneBusy ? "provider lanes busy" : revisionUnavailable ? "repository state temporarily unavailable" : "required coverage incomplete"
+        laneBusy ? "provider lanes busy" : revisionUnavailable ? "repository state temporarily unavailable" : revisionFailed ? "repository revision validation failed" : "required coverage incomplete"
       ]
     ],
-    note: delayed ? "Partial evidence is preserved for retry. This result is not an all-clear." : "Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.",
-    statusState: delayed ? "pending" : "failure",
-    statusDescription: laneBusy ? "Review delayed: provider lanes are busy." : revisionUnavailable ? "Review delayed: repository state is temporarily unavailable." : "Review incomplete: required coverage did not finish."
+    note: delayed ? "Partial evidence is preserved for retry. This result is not an all-clear." : revisionFailed ? "No approval was published. Check repository access and availability, then rerun the review." : "Partial findings are withheld or marked incomplete so the result cannot be mistaken for approval.",
+    statusState: delayed ? "pending" : revisionFailed ? "error" : "failure",
+    statusDescription: laneBusy ? "Review delayed: provider lanes are busy." : revisionUnavailable ? "Review delayed: repository state is temporarily unavailable." : revisionFailed ? "Review failed: repository revision could not be verified." : "Review incomplete: required coverage did not finish."
   });
 }
 function terminalOutcomeReport(input) {

@@ -1,6 +1,8 @@
 import {
   LegacyFallbackBeforeInvestigationAuthorityControlPlane,
+  createScmReadTokenProvider,
   mapOrchestrationResultToCodexOutcome,
+  mapRevisionGuardErrorToCodexOutcome,
   planAssignments,
   resolveT0AttemptBudget,
 } from '../../../src/review-orchestration/infrastructure/production-t0-review-runner';
@@ -37,6 +39,10 @@ import {
 } from '../../../src/review-orchestration/infrastructure/production-review-investigation-composition';
 
 describe('ProductionT0ReviewRunner policy', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('treats providerRetries as the total provider attempt budget', () => {
     expect(resolveT0AttemptBudget(3, 10)).toBe(3);
     expect(resolveT0AttemptBudget(0, 10)).toBe(1);
@@ -651,6 +657,117 @@ describe('ProductionT0ReviewRunner policy', () => {
     await expect(controlPlane.planTurn({} as never)).rejects.toBe(
       postOpenError
     );
+  });
+
+  it('maps initial revision guard failures into terminal v2 outcomes', () => {
+    for (const blockingFailure of [
+      'review_action_v2_revision_guard_unavailable',
+      'review_action_v2_revision_guard_failed',
+    ]) {
+      expect(
+        mapRevisionGuardErrorToCodexOutcome(new Error(blockingFailure))
+      ).toEqual({
+        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        blockingFailure,
+      });
+    }
+    expect(
+      mapRevisionGuardErrorToCodexOutcome(new Error('unexpected_failure'))
+    ).toBeUndefined();
+  });
+
+  it('refreshes an expiring SCM read capability before the next read', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-03T12:00:00.000Z'));
+    const refresh = jest.fn(async () => ({
+      token: 'ghs_refreshed',
+      expiresAt: '2026-08-03T13:00:00.000Z',
+    }));
+    const provider = createScmReadTokenProvider({
+      token: 'ghs_expiring',
+      expiresAt: '2026-08-03T12:00:20.000Z',
+      refresh,
+    });
+
+    await expect(provider.getToken()).resolves.toBe('ghs_refreshed');
+    await expect(provider.getToken()).resolves.toBe('ghs_refreshed');
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces concurrent SCM token refreshes', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-03T12:00:00.000Z'));
+    const refresh = jest.fn(async () => ({
+      token: 'ghs_refreshed',
+      expiresAt: '2026-08-03T13:00:00.000Z',
+    }));
+    const provider = createScmReadTokenProvider({
+      token: 'ghs_expiring',
+      expiresAt: '2026-08-03T12:00:20.000Z',
+      refresh,
+    });
+
+    await expect(
+      Promise.all([provider.getToken(), provider.getToken()])
+    ).resolves.toEqual(['ghs_refreshed', 'ghs_refreshed']);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects stale refreshed SCM capabilities as temporarily unavailable', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-03T12:00:00.000Z'));
+    const refresh = jest.fn(async () => ({
+      token: 'ghs_still_expiring',
+      expiresAt: '2026-08-03T12:00:25.000Z',
+    }));
+    const provider = createScmReadTokenProvider({
+      token: 'ghs_initial',
+      expiresAt: '2026-08-03T13:00:00.000Z',
+      refresh,
+    });
+
+    await expect(provider.refreshToken()).rejects.toThrow(
+      'review_action_v2_revision_guard_unavailable'
+    );
+    await expect(provider.getToken()).resolves.toBe('ghs_initial');
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes SCM token refresh errors for terminal reporting', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-03T12:00:00.000Z'));
+    const provider = createScmReadTokenProvider({
+      token: 'ghs_expiring',
+      expiresAt: '2026-08-03T12:00:20.000Z',
+      refresh: jest.fn(async () => {
+        throw new Error('control_plane_unavailable');
+      }),
+    });
+
+    await expect(provider.getToken()).rejects.toThrow(
+      'review_action_v2_revision_guard_unavailable'
+    );
+  });
+
+  it('distinguishes permanent and transient SCM token endpoint failures', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-03T12:00:00.000Z'));
+    const providerFor = (message: string) =>
+      createScmReadTokenProvider({
+        token: 'ghs_expiring',
+        expiresAt: '2026-08-03T12:00:20.000Z',
+        refresh: jest.fn(async () => {
+          throw new Error(message);
+        }),
+      });
+
+    await expect(
+      providerFor(
+        'codex_oauth_control_plane_error:403:permission_required'
+      ).getToken()
+    ).rejects.toThrow('review_action_v2_revision_guard_failed');
+    for (const status of [429, 503]) {
+      await expect(
+        providerFor(
+          `codex_oauth_control_plane_error:${status}:temporarily_unavailable`
+        ).getToken()
+      ).rejects.toThrow('review_action_v2_revision_guard_unavailable');
+    }
   });
 });
 

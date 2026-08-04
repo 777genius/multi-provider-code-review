@@ -55,6 +55,37 @@ describe('TerminalOutcomePublicationUseCase', () => {
     expect(github.deletePullRequestComment).not.toHaveBeenCalled();
   });
 
+  it('replaces conflicting terminal outcomes for the same revision', async () => {
+    const headSha = 'a'.repeat(40);
+    const github = fakeGitHub({
+      comments: [
+        {
+          id: 111,
+          body: `<!-- reviewrouter:codex-oauth:terminal:${headSha}:revision-unavailable -->`,
+        },
+        {
+          id: 112,
+          body: `<!-- reviewrouter:codex-oauth:terminal:${headSha}:partial -->`,
+        },
+      ],
+    });
+    const useCase = createUseCase(github);
+    const report = revisionFailedReport(headSha);
+
+    await useCase.post(report);
+
+    expect(github.updatePullRequestComment).toHaveBeenCalledWith({
+      repository: 'Padelapp-Club/monitoring-service',
+      commentId: 111,
+      body: report.body,
+    });
+    expect(github.deletePullRequestComment).toHaveBeenCalledWith({
+      repository: 'Padelapp-Club/monitoring-service',
+      commentId: 112,
+    });
+    expect(github.createPullRequestComment).not.toHaveBeenCalled();
+  });
+
   it('clears only terminal outcome comments after a completed review', async () => {
     const github = fakeGitHub({
       comments: [
@@ -160,6 +191,23 @@ function completedStatus(): CodexOAuthTerminalOutcomeCommitStatus {
     state: 'success',
     description: 'Review completed.',
     context: 'ReviewRouter',
+  };
+}
+
+function revisionFailedReport(
+  headSha: string
+): CodexOAuthTerminalOutcomeReport {
+  const marker = `<!-- reviewrouter:codex-oauth:terminal:${headSha}:revision-failed -->`;
+  return {
+    marker,
+    body: `${marker}\n\n## Review failed`,
+    stepSummary: 'Review failed',
+    logLabel: 'revision-failed',
+    commitStatus: {
+      state: 'error',
+      description: 'Review failed: repository revision could not be verified.',
+      context: 'ReviewRouter',
+    },
   };
 }
 

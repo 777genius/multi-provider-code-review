@@ -67,6 +67,10 @@ export interface CodexOAuthV2ReviewRunnerPort {
      */
     readonly scmReadToken: string;
     readonly scmReadTokenExpiresAt: string;
+    readonly refreshScmReadToken: () => Promise<{
+      readonly token: string;
+      readonly expiresAt: string;
+    }>;
   }): Promise<CodexOAuthV2ReviewResult>;
 }
 
@@ -380,6 +384,18 @@ export async function runCodexOAuthRotatingRuntime(
         codexHome: refreshed.codexHome,
         scmReadToken,
         scmReadTokenExpiresAt: checkoutToken.expiresAt,
+        refreshScmReadToken: async () => {
+          const refreshedToken = await ports.controlPlane.checkoutToken({
+            leaseId: prelease.leaseId,
+            providerInstanceId: input.providerInstanceId,
+          });
+          assertScmReadToken(refreshedToken, input.repository);
+          scmReadToken = refreshedToken.token;
+          return {
+            token: refreshedToken.token,
+            expiresAt: refreshedToken.expiresAt,
+          };
+        },
         ...(preparedCodexCli
           ? { codexBinaryPath: preparedCodexCli.binaryPath }
           : {}),

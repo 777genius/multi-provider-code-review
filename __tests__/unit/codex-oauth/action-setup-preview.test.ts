@@ -369,6 +369,58 @@ describe('Codex OAuth rotating setup PR preview', () => {
     );
   });
 
+  it('reports rejected revision reads as a repository verification failure', async () => {
+    mockedRuntime.mockResolvedValue({
+      status: 'completed',
+      publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
+      v2Review: {
+        outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+        blockingFailure: 'review_action_v2_revision_guard_failed',
+      },
+    });
+    process.env = {
+      ...actionEnv({
+        eventPath,
+        outputPath,
+        headRef: 'feature/change',
+      }),
+      GITHUB_STEP_SUMMARY: stepSummaryPath,
+    };
+    const terminalOutcomeReporter = {
+      post: jest.fn(async () => undefined),
+    };
+
+    await runCodexOAuthRotatingAction({
+      reviewActionV2Activation: {
+        mode: ReviewActionV2RuntimeMode.T0,
+        handoff: {
+          saasSourceCommit: 'a'.repeat(40),
+          expectedPublicActionBaseCommit: 'b'.repeat(40),
+          schemaDigest: 'c'.repeat(64),
+          canonicalizerDigest: 'd'.repeat(64),
+          goldenFixtureDigest: 'e'.repeat(64),
+          generatedFileCount: 8,
+        },
+      },
+      terminalOutcomeReporter,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(terminalOutcomeReporter.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        marker:
+          '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:revision-failed -->',
+        body: expect.stringContaining('repository revision validation failed'),
+        commitStatus: {
+          state: 'error',
+          description:
+            'Review failed: repository revision could not be verified.',
+          context: 'ReviewRouter',
+        },
+      })
+    );
+  });
+
   it('wires verified v2 without exposing legacy comment capabilities', async () => {
     mockedRuntime.mockResolvedValue({
       status: 'completed',

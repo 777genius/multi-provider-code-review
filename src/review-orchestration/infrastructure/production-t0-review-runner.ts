@@ -13,6 +13,7 @@ import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../context-gateway/context
 import { BatchOrchestrator } from '../../core/batch-orchestrator';
 import { prioritizeFilesByRisk } from '../../review-execution/domain/file-risk-priority';
 import { GitHubClient } from '../../github/client';
+import type { GitHubTokenProvider } from '../../github/token-provider';
 import { ReviewLedger } from '../../github/ledger';
 import { PullRequestLoader } from '../../github/pr-loader';
 import { CodexProvider } from '../../providers/codex';
@@ -95,12 +96,21 @@ import {
 
 const execFileAsync = promisify(execFile);
 const CODEX_RETRY_POLICY_VERSION = 'codex-semantic-retry.v1';
+const SCM_READ_TOKEN_EXPIRY_MARGIN_MS = 30_000;
 
 export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
 
   async run(input: Parameters<CodexOAuthV2ReviewRunnerPort['run']>[0]) {
-    return withRunnerEnvironment(input, () => this.runInWorkspace(input));
+    return withRunnerEnvironment(input, async () => {
+      try {
+        return await this.runInWorkspace(input);
+      } catch (error) {
+        const revisionFailure = mapRevisionGuardErrorToCodexOutcome(error);
+        if (revisionFailure) return revisionFailure;
+        throw error;
+      }
+    });
   }
 
   private async runInWorkspace(
@@ -124,7 +134,14 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     });
     validateAuthorizationInput(input, authorization);
 
-    const github = new GitHubClient(input.scmReadToken);
+    const scmReadTokenProvider = createScmReadTokenProvider({
+      token: input.scmReadToken,
+      expiresAt: input.scmReadTokenExpiresAt,
+      refresh: input.refreshScmReadToken,
+    });
+    const github = new GitHubClient(input.scmReadToken, {
+      tokenProvider: scmReadTokenProvider,
+    });
     const revisionGuard = new GitHubReviewRevisionGuard(github, {
       workspaceId: authorization.facts.workspaceId,
       repositoryConnectionId: authorization.facts.repositoryConnectionId,
@@ -152,7 +169,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     await new GitReviewRevisionMaterializer().ensureAvailable({
       checkoutRoot: path.resolve(input.workspacePath),
       repository: input.repository,
-      scmReadToken: input.scmReadToken,
+      scmReadToken: await scmReadTokenProvider.getToken(),
       commitShas: [
         authorization.facts.baseSha,
         authorization.facts.mergeBaseSha,
@@ -540,6 +557,119 @@ export function mapOrchestrationResultToCodexOutcome(result: {
   }
 }
 
+export function mapRevisionGuardErrorToCodexOutcome(error: unknown):
+  | {
+      readonly outcome: CodexOAuthV2ReviewOutcome.PartialCompleted;
+      readonly blockingFailure: string;
+    }
+  | undefined {
+  const code = error instanceof Error ? error.message : undefined;
+  if (
+    code !== 'review_action_v2_revision_guard_unavailable' &&
+    code !== 'review_action_v2_revision_guard_failed'
+  ) {
+    return undefined;
+  }
+  return {
+    outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
+    blockingFailure: code,
+  };
+}
+
+export function createScmReadTokenProvider(input: {
+  readonly token: string;
+  readonly expiresAt: string;
+  readonly refresh: () => Promise<{
+    readonly token: string;
+    readonly expiresAt: string;
+  }>;
+}): GitHubTokenProvider {
+  let capability = validateScmReadCapability({
+    token: input.token,
+    expiresAt: input.expiresAt,
+  });
+
+  let refreshInFlight: Promise<string> | undefined;
+  const refresh = async (): Promise<string> => {
+    if (refreshInFlight) return await refreshInFlight;
+    refreshInFlight = (async () => {
+      let refreshed: { readonly token: string; readonly expiresAt: string };
+      try {
+        refreshed = await input.refresh();
+      } catch (error) {
+        if (isScmReadCapabilityFailure(error)) {
+          throw new Error('review_action_v2_revision_guard_failed', {
+            cause: error,
+          });
+        }
+        throw new Error('review_action_v2_revision_guard_unavailable', {
+          cause: error,
+        });
+      }
+      let validated: { readonly token: string; readonly expiresAt: string };
+      try {
+        validated = validateScmReadCapability(refreshed);
+      } catch (error) {
+        throw new Error('review_action_v2_revision_guard_failed', {
+          cause: error,
+        });
+      }
+      if (
+        Date.parse(validated.expiresAt) <=
+        Date.now() + SCM_READ_TOKEN_EXPIRY_MARGIN_MS
+      ) {
+        throw new Error('review_action_v2_revision_guard_unavailable');
+      }
+      capability = validated;
+      return capability.token;
+    })();
+    try {
+      return await refreshInFlight;
+    } finally {
+      refreshInFlight = undefined;
+    }
+  };
+  return {
+    async getToken() {
+      return Date.parse(capability.expiresAt) <=
+        Date.now() + SCM_READ_TOKEN_EXPIRY_MARGIN_MS
+        ? await refresh()
+        : capability.token;
+    },
+    refreshToken: refresh,
+  };
+}
+
+function isScmReadCapabilityFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (
+    error.message === 'review_action_v2_scm_read_token_scope_invalid' ||
+    error.message === 'review_action_v2_scm_read_token_invalid' ||
+    error.message === 'codex_oauth_control_plane_invalid_response'
+  ) {
+    return true;
+  }
+  const statusMatch = error.message.match(
+    /^codex_oauth_control_plane_error:(\d{3}):/
+  );
+  if (!statusMatch) return false;
+  const status = Number(statusMatch[1]);
+  return status >= 400 && status <= 499 && status !== 408 && status !== 429;
+}
+
+function validateScmReadCapability(input: {
+  readonly token: string;
+  readonly expiresAt: string;
+}): { readonly token: string; readonly expiresAt: string } {
+  if (
+    input.token.length === 0 ||
+    !Number.isFinite(Date.parse(input.expiresAt))
+  ) {
+    throw new Error('review_action_v2_scm_read_token_invalid');
+  }
+  return Object.freeze({ ...input });
+}
+
 function resolveContextGatewayBundlePath(): string {
   const entrypoint = process.argv[1];
   if (!entrypoint) {
@@ -774,9 +904,10 @@ async function withRunnerEnvironment<T>(
 function validateInput(
   input: Parameters<CodexOAuthV2ReviewRunnerPort['run']>[0]
 ): void {
-  if (Date.parse(input.scmReadTokenExpiresAt) <= Date.now() + 30_000) {
-    throw new Error('review_action_v2_scm_read_token_expired');
-  }
+  validateScmReadCapability({
+    token: input.scmReadToken,
+    expiresAt: input.scmReadTokenExpiresAt,
+  });
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(input.repository)) {
     throw new Error('review_action_v2_repository_invalid');
   }
