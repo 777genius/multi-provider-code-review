@@ -19,12 +19,16 @@ import {
   CONTEXT_GATEWAY_POLICY_VERSION,
   canonicalJson,
   changedPathsWitnessStatus,
+  CONTEXT_GATEWAY_V3_ENABLED_TOOLS,
   contextGitFactOperandsHash,
   requireGitOid,
   type ContextGatewayReplayMaterial,
   type ContextGatewayTranscript,
 } from '../../context-gateway/context-gateway-contract';
-import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../context-gateway/context-gateway-v4-contract';
+import {
+  CONTEXT_GATEWAY_V4_ENABLED_TOOLS,
+  CONTEXT_GATEWAY_V4_POLICY_VERSION,
+} from '../../context-gateway/context-gateway-v4-contract';
 import { decryptContextGatewayV4ReplayMaterial } from '../../context-gateway/context-gateway-v4-replay-material';
 import {
   ContextGatewayV4Recorder,
@@ -46,20 +50,6 @@ const MAX_TRANSCRIPT_BYTES = 2 * 1024 * 1024;
 const MAX_REPLAY_MATERIAL_BYTES = 2 * 1024 * 1024;
 const MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES =
   Math.ceil((MAX_REPLAY_MATERIAL_BYTES * 4) / 3) + 4_096;
-const ENABLED_TOOLS = Object.freeze([
-  'review_read_file',
-  'review_list_directory',
-  'review_search_text',
-  'review_git_fact',
-]);
-const V4_ENABLED_TOOLS = Object.freeze([
-  'review_read_file',
-  'review_list_directory',
-  'review_search_text',
-  'review_canonical_inventory',
-  'review_git_fact',
-]);
-
 export type ContextGatewayPolicyVersion =
   | typeof CONTEXT_GATEWAY_POLICY_VERSION
   | typeof CONTEXT_GATEWAY_V4_POLICY_VERSION;
@@ -338,8 +328,8 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       gatewayPolicyVersion: policyVersion,
       enabledTools:
         policyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION
-          ? V4_ENABLED_TOOLS
-          : ENABLED_TOOLS,
+          ? CONTEXT_GATEWAY_V4_ENABLED_TOOLS
+          : CONTEXT_GATEWAY_V3_ENABLED_TOOLS,
       runtimeEnvironment: Object.freeze({
         REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: policyVersion,
         REVIEWROUTER_CONTEXT_SESSION_ID: input.sessionId,

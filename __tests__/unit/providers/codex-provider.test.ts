@@ -57,6 +57,7 @@ function contextGatewayConfig(
       'review_git_fact',
     ],
     runtimeEnvironment: {
+      REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v3',
       REVIEWROUTER_CONTEXT_SESSION_ID: `session-${suffix}`,
       REVIEWROUTER_CONTEXT_ROOT: '/tmp/reviewrouter-checkout',
       REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH: `/tmp/transcript-${suffix}.json`,
@@ -68,6 +69,25 @@ function contextGatewayConfig(
       REVIEWROUTER_CONTEXT_BASE_SHA: 'd'.repeat(40),
       REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: 'f'.repeat(40),
       REVIEWROUTER_CONTEXT_HEAD_SHA: 'e'.repeat(40),
+    },
+  };
+}
+
+function contextGatewayV4Config(): CodexContextGatewayInvocationConfig {
+  const gateway = contextGatewayConfig('v4');
+  return {
+    ...gateway,
+    gatewayPolicyVersion: 'context-gateway-v4',
+    enabledTools: [
+      'review_read_file',
+      'review_list_directory',
+      'review_search_text',
+      'review_canonical_inventory',
+      'review_git_fact',
+    ],
+    runtimeEnvironment: {
+      ...gateway.runtimeEnvironment,
+      REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v4',
     },
   };
 }
@@ -304,10 +324,71 @@ describe('CodexProvider', () => {
     expect(args).not.toContain('--dangerously-bypass-approvals-and-sandbox');
   });
 
+  it('accepts the versioned v4 context-gateway tool and environment contract', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const gateway = contextGatewayV4Config();
+
+    expect(() =>
+      (provider as any).validateContextGatewayConfig(gateway)
+    ).not.toThrow();
+  });
+
+  it('rejects a context-gateway tool set from a different policy version', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const v4 = contextGatewayV4Config();
+    const mismatched = {
+      ...v4,
+      gatewayPolicyVersion: 'context-gateway-v3',
+      runtimeEnvironment: {
+        ...v4.runtimeEnvironment,
+        REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v3',
+      },
+    };
+
+    expect(() =>
+      (provider as any).validateContextGatewayConfig(mismatched)
+    ).toThrow('codex_context_gateway_tool_policy_invalid');
+  });
+
+  it('rejects a context-gateway runtime policy mismatch', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const v4 = contextGatewayV4Config();
+    const mismatched = {
+      ...v4,
+      runtimeEnvironment: {
+        ...v4.runtimeEnvironment,
+        REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v3',
+      },
+    };
+
+    expect(() =>
+      (provider as any).validateContextGatewayConfig(mismatched)
+    ).toThrow('codex_context_gateway_environment_incomplete');
+  });
+
+  it('rejects an unknown context-gateway policy version', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const v4 = contextGatewayV4Config();
+    const unknown = {
+      ...v4,
+      gatewayPolicyVersion: 'context-gateway-v5',
+      runtimeEnvironment: {
+        ...v4.runtimeEnvironment,
+        REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION: 'context-gateway-v5',
+      },
+    };
+
+    expect(() =>
+      (provider as any).validateContextGatewayConfig(unknown)
+    ).toThrow('codex_context_gateway_config_invalid');
+  });
+
   it('does not delegate the required changed-paths witness to the model', () => {
     const provider = new CodexProvider('gpt-5.4-mini');
+    const gateway = contextGatewayConfig();
     const prompt = (provider as any).wrapContextGatewayReviewPrompt(
-      'deterministic review input'
+      'deterministic review input',
+      gateway.enabledTools
     );
 
     expect(prompt).not.toContain('MUST call review_git_fact');
@@ -315,6 +396,17 @@ describe('CodexProvider', () => {
     expect(prompt).toContain('truncated');
     expect(prompt).toContain('complete');
     expect(prompt).toContain('do not produce final JSON');
+  });
+
+  it('lists the v4 canonical-inventory tool in the confined review prompt', () => {
+    const provider = new CodexProvider('gpt-5.5');
+    const gateway = contextGatewayV4Config();
+    const prompt = (provider as any).wrapContextGatewayReviewPrompt(
+      'deterministic review input',
+      gateway.enabledTools
+    );
+
+    expect(prompt).toContain('- review_canonical_inventory');
   });
 
   it('keeps ephemeral runner paths and gateway session data out of semantic identity', async () => {
@@ -624,8 +716,12 @@ describe('CodexProvider', () => {
 
   it('never teaches Codex placeholder values that ReviewRouter rejects', async () => {
     const provider = new CodexProvider('gpt-5.6-sol');
+    const gateway = contextGatewayConfig();
     const prompts = [
-      (provider as any).wrapContextGatewayReviewPrompt('review prompt'),
+      (provider as any).wrapContextGatewayReviewPrompt(
+        'review prompt',
+        gateway.enabledTools
+      ),
       await (provider as any).wrapAgenticReviewPrompt('review prompt'),
       (provider as any).wrapPromptOnlyReviewPrompt('review prompt'),
     ];
