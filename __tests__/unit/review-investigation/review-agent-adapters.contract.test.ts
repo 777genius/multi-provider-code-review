@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'fs/promises';
 import {
   REVIEW_INVESTIGATION_GATEWAY_TOOLS,
+  ReviewAgentExecutionError,
   ReviewAgentExecutionSessionKind,
   ReviewAgentFailureClass,
   type ReviewAgentPort,
@@ -22,12 +23,15 @@ import {
 import {
   ClaudeReviewAgentAdapter,
   CodexReviewAgentAdapter,
+  classifyCodexAppServerDiagnostic,
   ReviewAgentProcessTermination,
   type ReviewAgentExecutionSessionResolverPort,
   type ReviewAgentGatewayLaunchBinding,
   type ReviewAgentProcessRequest,
   type ReviewAgentProcessResult,
   type ReviewAgentProcessRunnerPort,
+  type CodexAppServerTurnRequest,
+  type CodexAppServerTurnResult,
 } from '../../../src/review-investigation/infrastructure';
 
 const digest = (character: string) => character.repeat(64);
@@ -121,7 +125,7 @@ describe.each([
         outputTokens: 10,
         reasoningOutputTokens:
           providerKind === ReviewAgentProviderKind.Codex ? 3 : 0,
-        totalTokens: providerKind === ReviewAgentProviderKind.Codex ? 113 : 110,
+        totalTokens: 110,
       },
       findings: turnOutput.findings,
       obligationProposals: turnOutput.obligationProposals,
@@ -327,15 +331,13 @@ describe('strict provider command shapes', () => {
     const args = runner.requests[0].args;
     expect(args).toEqual(
       expect.arrayContaining([
-        'exec',
-        '--sandbox',
-        'read-only',
-        '--ephemeral',
-        '--ignore-user-config',
-        '--ignore-rules',
+        'app-server',
+        '--stdio',
         '--strict-config',
-        '--json',
-        'mcp_servers={}',
+        'approval_policy="never"',
+        'sandbox_mode="read-only"',
+        'project_doc_max_bytes=0',
+        'web_search="disabled"',
       ])
     );
     for (const feature of [
@@ -345,7 +347,6 @@ describe('strict provider command shapes', () => {
       'computer_use',
       'js_repl',
       'tool_search',
-      'web_search_request',
       'plugins',
     ]) {
       expect(args).toContain(feature);
@@ -502,7 +503,11 @@ describe('review agent environment allowlists', () => {
 });
 
 class FakeRunner implements ReviewAgentProcessRunnerPort {
-  readonly requests: ReviewAgentProcessRequest[] = [];
+  readonly requests: Array<{
+    readonly args: readonly string[];
+    readonly stdin: string;
+    readonly environment: Readonly<NodeJS.ProcessEnv>;
+  }> = [];
   readonly cancellations: Array<{
     invocationId: string;
     fencingToken: string;
@@ -523,7 +528,11 @@ class FakeRunner implements ReviewAgentProcessRunnerPort {
   async run(
     request: ReviewAgentProcessRequest
   ): Promise<ReviewAgentProcessResult> {
-    this.requests.push(request);
+    this.requests.push({
+      args: request.args,
+      stdin: request.stdin,
+      environment: request.environment,
+    });
     if (this.forcedResult) return this.forcedResult;
     if (this.providerKind === ReviewAgentProviderKind.Codex) {
       const outputPath = argumentAfter(request.args, '--output-last-message');
@@ -593,6 +602,74 @@ class FakeRunner implements ReviewAgentProcessRunnerPort {
     };
   }
 
+  async executeTurn(
+    request: CodexAppServerTurnRequest
+  ): Promise<CodexAppServerTurnResult> {
+    this.requests.push({
+      args: request.args,
+      stdin: request.protocol.prompt,
+      environment: request.environment,
+    });
+    if (this.forcedResult) {
+      if (this.forcedResult.exitCode !== 0) {
+        throw classifyCodexAppServerDiagnostic(
+          this.forcedResult.stderr,
+          this.forcedResult.termination ===
+            ReviewAgentProcessTermination.StartupFailed
+            ? ReviewAgentFailureClass.StartupFailure
+            : ReviewAgentFailureClass.ProcessFailure
+        );
+      }
+    }
+    if (this.incompleteStream) {
+      throw new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.StreamIncomplete,
+        null,
+        'review_agent_stream_incomplete'
+      );
+    }
+    if (this.omitModel) {
+      throw new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.ModelAttributionMissing,
+        null,
+        'review_agent_model_attribution_missing'
+      );
+    }
+    if (this.omitUsage) {
+      throw new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.UsageAttributionMissing,
+        null,
+        'review_agent_usage_attribution_missing'
+      );
+    }
+    if (
+      Buffer.isBuffer(this.rawCodexOutput) &&
+      this.rawCodexOutput.byteLength > 4 * 1024 * 1024
+    ) {
+      throw new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.SchemaInvalidOutput,
+        null,
+        'review_agent_output_invalid'
+      );
+    }
+    return {
+      finalMessage:
+        this.rawCodexOutput === null
+          ? JSON.stringify(this.output)
+          : String(this.rawCodexOutput),
+      actualModel: 'gpt-5.6-codex',
+      modelProvider: 'openai',
+      usage: {
+        inputTokens: 100,
+        cachedInputTokens: 20,
+        outputTokens: 10,
+        reasoningOutputTokens: 3,
+        totalTokens: 110,
+      },
+      durationMs: 25,
+    };
+  }
+
   async cancel(invocationId: string, fencingToken: string): Promise<void> {
     this.cancellations.push({ invocationId, fencingToken });
     if (this.cancelError) throw this.cancelError;
@@ -653,6 +730,7 @@ function fixture(
           executionSessions: sessions,
           providerCredentialEnvironment: () => credentials.environment,
           binary: 'codex-test',
+          appServerRunner: runner,
         })
       : new ClaudeReviewAgentAdapter(runner, {
           executionSessions: sessions,

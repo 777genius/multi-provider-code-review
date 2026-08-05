@@ -159,6 +159,7 @@ export async function createInvestigationHarness(
       executionSessions: gateway,
       binary: artifacts.fakeCodexPath,
       reasoningEffort: 'xhigh',
+      processResultObserver: (result) => processResults.push(result),
     });
     const selector = new DeterministicReviewAgentSelector(
       [
