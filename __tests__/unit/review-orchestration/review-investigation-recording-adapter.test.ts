@@ -1,9 +1,15 @@
 import { createHash } from 'crypto';
 import {
   ReviewExecutionProviderKind,
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
   ReviewInvestigationRecordingMode,
   ReviewTaskKind,
 } from '../../../src/review-orchestration/application';
+import {
+  ReviewInvestigationGatewayConfigurationError,
+  ReviewInvestigationGatewayConfigurationFailureReason,
+} from '../../../src/review-investigation/application/investigation-gateway-port';
 import { ReviewPromptPathCoverageKind } from '../../../src/review-orchestration/domain';
 import {
   REVIEW_INVESTIGATION_COVERAGE_PROFILE,
@@ -390,6 +396,28 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       );
     }
   );
+
+  it('maps fatal investigation gateway drift back to orchestration configuration failure', async () => {
+    const adapter = new ReviewInvestigationRecordingAdapter(
+      () =>
+        ({
+          execute: jest
+            .fn()
+            .mockRejectedValue(
+              new ReviewInvestigationGatewayConfigurationError(
+                ReviewInvestigationGatewayConfigurationFailureReason.ContextGatewayPolicyMismatch
+              )
+            ),
+        }) as never,
+      options()
+    );
+
+    await expect(adapter.execute(executionInput())).rejects.toMatchObject({
+      name: ReviewInvocationConfigurationMismatchError.name,
+      reason:
+        ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch,
+    });
+  });
 
   it('exports exact deterministic production capability hashes', () => {
     expect(REVIEW_INVESTIGATION_COVERAGE_PROFILE).toEqual(

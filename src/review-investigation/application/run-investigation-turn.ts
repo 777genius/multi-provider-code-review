@@ -22,10 +22,11 @@ import {
   type ReviewInvestigationCurrencyPort,
   type ReviewInvestigationLease,
 } from './investigation-control-plane-port';
-import type {
-  AcceptedInvestigationAttestation,
-  ReviewInvestigationGatewaySessionFactoryPort,
-  ReviewInvestigationGatewaySessionPort,
+import {
+  ReviewInvestigationGatewayConfigurationError,
+  type AcceptedInvestigationAttestation,
+  type ReviewInvestigationGatewaySessionFactoryPort,
+  type ReviewInvestigationGatewaySessionPort,
 } from './investigation-gateway-port';
 import {
   ReviewAgentConfinementStrength,
@@ -124,6 +125,9 @@ export class RunInvestigationTurn {
         lease: input.lease,
       });
     } catch (error) {
+      if (error instanceof ReviewInvestigationGatewayConfigurationError) {
+        throw error;
+      }
       const failure = await this.recordOperationalFailure(
         input,
         error,

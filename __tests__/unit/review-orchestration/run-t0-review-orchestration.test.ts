@@ -3,6 +3,8 @@ import {
   ReviewEvidenceLookupKind,
   ReviewContextInspectionFailureReason,
   ReviewExecutionProviderKind,
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
   ReviewInvocationFailureClass,
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewInvestigationRecordingMode,
@@ -663,6 +665,61 @@ describe('RunT0ReviewOrchestration', () => {
     });
     expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
     expect(fixture.dependencies.projectionBuilder.build).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when invocation configuration cannot match the release contract', async () => {
+    const fixture = createFixture({ maxAttempts: 3 });
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockRejectedValue(
+        new ReviewInvocationConfigurationMismatchError(
+          ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch
+        )
+      );
+    jest
+      .mocked(fixture.dependencies.invocationFailureClassifier.classify)
+      .mockReturnValue(ReviewInvocationFailureClass.ConfigurationMismatch);
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode:
+        'review_invocation_configuration_mismatch:context_gateway_policy_mismatch',
+    });
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
+      1
+    );
+    expect(fixture.dependencies.projectionBuilder.build).not.toHaveBeenCalled();
+  });
+
+  it('fails fast on investigation gateway configuration drift without legacy fallback', async () => {
+    const failure = new ReviewInvocationConfigurationMismatchError(
+      ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch
+    );
+    const fixture = createFixture({
+      maxAttempts: 3,
+      executionProfile: 'investigation_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.RecordOnly,
+      investigationError: failure,
+    });
+    jest
+      .mocked(fixture.dependencies.invocationFailureClassifier.classify)
+      .mockReturnValue(ReviewInvocationFailureClass.ConfigurationMismatch);
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode:
+        'review_invocation_configuration_mismatch:context_gateway_policy_mismatch',
+    });
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
+      1
+    );
   });
 
   it('supersedes before scheduling stale work and never projects it', async () => {

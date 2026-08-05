@@ -1,4 +1,8 @@
-import { ReviewInvocationFailureClass } from '../../../src/review-orchestration/application';
+import {
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
+  ReviewInvocationFailureClass,
+} from '../../../src/review-orchestration/application';
 import { ProviderInvocationFailureClassifier } from '../../../src/review-orchestration/infrastructure/provider-invocation-failure-classifier';
 
 describe('ProviderInvocationFailureClassifier', () => {
@@ -38,5 +42,15 @@ describe('ProviderInvocationFailureClassifier', () => {
     expect(classifier.classify(new Error(message))).toBe(
       ReviewInvocationFailureClass.Retryable
     );
+  });
+
+  it('classifies deterministic context gateway policy drift as non-retryable configuration', () => {
+    expect(
+      classifier.classify(
+        new ReviewInvocationConfigurationMismatchError(
+          ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch
+        )
+      )
+    ).toBe(ReviewInvocationFailureClass.ConfigurationMismatch);
   });
 });

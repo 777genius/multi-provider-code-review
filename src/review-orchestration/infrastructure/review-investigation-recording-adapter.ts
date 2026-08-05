@@ -1,6 +1,8 @@
 import {
   ReviewCapabilityKind,
   ReviewExecutionProviderKind,
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
   ReviewInvestigationAuthorizationDescriptorVersion,
   ReviewInvestigationRecordingMode,
   ReviewInvestigationRolloutCapability,
@@ -12,6 +14,10 @@ import {
   type ReviewRunAuthorizationFacts,
   type ReviewWorkSlotPlan,
 } from '../application';
+import {
+  ReviewInvestigationGatewayConfigurationError,
+  ReviewInvestigationGatewayConfigurationFailureReason,
+} from '../../review-investigation/application/investigation-gateway-port';
 import {
   ReviewInvestigationCurrency,
   type ReviewInvestigationCurrencyPort,
@@ -144,69 +150,76 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
     ) {
       throw new Error('review_investigation_recording_revision_mismatch');
     }
-    const result = await this.createRunner(input).execute({
-      authorizationToken: input.authorization.authorizationToken,
-      authorizationId: input.authorization.authorizationId,
-      executionId: input.execution.executionId,
-      workSlotId: input.workSlot.workSlotId,
-      reviewRevisionHash: input.sourceReviewRevisionHash,
-      stableReviewUnitKey: input.workSlot.shardKey,
-      providerVoteLaneId: input.workSlot.providerVoteIdentityHash,
-      providerStrategyId: input.manifest.providerInvocationKey,
-      runtimeProfile: ReviewAgentExecutionProfile.GatewayAttestedAgentV1,
-      coverageContract: reviewInvestigationCoverageContract(
-        input.authorization.facts.producerReleaseId
-      ),
-      investigationPolicy: this.options.policy,
-      seedEnvelope: requireSeedEnvelope(input.invocation),
-      initialReceipts: [],
-      targetScope: {
-        workspaceId: input.authorization.facts.workspaceId,
-        repositoryConnectionId:
-          input.authorization.facts.repositoryConnectionId,
-        scmRepositoryIdentityId:
-          input.authorization.facts.scmRepositoryIdentityId,
-        pullRequestNumber: input.authorization.facts.pullRequestNumber,
-        trustDomain: input.authorization.facts.trustDomain,
-        authorizationScopeHash: sha256(
-          canonicalJson({
-            workspaceId: input.authorization.facts.workspaceId,
-            repositoryConnectionId:
-              input.authorization.facts.repositoryConnectionId,
-            scmRepositoryIdentityId:
-              input.authorization.facts.scmRepositoryIdentityId,
-            pullRequestNumber: input.authorization.facts.pullRequestNumber,
-          })
+    let result;
+    try {
+      result = await this.createRunner(input).execute({
+        authorizationToken: input.authorization.authorizationToken,
+        authorizationId: input.authorization.authorizationId,
+        executionId: input.execution.executionId,
+        workSlotId: input.workSlot.workSlotId,
+        reviewRevisionHash: input.sourceReviewRevisionHash,
+        stableReviewUnitKey: input.workSlot.shardKey,
+        providerVoteLaneId: input.workSlot.providerVoteIdentityHash,
+        providerStrategyId: input.manifest.providerInvocationKey,
+        runtimeProfile: ReviewAgentExecutionProfile.GatewayAttestedAgentV1,
+        coverageContract: reviewInvestigationCoverageContract(
+          input.authorization.facts.producerReleaseId
         ),
-      },
-      targetRevision: {
-        baseSha: input.authorization.facts.baseSha,
-        mergeBaseSha: input.authorization.facts.mergeBaseSha,
-        headSha: input.authorization.facts.headSha,
-        reviewRevisionHash: input.authorization.facts.reviewRevisionHash,
-      },
-      providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
-      providerManifestHash: sha256(input.manifest.manifestCanonicalJson),
-      requestedModel: input.invocation.requestedModel,
-      providerKind: requireReviewAgentProviderKind(input.workSlot.providerKind),
-      promptFor: (snapshot) =>
-        investigationPrompt(input.invocation.reviewPrompt, snapshot),
-      workingDirectory: this.options.workingDirectory,
-      turnBudget: {
-        maxGatewayOperations: this.options.policy.maxReceiptsPerTurn,
-        maxOutputFindings: this.options.policy.maxFindings,
-        maxOutputProposals: this.options.policy.maxProposalsPerTurn,
-      },
-      leaseDurationMs: this.options.leaseDurationMs,
-      maxObligationsForTurn: this.options.maxObligationsForTurn,
-      providerTimeoutMs: this.options.providerTimeoutMs,
-      providerMaxTurns: this.options.policy.maxSemanticTurns,
-      certificateTtlMs: this.options.certificateTtlMs,
-      minimumCapacityParkMs: this.options.minimumCapacityParkMs,
-      maxStateTransitions: this.options.maxStateTransitions,
-      managedLease: () => investigationLease(input.currentLease()),
-      signal: input.signal,
-    });
+        investigationPolicy: this.options.policy,
+        seedEnvelope: requireSeedEnvelope(input.invocation),
+        initialReceipts: [],
+        targetScope: {
+          workspaceId: input.authorization.facts.workspaceId,
+          repositoryConnectionId:
+            input.authorization.facts.repositoryConnectionId,
+          scmRepositoryIdentityId:
+            input.authorization.facts.scmRepositoryIdentityId,
+          pullRequestNumber: input.authorization.facts.pullRequestNumber,
+          trustDomain: input.authorization.facts.trustDomain,
+          authorizationScopeHash: sha256(
+            canonicalJson({
+              workspaceId: input.authorization.facts.workspaceId,
+              repositoryConnectionId:
+                input.authorization.facts.repositoryConnectionId,
+              scmRepositoryIdentityId:
+                input.authorization.facts.scmRepositoryIdentityId,
+              pullRequestNumber: input.authorization.facts.pullRequestNumber,
+            })
+          ),
+        },
+        targetRevision: {
+          baseSha: input.authorization.facts.baseSha,
+          mergeBaseSha: input.authorization.facts.mergeBaseSha,
+          headSha: input.authorization.facts.headSha,
+          reviewRevisionHash: input.authorization.facts.reviewRevisionHash,
+        },
+        providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
+        providerManifestHash: sha256(input.manifest.manifestCanonicalJson),
+        requestedModel: input.invocation.requestedModel,
+        providerKind: requireReviewAgentProviderKind(
+          input.workSlot.providerKind
+        ),
+        promptFor: (snapshot) =>
+          investigationPrompt(input.invocation.reviewPrompt, snapshot),
+        workingDirectory: this.options.workingDirectory,
+        turnBudget: {
+          maxGatewayOperations: this.options.policy.maxReceiptsPerTurn,
+          maxOutputFindings: this.options.policy.maxFindings,
+          maxOutputProposals: this.options.policy.maxProposalsPerTurn,
+        },
+        leaseDurationMs: this.options.leaseDurationMs,
+        maxObligationsForTurn: this.options.maxObligationsForTurn,
+        providerTimeoutMs: this.options.providerTimeoutMs,
+        providerMaxTurns: this.options.policy.maxSemanticTurns,
+        certificateTtlMs: this.options.certificateTtlMs,
+        minimumCapacityParkMs: this.options.minimumCapacityParkMs,
+        maxStateTransitions: this.options.maxStateTransitions,
+        managedLease: () => investigationLease(input.currentLease()),
+        signal: input.signal,
+      });
+    } catch (error) {
+      throw mapInvestigationGatewayConfigurationFailure(error) ?? error;
+    }
     if (
       this.mode === ReviewInvestigationRecordingMode.RecordOnly &&
       (result.status === ReviewInvestigationRunStatus.Parked ||
@@ -217,6 +230,21 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
       throw new ReviewInvestigationLegacyFallbackSignal();
     }
     return terminalObservation(result.status, result.snapshot);
+  }
+}
+
+function mapInvestigationGatewayConfigurationFailure(
+  error: unknown
+): ReviewInvocationConfigurationMismatchError | null {
+  if (!(error instanceof ReviewInvestigationGatewayConfigurationError)) {
+    return null;
+  }
+  switch (error.reason) {
+    case ReviewInvestigationGatewayConfigurationFailureReason.ContextGatewayPolicyMismatch:
+      return new ReviewInvocationConfigurationMismatchError(
+        ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch,
+        { cause: error }
+      );
   }
 }
 
@@ -266,7 +294,8 @@ export function reviewInvestigationPolicyHash(
 export function matchesReviewInvestigationCapability(input: {
   readonly facts: ReviewRunAuthorizationFacts;
   readonly providerKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode;
   readonly capability?: ReviewInvestigationRolloutCapability;
   readonly policy?: ReviewInvestigationPolicy;
 }): boolean {

@@ -4,12 +4,17 @@ import {
   mapOrchestrationResultToCodexOutcome,
   mapRevisionGuardErrorToCodexOutcome,
   planAssignments,
+  resolveProductionContextGatewayPolicyVersion,
+  resolveProductionContextGatewaySessionFactoryOptions,
   resolveT0AttemptBudget,
 } from '../../../src/review-orchestration/infrastructure/production-t0-review-runner';
+import { CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION } from '../../../src/context-gateway/context-gateway-release-contract';
 import {
   ReviewCapabilityKind,
   ReviewExecutionProviderKind,
   ReviewInvestigationAuthorizationDescriptorVersion,
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
   ReviewInvestigationRecordingMode,
   ReviewInvestigationRolloutCapability,
   ReviewOrchestrationResultStatus,
@@ -27,6 +32,8 @@ import {
 } from '../../../src/review-orchestration/infrastructure/review-investigation-recording-adapter';
 import {
   ReviewAgentProviderKind,
+  InvestigationContextGatewayRuntimeConfigurationError,
+  InvestigationContextGatewayRuntimeConfigurationFailureReason,
   ReviewInvestigationControlPlaneError,
   ReviewInvestigationControlPlaneFailureClass,
   ReviewInvestigationLegacyFallbackSignal,
@@ -35,6 +42,7 @@ import {
 } from '../../../src/review-investigation';
 import {
   createProductionReviewInvestigationAgentSelector,
+  createProductionReviewInvestigationGatewayFactory,
   productionReviewInvestigationRecordingMode,
   readProductionReviewInvestigationRolloutFlags,
   resolveProductionReviewInvestigationRollout,
@@ -53,6 +61,63 @@ describe('ProductionT0ReviewRunner policy', () => {
 
   it('caps the configured total attempts at the protocol maximum', () => {
     expect(resolveT0AttemptBudget(5, 2)).toBe(2);
+  });
+
+  it('pins agentic reviews to the release gateway policy independently of investigation rollout', () => {
+    expect(
+      resolveProductionContextGatewayPolicyVersion({ agenticContext: true })
+    ).toBe(CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION);
+    expect(
+      resolveProductionContextGatewayPolicyVersion({ agenticContext: false })
+    ).toBeNull();
+
+    const baseOptions = {
+      agenticContext: true,
+      checkoutRoot: '/tmp/review',
+      gatewayBundlePath: '/tmp/context-gateway.js',
+    } as const;
+    expect(
+      resolveProductionContextGatewaySessionFactoryOptions({
+        ...baseOptions,
+        investigationRecordingEnabled: false,
+      })
+    ).toEqual({
+      checkoutRoot: baseOptions.checkoutRoot,
+      gatewayBundlePath: baseOptions.gatewayBundlePath,
+      policyVersion: CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION,
+    });
+    expect(
+      resolveProductionContextGatewaySessionFactoryOptions({
+        ...baseOptions,
+        investigationRecordingEnabled: true,
+      })
+    ).toEqual({
+      checkoutRoot: baseOptions.checkoutRoot,
+      gatewayBundlePath: baseOptions.gatewayBundlePath,
+      policyVersion: CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION,
+    });
+  });
+
+  it('translates orchestration gateway drift at the investigation runtime boundary', async () => {
+    const delegate = {
+      open: jest
+        .fn()
+        .mockRejectedValue(
+          new ReviewInvocationConfigurationMismatchError(
+            ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch
+          )
+        ),
+    };
+    const factory = createProductionReviewInvestigationGatewayFactory(
+      delegate as never
+    );
+
+    await expect(factory.open({} as never)).rejects.toMatchObject({
+      name: InvestigationContextGatewayRuntimeConfigurationError.name,
+      reason:
+        InvestigationContextGatewayRuntimeConfigurationFailureReason.ContextGatewayPolicyMismatch,
+    });
+    expect(delegate.open).toHaveBeenCalledTimes(1);
   });
 
   it('never re-merges token-safe groups after max work slots', () => {

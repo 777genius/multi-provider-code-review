@@ -1,11 +1,13 @@
 import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../context-gateway/context-gateway-v4-contract';
-import type {
-  AcceptedInvestigationAttestation,
-  ReviewInvestigationGatewayOpenInput,
-  ReviewInvestigationGatewayRevision,
-  ReviewInvestigationGatewaySessionFactoryPort,
-  ReviewInvestigationGatewaySessionPort,
-  ReviewInvestigationTurnExecutionAuthority,
+import {
+  ReviewInvestigationGatewayConfigurationError,
+  ReviewInvestigationGatewayConfigurationFailureReason,
+  type AcceptedInvestigationAttestation,
+  type ReviewInvestigationGatewayOpenInput,
+  type ReviewInvestigationGatewayRevision,
+  type ReviewInvestigationGatewaySessionFactoryPort,
+  type ReviewInvestigationGatewaySessionPort,
+  type ReviewInvestigationTurnExecutionAuthority,
 } from '../application/investigation-gateway-port';
 import {
   ReviewAgentExecutionError,
@@ -72,6 +74,23 @@ export interface InvestigationContextGatewayRuntimeFactoryPort {
   }): Promise<InvestigationContextGatewayRuntimeSessionPort>;
 }
 
+export enum InvestigationContextGatewayRuntimeConfigurationFailureReason {
+  ContextGatewayPolicyMismatch = 'context_gateway_policy_mismatch',
+}
+
+export class InvestigationContextGatewayRuntimeConfigurationError extends Error {
+  constructor(
+    readonly reason: InvestigationContextGatewayRuntimeConfigurationFailureReason,
+    options: ErrorOptions = {}
+  ) {
+    super(
+      `investigation_context_gateway_runtime_configuration:${reason}`,
+      options
+    );
+    this.name = 'InvestigationContextGatewayRuntimeConfigurationError';
+  }
+}
+
 type ActiveReviewAgentExecutionSession = {
   active: boolean;
   readonly providerKind: ReviewAgentProviderKind;
@@ -128,19 +147,24 @@ export class ContextGatewayV4InvestigationAdapter
   async open(
     input: ReviewInvestigationGatewayOpenInput
   ): Promise<ReviewInvestigationGatewaySessionPort> {
-    const session = await this.factory.open({
-      invocationLease: runtimeLease(input.lease),
-      sourceExecutionId: input.executionId,
-      sourceWorkSlotId: input.workSlotId,
-      sourceReviewRevisionHash: input.reviewRevisionHash,
-      providerKind: this.executionAuthority.providerKind,
-      requestedModel: this.executionAuthority.requestedModel,
-      executionProfile: this.executionAuthority.executionProfile,
-      providerInvocationKey: this.executionAuthority.providerInvocationKey,
-      toolPolicyHash: this.executionAuthority.toolPolicyHash,
-      openingIntentDiscriminator: `${input.investigationId}:${input.turnId}`,
-      revision: this.context.revision,
-    });
+    let session: InvestigationContextGatewayRuntimeSessionPort;
+    try {
+      session = await this.factory.open({
+        invocationLease: runtimeLease(input.lease),
+        sourceExecutionId: input.executionId,
+        sourceWorkSlotId: input.workSlotId,
+        sourceReviewRevisionHash: input.reviewRevisionHash,
+        providerKind: this.executionAuthority.providerKind,
+        requestedModel: this.executionAuthority.requestedModel,
+        executionProfile: this.executionAuthority.executionProfile,
+        providerInvocationKey: this.executionAuthority.providerInvocationKey,
+        toolPolicyHash: this.executionAuthority.toolPolicyHash,
+        openingIntentDiscriminator: `${input.investigationId}:${input.turnId}`,
+        revision: this.context.revision,
+      });
+    } catch (error) {
+      throw mapRuntimeConfigurationFailure(error) ?? error;
+    }
     if (
       session.providerConfig.gatewayPolicyVersion !==
       CONTEXT_GATEWAY_V4_POLICY_VERSION
@@ -206,6 +230,23 @@ export class ContextGatewayV4InvestigationAdapter
       );
     }
     return activeSession.binding;
+  }
+}
+
+function mapRuntimeConfigurationFailure(
+  error: unknown
+): ReviewInvestigationGatewayConfigurationError | null {
+  if (
+    !(error instanceof InvestigationContextGatewayRuntimeConfigurationError)
+  ) {
+    return null;
+  }
+  switch (error.reason) {
+    case InvestigationContextGatewayRuntimeConfigurationFailureReason.ContextGatewayPolicyMismatch:
+      return new ReviewInvestigationGatewayConfigurationError(
+        ReviewInvestigationGatewayConfigurationFailureReason.ContextGatewayPolicyMismatch,
+        { cause: error }
+      );
   }
 }
 

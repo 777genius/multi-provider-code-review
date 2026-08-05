@@ -31,6 +31,8 @@ import {
   ReviewExecutionProviderKind,
   ReviewInvestigationAuthorizationDescriptorVersion,
   ReviewInvestigationRolloutCapability,
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
@@ -47,6 +49,7 @@ import {
   type RestoredReviewExecution,
   type ReviewWorkSlotPlan,
 } from '../application';
+import { ReviewActionV2RetryClass } from '../../control-plane/generated/review-action-v2/review-action-v2-negotiation';
 import { logger } from '../../utils/logger';
 
 export class ReviewActionV2ControlPlaneAdapter
@@ -111,38 +114,45 @@ export class ReviewActionV2ControlPlaneAdapter
     input: Parameters<ReviewContextAttestationPort['openGatewaySession']>[0]
   ): ReturnType<ReviewContextAttestationPort['openGatewaySession']> {
     const authorization = this.requireActiveAuthorization();
-    const result = await this.client.execute(
-      ReviewActionV2OperationId.ReviewContextGatewayOpen,
-      {
-        authorizationToken: authorization.authorizationToken,
-        leaseCapability: input.invocationLease.leaseCapability,
-        idempotencyKey: deterministicIdempotencyKey('context-gateway-open', [
-          input.invocationLease.attemptId,
-          input.invocationLease.leaseId,
-          input.invocationLease.fencingToken,
-          input.sourceExecutionId,
-          input.sourceWorkSlotId,
-          input.sourceReviewRevisionHash,
-          input.checkoutTreeOid,
-          input.gatewayPolicyVersion,
-          input.gatewayBinaryHash,
-          input.confinementEvidenceHash,
-          ...(input.openingIntentDiscriminator === undefined
-            ? []
-            : [input.openingIntentDiscriminator]),
-        ]),
-        attemptId: input.invocationLease.attemptId,
-        sourceLeaseId: input.invocationLease.leaseId,
-        fencingToken: input.invocationLease.fencingToken,
-        sourceExecutionId: input.sourceExecutionId,
-        sourceWorkSlotId: input.sourceWorkSlotId,
-        sourceReviewRevisionHash: input.sourceReviewRevisionHash,
-        checkoutTreeOid: input.checkoutTreeOid,
-        gatewayPolicyVersion: input.gatewayPolicyVersion,
-        gatewayBinaryHash: input.gatewayBinaryHash,
-        confinementEvidenceHash: input.confinementEvidenceHash,
-      }
-    );
+    let result;
+    try {
+      result = await this.client.execute(
+        ReviewActionV2OperationId.ReviewContextGatewayOpen,
+        {
+          authorizationToken: authorization.authorizationToken,
+          leaseCapability: input.invocationLease.leaseCapability,
+          idempotencyKey: deterministicIdempotencyKey('context-gateway-open', [
+            input.invocationLease.attemptId,
+            input.invocationLease.leaseId,
+            input.invocationLease.fencingToken,
+            input.sourceExecutionId,
+            input.sourceWorkSlotId,
+            input.sourceReviewRevisionHash,
+            input.checkoutTreeOid,
+            input.gatewayPolicyVersion,
+            input.gatewayBinaryHash,
+            input.confinementEvidenceHash,
+            ...(input.openingIntentDiscriminator === undefined
+              ? []
+              : [input.openingIntentDiscriminator]),
+          ]),
+          attemptId: input.invocationLease.attemptId,
+          sourceLeaseId: input.invocationLease.leaseId,
+          fencingToken: input.invocationLease.fencingToken,
+          sourceExecutionId: input.sourceExecutionId,
+          sourceWorkSlotId: input.sourceWorkSlotId,
+          sourceReviewRevisionHash: input.sourceReviewRevisionHash,
+          checkoutTreeOid: input.checkoutTreeOid,
+          gatewayPolicyVersion: input.gatewayPolicyVersion,
+          gatewayBinaryHash: input.gatewayBinaryHash,
+          confinementEvidenceHash: input.confinementEvidenceHash,
+        }
+      );
+    } catch (error) {
+      throw (
+        gatewayOpenConfigurationMismatch(error) ?? controlPlaneFailure(error)
+      );
+    }
     if (
       result.status !== ReviewContextGatewayOpenResultStatus.Opened &&
       result.status !== ReviewContextGatewayOpenResultStatus.Idempotent
@@ -957,6 +967,26 @@ function controlPlaneFailure(error: unknown): Error {
   });
 }
 
+function gatewayOpenConfigurationMismatch(
+  error: unknown
+): ReviewInvocationConfigurationMismatchError | null {
+  if (
+    !(error instanceof ReviewActionV2ClientError) ||
+    error.operationId !== ReviewActionV2OperationId.ReviewContextGatewayOpen ||
+    error.httpStatus !== 412 ||
+    error.protocolErrorCode !==
+      ReviewActionV2ProtocolErrorCode.StalePrecondition ||
+    error.retryClass !== ReviewActionV2RetryClass.Never ||
+    !error.issues?.includes('context_gateway_policy_mismatch')
+  ) {
+    return null;
+  }
+  return new ReviewInvocationConfigurationMismatchError(
+    ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch,
+    { cause: error }
+  );
+}
+
 function parseLookupObservation(
   result: ReviewEvidenceLookupResult,
   input: Parameters<ReviewActionV2ControlPlanePort['lookupEvidence']>[0]
@@ -1491,7 +1521,8 @@ function isDependencyClosed(
 
 function providersAreLaneAuthorized(
   providerKinds: readonly (
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode
   )[],
   providerVoteLanes: readonly Readonly<{
     providerKind: ReviewExecutionProviderKind;

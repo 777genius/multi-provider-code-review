@@ -29,7 +29,8 @@ export enum ReviewInvestigationRolloutCapability {
 
 export type ReviewInvestigationProviderCapabilities = Readonly<{
   providerKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode;
   capabilities: readonly ReviewInvestigationRolloutCapability[];
 }>;
 
@@ -53,6 +54,7 @@ export enum ReviewInvocationFailureClass {
   Retryable = 'retryable',
   CapacityUnavailable = 'capacity_unavailable',
   AuthenticationUnavailable = 'authentication_unavailable',
+  ConfigurationMismatch = 'configuration_mismatch',
 }
 
 export enum ReviewPublicationState {

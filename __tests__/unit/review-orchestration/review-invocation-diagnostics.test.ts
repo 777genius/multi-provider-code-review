@@ -1,4 +1,8 @@
-import { ReviewInvocationFailureClass } from '../../../src/review-orchestration/application';
+import {
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
+  ReviewInvocationFailureClass,
+} from '../../../src/review-orchestration/application';
 import {
   classifySafeInvocationFailureReason,
   LoggingReviewInvocationDiagnostics,
@@ -30,6 +34,13 @@ describe('review invocation diagnostics', () => {
       new Error('sensitive provider detail'),
       ReviewInvocationFailureClass.CapacityUnavailable,
       'capacity_unavailable',
+    ],
+    [
+      new ReviewInvocationConfigurationMismatchError(
+        ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch
+      ),
+      ReviewInvocationFailureClass.ConfigurationMismatch,
+      'context_gateway_policy_mismatch',
     ],
   ])('classifies a safe failure reason', (error, failureClass, expected) => {
     expect(classifySafeInvocationFailureReason(error, failureClass)).toBe(
@@ -63,5 +74,34 @@ describe('review invocation diagnostics', () => {
       workSlotId: 'slot-1',
     });
     expect(JSON.stringify(warn.mock.calls)).not.toContain('secret-bearing');
+  });
+
+  it('labels configuration mismatches without exposing transport details', () => {
+    const warn = jest.fn();
+    const diagnostics = new LoggingReviewInvocationDiagnostics({ warn });
+
+    diagnostics.recordFailure({
+      invocation: {
+        workSlotId: 'slot-1',
+        attemptOrdinal: 1,
+        provider: 'codex/gpt-5.6-sol',
+        requestedModel: 'gpt-5.6-sol',
+      } as never,
+      attemptBudget: 3,
+      failureClass: ReviewInvocationFailureClass.ConfigurationMismatch,
+      error: new ReviewInvocationConfigurationMismatchError(
+        ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch,
+        { cause: new Error('secret transport detail') }
+      ),
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      'Review invocation configuration mismatch',
+      expect.objectContaining({
+        failureClass: ReviewInvocationFailureClass.ConfigurationMismatch,
+        safeReason: 'context_gateway_policy_mismatch',
+      })
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('secret transport');
   });
 });

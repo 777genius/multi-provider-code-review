@@ -44,6 +44,7 @@ import {
 } from './review-orchestration-ports';
 import type { ReviewPromptCoverageManifest } from '../domain';
 import { RetryableReviewContextInspectionFailure } from './review-context-inspection-failure';
+import { ReviewInvocationConfigurationMismatchError } from './review-invocation-failure';
 import { ReviewInvestigationLegacyFallbackSignal } from '../../review-investigation/application/run-investigation-work-slot';
 
 export enum ReviewOrchestrationResultStatus {
@@ -753,6 +754,13 @@ export class RunT0ReviewOrchestration {
             throw new ReviewProviderUnavailableSignal(
               'provider_authentication_unavailable'
             );
+          }
+          if (
+            failureClass === ReviewInvocationFailureClass.ConfigurationMismatch
+          ) {
+            throw error instanceof ReviewInvocationConfigurationMismatchError
+              ? error
+              : new Error('review_invocation_configuration_mismatch');
           }
           continue;
         }

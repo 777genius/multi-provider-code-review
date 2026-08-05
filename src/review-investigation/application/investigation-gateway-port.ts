@@ -34,6 +34,23 @@ export type ReviewInvestigationGatewayOpenInput = Readonly<{
   lease: ReviewInvestigationLease;
 }>;
 
+export enum ReviewInvestigationGatewayConfigurationFailureReason {
+  ContextGatewayPolicyMismatch = 'context_gateway_policy_mismatch',
+}
+
+export class ReviewInvestigationGatewayConfigurationError extends Error {
+  constructor(
+    readonly reason: ReviewInvestigationGatewayConfigurationFailureReason,
+    options: ErrorOptions = {}
+  ) {
+    super(
+      `review_investigation_gateway_configuration_mismatch:${reason}`,
+      options
+    );
+    this.name = 'ReviewInvestigationGatewayConfigurationError';
+  }
+}
+
 export interface ReviewInvestigationGatewaySessionPort {
   readonly agentSession: ReviewAgentExecutionSession;
   seal(input: {

@@ -20,6 +20,7 @@ import {
   ReviewPublicationStatusResultStatus,
   ReviewRunAuthorizationResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
+import { ReviewActionV2RetryClass } from '../../../src/control-plane/generated/review-action-v2/review-action-v2-negotiation';
 import { logger } from '../../../src/utils/logger';
 import {
   ReviewCapabilityKind,
@@ -27,6 +28,8 @@ import {
   ReviewEvidenceLookupKind,
   ReviewInvestigationAuthorizationDescriptorVersion,
   ReviewInvestigationRolloutCapability,
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
@@ -545,6 +548,84 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         sourceExecutionId: execution.executionId,
       })
     );
+  });
+
+  it('translates context open policy mismatches into a safe actionable code', async () => {
+    const execute = jest
+      .fn()
+      .mockResolvedValueOnce(authorizationResponse())
+      .mockRejectedValueOnce(
+        new ReviewActionV2ClientError(
+          ReviewActionV2ClientFailureCode.ProtocolError,
+          ReviewActionV2OperationId.ReviewContextGatewayOpen,
+          {
+            httpStatus: 412,
+            protocolErrorCode:
+              ReviewActionV2ProtocolErrorCode.StalePrecondition,
+            retryClass: ReviewActionV2RetryClass.Never,
+            issues: ['context_gateway_policy_mismatch'],
+          }
+        )
+      );
+    const adapter = createAdapter(execute);
+    await adapter.authorize({ oidcToken: 'oidc.token' });
+
+    await expect(
+      adapter.openGatewaySession({
+        invocationLease: baseLease,
+        sourceExecutionId: execution.executionId,
+        sourceWorkSlotId: workSlot.workSlotId,
+        sourceReviewRevisionHash: authorization.facts.reviewRevisionHash,
+        checkoutTreeOid: '7'.repeat(40),
+        gatewayPolicyVersion: 'context-gateway-v3',
+        gatewayBinaryHash: hash('gateway'),
+        confinementEvidenceHash: hash('confinement'),
+      })
+    ).rejects.toMatchObject({
+      name: ReviewInvocationConfigurationMismatchError.name,
+      message:
+        'review_invocation_configuration_mismatch:context_gateway_policy_mismatch',
+      reason:
+        ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch,
+    });
+  });
+
+  it('keeps unrelated context open preconditions generic', async () => {
+    const execute = jest
+      .fn()
+      .mockResolvedValueOnce(authorizationResponse())
+      .mockRejectedValueOnce(
+        new ReviewActionV2ClientError(
+          ReviewActionV2ClientFailureCode.ProtocolError,
+          ReviewActionV2OperationId.ReviewContextGatewayOpen,
+          {
+            httpStatus: 412,
+            protocolErrorCode:
+              ReviewActionV2ProtocolErrorCode.StalePrecondition,
+            retryClass: ReviewActionV2RetryClass.Never,
+            issues: ['unrelated_gateway_precondition'],
+          }
+        )
+      );
+    const adapter = createAdapter(execute);
+    await adapter.authorize({ oidcToken: 'oidc.token' });
+
+    await expect(
+      adapter.openGatewaySession({
+        invocationLease: baseLease,
+        sourceExecutionId: execution.executionId,
+        sourceWorkSlotId: workSlot.workSlotId,
+        sourceReviewRevisionHash: authorization.facts.reviewRevisionHash,
+        checkoutTreeOid: '7'.repeat(40),
+        gatewayPolicyVersion: 'context-gateway-v3',
+        gatewayBinaryHash: hash('gateway'),
+        confinementEvidenceHash: hash('confinement'),
+      })
+    ).rejects.toMatchObject({
+      name: 'Error',
+      message:
+        'review_action_v2:review_context_gateway_open:stale_precondition',
+    });
   });
 
   it('translates context seal protocol failures into safe actionable codes', async () => {
