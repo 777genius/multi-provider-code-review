@@ -1,10 +1,16 @@
 import type { ReviewInvestigationLease } from '../../../src/review-investigation/application/investigation-control-plane-port';
 import {
+  ReviewInvestigationGatewayConfigurationError,
+  ReviewInvestigationGatewayConfigurationFailureReason,
+} from '../../../src/review-investigation/application/investigation-gateway-port';
+import {
   ReviewAgentExecutionProfile,
   ReviewAgentProviderKind,
 } from '../../../src/review-investigation/domain/runtime-profile';
 import {
   ContextGatewayV4InvestigationAdapter,
+  InvestigationContextGatewayRuntimeConfigurationError,
+  InvestigationContextGatewayRuntimeConfigurationFailureReason,
   type InvestigationContextGatewayRuntimeFactoryPort,
 } from '../../../src/review-investigation/infrastructure/context-gateway-v4-investigation-adapter';
 
@@ -80,6 +86,46 @@ describe('ContextGatewayV4InvestigationAdapter', () => {
           }
         )
     ).toThrow('investigation_execution_profile_invalid');
+  });
+
+  it('maps runtime policy drift to a fatal investigation configuration error', async () => {
+    const factory = {
+      open: jest
+        .fn()
+        .mockRejectedValue(
+          new InvestigationContextGatewayRuntimeConfigurationError(
+            InvestigationContextGatewayRuntimeConfigurationFailureReason.ContextGatewayPolicyMismatch
+          )
+        ),
+    } as unknown as InvestigationContextGatewayRuntimeFactoryPort;
+    const adapter = new ContextGatewayV4InvestigationAdapter(factory, {
+      revision: {
+        baseSha: 'b'.repeat(40),
+        mergeBaseSha: 'c'.repeat(40),
+        headSha: 'd'.repeat(40),
+      },
+      preparedManifestKey: 'manifest-key',
+      providerKind: ReviewAgentProviderKind.Codex,
+      requestedModel: 'gpt-test',
+      executionProfile: 'investigation_gateway_v1',
+      providerInvocationKey: 'provider-invocation',
+      toolPolicyHash: hash,
+    });
+
+    await expect(
+      adapter.open({
+        executionId: 'execution-1',
+        workSlotId: 'slot-1',
+        reviewRevisionHash: hash,
+        investigationId: 'investigation-1',
+        turnId: 'turn-1',
+        lease,
+      })
+    ).rejects.toMatchObject({
+      name: ReviewInvestigationGatewayConfigurationError.name,
+      reason:
+        ReviewInvestigationGatewayConfigurationFailureReason.ContextGatewayPolicyMismatch,
+    });
   });
 
   it('opens confinement with prepared-manifest provider and model authority', async () => {

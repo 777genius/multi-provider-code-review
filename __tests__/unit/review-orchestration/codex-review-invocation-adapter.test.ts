@@ -16,6 +16,8 @@ import {
   ReviewContextInspectionFailure,
   ReviewContextInspectionFailureReason,
   ReviewExecutionProviderKind,
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
   ReviewTaskKind,
   RetryableReviewContextInspectionFailure,
   type ReviewRunAuthorization,
@@ -334,6 +336,58 @@ describe('Codex T0 prepared invocation', () => {
     } finally {
       infoSpy.mockRestore();
     }
+  });
+
+  it('does not start the provider when the gateway session cannot open', async () => {
+    const provider = {
+      name: 'codex/gpt-test',
+      describePreparedEnvironmentContract: jest
+        .fn()
+        .mockReturnValue({ PATH: '/usr/bin' }),
+      prepareInvocation: jest
+        .fn()
+        .mockResolvedValue(preparedInvocation('prepared prompt')),
+      executePreparedInvocation: jest.fn(),
+    } as unknown as CodexProvider;
+    const gatewayFailure = new ReviewInvocationConfigurationMismatchError(
+      ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch
+    );
+    const gatewayFactory = {
+      planningConfig: jest.fn().mockResolvedValue(gatewayConfig),
+      open: jest.fn().mockRejectedValue(gatewayFailure),
+    } as unknown as ContextGatewayInvocationSessionFactoryPort;
+    const adapter = new CodexReviewInvocationAdapter(
+      provider,
+      {
+        buildPreparedV2: jest.fn().mockResolvedValue({
+          version: 'prepared_review_prompt.v2',
+          prompt: 'prepared prompt',
+          pathCoverage: [],
+          investigationProbePlan: emptyProbePlan,
+        }),
+      } as unknown as PromptBuilder,
+      [assignment],
+      10_000,
+      true,
+      gatewayFactory
+    );
+    const invocation = await adapter.prepare({
+      workSlot: assignment.workSlot,
+      attemptOrdinal: 1,
+    });
+
+    await expect(
+      adapter.execute({
+        invocation,
+        manifest: manifestFixture,
+        lease: leaseFixture,
+        sourceExecutionId: 'execution-1',
+        sourceReviewRevisionHash: hash('revision'),
+        signal: new AbortController().signal,
+      })
+    ).rejects.toBe(gatewayFailure);
+    expect(provider.prepareInvocation).toHaveBeenCalledTimes(1);
+    expect(provider.executePreparedInvocation).not.toHaveBeenCalled();
   });
 
   it.each([

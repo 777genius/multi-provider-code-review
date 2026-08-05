@@ -85284,6 +85284,80 @@ function clampInteger(value, minimum, maximum) {
   return value;
 }
 
+// src/review-investigation/fixtures/review-investigation-capability-v1.golden.json
+var review_investigation_capability_v1_golden_default = {
+  coverageProfile: {
+    value: {
+      coverageContractVersion: "review-investigation-coverage.v1",
+      criticPolicyVersion: "review-investigation-critic.v1",
+      expansionRulesVersion: "review-investigation-expansion.v2",
+      gatewayPolicyVersion: "context-gateway-v4",
+      probePolicyVersion: "review-investigation-probe-policy.v1",
+      runtimeProfileVersion: "gateway-attested-agent.v1",
+      searchPolicyVersion: "review-investigation-fixed-string-search.v1"
+    },
+    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v1","expansionRulesVersion":"review-investigation-expansion.v2","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v1","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1"}',
+    sha256: "4462900f2e610b2649101987f1131158312b2ad8d453e1fb5f048174f9fbfdc9"
+  },
+  policy: {
+    value: {
+      maxCriticCycles: 3,
+      maxExpansionDepth: 8,
+      maxFindings: 256,
+      maxObligations: 1024,
+      maxOperationalAttempts: 24,
+      maxProposalsPerTurn: 128,
+      maxReceiptsPerTurn: 256,
+      maxSeedProbesOverall: 384,
+      maxSeedProbesPerFile: 48,
+      maxSemanticTurns: 12,
+      policyId: "review-investigation-shadow.v1"
+    },
+    canonicalJson: '{"maxCriticCycles":3,"maxExpansionDepth":8,"maxFindings":256,"maxObligations":1024,"maxOperationalAttempts":24,"maxProposalsPerTurn":128,"maxReceiptsPerTurn":256,"maxSeedProbesOverall":384,"maxSeedProbesPerFile":48,"maxSemanticTurns":12,"policyId":"review-investigation-shadow.v1"}',
+    sha256: "6af1a3ecea3cb01f8a0e1cea614c8578c6bc7e4010db13603c114757291af698"
+  }
+};
+
+// src/context-gateway/context-gateway-release-contract.ts
+var CONTEXT_GATEWAY_RELEASE_METADATA_VERSION = 2;
+var CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION = CONTEXT_GATEWAY_V4_POLICY_VERSION;
+var REVIEW_INVESTIGATION_RELEASE_CAPABILITY = "review_investigation_v1";
+var SUPPORTED_CONTEXT_GATEWAY_POLICY_VERSIONS = Object.freeze([
+  CONTEXT_GATEWAY_POLICY_VERSION,
+  CONTEXT_GATEWAY_V4_POLICY_VERSION
+]);
+if (review_investigation_capability_v1_golden_default.coverageProfile.value.gatewayPolicyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION) {
+  throw new Error("context_gateway_release_coverage_policy_mismatch");
+}
+var REVIEW_INVESTIGATION_RELEASE_COVERAGE_PROFILE_HASH = verifyGoldenHash(
+  review_investigation_capability_v1_golden_default.coverageProfile.value,
+  review_investigation_capability_v1_golden_default.coverageProfile.canonicalJson,
+  review_investigation_capability_v1_golden_default.coverageProfile.sha256,
+  "coverage_profile"
+);
+var REVIEW_INVESTIGATION_RELEASE_POLICY_HASH = verifyGoldenHash(
+  review_investigation_capability_v1_golden_default.policy.value,
+  review_investigation_capability_v1_golden_default.policy.canonicalJson,
+  review_investigation_capability_v1_golden_default.policy.sha256,
+  "policy"
+);
+var CONTEXT_GATEWAY_RELEASE_DESCRIPTION = Object.freeze({
+  artifactKind: "reviewrouter-context-gateway",
+  contextGatewayPolicyVersion: CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION,
+  metadataVersion: CONTEXT_GATEWAY_RELEASE_METADATA_VERSION,
+  reviewInvestigationCapability: REVIEW_INVESTIGATION_RELEASE_CAPABILITY,
+  reviewInvestigationCoverageProfileHash: REVIEW_INVESTIGATION_RELEASE_COVERAGE_PROFILE_HASH,
+  reviewInvestigationPolicyHash: REVIEW_INVESTIGATION_RELEASE_POLICY_HASH,
+  supportedContextGatewayPolicyVersions: SUPPORTED_CONTEXT_GATEWAY_POLICY_VERSIONS
+});
+function verifyGoldenHash(value, expectedCanonicalJson, expectedHash, field) {
+  const actualCanonicalJson = canonicalJson(value);
+  if (actualCanonicalJson !== expectedCanonicalJson || !/^[a-f0-9]{64}$/u.test(expectedHash) || sha256(actualCanonicalJson) !== expectedHash) {
+    throw new Error(`context_gateway_release_${field}_fixture_invalid`);
+  }
+  return expectedHash;
+}
+
 // src/review-orchestration/application/review-orchestration-ports.ts
 var ReviewExecutionProviderKind = /* @__PURE__ */ ((ReviewExecutionProviderKind2) => {
   ReviewExecutionProviderKind2["Codex"] = "codex";
@@ -85327,6 +85401,15 @@ var RetryableReviewContextInspectionFailure = class extends ReviewContextInspect
     super(reason);
     this.currentRevisionObservation = currentRevisionObservation;
     this.name = "RetryableReviewContextInspectionFailure";
+  }
+};
+
+// src/review-orchestration/application/review-invocation-failure.ts
+var ReviewInvocationConfigurationMismatchError = class extends Error {
+  constructor(reason, options = {}) {
+    super(`review_invocation_configuration_mismatch:${reason}`, options);
+    this.reason = reason;
+    this.name = "ReviewInvocationConfigurationMismatchError";
   }
 };
 
@@ -85804,6 +85887,18 @@ var ReviewAgentExecutionError = class extends Error {
   }
 };
 
+// src/review-investigation/application/investigation-gateway-port.ts
+var ReviewInvestigationGatewayConfigurationError = class extends Error {
+  constructor(reason, options = {}) {
+    super(
+      `review_investigation_gateway_configuration_mismatch:${reason}`,
+      options
+    );
+    this.reason = reason;
+    this.name = "ReviewInvestigationGatewayConfigurationError";
+  }
+};
+
 // src/review-investigation/domain/runtime-profile.ts
 var ReviewAgentProviderKind = /* @__PURE__ */ ((ReviewAgentProviderKind2) => {
   ReviewAgentProviderKind2["Codex"] = "codex";
@@ -85894,6 +85989,9 @@ var RunInvestigationTurn = class {
         lease: input.lease
       });
     } catch (error2) {
+      if (error2 instanceof ReviewInvestigationGatewayConfigurationError) {
+        throw error2;
+      }
       const failure = await this.recordOperationalFailure(
         input,
         error2,
@@ -86853,6 +86951,9 @@ var RunT0ReviewOrchestration = class {
             throw new ReviewProviderUnavailableSignal(
               "provider_authentication_unavailable"
             );
+          }
+          if (failureClass === "configuration_mismatch" /* ConfigurationMismatch */) {
+            throw error2 instanceof ReviewInvocationConfigurationMismatchError ? error2 : new Error("review_invocation_configuration_mismatch");
           }
           continue;
         }
@@ -92439,8 +92540,12 @@ var ProviderInvocationFailureClassifier = class {
     if (classifyProviderCapacitySignal({ error: error2 }) === "capacity_pressure" /* CapacityPressure */) {
       return "capacity_unavailable" /* CapacityUnavailable */;
     }
-    if (normalizeReviewError(error2).category === "provider_auth") {
+    const normalized = normalizeReviewError(error2);
+    if (normalized.category === "provider_auth") {
       return "authentication_unavailable" /* AuthenticationUnavailable */;
+    }
+    if (error2 instanceof ReviewInvocationConfigurationMismatchError) {
+      return "configuration_mismatch" /* ConfigurationMismatch */;
     }
     return "retryable" /* Retryable */;
   }
@@ -92452,18 +92557,21 @@ var LoggingReviewInvocationDiagnostics = class {
     this.logger = logger2;
   }
   recordFailure(input) {
-    this.logger.warn("Review provider attempt failed", {
-      attempt: input.invocation.attemptOrdinal,
-      attemptBudget: input.attemptBudget,
-      failureClass: input.failureClass,
-      model: input.invocation.requestedModel,
-      provider: input.invocation.provider,
-      safeReason: classifySafeInvocationFailureReason(
-        input.error,
-        input.failureClass
-      ),
-      workSlotId: input.invocation.workSlotId
-    });
+    this.logger.warn(
+      input.failureClass === "configuration_mismatch" /* ConfigurationMismatch */ ? "Review invocation configuration mismatch" : "Review provider attempt failed",
+      {
+        attempt: input.invocation.attemptOrdinal,
+        attemptBudget: input.attemptBudget,
+        failureClass: input.failureClass,
+        model: input.invocation.requestedModel,
+        provider: input.invocation.provider,
+        safeReason: classifySafeInvocationFailureReason(
+          input.error,
+          input.failureClass
+        ),
+        workSlotId: input.invocation.workSlotId
+      }
+    );
   }
 };
 function classifySafeInvocationFailureReason(error2, failureClass) {
@@ -92472,6 +92580,12 @@ function classifySafeInvocationFailureReason(error2, failureClass) {
     return "authentication_unavailable";
   }
   const text = diagnosticText(error2);
+  if (error2 instanceof ReviewInvocationConfigurationMismatchError) {
+    return error2.reason;
+  }
+  if (failureClass === "configuration_mismatch" /* ConfigurationMismatch */) {
+    return "configuration_mismatch";
+  }
   if (/\b(?:unknown|unsupported|invalid|unavailable)\s+model\b|\bmodel\b.{0,80}\b(?:not found|not supported|does not exist|unavailable)\b/i.test(
     text
   )) {
@@ -94705,36 +94819,41 @@ var ReviewActionV2ControlPlaneAdapter = class {
   }
   async openGatewaySession(input) {
     const authorization = this.requireActiveAuthorization();
-    const result2 = await this.client.execute(
-      "review_context_gateway_open" /* ReviewContextGatewayOpen */,
-      {
-        authorizationToken: authorization.authorizationToken,
-        leaseCapability: input.invocationLease.leaseCapability,
-        idempotencyKey: deterministicIdempotencyKey("context-gateway-open", [
-          input.invocationLease.attemptId,
-          input.invocationLease.leaseId,
-          input.invocationLease.fencingToken,
-          input.sourceExecutionId,
-          input.sourceWorkSlotId,
-          input.sourceReviewRevisionHash,
-          input.checkoutTreeOid,
-          input.gatewayPolicyVersion,
-          input.gatewayBinaryHash,
-          input.confinementEvidenceHash,
-          ...input.openingIntentDiscriminator === void 0 ? [] : [input.openingIntentDiscriminator]
-        ]),
-        attemptId: input.invocationLease.attemptId,
-        sourceLeaseId: input.invocationLease.leaseId,
-        fencingToken: input.invocationLease.fencingToken,
-        sourceExecutionId: input.sourceExecutionId,
-        sourceWorkSlotId: input.sourceWorkSlotId,
-        sourceReviewRevisionHash: input.sourceReviewRevisionHash,
-        checkoutTreeOid: input.checkoutTreeOid,
-        gatewayPolicyVersion: input.gatewayPolicyVersion,
-        gatewayBinaryHash: input.gatewayBinaryHash,
-        confinementEvidenceHash: input.confinementEvidenceHash
-      }
-    );
+    let result2;
+    try {
+      result2 = await this.client.execute(
+        "review_context_gateway_open" /* ReviewContextGatewayOpen */,
+        {
+          authorizationToken: authorization.authorizationToken,
+          leaseCapability: input.invocationLease.leaseCapability,
+          idempotencyKey: deterministicIdempotencyKey("context-gateway-open", [
+            input.invocationLease.attemptId,
+            input.invocationLease.leaseId,
+            input.invocationLease.fencingToken,
+            input.sourceExecutionId,
+            input.sourceWorkSlotId,
+            input.sourceReviewRevisionHash,
+            input.checkoutTreeOid,
+            input.gatewayPolicyVersion,
+            input.gatewayBinaryHash,
+            input.confinementEvidenceHash,
+            ...input.openingIntentDiscriminator === void 0 ? [] : [input.openingIntentDiscriminator]
+          ]),
+          attemptId: input.invocationLease.attemptId,
+          sourceLeaseId: input.invocationLease.leaseId,
+          fencingToken: input.invocationLease.fencingToken,
+          sourceExecutionId: input.sourceExecutionId,
+          sourceWorkSlotId: input.sourceWorkSlotId,
+          sourceReviewRevisionHash: input.sourceReviewRevisionHash,
+          checkoutTreeOid: input.checkoutTreeOid,
+          gatewayPolicyVersion: input.gatewayPolicyVersion,
+          gatewayBinaryHash: input.gatewayBinaryHash,
+          confinementEvidenceHash: input.confinementEvidenceHash
+        }
+      );
+    } catch (error2) {
+      throw gatewayOpenConfigurationMismatch(error2) ?? controlPlaneFailure(error2);
+    }
     if (result2.status !== "opened" /* Opened */ && result2.status !== "idempotent" /* Idempotent */) {
       throw new Error(`review_action_v2_context_gateway_open_${result2.status}`);
     }
@@ -95378,6 +95497,15 @@ function controlPlaneFailure(error2) {
   return new Error(diagnostic.length <= 120 ? diagnostic : base, {
     cause: error2
   });
+}
+function gatewayOpenConfigurationMismatch(error2) {
+  if (!(error2 instanceof ReviewActionV2ClientError) || error2.operationId !== "review_context_gateway_open" /* ReviewContextGatewayOpen */ || error2.httpStatus !== 412 || error2.protocolErrorCode !== "stale_precondition" /* StalePrecondition */ || error2.retryClass !== "never" /* Never */ || !error2.issues?.includes("context_gateway_policy_mismatch")) {
+    return null;
+  }
+  return new ReviewInvocationConfigurationMismatchError(
+    "context_gateway_policy_mismatch" /* ContextGatewayPolicyMismatch */,
+    { cause: error2 }
+  );
 }
 function parseLookupObservation(result2, input) {
   const payloadCanonicalJson = requireCanonicalJson(
@@ -97883,6 +98011,16 @@ function nullableTimestamp(value, field) {
 }
 
 // src/review-investigation/infrastructure/context-gateway-v4-investigation-adapter.ts
+var InvestigationContextGatewayRuntimeConfigurationError = class extends Error {
+  constructor(reason, options = {}) {
+    super(
+      `investigation_context_gateway_runtime_configuration:${reason}`,
+      options
+    );
+    this.reason = reason;
+    this.name = "InvestigationContextGatewayRuntimeConfigurationError";
+  }
+};
 var ContextGatewayV4InvestigationAdapter = class {
   constructor(factory, context) {
     this.factory = factory;
@@ -97911,19 +98049,24 @@ var ContextGatewayV4InvestigationAdapter = class {
   executionAuthority;
   agentSessions = /* @__PURE__ */ new WeakMap();
   async open(input) {
-    const session = await this.factory.open({
-      invocationLease: runtimeLease(input.lease),
-      sourceExecutionId: input.executionId,
-      sourceWorkSlotId: input.workSlotId,
-      sourceReviewRevisionHash: input.reviewRevisionHash,
-      providerKind: this.executionAuthority.providerKind,
-      requestedModel: this.executionAuthority.requestedModel,
-      executionProfile: this.executionAuthority.executionProfile,
-      providerInvocationKey: this.executionAuthority.providerInvocationKey,
-      toolPolicyHash: this.executionAuthority.toolPolicyHash,
-      openingIntentDiscriminator: `${input.investigationId}:${input.turnId}`,
-      revision: this.context.revision
-    });
+    let session;
+    try {
+      session = await this.factory.open({
+        invocationLease: runtimeLease(input.lease),
+        sourceExecutionId: input.executionId,
+        sourceWorkSlotId: input.workSlotId,
+        sourceReviewRevisionHash: input.reviewRevisionHash,
+        providerKind: this.executionAuthority.providerKind,
+        requestedModel: this.executionAuthority.requestedModel,
+        executionProfile: this.executionAuthority.executionProfile,
+        providerInvocationKey: this.executionAuthority.providerInvocationKey,
+        toolPolicyHash: this.executionAuthority.toolPolicyHash,
+        openingIntentDiscriminator: `${input.investigationId}:${input.turnId}`,
+        revision: this.context.revision
+      });
+    } catch (error2) {
+      throw mapRuntimeConfigurationFailure(error2) ?? error2;
+    }
     if (session.providerConfig.gatewayPolicyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION) {
       await session.dispose();
       throw new Error("investigation_context_gateway_v4_required");
@@ -97979,6 +98122,18 @@ var ContextGatewayV4InvestigationAdapter = class {
     return activeSession.binding;
   }
 };
+function mapRuntimeConfigurationFailure(error2) {
+  if (!(error2 instanceof InvestigationContextGatewayRuntimeConfigurationError)) {
+    return null;
+  }
+  switch (error2.reason) {
+    case "context_gateway_policy_mismatch" /* ContextGatewayPolicyMismatch */:
+      return new ReviewInvestigationGatewayConfigurationError(
+        "context_gateway_policy_mismatch" /* ContextGatewayPolicyMismatch */,
+        { cause: error2 }
+      );
+  }
+}
 function requireProviderKind2(value) {
   switch (value) {
     case "codex" /* Codex */:
@@ -98142,70 +98297,89 @@ var ReviewInvestigationRecordingAdapter = class {
     if (input.sourceReviewRevisionHash !== input.authorization.facts.reviewRevisionHash || input.invocation.coverageManifest.reviewRevisionHash !== input.sourceReviewRevisionHash) {
       throw new Error("review_investigation_recording_revision_mismatch");
     }
-    const result2 = await this.createRunner(input).execute({
-      authorizationToken: input.authorization.authorizationToken,
-      authorizationId: input.authorization.authorizationId,
-      executionId: input.execution.executionId,
-      workSlotId: input.workSlot.workSlotId,
-      reviewRevisionHash: input.sourceReviewRevisionHash,
-      stableReviewUnitKey: input.workSlot.shardKey,
-      providerVoteLaneId: input.workSlot.providerVoteIdentityHash,
-      providerStrategyId: input.manifest.providerInvocationKey,
-      runtimeProfile: "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */,
-      coverageContract: reviewInvestigationCoverageContract(
-        input.authorization.facts.producerReleaseId
-      ),
-      investigationPolicy: this.options.policy,
-      seedEnvelope: requireSeedEnvelope(input.invocation),
-      initialReceipts: [],
-      targetScope: {
-        workspaceId: input.authorization.facts.workspaceId,
-        repositoryConnectionId: input.authorization.facts.repositoryConnectionId,
-        scmRepositoryIdentityId: input.authorization.facts.scmRepositoryIdentityId,
-        pullRequestNumber: input.authorization.facts.pullRequestNumber,
-        trustDomain: input.authorization.facts.trustDomain,
-        authorizationScopeHash: sha2562(
-          canonicalJson2({
-            workspaceId: input.authorization.facts.workspaceId,
-            repositoryConnectionId: input.authorization.facts.repositoryConnectionId,
-            scmRepositoryIdentityId: input.authorization.facts.scmRepositoryIdentityId,
-            pullRequestNumber: input.authorization.facts.pullRequestNumber
-          })
-        )
-      },
-      targetRevision: {
-        baseSha: input.authorization.facts.baseSha,
-        mergeBaseSha: input.authorization.facts.mergeBaseSha,
-        headSha: input.authorization.facts.headSha,
-        reviewRevisionHash: input.authorization.facts.reviewRevisionHash
-      },
-      providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
-      providerManifestHash: sha2562(input.manifest.manifestCanonicalJson),
-      requestedModel: input.invocation.requestedModel,
-      providerKind: requireReviewAgentProviderKind(input.workSlot.providerKind),
-      promptFor: (snapshot) => investigationPrompt(input.invocation.reviewPrompt, snapshot),
-      workingDirectory: this.options.workingDirectory,
-      turnBudget: {
-        maxGatewayOperations: this.options.policy.maxReceiptsPerTurn,
-        maxOutputFindings: this.options.policy.maxFindings,
-        maxOutputProposals: this.options.policy.maxProposalsPerTurn
-      },
-      leaseDurationMs: this.options.leaseDurationMs,
-      maxObligationsForTurn: this.options.maxObligationsForTurn,
-      providerTimeoutMs: this.options.providerTimeoutMs,
-      providerMaxTurns: this.options.policy.maxSemanticTurns,
-      certificateTtlMs: this.options.certificateTtlMs,
-      minimumCapacityParkMs: this.options.minimumCapacityParkMs,
-      maxStateTransitions: this.options.maxStateTransitions,
-      managedLease: () => investigationLease(input.currentLease()),
-      signal: input.signal
-    });
+    let result2;
+    try {
+      result2 = await this.createRunner(input).execute({
+        authorizationToken: input.authorization.authorizationToken,
+        authorizationId: input.authorization.authorizationId,
+        executionId: input.execution.executionId,
+        workSlotId: input.workSlot.workSlotId,
+        reviewRevisionHash: input.sourceReviewRevisionHash,
+        stableReviewUnitKey: input.workSlot.shardKey,
+        providerVoteLaneId: input.workSlot.providerVoteIdentityHash,
+        providerStrategyId: input.manifest.providerInvocationKey,
+        runtimeProfile: "gateway_attested_agent_v1" /* GatewayAttestedAgentV1 */,
+        coverageContract: reviewInvestigationCoverageContract(
+          input.authorization.facts.producerReleaseId
+        ),
+        investigationPolicy: this.options.policy,
+        seedEnvelope: requireSeedEnvelope(input.invocation),
+        initialReceipts: [],
+        targetScope: {
+          workspaceId: input.authorization.facts.workspaceId,
+          repositoryConnectionId: input.authorization.facts.repositoryConnectionId,
+          scmRepositoryIdentityId: input.authorization.facts.scmRepositoryIdentityId,
+          pullRequestNumber: input.authorization.facts.pullRequestNumber,
+          trustDomain: input.authorization.facts.trustDomain,
+          authorizationScopeHash: sha2562(
+            canonicalJson2({
+              workspaceId: input.authorization.facts.workspaceId,
+              repositoryConnectionId: input.authorization.facts.repositoryConnectionId,
+              scmRepositoryIdentityId: input.authorization.facts.scmRepositoryIdentityId,
+              pullRequestNumber: input.authorization.facts.pullRequestNumber
+            })
+          )
+        },
+        targetRevision: {
+          baseSha: input.authorization.facts.baseSha,
+          mergeBaseSha: input.authorization.facts.mergeBaseSha,
+          headSha: input.authorization.facts.headSha,
+          reviewRevisionHash: input.authorization.facts.reviewRevisionHash
+        },
+        providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
+        providerManifestHash: sha2562(input.manifest.manifestCanonicalJson),
+        requestedModel: input.invocation.requestedModel,
+        providerKind: requireReviewAgentProviderKind(
+          input.workSlot.providerKind
+        ),
+        promptFor: (snapshot) => investigationPrompt(input.invocation.reviewPrompt, snapshot),
+        workingDirectory: this.options.workingDirectory,
+        turnBudget: {
+          maxGatewayOperations: this.options.policy.maxReceiptsPerTurn,
+          maxOutputFindings: this.options.policy.maxFindings,
+          maxOutputProposals: this.options.policy.maxProposalsPerTurn
+        },
+        leaseDurationMs: this.options.leaseDurationMs,
+        maxObligationsForTurn: this.options.maxObligationsForTurn,
+        providerTimeoutMs: this.options.providerTimeoutMs,
+        providerMaxTurns: this.options.policy.maxSemanticTurns,
+        certificateTtlMs: this.options.certificateTtlMs,
+        minimumCapacityParkMs: this.options.minimumCapacityParkMs,
+        maxStateTransitions: this.options.maxStateTransitions,
+        managedLease: () => investigationLease(input.currentLease()),
+        signal: input.signal
+      });
+    } catch (error2) {
+      throw mapInvestigationGatewayConfigurationFailure(error2) ?? error2;
+    }
     if (this.mode === "record_only" /* RecordOnly */ && (result2.status === "parked" /* Parked */ || result2.status === "recovery_required" /* RecoveryRequired */ || result2.status === "transition_budget_exhausted" /* TransitionBudgetExhausted */)) {
       throw new ReviewInvestigationLegacyFallbackSignal();
     }
     return terminalObservation(result2.status, result2.snapshot);
   }
 };
+function mapInvestigationGatewayConfigurationFailure(error2) {
+  if (!(error2 instanceof ReviewInvestigationGatewayConfigurationError)) {
+    return null;
+  }
+  switch (error2.reason) {
+    case "context_gateway_policy_mismatch" /* ContextGatewayPolicyMismatch */:
+      return new ReviewInvocationConfigurationMismatchError(
+        "context_gateway_policy_mismatch" /* ContextGatewayPolicyMismatch */,
+        { cause: error2 }
+      );
+  }
+}
 var RevisionGuardInvestigationCurrencyAdapter = class {
   constructor(revisions) {
     this.revisions = revisions;
@@ -98338,6 +98512,26 @@ function terminalObservation(status, snapshot) {
 }
 
 // src/review-orchestration/infrastructure/production-review-investigation-composition.ts
+function createProductionReviewInvestigationGatewayFactory(delegate) {
+  return Object.freeze({
+    open: async (input) => {
+      try {
+        return await delegate.open(input);
+      } catch (error2) {
+        if (error2 instanceof ReviewInvocationConfigurationMismatchError) {
+          switch (error2.reason) {
+            case "context_gateway_policy_mismatch" /* ContextGatewayPolicyMismatch */:
+              throw new InvestigationContextGatewayRuntimeConfigurationError(
+                "context_gateway_policy_mismatch" /* ContextGatewayPolicyMismatch */,
+                { cause: error2 }
+              );
+          }
+        }
+        throw error2;
+      }
+    }
+  });
+}
 var ROLLOUT_ENV = Object.freeze({
   recordingEnabled: "REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED",
   shadowEnabled: "REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED",
@@ -98653,16 +98847,18 @@ var ProductionT0ReviewRunner = class {
     );
     const gatewayBundlePath = resolveContextGatewayBundlePath();
     const requiredContextWitness = new SubprocessRequiredContextWitnessRunner();
-    const contextGateway = agenticContext ? new ContextGatewayInvocationSessionFactory(
+    const contextGatewayOptions = resolveProductionContextGatewaySessionFactoryOptions({
+      agenticContext,
+      investigationRecordingEnabled,
+      checkoutRoot: path26.resolve(input.workspacePath),
+      gatewayBundlePath
+    });
+    const contextGateway = contextGatewayOptions ? new ContextGatewayInvocationSessionFactory(
       controlPlane,
-      {
-        checkoutRoot: path26.resolve(input.workspacePath),
-        gatewayBundlePath,
-        ...investigationRecordingEnabled ? { policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION } : {}
-      },
+      contextGatewayOptions,
       requiredContextWitness
     ) : void 0;
-    const investigationGatewayFactory = investigationRecordingEnabled ? contextGateway : void 0;
+    const investigationGatewayFactory = investigationRecordingEnabled && contextGateway ? createProductionReviewInvestigationGatewayFactory(contextGateway) : void 0;
     const contextReplayRunner = contextGateway ? new ContextAttestationReplayRunner({
       checkoutRoot: path26.resolve(input.workspacePath),
       gatewayBundlePath
@@ -98834,6 +99030,18 @@ var ProductionT0ReviewRunner = class {
     return mapOrchestrationResultToCodexOutcome(result2);
   }
 };
+function resolveProductionContextGatewayPolicyVersion(input) {
+  return input.agenticContext ? CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION : null;
+}
+function resolveProductionContextGatewaySessionFactoryOptions(input) {
+  const policyVersion = resolveProductionContextGatewayPolicyVersion(input);
+  if (policyVersion === null) return null;
+  return Object.freeze({
+    checkoutRoot: input.checkoutRoot,
+    gatewayBundlePath: input.gatewayBundlePath,
+    policyVersion
+  });
+}
 var LegacyFallbackBeforeInvestigationAuthorityControlPlane = class {
   constructor(delegate) {
     this.delegate = delegate;

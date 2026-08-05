@@ -1,7 +1,8 @@
 import type { LogMetadata } from '../../utils/logger';
-import type {
-  ReviewInvocationDiagnosticsPort,
+import {
+  ReviewInvocationConfigurationMismatchError,
   ReviewInvocationFailureClass,
+  type ReviewInvocationDiagnosticsPort,
 } from '../application';
 
 type DiagnosticsLogger = {
@@ -14,18 +15,23 @@ export class LoggingReviewInvocationDiagnostics implements ReviewInvocationDiagn
   recordFailure(
     input: Parameters<ReviewInvocationDiagnosticsPort['recordFailure']>[0]
   ): void {
-    this.logger.warn('Review provider attempt failed', {
-      attempt: input.invocation.attemptOrdinal,
-      attemptBudget: input.attemptBudget,
-      failureClass: input.failureClass,
-      model: input.invocation.requestedModel,
-      provider: input.invocation.provider,
-      safeReason: classifySafeInvocationFailureReason(
-        input.error,
-        input.failureClass
-      ),
-      workSlotId: input.invocation.workSlotId,
-    });
+    this.logger.warn(
+      input.failureClass === ReviewInvocationFailureClass.ConfigurationMismatch
+        ? 'Review invocation configuration mismatch'
+        : 'Review provider attempt failed',
+      {
+        attempt: input.invocation.attemptOrdinal,
+        attemptBudget: input.attemptBudget,
+        failureClass: input.failureClass,
+        model: input.invocation.requestedModel,
+        provider: input.invocation.provider,
+        safeReason: classifySafeInvocationFailureReason(
+          input.error,
+          input.failureClass
+        ),
+        workSlotId: input.invocation.workSlotId,
+      }
+    );
   }
 }
 
@@ -39,6 +45,12 @@ export function classifySafeInvocationFailureReason(
   }
 
   const text = diagnosticText(error);
+  if (error instanceof ReviewInvocationConfigurationMismatchError) {
+    return error.reason;
+  }
+  if (failureClass === ReviewInvocationFailureClass.ConfigurationMismatch) {
+    return 'configuration_mismatch';
+  }
   if (
     /\b(?:unknown|unsupported|invalid|unavailable)\s+model\b|\bmodel\b.{0,80}\b(?:not found|not supported|does not exist|unavailable)\b/i.test(
       text

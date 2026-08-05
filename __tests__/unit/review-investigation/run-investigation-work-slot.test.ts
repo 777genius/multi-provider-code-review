@@ -14,10 +14,12 @@ import {
   type ReviewInvestigationLease,
   type ReviewInvestigationLeasePort,
 } from '../../../src/review-investigation/application/investigation-control-plane-port';
-import type {
-  ReviewInvestigationGatewaySessionFactoryPort,
-  ReviewInvestigationGatewaySessionPort,
-  ReviewInvestigationTurnExecutionAuthority,
+import {
+  ReviewInvestigationGatewayConfigurationError,
+  ReviewInvestigationGatewayConfigurationFailureReason,
+  type ReviewInvestigationGatewaySessionFactoryPort,
+  type ReviewInvestigationGatewaySessionPort,
+  type ReviewInvestigationTurnExecutionAuthority,
 } from '../../../src/review-investigation/application/investigation-gateway-port';
 import { RunInvestigationTurn } from '../../../src/review-investigation/application/run-investigation-turn';
 import {
@@ -592,6 +594,31 @@ describe('RunInvestigationWorkSlot', () => {
         code: 'review_investigation_gateway_open_confinement_failure',
       })
     );
+  });
+
+  it('propagates fatal gateway configuration drift without operational retry', async () => {
+    const controlPlane = controlPlaneFixture(plannedSnapshot());
+    const gateway = gatewayFixture();
+    const failure = new ReviewInvestigationGatewayConfigurationError(
+      ReviewInvestigationGatewayConfigurationFailureReason.ContextGatewayPolicyMismatch
+    );
+    const open = gateway.factory.open as jest.MockedFunction<
+      ReviewInvestigationGatewaySessionFactoryPort['open']
+    >;
+    open.mockRejectedValue(failure);
+    const agent = agentFixture(observation());
+    const diagnostics = {
+      record: jest.fn(async () => undefined),
+    };
+
+    await expect(
+      runnerFixture(controlPlane, agent, { gateway, diagnostics }).execute(
+        runInput()
+      )
+    ).rejects.toBe(failure);
+    expect(agent.executeTurn).not.toHaveBeenCalled();
+    expect(controlPlane.abortTurn).not.toHaveBeenCalled();
+    expect(diagnostics.record).not.toHaveBeenCalled();
   });
 
   it('preserves terminal security semantics when gateway seal reports taint', async () => {

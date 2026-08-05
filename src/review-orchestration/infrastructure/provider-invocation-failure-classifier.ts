@@ -4,6 +4,7 @@ import {
   classifyProviderCapacitySignal,
 } from '../../review-execution/domain';
 import {
+  ReviewInvocationConfigurationMismatchError,
   ReviewInvocationFailureClass,
   type ReviewInvocationFailureClassifierPort,
 } from '../application';
@@ -17,8 +18,13 @@ export class ProviderInvocationFailureClassifier implements ReviewInvocationFail
       return ReviewInvocationFailureClass.CapacityUnavailable;
     }
 
-    if (normalizeReviewError(error).category === 'provider_auth') {
+    const normalized = normalizeReviewError(error);
+    if (normalized.category === 'provider_auth') {
       return ReviewInvocationFailureClass.AuthenticationUnavailable;
+    }
+
+    if (error instanceof ReviewInvocationConfigurationMismatchError) {
+      return ReviewInvocationFailureClass.ConfigurationMismatch;
     }
 
     return ReviewInvocationFailureClass.Retryable;

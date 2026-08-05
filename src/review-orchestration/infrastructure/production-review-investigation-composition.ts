@@ -2,6 +2,8 @@ import type { ReviewConfig } from '../../types';
 import { reviewInvestigationRolloutAuthorizationV2Contract } from '../../control-plane/generated/review-action-v2/review-action-v2';
 import {
   DeterministicReviewAgentSelector,
+  InvestigationContextGatewayRuntimeConfigurationError,
+  InvestigationContextGatewayRuntimeConfigurationFailureReason,
   REVIEW_INVESTIGATION_INDEPENDENT_CRITIC_RISK_PRIORITY_V1,
   ReviewAgentExecutionError,
   ReviewAgentFailureClass,
@@ -10,9 +12,12 @@ import {
   type ReviewAgentPort,
   type ReviewAgentSelectionPort,
   type ReviewAgentSelectionRequest,
+  type InvestigationContextGatewayRuntimeFactoryPort,
 } from '../../review-investigation';
 import {
   ReviewExecutionProviderKind,
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
   ReviewInvestigationRecordingMode,
   ReviewInvestigationRolloutCapability,
   type ReviewRunAuthorization,
@@ -36,6 +41,33 @@ export type ConfiguredProductionReviewAgent = Readonly<{
   requestedModel: string;
   agent: ReviewAgentPort;
 }>;
+
+export function createProductionReviewInvestigationGatewayFactory(
+  delegate: InvestigationContextGatewayRuntimeFactoryPort
+): InvestigationContextGatewayRuntimeFactoryPort {
+  return Object.freeze({
+    open: async (
+      input: Parameters<
+        InvestigationContextGatewayRuntimeFactoryPort['open']
+      >[0]
+    ) => {
+      try {
+        return await delegate.open(input);
+      } catch (error) {
+        if (error instanceof ReviewInvocationConfigurationMismatchError) {
+          switch (error.reason) {
+            case ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch:
+              throw new InvestigationContextGatewayRuntimeConfigurationError(
+                InvestigationContextGatewayRuntimeConfigurationFailureReason.ContextGatewayPolicyMismatch,
+                { cause: error }
+              );
+          }
+        }
+        throw error;
+      }
+    },
+  });
+}
 
 const ROLLOUT_ENV = Object.freeze({
   recordingEnabled: 'REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED',
@@ -83,7 +115,8 @@ export function resolveProductionReviewInvestigationRollout(input: {
   readonly agenticContext: boolean;
   readonly authorization: ReviewRunAuthorization;
   readonly primaryProviderKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode;
 }): ProductionReviewInvestigationRollout {
   assertCanonicalRolloutDependencies(input.flags);
   const recordingEnabled =

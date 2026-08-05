@@ -9,7 +9,7 @@ import { hashIncrementalCompatibility } from '../../cache/key-builder';
 import { ConfigLoader } from '../../config/loader';
 import { applyControlPlaneRuntimeConfig } from '../../control-plane/runtime-config';
 import { ReviewActionV2Client } from '../../control-plane/review-action-v2-client';
-import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../context-gateway/context-gateway-v4-contract';
+import { CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION } from '../../context-gateway/context-gateway-release-contract';
 import { BatchOrchestrator } from '../../core/batch-orchestrator';
 import { prioritizeFilesByRisk } from '../../review-execution/domain/file-risk-priority';
 import { GitHubClient } from '../../github/client';
@@ -90,6 +90,7 @@ import {
 } from './review-investigation-recording-adapter';
 import {
   createProductionReviewInvestigationAgentSelector,
+  createProductionReviewInvestigationGatewayFactory,
   productionReviewInvestigationRecordingMode,
   readProductionReviewInvestigationRolloutFlags,
   resolveProductionReviewInvestigationRollout,
@@ -208,22 +209,24 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     );
     const gatewayBundlePath = resolveContextGatewayBundlePath();
     const requiredContextWitness = new SubprocessRequiredContextWitnessRunner();
-    const contextGateway = agenticContext
+    const contextGatewayOptions =
+      resolveProductionContextGatewaySessionFactoryOptions({
+        agenticContext,
+        investigationRecordingEnabled,
+        checkoutRoot: path.resolve(input.workspacePath),
+        gatewayBundlePath,
+      });
+    const contextGateway = contextGatewayOptions
       ? new ContextGatewayInvocationSessionFactory(
           controlPlane,
-          {
-            checkoutRoot: path.resolve(input.workspacePath),
-            gatewayBundlePath,
-            ...(investigationRecordingEnabled
-              ? { policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION }
-              : {}),
-          },
+          contextGatewayOptions,
           requiredContextWitness
         )
       : undefined;
-    const investigationGatewayFactory = investigationRecordingEnabled
-      ? contextGateway
-      : undefined;
+    const investigationGatewayFactory =
+      investigationRecordingEnabled && contextGateway
+        ? createProductionReviewInvestigationGatewayFactory(contextGateway)
+        : undefined;
     const contextReplayRunner = contextGateway
       ? new ContextAttestationReplayRunner({
           checkoutRoot: path.resolve(input.workspacePath),
@@ -413,6 +416,31 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     );
     return mapOrchestrationResultToCodexOutcome(result);
   }
+}
+
+export function resolveProductionContextGatewayPolicyVersion(input: {
+  readonly agenticContext: boolean;
+}): typeof CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION | null {
+  return input.agenticContext ? CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION : null;
+}
+
+export function resolveProductionContextGatewaySessionFactoryOptions(input: {
+  readonly agenticContext: boolean;
+  readonly investigationRecordingEnabled: boolean;
+  readonly checkoutRoot: string;
+  readonly gatewayBundlePath: string;
+}): Readonly<{
+  checkoutRoot: string;
+  gatewayBundlePath: string;
+  policyVersion: typeof CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION;
+}> | null {
+  const policyVersion = resolveProductionContextGatewayPolicyVersion(input);
+  if (policyVersion === null) return null;
+  return Object.freeze({
+    checkoutRoot: input.checkoutRoot,
+    gatewayBundlePath: input.gatewayBundlePath,
+    policyVersion,
+  });
 }
 
 type ProductionInvestigationControlPlanePort =
