@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import {
   canonicalizeReviewContextConfinementEvidence,
   canonicalizeReviewContextGatewayEvent,
+  canonicalizeReviewInvestigationContextConfinementEvidence,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
 import {
   CONTEXT_GATEWAY_POLICY_VERSION,
@@ -19,6 +20,7 @@ import {
 } from '../../../src/context-gateway/context-gateway-v4-contract';
 import { ContextGatewayV4Recorder } from '../../../src/context-gateway/context-gateway-v4-recorder';
 import { ContextGatewayV4ReplayMaterialRecorder } from '../../../src/context-gateway/context-gateway-v4-replay-material';
+import { ContextGatewayLeaseAuthorityKind } from '../../../src/context-gateway/context-gateway-lease-authority';
 import {
   ReviewContextInspectionFailureReason,
   type ReviewContextAttestationPort,
@@ -53,6 +55,7 @@ describe('ContextGatewayInvocationSessionFactory', () => {
           resultReportUntil: '2026-08-04T10:10:00.000Z',
           renewalCeilingReached: false,
         },
+        leaseAuthorityKind: ContextGatewayLeaseAuthorityKind.StandardExecution,
         sourceExecutionId: 'execution-1',
         sourceWorkSlotId: 'slot-1',
         sourceReviewRevisionHash: hash('revision'),
@@ -80,6 +83,7 @@ describe('ContextGatewayInvocationSessionFactory', () => {
           resultReportUntil: '2026-08-04T10:10:00.000Z',
           renewalCeilingReached: false,
         },
+        leaseAuthorityKind: ContextGatewayLeaseAuthorityKind.StandardExecution,
         sourceExecutionId: 'execution-1',
         sourceWorkSlotId: 'slot-1',
         sourceReviewRevisionHash: hash('revision'),
@@ -486,12 +490,46 @@ describe('ContextGatewayInvocationSessionFactory', () => {
       await fixture.dispose();
     }
   });
+
+  it('uses the investigation confinement domain for investigation leases', async () => {
+    const fixture = await openSessionFixture(
+      CONTEXT_GATEWAY_V4_POLICY_VERSION,
+      ContextGatewayLeaseAuthorityKind.ReviewInvestigation
+    );
+    try {
+      expect(fixture.attestations.openGatewaySession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          confinementEvidenceHash: hash(
+            canonicalizeReviewInvestigationContextConfinementEvidence({
+              attemptId: fixture.invocationLease.attemptId,
+              sourceLeaseId: fixture.invocationLease.leaseId,
+              sourceFencingToken: fixture.invocationLease.fencingToken,
+              sourceExecutionId: 'execution-1',
+              sourceWorkSlotId: 'slot-1',
+              sourceReviewRevisionHash: hash('revision'),
+              checkoutTreeOid: fixture.checkoutTreeOid,
+              providerKind: 'codex',
+              requestedModel: 'gpt-test',
+              executionProfile: 'investigation_gateway_v1',
+              providerInvocationKey: hash('provider-invocation'),
+              toolPolicyHash: hash('tool-policy'),
+              gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+              gatewayBinaryHash: fixture.gatewayHash,
+            })
+          ),
+        })
+      );
+    } finally {
+      await fixture.dispose();
+    }
+  });
 });
 
 type SessionFixture = Awaited<ReturnType<typeof openSessionFixture>>;
 
 async function openSessionFixture(
-  policyVersion: ContextGatewayPolicyVersion = CONTEXT_GATEWAY_POLICY_VERSION
+  policyVersion: ContextGatewayPolicyVersion = CONTEXT_GATEWAY_POLICY_VERSION,
+  leaseAuthorityKind: ContextGatewayLeaseAuthorityKind = ContextGatewayLeaseAuthorityKind.StandardExecution
 ) {
   const checkoutRoot = await mkdtemp(
     path.join(os.tmpdir(), 'reviewrouter-gateway-session-test-')
@@ -548,12 +586,16 @@ async function openSessionFixture(
   };
   const session = await factory.open({
     invocationLease,
+    leaseAuthorityKind,
     sourceExecutionId: 'execution-1',
     sourceWorkSlotId: 'slot-1',
     sourceReviewRevisionHash: hash('revision'),
     providerKind: 'codex',
     requestedModel: 'gpt-test',
-    executionProfile: 'context_gateway_v1',
+    executionProfile:
+      leaseAuthorityKind === ContextGatewayLeaseAuthorityKind.StandardExecution
+        ? 'context_gateway_v1'
+        : 'investigation_gateway_v1',
     providerInvocationKey: hash('provider-invocation'),
     toolPolicyHash: hash('tool-policy'),
     revision,

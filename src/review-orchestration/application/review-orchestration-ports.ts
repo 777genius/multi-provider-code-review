@@ -177,6 +177,21 @@ export interface ReviewInvocationDiagnosticsPort {
   }): void;
 }
 
+export enum ReviewInvestigationDiagnosticOutcome {
+  LegacyFallback = 'legacy_fallback',
+  AuthoritativeDeferred = 'authoritative_deferred',
+}
+
+export interface ReviewInvestigationDiagnosticsPort {
+  record(input: {
+    readonly outcome: ReviewInvestigationDiagnosticOutcome;
+    readonly workSlotId: string;
+    readonly attemptOrdinal: number;
+    readonly providerKind: ReviewExecutionProviderKind;
+    readonly error: unknown;
+  }): void;
+}
+
 export type PreparedReviewInvocationManifestFacts = {
   readonly taskKindSet: readonly ReviewTaskKind[];
   readonly providerKind: ReviewExecutionProviderKind;

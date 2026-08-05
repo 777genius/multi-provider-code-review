@@ -2,9 +2,15 @@ import {
   ReviewInvocationConfigurationMismatchError,
   ReviewInvocationConfigurationMismatchReason,
   ReviewInvocationFailureClass,
+  ReviewInvestigationDiagnosticOutcome,
+  ReviewExecutionProviderKind,
 } from '../../../src/review-orchestration/application';
+import { ReviewInvestigationDeferredSignal } from '../../../src/review-investigation/application/run-investigation-work-slot';
+import { ReviewInvestigationRunStatus } from '../../../src/review-investigation/domain/investigation-state';
 import {
+  classifySafeInvestigationFailureReason,
   classifySafeInvocationFailureReason,
+  LoggingReviewInvestigationDiagnostics,
   LoggingReviewInvocationDiagnostics,
 } from '../../../src/review-orchestration/infrastructure/review-invocation-diagnostics';
 
@@ -103,5 +109,39 @@ describe('review invocation diagnostics', () => {
       })
     );
     expect(JSON.stringify(warn.mock.calls)).not.toContain('secret transport');
+  });
+
+  it('logs bounded investigation degradation without the raw failure', () => {
+    const warn = jest.fn();
+    const diagnostics = new LoggingReviewInvestigationDiagnostics({ warn });
+
+    diagnostics.record({
+      outcome: ReviewInvestigationDiagnosticOutcome.LegacyFallback,
+      workSlotId: 'slot-1',
+      attemptOrdinal: 1,
+      providerKind: ReviewExecutionProviderKind.Codex,
+      error: new Error('secret investigation detail'),
+    });
+
+    expect(warn).toHaveBeenCalledWith('Review investigation degraded safely', {
+      attempt: 1,
+      outcome: ReviewInvestigationDiagnosticOutcome.LegacyFallback,
+      provider: ReviewExecutionProviderKind.Codex,
+      safeReason: 'investigation_failed',
+      workSlotId: 'slot-1',
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(
+      'secret investigation'
+    );
+  });
+
+  it('classifies authoritative deferral without exposing provider data', () => {
+    expect(
+      classifySafeInvestigationFailureReason(
+        new ReviewInvestigationDeferredSignal(
+          ReviewInvestigationRunStatus.Parked
+        )
+      )
+    ).toBe('investigation_parked');
   });
 });

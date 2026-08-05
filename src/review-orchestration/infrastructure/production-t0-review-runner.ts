@@ -57,7 +57,10 @@ import {
 } from './context-gateway-invocation-session';
 import { ContextAttestationReplayRunner } from './context-attestation-replay-runner';
 import { ProviderInvocationFailureClassifier } from './provider-invocation-failure-classifier';
-import { LoggingReviewInvocationDiagnostics } from './review-invocation-diagnostics';
+import {
+  LoggingReviewInvestigationDiagnostics,
+  LoggingReviewInvocationDiagnostics,
+} from './review-invocation-diagnostics';
 import { GitReviewRevisionMaterializer } from './git-review-revision-materializer';
 import {
   FreshGitHubLifecycleInventory,
@@ -382,6 +385,9 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
         : {}),
       invocationFailureClassifier: new ProviderInvocationFailureClassifier(),
       invocationDiagnostics: new LoggingReviewInvocationDiagnostics(logger),
+      investigationDiagnostics: new LoggingReviewInvestigationDiagnostics(
+        logger
+      ),
       leaseSupervisor: new CooperativeReviewLeaseSupervisor(),
       ...(investigationRecording ? { investigationRecording } : {}),
       projectionBuilder: createProductionReviewProjectionBuilder({
@@ -655,6 +661,7 @@ function mapPartialFailureReason(
   | CodexOAuthV2TerminalReason.RequiredReviewCoverageIncomplete
   | CodexOAuthV2TerminalReason.RequiredProviderLaneBusy
   | CodexOAuthV2TerminalReason.RequiredWorkExhausted
+  | CodexOAuthV2TerminalReason.RequiredInvestigationDeferred
   | CodexOAuthV2TerminalReason.Unknown {
   switch (failureCode) {
     case undefined:
@@ -664,6 +671,8 @@ function mapPartialFailureReason(
       return CodexOAuthV2TerminalReason.RequiredProviderLaneBusy;
     case 'required_work_exhausted':
       return CodexOAuthV2TerminalReason.RequiredWorkExhausted;
+    case 'required_investigation_deferred':
+      return CodexOAuthV2TerminalReason.RequiredInvestigationDeferred;
     default:
       return CodexOAuthV2TerminalReason.Unknown;
   }

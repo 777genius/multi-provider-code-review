@@ -37,7 +37,10 @@ import {
   type ReviewInvestigationCanonicalInventory,
   type ReviewInvestigationCanonicalInventoryEntry,
 } from '../../../src/review-investigation/domain/review-investigation-seed-envelope';
-import { ReviewInvestigationLegacyFallbackSignal } from '../../../src/review-investigation/application/run-investigation-work-slot';
+import {
+  ReviewInvestigationDeferredSignal,
+  ReviewInvestigationLegacyFallbackSignal,
+} from '../../../src/review-investigation/application/run-investigation-work-slot';
 import capabilityGolden from '../../../src/review-investigation/fixtures/review-investigation-capability-v1.golden.json';
 
 const hash = (value: string) =>
@@ -394,6 +397,25 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       );
     }
   );
+
+  it('surfaces authoritative parked work as a typed deferral', async () => {
+    const adapter = new ReviewInvestigationRecordingAdapter(
+      () =>
+        ({
+          execute: jest.fn(async () => ({
+            status: ReviewInvestigationRunStatus.Parked,
+            snapshot: activeSnapshot(),
+          })),
+        }) as never,
+      options(),
+      ReviewInvestigationRecordingMode.Authoritative
+    );
+
+    await expect(adapter.execute(executionInput())).rejects.toMatchObject({
+      name: 'ReviewInvestigationDeferredSignal',
+      status: ReviewInvestigationRunStatus.Parked,
+    } satisfies Partial<ReviewInvestigationDeferredSignal>);
+  });
 
   it('maps fatal investigation gateway drift back to orchestration configuration failure', async () => {
     const adapter = new ReviewInvestigationRecordingAdapter(

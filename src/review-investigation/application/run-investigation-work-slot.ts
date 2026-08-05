@@ -32,6 +32,18 @@ export class ReviewInvestigationLegacyFallbackSignal extends Error {
   }
 }
 
+export type ReviewInvestigationDeferredRunStatus =
+  | ReviewInvestigationRunStatus.Parked
+  | ReviewInvestigationRunStatus.RecoveryRequired
+  | ReviewInvestigationRunStatus.TransitionBudgetExhausted;
+
+export class ReviewInvestigationDeferredSignal extends Error {
+  constructor(readonly status: ReviewInvestigationDeferredRunStatus) {
+    super(`review_investigation_deferred:${status}`);
+    this.name = 'ReviewInvestigationDeferredSignal';
+  }
+}
+
 export class RunInvestigationWorkSlot {
   constructor(
     private readonly dependencies: Readonly<{

@@ -18,6 +18,7 @@ import {
   type ReviewInvestigationCurrencyPort,
 } from '../../review-investigation/application/investigation-control-plane-port';
 import {
+  ReviewInvestigationDeferredSignal,
   ReviewInvestigationLegacyFallbackSignal,
   RunInvestigationWorkSlot,
 } from '../../review-investigation/application/run-investigation-work-slot';
@@ -213,17 +214,27 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
     } catch (error) {
       throw mapInvestigationGatewayConfigurationFailure(error) ?? error;
     }
-    if (
-      this.mode === ReviewInvestigationRecordingMode.RecordOnly &&
-      (result.status === ReviewInvestigationRunStatus.Parked ||
-        result.status === ReviewInvestigationRunStatus.RecoveryRequired ||
-        result.status ===
-          ReviewInvestigationRunStatus.TransitionBudgetExhausted)
-    ) {
-      throw new ReviewInvestigationLegacyFallbackSignal();
+    if (isDeferred(result.status)) {
+      if (this.mode === ReviewInvestigationRecordingMode.RecordOnly) {
+        throw new ReviewInvestigationLegacyFallbackSignal();
+      }
+      throw new ReviewInvestigationDeferredSignal(result.status);
     }
     return terminalObservation(result.status, result.snapshot);
   }
+}
+
+function isDeferred(
+  status: ReviewInvestigationRunStatus
+): status is
+  | ReviewInvestigationRunStatus.Parked
+  | ReviewInvestigationRunStatus.RecoveryRequired
+  | ReviewInvestigationRunStatus.TransitionBudgetExhausted {
+  return (
+    status === ReviewInvestigationRunStatus.Parked ||
+    status === ReviewInvestigationRunStatus.RecoveryRequired ||
+    status === ReviewInvestigationRunStatus.TransitionBudgetExhausted
+  );
 }
 
 function mapInvestigationGatewayConfigurationFailure(

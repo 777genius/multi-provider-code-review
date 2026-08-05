@@ -7,6 +7,7 @@ import {
   ReviewInvocationConfigurationMismatchReason,
   ReviewInvocationFailureClass,
   ReviewInvocationLeaseAcquireOutcomeStatus,
+  ReviewInvestigationDiagnosticOutcome,
   ReviewInvestigationRecordingMode,
   ReviewOrchestrationResultStatus,
   ReviewPublicationRequestOutcomeStatus,
@@ -30,7 +31,11 @@ import {
   ReviewOrchestrationPhase,
   ReviewPromptPathCoverageKind,
 } from '../../../src/review-orchestration/domain';
-import { ReviewInvestigationLegacyFallbackSignal } from '../../../src/review-investigation/application/run-investigation-work-slot';
+import {
+  ReviewInvestigationDeferredSignal,
+  ReviewInvestigationLegacyFallbackSignal,
+} from '../../../src/review-investigation/application/run-investigation-work-slot';
+import { ReviewInvestigationRunStatus } from '../../../src/review-investigation/domain/investigation-state';
 
 describe('RunT0ReviewOrchestration', () => {
   it('completes a fresh exact-revision observation and publication', async () => {
@@ -740,6 +745,54 @@ describe('RunT0ReviewOrchestration', () => {
     );
   });
 
+  it('isolates record-only preparation failures and records bounded diagnostics', async () => {
+    const fixture = createFixture({
+      executionProfile: 'context_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.RecordOnly,
+      investigationPrepareError: new Error('secret preparation detail'),
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
+    expect(
+      fixture.dependencies.investigationDiagnostics!.record
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: ReviewInvestigationDiagnosticOutcome.LegacyFallback,
+        attemptOrdinal: 1,
+        providerKind: ReviewExecutionProviderKind.Codex,
+        workSlotId: 'slot-1',
+      })
+    );
+  });
+
+  it('bounds authoritative deferred retries to one work slot', async () => {
+    const fixture = createFixture({
+      maxAttempts: 2,
+      allowPartial: true,
+      executionProfile: 'context_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationError: new ReviewInvestigationDeferredSignal(
+        ReviewInvestigationRunStatus.Parked
+      ),
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.PartialCompleted,
+      failureCode: 'required_investigation_deferred',
+    });
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(2);
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+    expect(
+      fixture.dependencies.investigationDiagnostics!.record
+    ).toHaveBeenCalledTimes(2);
+    expect(fixture.controlPlane.requestPublication).toHaveBeenCalledTimes(1);
+  });
+
   it('supersedes before scheduling stale work and never projects it', async () => {
     const fixture = createFixture();
     jest
@@ -1251,9 +1304,11 @@ describe('RunT0ReviewOrchestration', () => {
 function createFixture(
   options: {
     maxAttempts?: number;
+    allowPartial?: boolean;
     investigationMode?: ReviewInvestigationRecordingMode;
     investigationVerifiedCleanEffectsEnabled?: boolean;
     investigationError?: unknown;
+    investigationPrepareError?: unknown;
     executionProfile?:
       | 'prompt_only_envelope_v1'
       | 'agentic_unbounded_v1'
@@ -1347,7 +1402,7 @@ function createFixture(
     sourceRunId: 'run-1',
     sourceRunAttempt: '1',
     ownerIdHash: hash('owner'),
-    allowPartial: false,
+    allowPartial: options.allowPartial ?? false,
   };
   controlPlane.restoreExecution
     .mockReset()
@@ -1416,6 +1471,9 @@ function createFixture(
     invocationDiagnostics: {
       recordFailure: jest.fn(),
     },
+    investigationDiagnostics: {
+      record: jest.fn(),
+    },
     leaseSupervisor: {
       run: jest
         .fn()
@@ -1455,6 +1513,9 @@ function createFixture(
         prepare: jest
           .fn()
           .mockImplementation(async ({ workSlot, attemptOrdinal }) => {
+            if (options.investigationPrepareError !== undefined) {
+              throw options.investigationPrepareError;
+            }
             const authoritative = await dependencies.invocations.prepare({
               workSlot,
               attemptOrdinal,

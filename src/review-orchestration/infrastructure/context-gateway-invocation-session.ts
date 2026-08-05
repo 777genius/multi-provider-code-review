@@ -9,6 +9,7 @@ import {
   canonicalizeReviewContextGatewayEvent,
   canonicalizeReviewContextReplayHandle,
   canonicalizeReviewContextSearchQuery,
+  canonicalizeReviewInvestigationContextConfinementEvidence,
 } from '../../control-plane/generated/review-action-v2/review-action-v2';
 import {
   buildCanonicalGitInventory,
@@ -29,6 +30,7 @@ import {
   CONTEXT_GATEWAY_V4_ENABLED_TOOLS,
   CONTEXT_GATEWAY_V4_POLICY_VERSION,
 } from '../../context-gateway/context-gateway-v4-contract';
+import { ContextGatewayLeaseAuthorityKind } from '../../context-gateway/context-gateway-lease-authority';
 import { decryptContextGatewayV4ReplayMaterial } from '../../context-gateway/context-gateway-v4-replay-material';
 import {
   ContextGatewayV4Recorder,
@@ -84,6 +86,7 @@ export enum ContextGatewayExecutionProfile {
 
 export type OpenContextGatewayInvocationInput = Readonly<{
   invocationLease: ReviewInvocationLease;
+  leaseAuthorityKind: ContextGatewayLeaseAuthorityKind;
   currentInvocationLease?: () => ReviewInvocationLease;
   sourceExecutionId: string;
   sourceWorkSlotId: string;
@@ -241,7 +244,10 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       throw error;
     }
     const confinementEvidenceHash = sha256(
-      canonicalizeReviewContextConfinementEvidence({
+      (input.leaseAuthorityKind ===
+        ContextGatewayLeaseAuthorityKind.StandardExecution
+        ? canonicalizeReviewContextConfinementEvidence
+        : canonicalizeReviewInvestigationContextConfinementEvidence)({
         attemptId: input.invocationLease.attemptId,
         sourceLeaseId: input.invocationLease.leaseId,
         sourceFencingToken: input.invocationLease.fencingToken,
