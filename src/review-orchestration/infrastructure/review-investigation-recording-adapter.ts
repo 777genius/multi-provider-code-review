@@ -162,7 +162,7 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
         seedEnvelope: requireSeedEnvelope(input.invocation),
         initialReceipts: [],
         providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
-        providerManifestHash: sha256(input.manifest.manifestCanonicalJson),
+        providerManifestHash: input.manifest.manifestKey,
         ownerIdHash: input.ownerIdHash,
         targetScope: {
           workspaceId: input.authorization.facts.workspaceId,

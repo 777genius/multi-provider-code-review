@@ -90,6 +90,8 @@ describe('ReviewInvestigationRecordingAdapter', () => {
   it('projects only a certificate-backed terminal observation', async () => {
     const terminalJson = '{"payloadVersion":2}';
     const execute = jest.fn(async (runInput) => {
+      expect(runInput.providerManifestCanonicalJson).toBe('{}');
+      expect(runInput.providerManifestHash).toBe('9'.repeat(64));
       expect(runInput.coverageContract).toEqual(
         reviewInvestigationCoverageContract('release-1')
       );
