@@ -5,6 +5,8 @@ import {
   ReviewActionV2ClientFailureCode,
 } from '../../../src/control-plane/review-action-v2-client';
 import {
+  reviewInvestigationExtensionV1,
+  reviewInvestigationRolloutAuthorizationV3Contract,
   ReviewActionV2ProtocolErrorCode,
   ReviewEvidenceLookupResultStatus,
   ReviewEvidenceCommitResultStatus,
@@ -25,8 +27,9 @@ import { logger } from '../../../src/utils/logger';
 import {
   ReviewCapabilityKind,
   ReviewExecutionProviderKind,
+  ReviewEvidenceCommitRejectedError,
+  ReviewEvidenceCommitRejectionReason,
   ReviewEvidenceLookupKind,
-  ReviewInvestigationAuthorizationDescriptorVersion,
   ReviewInvestigationRolloutCapability,
   ReviewInvocationConfigurationMismatchError,
   ReviewInvocationConfigurationMismatchReason,
@@ -37,7 +40,34 @@ import {
   RestoredReviewExecutionState,
   RestoredReviewWorkSlotState,
 } from '../../../src/review-orchestration/application';
-import { ReviewActionV2ControlPlaneAdapter } from '../../../src/review-orchestration/infrastructure';
+import { ReviewActionV2ControlPlaneAdapter } from '../../../src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter';
+
+const investigationExtensionDescriptor = Object.freeze({
+  extensionId: reviewInvestigationExtensionV1.extensionId,
+  extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+  extensionCanonicalizerDigest:
+    reviewInvestigationExtensionV1.canonicalizerDigest,
+});
+
+function reviewInvestigationDescriptor(
+  overrides: Readonly<Record<string, unknown>> = {}
+) {
+  return {
+    ...investigationExtensionDescriptor,
+    authorizationDescriptorVersion:
+      reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion,
+    capability: ReviewCapabilityKind.ReviewInvestigationV1,
+    coverageProfileHash: hash('coverage-profile'),
+    policyHash: hash('investigation-policy'),
+    providerCapabilities: [
+      {
+        providerKind: ReviewExecutionProviderKind.Codex,
+        capabilities: [ReviewInvestigationRolloutCapability.Recording],
+      },
+    ],
+    ...overrides,
+  };
+}
 
 describe('ReviewActionV2ControlPlaneAdapter', () => {
   it('normalizes a complete generated authorization and selected limits', async () => {
@@ -78,10 +108,11 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     });
   });
 
-  it('parses the strict review investigation authorization descriptor V2', async () => {
+  it('parses the strict review investigation authorization descriptor V3', async () => {
     const reviewInvestigation = {
+      ...investigationExtensionDescriptor,
       authorizationDescriptorVersion:
-        ReviewInvestigationAuthorizationDescriptorVersion.V2,
+        reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion,
       capability: ReviewCapabilityKind.ReviewInvestigationV1,
       coverageProfileHash: hash('coverage-profile'),
       policyHash: hash('investigation-policy'),
@@ -138,41 +169,23 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
   it.each([
     {
       name: 'unknown top-level field',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
-        coverageProfileHash: hash('coverage-profile'),
-        policyHash: hash('investigation-policy'),
-        providerCapabilities: [
-          {
-            providerKind: ReviewExecutionProviderKind.Codex,
-            capabilities: [ReviewInvestigationRolloutCapability.Recording],
-          },
-        ],
-        futureField: true,
-      },
+      descriptor: reviewInvestigationDescriptor({ futureField: true }),
     },
     {
       name: 'unsupported provider',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
-        coverageProfileHash: hash('coverage-profile'),
-        policyHash: hash('investigation-policy'),
+      descriptor: reviewInvestigationDescriptor({
         providerCapabilities: [
           {
             providerKind: ReviewExecutionProviderKind.OpenRouter,
             capabilities: [ReviewInvestigationRolloutCapability.Recording],
           },
         ],
-      },
+      }),
     },
     {
-      name: 'unsupported descriptor version',
+      name: 'legacy V2 descriptor',
       descriptor: {
-        authorizationDescriptorVersion: 3,
+        authorizationDescriptorVersion: 2,
         capability: ReviewCapabilityKind.ReviewInvestigationV1,
         coverageProfileHash: hash('coverage-profile'),
         policyHash: hash('investigation-policy'),
@@ -185,24 +198,40 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
       },
     },
     {
-      name: 'empty provider rows',
+      name: 'missing extension tuple',
       descriptor: {
         authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+          reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion,
         capability: ReviewCapabilityKind.ReviewInvestigationV1,
         coverageProfileHash: hash('coverage-profile'),
         policyHash: hash('investigation-policy'),
-        providerCapabilities: [],
+        providerCapabilities: [
+          {
+            providerKind: ReviewExecutionProviderKind.Codex,
+            capabilities: [ReviewInvestigationRolloutCapability.Recording],
+          },
+        ],
       },
+    },
+    ...(
+      [
+        ['extensionId', 'review-investigation-shadow.future'],
+        ['extensionSchemaDigest', hash('wrong-extension-schema')],
+        ['extensionCanonicalizerDigest', hash('wrong-extension-canonicalizer')],
+      ] as const
+    ).map(([field, value]) => ({
+      name: `${field} mismatch`,
+      descriptor: reviewInvestigationDescriptor({ [field]: value }),
+    })),
+    {
+      name: 'empty provider rows',
+      descriptor: reviewInvestigationDescriptor({
+        providerCapabilities: [],
+      }),
     },
     {
       name: 'duplicate provider rows',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
-        coverageProfileHash: hash('coverage-profile'),
-        policyHash: hash('investigation-policy'),
+      descriptor: reviewInvestigationDescriptor({
         providerCapabilities: [
           {
             providerKind: ReviewExecutionProviderKind.Codex,
@@ -213,16 +242,11 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
             capabilities: [ReviewInvestigationRolloutCapability.Recording],
           },
         ],
-      },
+      }),
     },
     {
       name: 'unsorted capabilities',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
-        coverageProfileHash: hash('coverage-profile'),
-        policyHash: hash('investigation-policy'),
+      descriptor: reviewInvestigationDescriptor({
         providerCapabilities: [
           {
             providerKind: ReviewExecutionProviderKind.Codex,
@@ -232,16 +256,11 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
             ],
           },
         ],
-      },
+      }),
     },
     {
       name: 'duplicate capabilities',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
-        coverageProfileHash: hash('coverage-profile'),
-        policyHash: hash('investigation-policy'),
+      descriptor: reviewInvestigationDescriptor({
         providerCapabilities: [
           {
             providerKind: ReviewExecutionProviderKind.Codex,
@@ -251,16 +270,11 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
             ],
           },
         ],
-      },
+      }),
     },
     {
       name: 'unknown capability',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
-        coverageProfileHash: hash('coverage-profile'),
-        policyHash: hash('investigation-policy'),
+      descriptor: reviewInvestigationDescriptor({
         providerCapabilities: [
           {
             providerKind: ReviewExecutionProviderKind.Codex,
@@ -270,16 +284,11 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
             ],
           },
         ],
-      },
+      }),
     },
     {
       name: 'dependency gap',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
-        coverageProfileHash: hash('coverage-profile'),
-        policyHash: hash('investigation-policy'),
+      descriptor: reviewInvestigationDescriptor({
         providerCapabilities: [
           {
             providerKind: ReviewExecutionProviderKind.Codex,
@@ -289,32 +298,22 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
             ],
           },
         ],
-      },
+      }),
     },
     {
       name: 'row without recording authority',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
-        coverageProfileHash: hash('coverage-profile'),
-        policyHash: hash('investigation-policy'),
+      descriptor: reviewInvestigationDescriptor({
         providerCapabilities: [
           {
             providerKind: ReviewExecutionProviderKind.Codex,
             capabilities: [],
           },
         ],
-      },
+      }),
     },
     {
       name: 'unknown provider-row field',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
-        coverageProfileHash: hash('coverage-profile'),
-        policyHash: hash('investigation-policy'),
+      descriptor: reviewInvestigationDescriptor({
         providerCapabilities: [
           {
             providerKind: ReviewExecutionProviderKind.Codex,
@@ -322,23 +321,13 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
             futureField: true,
           },
         ],
-      },
+      }),
     },
     {
       name: 'invalid coverage profile hash',
-      descriptor: {
-        authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
-        capability: ReviewCapabilityKind.ReviewInvestigationV1,
+      descriptor: reviewInvestigationDescriptor({
         coverageProfileHash: 'not-a-hash',
-        policyHash: hash('investigation-policy'),
-        providerCapabilities: [
-          {
-            providerKind: ReviewExecutionProviderKind.Codex,
-            capabilities: [ReviewInvestigationRolloutCapability.Recording],
-          },
-        ],
-      },
+      }),
     },
   ])(
     'ignores an invalid optional descriptor with $name',
@@ -373,12 +362,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
       authorizationFactsCanonicalJson: canonicalJson({
         ...authorizationFacts,
         providerVoteLanes,
-        reviewInvestigation: {
-          authorizationDescriptorVersion:
-            ReviewInvestigationAuthorizationDescriptorVersion.V2,
-          capability: ReviewCapabilityKind.ReviewInvestigationV1,
-          coverageProfileHash: hash('coverage-profile'),
-          policyHash: hash('investigation-policy'),
+        reviewInvestigation: reviewInvestigationDescriptor({
           providerCapabilities: [
             {
               providerKind: ReviewExecutionProviderKind.Codex,
@@ -389,7 +373,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
               capabilities: [ReviewInvestigationRolloutCapability.Recording],
             },
           ],
-        },
+        }),
       }),
     });
 
@@ -406,19 +390,14 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
       ...authorizationResponse(),
       authorizationFactsCanonicalJson: canonicalJson({
         ...authorizationFacts,
-        reviewInvestigation: {
-          authorizationDescriptorVersion:
-            ReviewInvestigationAuthorizationDescriptorVersion.V2,
-          capability: ReviewCapabilityKind.ReviewInvestigationV1,
-          coverageProfileHash: hash('coverage-profile'),
-          policyHash: hash('investigation-policy'),
+        reviewInvestigation: reviewInvestigationDescriptor({
           providerCapabilities: [
             {
               providerKind: ReviewExecutionProviderKind.ClaudeCode,
               capabilities: [ReviewInvestigationRolloutCapability.Recording],
             },
           ],
-        },
+        }),
       }),
     });
 
@@ -1265,6 +1244,52 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
       'review_action_v2:review_evidence_commit:invalid_request:payload_hash_mismatch'
     );
   });
+
+  it.each([
+    [
+      'investigation_certificate_reference_invalid',
+      ReviewEvidenceCommitRejectionReason.InvestigationCertificateReferenceInvalid,
+    ],
+    ['future_server_reason', ReviewEvidenceCommitRejectionReason.Unknown],
+    [null, ReviewEvidenceCommitRejectionReason.Unknown],
+  ])(
+    'preserves a bounded evidence rejection reason for %s',
+    async (rejectionReason, expectedReason) => {
+      const execute = jest.fn().mockResolvedValue({
+        status: ReviewEvidenceCommitResultStatus.Rejected,
+        observationId: null,
+        eligibilityPolicyVersion: null,
+        historicalOnly: false,
+        rejectionReason,
+      });
+
+      await expect(
+        createAdapter(execute).commitEvidence({
+          authorization,
+          idempotencyKey: 'idem:commit:rejected',
+          lease: baseLease,
+          ownerIdHash: hash('owner'),
+          observation: {
+            payloadCanonicalJson: '{"findings":[]}',
+            payloadHash: hash('{"findings":[]}'),
+            byteCount: 15,
+            findingCount: 0,
+            actualModel: 'gpt-test',
+            qualityFlags: [],
+            transportAttemptCount: 1,
+            schemaValidated: true,
+            fullyConsumed: true,
+          },
+        })
+      ).rejects.toEqual(
+        expect.objectContaining<Partial<ReviewEvidenceCommitRejectedError>>({
+          name: 'ReviewEvidenceCommitRejectedError',
+          reason: expectedReason,
+          message: `review_evidence_commit_rejected:${expectedReason}`,
+        })
+      );
+    }
+  );
 
   it('translates finalize protocol failures into safe actionable codes', async () => {
     const execute = jest.fn().mockRejectedValue(

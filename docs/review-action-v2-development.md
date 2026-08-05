@@ -72,8 +72,8 @@ inactive until the SaaS release registry, attestation registry, safety policy,
 worker lane, workflow inventory, and mutation epoch all agree on the same full
 Action commit SHA.
 
-Investigation capabilities require authorization descriptor V2. A descriptor
-without `authorizationDescriptorVersion: 2` is ignored, so mixed-version peers
+Investigation capabilities require authorization descriptor V3. A descriptor
+without `authorizationDescriptorVersion: 3` is ignored, so mixed-version peers
 remain on the ordinary legacy review path without recording, shadow, or critic
 authority.
 

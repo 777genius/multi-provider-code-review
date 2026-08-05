@@ -75,6 +75,7 @@ import {
   ReviewInvestigationLegacyFallbackSignal,
   ReviewAgentProviderKind,
   ReviewActionV2InvestigationAdapter,
+  ReviewActionV2InvestigationLeaseAdapter,
   ReplayInvestigationOnRevision,
   RunInvestigationTurn,
   RunInvestigationWorkSlot,
@@ -83,7 +84,6 @@ import {
   type ReviewInvestigationReplayControlPlanePort,
 } from '../../review-investigation';
 import {
-  ManagedOnlyInvestigationLeaseAdapter,
   REVIEW_INVESTIGATION_PRODUCTION_POLICY,
   ReviewInvestigationRecordingAdapter,
   RevisionGuardInvestigationCurrencyAdapter,
@@ -96,6 +96,7 @@ import {
   resolveProductionReviewInvestigationRollout,
   type ConfiguredProductionReviewAgent,
 } from './production-review-investigation-composition';
+import { ReviewActionV2InvestigationContextAttestationAdapter } from './review-action-v2-investigation-context-attestation-adapter';
 
 const execFileAsync = promisify(execFile);
 const CODEX_RETRY_POLICY_VERSION = 'codex-semantic-retry.v1';
@@ -223,10 +224,6 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
           requiredContextWitness
         )
       : undefined;
-    const investigationGatewayFactory =
-      investigationRecordingEnabled && contextGateway
-        ? createProductionReviewInvestigationGatewayFactory(contextGateway)
-        : undefined;
     const contextReplayRunner = contextGateway
       ? new ContextAttestationReplayRunner({
           checkoutRoot: path.resolve(input.workspacePath),
@@ -249,8 +246,19 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       Math.max(1_000, config.runTimeoutSeconds * 1_000),
       agenticContext,
       contextGateway,
-      investigationRecordingEnabled
+      false
     );
+    const investigationInvocationAdapter = investigationRecordingEnabled
+      ? new CodexReviewInvocationAdapter(
+          provider,
+          new PromptBuilder(config),
+          planned.assignments,
+          Math.max(1_000, config.runTimeoutSeconds * 1_000),
+          agenticContext,
+          contextGateway,
+          true
+        )
+      : undefined;
     const identities = new DeterministicReviewOrchestrationIdentity();
     const investigationProtocol = investigationRecordingEnabled
       ? new ReviewActionV2InvestigationAdapter(reviewActionClient)
@@ -261,12 +269,23 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
         )
       : undefined;
     const investigationRecording =
-      investigationControlPlane && investigationGatewayFactory
+      investigationControlPlane && contextGatewayOptions
         ? new ReviewInvestigationRecordingAdapter(
             (recordingInput) => {
               const currency = new RevisionGuardInvestigationCurrencyAdapter(
                 revisionGuard
               );
+              const investigationGatewayFactory =
+                createProductionReviewInvestigationGatewayFactory(
+                  new ContextGatewayInvocationSessionFactory(
+                    new ReviewActionV2InvestigationContextAttestationAdapter(
+                      reviewActionClient,
+                      recordingInput.authorization.authorizationToken
+                    ),
+                    contextGatewayOptions,
+                    requiredContextWitness
+                  )
+                );
               const gateway = new ContextGatewayV4InvestigationAdapter(
                 investigationGatewayFactory,
                 {
@@ -299,7 +318,10 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
               });
               return new RunInvestigationWorkSlot({
                 controlPlane: investigationControlPlane,
-                leases: new ManagedOnlyInvestigationLeaseAdapter(),
+                delay: new SystemReviewOrchestrationDelay(),
+                leases: new ReviewActionV2InvestigationLeaseAdapter(
+                  reviewActionClient
+                ),
                 ...(investigationRollout.crossRevisionReplayEnabled &&
                 contextReplayRunner
                   ? {
@@ -324,7 +346,8 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
             },
             {
               workingDirectory: path.resolve(input.workspacePath),
-              leaseDurationMs: 5 * 60_000,
+              leaseDurationMs:
+                Math.max(1_000, config.runTimeoutSeconds * 1_000) + 5 * 60_000,
               providerTimeoutMs: Math.max(
                 1_000,
                 config.runTimeoutSeconds * 1_000
@@ -354,6 +377,9 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
           compatibilityKey
         ),
       invocations: invocationAdapter,
+      ...(investigationInvocationAdapter
+        ? { investigationInvocations: investigationInvocationAdapter }
+        : {}),
       invocationFailureClassifier: new ProviderInvocationFailureClassifier(),
       invocationDiagnostics: new LoggingReviewInvocationDiagnostics(logger),
       leaseSupervisor: new CooperativeReviewLeaseSupervisor(),

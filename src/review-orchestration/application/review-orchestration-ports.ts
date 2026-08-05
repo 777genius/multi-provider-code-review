@@ -15,7 +15,7 @@ export enum ReviewCapabilityKind {
 }
 
 export enum ReviewInvestigationAuthorizationDescriptorVersion {
-  V2 = 2,
+  V3 = 3,
 }
 
 export enum ReviewInvestigationRolloutCapability {
@@ -29,21 +29,23 @@ export enum ReviewInvestigationRolloutCapability {
 
 export type ReviewInvestigationProviderCapabilities = Readonly<{
   providerKind:
-    | ReviewExecutionProviderKind.Codex
-    | ReviewExecutionProviderKind.ClaudeCode;
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
   capabilities: readonly ReviewInvestigationRolloutCapability[];
 }>;
 
-export type ReviewInvestigationAuthorizationDescriptorV2 = Readonly<{
-  authorizationDescriptorVersion: ReviewInvestigationAuthorizationDescriptorVersion.V2;
+export type ReviewInvestigationAuthorizationDescriptorV3 = Readonly<{
+  authorizationDescriptorVersion: ReviewInvestigationAuthorizationDescriptorVersion.V3;
   capability: ReviewCapabilityKind.ReviewInvestigationV1;
   coverageProfileHash: string;
+  extensionId: string;
+  extensionSchemaDigest: string;
+  extensionCanonicalizerDigest: string;
   policyHash: string;
   providerCapabilities: readonly ReviewInvestigationProviderCapabilities[];
 }>;
 
 export type ReviewInvestigationCapabilityDescriptor =
-  ReviewInvestigationAuthorizationDescriptorV2;
+  ReviewInvestigationAuthorizationDescriptorV3;
 
 export enum ReviewTaskKind {
   FindingDiscovery = 'finding_discovery',
@@ -586,7 +588,6 @@ export interface ReviewInvestigationRecordingPort {
     readonly workSlot: ReviewWorkSlotPlan;
     readonly invocation: PreparedReviewInvocation;
     readonly manifest: ProviderInvocationManifest;
-    readonly currentLease: () => ReviewInvocationLease;
     readonly ownerIdHash: string;
     readonly sourceReviewRevisionHash: string;
     readonly signal: AbortSignal;

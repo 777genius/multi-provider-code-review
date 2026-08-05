@@ -625,11 +625,9 @@ describe('Codex OAuth rotating setup PR preview', () => {
       GITHUB_SERVER_URL: 'https://github.example.com',
     };
     const v2ReviewRunner: CodexOAuthV2ReviewRunnerPort = {
-      run: jest.fn(
-        async (): Promise<CodexOAuthV2ReviewResult> => ({
-          outcome: CodexOAuthV2ReviewOutcome.Completed,
-        })
-      ),
+      run: jest.fn(async (): Promise<CodexOAuthV2ReviewResult> => ({
+        outcome: CodexOAuthV2ReviewOutcome.Completed,
+      })),
     };
     const terminalOutcomeReporter = {
       post: jest.fn(async () => undefined),

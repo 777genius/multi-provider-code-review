@@ -143,6 +143,30 @@ describe('production review projection coverage', () => {
     expect(envelope.publishing.check.conclusion).toBe(CheckConclusion.Neutral);
   });
 
+  it('publishes investigation findings as partial when the investigation is inconclusive', async () => {
+    const builder = projectionBuilder([assignment('required-slot', true)]);
+    const manifest = fullCoverageManifest('required-slot');
+
+    const projection = await builder.build({
+      acceptedEvidence: [
+        acceptedEvidence('required-slot', manifest, [
+          'investigation_findings',
+          'investigation_inconclusive',
+        ]),
+      ],
+      exhaustedWorkSlotIds: [],
+      reviewRevisionHash: authorizationFacts.reviewRevisionHash,
+    });
+    const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
+
+    expect(envelope.coverage).toMatchObject({
+      state: 'partial',
+      limitations: ['work_slot_investigation_inconclusive:required-slot'],
+    });
+    expect(envelope.publishing.summary.allClear).toBe(false);
+    expect(envelope.publishing.check.conclusion).toBe(CheckConclusion.Neutral);
+  });
+
   it('keeps current-head coverage complete for non-blocking quality flags', async () => {
     const builder = projectionBuilder([assignment('required-slot', true)]);
     const manifest = fullCoverageManifest('required-slot');

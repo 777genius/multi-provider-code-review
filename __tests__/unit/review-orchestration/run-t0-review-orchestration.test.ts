@@ -98,7 +98,7 @@ describe('RunT0ReviewOrchestration', () => {
 
   it('uses certificate-backed investigation evidence only in authoritative mode', async () => {
     const fixture = createFixture({
-      executionProfile: 'investigation_gateway_v1',
+      executionProfile: 'context_gateway_v1',
       investigationMode: ReviewInvestigationRecordingMode.Authoritative,
       investigationVerifiedCleanEffectsEnabled: true,
     });
@@ -118,30 +118,53 @@ describe('RunT0ReviewOrchestration', () => {
     );
   });
 
-  it('falls back to legacy evidence when verified clean effects are disabled', async () => {
+  it('fails closed instead of running legacy evidence under an investigation manifest', async () => {
     const fixture = createFixture({
       executionProfile: 'investigation_gateway_v1',
       investigationMode: ReviewInvestigationRecordingMode.Authoritative,
       investigationVerifiedCleanEffectsEnabled: false,
     });
+    jest
+      .mocked(fixture.dependencies.invocationFailureClassifier.classify)
+      .mockReturnValue(ReviewInvocationFailureClass.ConfigurationMismatch);
 
     const result = await fixture.useCase.execute(fixture.command);
 
-    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode:
+        'review_invocation_configuration_mismatch:investigation_legacy_fallback_manifest_mismatch',
+    });
     expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
-    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
-    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
-      expect.objectContaining({
-        observation: expect.objectContaining({
-          payloadHash: observationPayload.payloadHash,
-        }),
-      })
-    );
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
   });
 
-  it('falls back to legacy after a pre-open capability-disabled rejection', async () => {
+  it('does not reuse an investigation manifest after a pre-open fallback signal', async () => {
     const fixture = createFixture({
       executionProfile: 'investigation_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+      investigationError: new ReviewInvestigationLegacyFallbackSignal(),
+    });
+    jest
+      .mocked(fixture.dependencies.invocationFailureClassifier.classify)
+      .mockReturnValue(ReviewInvocationFailureClass.ConfigurationMismatch);
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode:
+        'review_invocation_configuration_mismatch:investigation_legacy_fallback_manifest_mismatch',
+    });
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the separately prepared authoritative invocation after a pre-open investigation signal', async () => {
+    const fixture = createFixture({
+      executionProfile: 'context_gateway_v1',
       investigationMode: ReviewInvestigationRecordingMode.Authoritative,
       investigationError: new ReviewInvestigationLegacyFallbackSignal(),
     });
@@ -158,6 +181,9 @@ describe('RunT0ReviewOrchestration', () => {
         }),
       })
     );
+    expect(
+      fixture.controlPlane.commitEvidence.mock.calls[0][0].observation
+    ).not.toHaveProperty('investigationCertificateId');
   });
 
   it('does not silently fall back after investigation has mutated', async () => {
@@ -171,7 +197,7 @@ describe('RunT0ReviewOrchestration', () => {
 
     expect(result).toMatchObject({
       status: ReviewOrchestrationResultStatus.Failed,
-      failureCode: 'required_work_exhausted',
+      failureCode: 'capability_disabled_after_open',
     });
     expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
   });
@@ -694,29 +720,21 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.dependencies.projectionBuilder.build).not.toHaveBeenCalled();
   });
 
-  it('fails fast on investigation gateway configuration drift without legacy fallback', async () => {
+  it('keeps record-only investigation failures isolated from the legacy review', async () => {
     const failure = new ReviewInvocationConfigurationMismatchError(
       ReviewInvocationConfigurationMismatchReason.ContextGatewayPolicyMismatch
     );
     const fixture = createFixture({
       maxAttempts: 3,
-      executionProfile: 'investigation_gateway_v1',
+      executionProfile: 'context_gateway_v1',
       investigationMode: ReviewInvestigationRecordingMode.RecordOnly,
       investigationError: failure,
     });
-    jest
-      .mocked(fixture.dependencies.invocationFailureClassifier.classify)
-      .mockReturnValue(ReviewInvocationFailureClass.ConfigurationMismatch);
-
     const result = await fixture.useCase.execute(fixture.command);
 
-    expect(result).toMatchObject({
-      status: ReviewOrchestrationResultStatus.Failed,
-      failureCode:
-        'review_invocation_configuration_mismatch:context_gateway_policy_mismatch',
-    });
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
     expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
-    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
     expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
       1
     );
@@ -1351,8 +1369,12 @@ function createFixture(
     invocationManifestAssembler: {
       assemble: jest.fn().mockImplementation(async (invocation) => ({
         manifestCanonicalJson: '{"fixture":true}',
-        manifestKey: hash(`manifest-${invocation.attemptOrdinal}`),
-        providerInvocationKey: hash(`invocation-${invocation.attemptOrdinal}`),
+        manifestKey: hash(
+          `manifest-${invocation.attemptOrdinal}-${invocation.manifestFacts.executionProfile}`
+        ),
+        providerInvocationKey: hash(
+          `invocation-${invocation.attemptOrdinal}-${invocation.manifestFacts.executionProfile}`
+        ),
         providerVoteIdentityHash: hash('vote'),
       })),
     },
@@ -1427,7 +1449,29 @@ function createFixture(
       }
     : undefined;
   if (investigationRecording) {
-    Object.assign(dependencies, { investigationRecording });
+    Object.assign(dependencies, {
+      investigationRecording,
+      investigationInvocations: {
+        prepare: jest
+          .fn()
+          .mockImplementation(async ({ workSlot, attemptOrdinal }) => {
+            const authoritative = await dependencies.invocations.prepare({
+              workSlot,
+              attemptOrdinal,
+            });
+            return {
+              ...authoritative,
+              manifestFacts: Object.freeze({
+                ...authoritative.manifestFacts,
+                executionProfile: 'investigation_gateway_v1' as const,
+                providerCapabilityHash: hash('investigation-capability'),
+                providerRequestEnvelopeHash: hash('investigation-request'),
+              }),
+            };
+          }),
+        execute: jest.fn(),
+      },
+    });
   }
   return {
     controlPlane,

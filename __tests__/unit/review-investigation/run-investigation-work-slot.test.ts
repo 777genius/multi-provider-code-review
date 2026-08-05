@@ -11,6 +11,7 @@ import {
   ReviewInvestigationCurrency,
   ReviewInvestigationLeaseAcquireStatus,
   type ReviewInvestigationControlPlanePort,
+  type ReviewInvestigationDelayPort,
   type ReviewInvestigationLease,
   type ReviewInvestigationLeasePort,
 } from '../../../src/review-investigation/application/investigation-control-plane-port';
@@ -64,6 +65,10 @@ const lease: ReviewInvestigationLease = Object.freeze({
 });
 
 describe('RunInvestigationWorkSlot', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('concludes an inconclusive aggregate before treating it as terminal', async () => {
     const pending = Object.freeze({
       ...plannedSnapshot(),
@@ -186,36 +191,288 @@ describe('RunInvestigationWorkSlot', () => {
     });
   });
 
-  it('uses the orchestration-managed lease without acquiring or releasing it', async () => {
+  it('always acquires and releases its dedicated investigation lease', async () => {
     const planned = plannedSnapshot();
     const committed = terminalSnapshot(3);
     const controlPlane = controlPlaneFixture(planned);
     controlPlane.commitTurn.mockImplementation(async (input) => {
-      expect(input.lease.attemptId).toBe('attempt-managed');
+      expect(input.lease.attemptId).toBe('attempt-investigation');
       controlPlane.current = committed;
       return committed;
     });
-    const leases: ReviewInvestigationLeasePort = {
-      acquire: jest.fn(),
-      release: jest.fn(),
-    };
-    const managedLease = Object.freeze({
+    const investigationLease = Object.freeze({
       ...lease,
-      attemptId: 'attempt-managed',
-      leaseCapability: 'managed.lease.capability',
+      attemptId: 'attempt-investigation',
+      leaseCapability: 'investigation.lease.capability',
     });
+    const leases: ReviewInvestigationLeasePort = {
+      acquire: jest.fn(async () => ({
+        status: ReviewInvestigationLeaseAcquireStatus.Acquired,
+        lease: investigationLease,
+      })),
+      renew: jest.fn(async ({ lease: current }) => current),
+      release: jest.fn(async () => undefined),
+    };
     const runner = runnerFixture(controlPlane, agentFixture(observation()), {
       leases,
     });
 
-    const result = await runner.execute({
-      ...runInput(),
-      managedLease: () => managedLease,
-    });
+    const result = await runner.execute(runInput());
 
     expect(result.status).toBe(ReviewInvestigationRunStatus.Completed);
-    expect(leases.acquire).not.toHaveBeenCalled();
+    expect(leases.acquire).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorizationToken: 'authorization.token.value',
+        investigationId: 'investigation-1',
+        turnId: 'turn-1',
+        providerStrategyId: 'codex-primary',
+        ownerIdHash:
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      })
+    );
+    expect(leases.release).toHaveBeenCalledWith({
+      investigationId: 'investigation-1',
+      turnId: 'turn-1',
+      lease: investigationLease,
+      ownerIdHash:
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    });
+  });
+
+  it('preserves a durable committed turn when lease cleanup fails', async () => {
+    const planned = plannedSnapshot();
+    const committed = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.commitTurn.mockImplementation(async () => {
+      controlPlane.current = committed;
+      return committed;
+    });
+    const leases: ReviewInvestigationLeasePort = {
+      acquire: jest.fn(async () => ({
+        status: ReviewInvestigationLeaseAcquireStatus.Acquired,
+        lease,
+      })),
+      renew: jest.fn(async ({ lease: current }) => current),
+      release: jest.fn(async () => {
+        throw new Error('lease_release_transport_unavailable');
+      }),
+    };
+
+    await expect(
+      runnerFixture(controlPlane, agentFixture(observation()), {
+        leases,
+      }).execute(runInput())
+    ).resolves.toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: committed,
+    });
+    expect(leases.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('joins a concurrent same-turn owner through bounded restore polling', async () => {
+    const planned = plannedSnapshot();
+    const committed = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.restore
+      .mockResolvedValueOnce(planned)
+      .mockResolvedValueOnce(committed);
+    const delay: ReviewInvestigationDelayPort = {
+      sleep: jest.fn(async () => undefined),
+    };
+    const leases: ReviewInvestigationLeasePort = {
+      acquire: jest.fn(async () => ({
+        status: ReviewInvestigationLeaseAcquireStatus.Busy as const,
+      })),
+      renew: jest.fn(),
+      release: jest.fn(),
+    };
+    const agent = agentFixture(observation());
+
+    const result = await runnerFixture(controlPlane, agent, {
+      delay,
+      leases,
+    }).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: committed,
+    });
+    expect(controlPlane.restore).toHaveBeenCalledTimes(2);
+    expect(delay.sleep).toHaveBeenCalledWith(5_000);
+    expect(agent.executeTurn).not.toHaveBeenCalled();
     expect(leases.release).not.toHaveBeenCalled();
+  });
+
+  it('restores a turn committed between planning and lease acquisition', async () => {
+    const planned = plannedSnapshot();
+    const committed = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.restore.mockResolvedValueOnce(committed);
+    const leases: ReviewInvestigationLeasePort = {
+      acquire: jest.fn(async () => ({
+        status: ReviewInvestigationLeaseAcquireStatus.NotRunnable as const,
+      })),
+      renew: jest.fn(),
+      release: jest.fn(),
+    };
+    const agent = agentFixture(observation());
+
+    await expect(
+      runnerFixture(controlPlane, agent, { leases }).execute(runInput())
+    ).resolves.toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: committed,
+    });
+    expect(controlPlane.restore).toHaveBeenCalledTimes(1);
+    expect(agent.executeTurn).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid initial lease before provider execution', async () => {
+    const controlPlane = controlPlaneFixture(plannedSnapshot());
+    const invalidLease = Object.freeze({
+      ...lease,
+      expiresAt: '2026-08-02T10:21:00.000Z',
+    });
+    const agent = agentFixture(observation());
+    const leases: ReviewInvestigationLeasePort = {
+      acquire: jest.fn(async () => ({
+        status: ReviewInvestigationLeaseAcquireStatus.Acquired,
+        lease: invalidLease,
+      })),
+      renew: jest.fn(async ({ lease: current }) => current),
+      release: jest.fn(async () => undefined),
+    };
+
+    await expect(
+      runnerFixture(controlPlane, agent, { leases }).execute(runInput())
+    ).rejects.toThrow('review_investigation_lease_invalid');
+
+    expect(agent.executeTurn).not.toHaveBeenCalled();
+    expect(leases.release).toHaveBeenCalledWith({
+      investigationId: 'investigation-1',
+      turnId: 'turn-1',
+      lease: invalidLease,
+      ownerIdHash: digest,
+    });
+  });
+
+  it('renews the dedicated lease and propagates its rotated capability', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-02T10:00:00.000Z'));
+    const planned = plannedSnapshot();
+    const committed = terminalSnapshot(3);
+    const controlPlane = controlPlaneFixture(planned);
+    const initialLease = Object.freeze({
+      ...lease,
+      expiresAt: '2026-08-02T10:00:04.000Z',
+    });
+    const renewedLease = Object.freeze({
+      ...initialLease,
+      leaseCapability: 'lease.capability.rotated',
+      expiresAt: '2026-08-02T10:00:12.000Z',
+    });
+    controlPlane.commitTurn.mockImplementation(async (input) => {
+      expect(input.lease).toBe(renewedLease);
+      controlPlane.current = committed;
+      return committed;
+    });
+    let completeProvider!: (value: ReviewTurnObservation) => void;
+    const agent = agentFixture(observation());
+    agent.executeTurn.mockImplementation(
+      () =>
+        new Promise<ReviewTurnObservation>((resolve) => {
+          completeProvider = resolve;
+        })
+    );
+    const leases: ReviewInvestigationLeasePort = {
+      acquire: jest.fn(async () => ({
+        status: ReviewInvestigationLeaseAcquireStatus.Acquired,
+        lease: initialLease,
+      })),
+      renew: jest.fn(async () => renewedLease),
+      release: jest.fn(async () => undefined),
+    };
+    const running = runnerFixture(controlPlane, agent, {
+      leases,
+      now: () => new Date(),
+    }).execute(runInput());
+
+    await jest.advanceTimersByTimeAsync(2_000);
+    expect(leases.renew).toHaveBeenCalledWith({
+      lease: initialLease,
+      ownerIdHash: digest,
+    });
+    completeProvider(observation());
+
+    await expect(running).resolves.toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: committed,
+    });
+    expect(leases.release).toHaveBeenCalledWith({
+      investigationId: 'investigation-1',
+      turnId: 'turn-1',
+      lease: renewedLease,
+      ownerIdHash: digest,
+    });
+  });
+
+  it('fails closed on renewal identity drift and releases the last accepted lease', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-02T10:00:00.000Z'));
+    const controlPlane = controlPlaneFixture(plannedSnapshot());
+    const initialLease = Object.freeze({
+      ...lease,
+      expiresAt: '2026-08-02T10:00:04.000Z',
+    });
+    const driftedLease = Object.freeze({
+      ...initialLease,
+      attemptId: 'attempt-takeover',
+      leaseCapability: 'lease.capability.untrusted',
+      expiresAt: '2026-08-02T10:00:12.000Z',
+    });
+    const agent = agentFixture(observation());
+    let providerStopped = false;
+    agent.executeTurn.mockImplementation(
+      ({ signal }) =>
+        new Promise<ReviewTurnObservation>((_resolve, reject) => {
+          signal?.addEventListener(
+            'abort',
+            () => {
+              providerStopped = true;
+              reject(signal.reason);
+            },
+            { once: true }
+          );
+        })
+    );
+    const leases: ReviewInvestigationLeasePort = {
+      acquire: jest.fn(async () => ({
+        status: ReviewInvestigationLeaseAcquireStatus.Acquired,
+        lease: initialLease,
+      })),
+      renew: jest.fn(async () => driftedLease),
+      release: jest.fn(async () => {
+        expect(providerStopped).toBe(true);
+      }),
+    };
+    const running = runnerFixture(controlPlane, agent, {
+      leases,
+      now: () => new Date(),
+    }).execute(runInput());
+    const rejected = expect(running).rejects.toThrow(
+      'review_investigation_lease_renewal_drift'
+    );
+
+    await jest.advanceTimersByTimeAsync(2_000);
+    await rejected;
+
+    expect(controlPlane.commitTurn).not.toHaveBeenCalled();
+    expect(leases.release).toHaveBeenCalledWith({
+      investigationId: 'investigation-1',
+      turnId: 'turn-1',
+      lease: initialLease,
+      ownerIdHash: digest,
+    });
   });
 
   it('stops for recovery when an ambiguous commit was not accepted', async () => {
@@ -1001,8 +1258,10 @@ function runnerFixture(
     currency?: jest.Mock;
     gateway?: ReturnType<typeof gatewayFixture>;
     diagnostics?: ReviewInvestigationOperationalDiagnosticPort;
+    delay?: ReviewInvestigationDelayPort;
     leases?: ReviewInvestigationLeasePort;
     agents?: ReviewAgentSelectionPort;
+    now?: () => Date;
   } = {}
 ): RunInvestigationWorkSlot {
   const gateway = overrides.gateway ?? gatewayFixture();
@@ -1024,16 +1283,23 @@ function runnerFixture(
     ...(overrides.diagnostics === undefined
       ? {}
       : { diagnostics: overrides.diagnostics }),
-    now: () => new Date('2026-08-02T10:00:00.000Z'),
+    now: overrides.now ?? (() => new Date('2026-08-02T10:00:00.000Z')),
   });
   const leases: ReviewInvestigationLeasePort = overrides.leases ?? {
     acquire: jest.fn(async () => ({
       status: ReviewInvestigationLeaseAcquireStatus.Acquired,
       lease,
     })),
+    renew: jest.fn(async ({ lease: current }) => current),
     release: jest.fn(async () => undefined),
   };
-  return new RunInvestigationWorkSlot({ controlPlane, leases, turnRunner });
+  return new RunInvestigationWorkSlot({
+    controlPlane,
+    delay: overrides.delay ?? { sleep: jest.fn(async () => undefined) },
+    leases,
+    turnRunner,
+    now: () => new Date('2026-08-02T10:00:00.000Z'),
+  });
 }
 
 function runInput() {
@@ -1054,6 +1320,9 @@ function runInput() {
       hash: 'b'.repeat(64),
     },
     initialReceipts: [],
+    providerManifestCanonicalJson: '{}',
+    providerManifestHash: digest,
+    ownerIdHash: digest,
     requestedModel: 'gpt-5.6-sol',
     providerKind: ReviewAgentProviderKind.Codex,
     promptFor: () => 'Review the current work slot.',

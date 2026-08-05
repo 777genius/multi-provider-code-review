@@ -181,10 +181,6 @@ describe('ReviewInvestigationRecordingAdapter', () => {
             requirement.kind === 'complete_page_chain'
         ).length
       ).toBeGreaterThan(1);
-      expect(runInput.managedLease()).toMatchObject({
-        leaseId: 'lease-1',
-        fencingToken: '7',
-      });
       const prompt = runInput.promptFor(activeSnapshot());
       expect(prompt).toContain(
         'REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:'
@@ -563,15 +559,6 @@ function executionInput(
       providerInvocationKey: 'a'.repeat(64),
       providerVoteIdentityHash: workSlot.providerVoteIdentityHash,
     },
-    currentLease: () => ({
-      leaseId: 'lease-1',
-      attemptId: 'attempt-1',
-      leaseCapability: 'lease-capability',
-      fencingToken: '7',
-      expiresAt: '2026-08-02T10:05:00.000Z',
-      resultReportUntil: '2026-08-02T10:10:00.000Z',
-      renewalCeilingReached: false,
-    }),
     ownerIdHash: 'e'.repeat(64),
     sourceReviewRevisionHash: reviewRevisionHash,
     signal: new AbortController().signal,

@@ -61,6 +61,7 @@ export interface InvestigationContextGatewayRuntimeSessionPort {
 export interface InvestigationContextGatewayRuntimeFactoryPort {
   open(input: {
     readonly invocationLease: InvestigationContextGatewayInvocationLease;
+    readonly currentInvocationLease?: () => InvestigationContextGatewayInvocationLease;
     readonly sourceExecutionId: string;
     readonly sourceWorkSlotId: string;
     readonly sourceReviewRevisionHash: string;
@@ -150,7 +151,8 @@ export class ContextGatewayV4InvestigationAdapter
     let session: InvestigationContextGatewayRuntimeSessionPort;
     try {
       session = await this.factory.open({
-        invocationLease: runtimeLease(input.lease),
+        invocationLease: runtimeLease(input.currentLease()),
+        currentInvocationLease: () => runtimeLease(input.currentLease()),
         sourceExecutionId: input.executionId,
         sourceWorkSlotId: input.workSlotId,
         sourceReviewRevisionHash: input.reviewRevisionHash,
@@ -289,7 +291,7 @@ function confinementViolation(message: string): ReviewAgentExecutionError {
 }
 
 function runtimeLease(
-  lease: ReviewInvestigationGatewayOpenInput['lease']
+  lease: ReturnType<ReviewInvestigationGatewayOpenInput['currentLease']>
 ): InvestigationContextGatewayInvocationLease {
   return Object.freeze({ ...lease, renewalCeilingReached: false });
 }

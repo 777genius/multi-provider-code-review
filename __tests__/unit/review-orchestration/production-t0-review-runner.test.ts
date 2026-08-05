@@ -12,7 +12,6 @@ import { CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION } from '../../../src/context-gat
 import {
   ReviewCapabilityKind,
   ReviewExecutionProviderKind,
-  ReviewInvestigationAuthorizationDescriptorVersion,
   ReviewInvocationConfigurationMismatchError,
   ReviewInvocationConfigurationMismatchReason,
   ReviewInvestigationRecordingMode,
@@ -20,6 +19,10 @@ import {
   ReviewOrchestrationResultStatus,
   type ReviewRunAuthorization,
 } from '../../../src/review-orchestration/application';
+import {
+  reviewInvestigationExtensionV1,
+  reviewInvestigationRolloutAuthorizationV3Contract,
+} from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
 import {
   CodexOAuthV2ReviewOutcome,
   CodexOAuthV2TerminalReason,
@@ -362,7 +365,7 @@ describe('ProductionT0ReviewRunner policy', () => {
     }
   );
 
-  it('keeps all investigation capabilities disabled for V1 authorization', () => {
+  it('keeps all investigation capabilities disabled for legacy V2 authorization', () => {
     const rollout = resolveProductionReviewInvestigationRollout({
       flags: rolloutFlags({
         recordingEnabled: true,
@@ -480,15 +483,23 @@ describe('ProductionT0ReviewRunner policy', () => {
     ).toThrow('rollout_dependency_missing:shadow:recording');
   });
 
-  it('enables investigation only for exact hashes and an allowed provider', () => {
+  it('enables investigation only for the exact V3 contract and allowed provider', () => {
     const negotiated = authorizationWithInvestigation();
-    const descriptor = negotiated.facts.reviewInvestigation;
-    if (
-      descriptor === undefined ||
-      !('authorizationDescriptorVersion' in descriptor)
-    ) {
-      throw new Error('expected V2 investigation descriptor');
+    const descriptor = negotiated.facts.reviewInvestigation as unknown as
+      Readonly<Record<string, unknown>> | undefined;
+    if (descriptor === undefined) {
+      throw new Error('expected V3 investigation descriptor');
     }
+    const withDescriptor = (
+      overrides: Readonly<Record<string, unknown>>
+    ): ReviewRunAuthorization =>
+      ({
+        ...negotiated,
+        facts: {
+          ...negotiated.facts,
+          reviewInvestigation: { ...descriptor, ...overrides },
+        },
+      }) as unknown as ReviewRunAuthorization;
     const enabled = (
       authorizationOverride: ReviewRunAuthorization = negotiated
     ) =>
@@ -501,45 +512,27 @@ describe('ProductionT0ReviewRunner policy', () => {
 
     expect(enabled()).toBe(true);
     expect(
-      enabled({
-        ...negotiated,
-        facts: {
-          ...negotiated.facts,
-          reviewInvestigation: {
-            ...descriptor,
-            coverageProfileHash: 'e'.repeat(64),
-          },
-        },
-      })
+      enabled(withDescriptor({ coverageProfileHash: 'e'.repeat(64) }))
     ).toBe(false);
+    expect(enabled(withDescriptor({ policyHash: 'f'.repeat(64) }))).toBe(false);
+    for (const [field, value] of [
+      ['extensionId', 'review-investigation-shadow.future'],
+      ['extensionSchemaDigest', 'a'.repeat(64)],
+      ['extensionCanonicalizerDigest', 'b'.repeat(64)],
+    ] as const) {
+      expect(enabled(withDescriptor({ [field]: value }))).toBe(false);
+    }
     expect(
-      enabled({
-        ...negotiated,
-        facts: {
-          ...negotiated.facts,
-          reviewInvestigation: {
-            ...descriptor,
-            policyHash: 'f'.repeat(64),
-          },
-        },
-      })
-    ).toBe(false);
-    expect(
-      enabled({
-        ...negotiated,
-        facts: {
-          ...negotiated.facts,
-          reviewInvestigation: {
-            ...descriptor,
-            providerCapabilities: [
-              {
-                providerKind: ReviewExecutionProviderKind.ClaudeCode,
-                capabilities: allInvestigationCapabilities,
-              },
-            ],
-          },
-        },
-      })
+      enabled(
+        withDescriptor({
+          providerCapabilities: [
+            {
+              providerKind: ReviewExecutionProviderKind.ClaudeCode,
+              capabilities: allInvestigationCapabilities,
+            },
+          ],
+        })
+      )
     ).toBe(false);
   });
 
@@ -860,8 +853,7 @@ describe('ProductionT0ReviewRunner policy', () => {
 
 function authorizationWithInvestigation(
   providerKinds: readonly (
-    | ReviewExecutionProviderKind.Codex
-    | ReviewExecutionProviderKind.ClaudeCode
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
   )[] = [ReviewExecutionProviderKind.Codex]
 ): ReviewRunAuthorization {
   return authorizationWithInvestigationCapabilities(
@@ -904,21 +896,24 @@ function authorizationWithInvestigationCapabilities(
         })
       ),
       reviewInvestigation: {
+        extensionId: reviewInvestigationExtensionV1.extensionId,
+        extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+        extensionCanonicalizerDigest:
+          reviewInvestigationExtensionV1.canonicalizerDigest,
         authorizationDescriptorVersion:
-          ReviewInvestigationAuthorizationDescriptorVersion.V2,
+          reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion,
         capability: ReviewCapabilityKind.ReviewInvestigationV1,
         coverageProfileHash: reviewInvestigationCoverageProfileHash(),
         policyHash: reviewInvestigationPolicyHash(),
         providerCapabilities: canonicalProviderCapabilities,
       },
     },
-  };
+  } as unknown as ReviewRunAuthorization;
 }
 
 function authorizationWithLegacyInvestigation(
   providerKinds: readonly (
-    | ReviewExecutionProviderKind.Codex
-    | ReviewExecutionProviderKind.ClaudeCode
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
   )[] = [ReviewExecutionProviderKind.Codex]
 ): ReviewRunAuthorization {
   const base = authorization(1);
@@ -931,10 +926,14 @@ function authorizationWithLegacyInvestigation(
         providerVoteIdentityHash: `${index + 6}`.repeat(64),
       })),
       reviewInvestigation: {
+        authorizationDescriptorVersion: 2,
         capability: ReviewCapabilityKind.ReviewInvestigationV1,
         coverageProfileHash: reviewInvestigationCoverageProfileHash(),
         policyHash: reviewInvestigationPolicyHash(),
-        providerKinds,
+        providerCapabilities: providerKinds.map((providerKind) => ({
+          providerKind,
+          capabilities: allInvestigationCapabilities,
+        })),
       },
     },
   } as unknown as ReviewRunAuthorization;

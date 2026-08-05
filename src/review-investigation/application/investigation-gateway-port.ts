@@ -31,7 +31,7 @@ export type ReviewInvestigationGatewayOpenInput = Readonly<{
   reviewRevisionHash: string;
   investigationId: string;
   turnId: string;
-  lease: ReviewInvestigationLease;
+  currentLease: () => ReviewInvestigationLease;
 }>;
 
 export enum ReviewInvestigationGatewayConfigurationFailureReason {

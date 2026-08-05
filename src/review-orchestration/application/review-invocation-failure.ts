@@ -1,5 +1,6 @@
 export enum ReviewInvocationConfigurationMismatchReason {
   ContextGatewayPolicyMismatch = 'context_gateway_policy_mismatch',
+  InvestigationLegacyFallbackManifestMismatch = 'investigation_legacy_fallback_manifest_mismatch',
 }
 
 export class ReviewInvocationConfigurationMismatchError extends Error {

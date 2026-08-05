@@ -3,10 +3,7 @@ import { chmod, mkdtemp, rm } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ReviewActionV2Client } from '../../../src/control-plane/review-action-v2-client';
-import {
-  ReviewInvestigationCurrency,
-  type ReviewInvestigationLease,
-} from '../../../src/review-investigation/application/investigation-control-plane-port';
+import { ReviewInvestigationCurrency } from '../../../src/review-investigation/application/investigation-control-plane-port';
 import { RunInvestigationTurn } from '../../../src/review-investigation/application/run-investigation-turn';
 import { RunInvestigationWorkSlot } from '../../../src/review-investigation/application/run-investigation-work-slot';
 import type { ReviewInvestigationSnapshot } from '../../../src/review-investigation/domain/investigation-state';
@@ -28,12 +25,14 @@ import type {
   ReviewAgentProcessRunnerPort,
 } from '../../../src/review-investigation/infrastructure/review-agent-process-runner';
 import { ReviewActionV2InvestigationAdapter } from '../../../src/review-investigation/infrastructure/review-action-v2-investigation-adapter';
+import { ReviewActionV2InvestigationLeaseAdapter } from '../../../src/review-investigation/infrastructure/review-action-v2-investigation-lease-adapter';
 import { CONTEXT_GATEWAY_V4_POLICY_VERSION } from '../../../src/context-gateway/context-gateway-v4-contract';
 import {
   ContextGatewayInvocationSessionFactory,
   SubprocessRequiredContextWitnessRunner,
 } from '../../../src/review-orchestration/infrastructure/context-gateway-invocation-session';
 import { ReviewActionV2ControlPlaneAdapter } from '../../../src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter';
+import { ReviewActionV2InvestigationContextAttestationAdapter } from '../../../src/review-orchestration/infrastructure/review-action-v2-investigation-context-attestation-adapter';
 import type { DisposableInvestigationRepository } from './disposable-investigation-repository';
 import {
   FakeReviewActionV2ControlPlane,
@@ -87,15 +86,6 @@ export type InvestigationHarness = Readonly<{
   dispose(): Promise<void>;
 }>;
 
-const lease: ReviewInvestigationLease = Object.freeze({
-  leaseId: 'lease-e2e',
-  attemptId: 'attempt-e2e',
-  leaseCapability: 'lease.capability.e2e',
-  fencingToken: '1',
-  expiresAt: '2026-08-03T23:00:00.000Z',
-  resultReportUntil: '2026-08-04T00:00:00.000Z',
-});
-
 export async function createInvestigationHarness(
   repository: DisposableInvestigationRepository
 ): Promise<InvestigationHarness> {
@@ -133,11 +123,23 @@ export async function createInvestigationHarness(
     const authorization = await orchestrationControlPlane.authorize({
       oidcToken: 'oidc.e2e.token',
     });
+    if (authorization.facts.reviewInvestigation === undefined) {
+      throw new Error('e2e_investigation_authorization_descriptor_missing');
+    }
     const investigationControlPlane = new ReviewActionV2InvestigationAdapter(
       client
     );
+    const investigationLeases = new ReviewActionV2InvestigationLeaseAdapter(
+      client,
+      requestIdFactory()
+    );
+    const investigationGatewayAttestation =
+      new ReviewActionV2InvestigationContextAttestationAdapter(
+        client,
+        authorization.authorizationToken
+      );
     const gatewayFactory = new ContextGatewayInvocationSessionFactory(
-      orchestrationControlPlane,
+      investigationGatewayAttestation,
       {
         checkoutRoot: repository.root,
         gatewayBundlePath: artifacts.gatewayBundlePath,
@@ -190,15 +192,13 @@ export async function createInvestigationHarness(
     });
     const runner = new RunInvestigationWorkSlot({
       controlPlane: investigationControlPlane,
-      leases: {
-        acquire: async () => {
-          throw new Error('e2e_managed_lease_required');
-        },
-        release: async () => {
-          throw new Error('e2e_managed_lease_release_forbidden');
-        },
+      delay: {
+        sleep: async (delayMs) =>
+          new Promise((resolve) => setTimeout(resolve, delayMs)),
       },
+      leases: investigationLeases,
       turnRunner,
+      now: () => new Date('2026-08-03T22:00:00.000Z'),
     });
     let invocationOrdinal = 0;
     const seedEnvelopeCanonicalJson = canonicalJson({
@@ -225,6 +225,9 @@ export async function createInvestigationHarness(
         hash: sha256(seedEnvelopeCanonicalJson),
       },
       initialReceipts: [],
+      providerManifestCanonicalJson: '{}',
+      providerManifestHash: sha256('{}'),
+      ownerIdHash: sha256('owner-e2e'),
       requestedModel: 'gpt-e2e',
       providerKind: ReviewAgentProviderKind.Codex,
       promptFor: (snapshot) => {
@@ -247,7 +250,6 @@ export async function createInvestigationHarness(
       certificateTtlMs: 3_600_000,
       minimumCapacityParkMs: 60_000,
       maxStateTransitions: input.maxStateTransitions ?? 32,
-      managedLease: () => lease,
     });
   };
 

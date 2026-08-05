@@ -157,6 +157,9 @@ function input(): {
         hash: sha256('{}'),
       },
       initialReceipts: [],
+      providerManifestCanonicalJson,
+      providerManifestHash: sha256(providerManifestCanonicalJson),
+      ownerIdHash: sha256('owner'),
     },
     scope: {
       workspaceId: 'workspace-1',

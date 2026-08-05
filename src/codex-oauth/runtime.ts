@@ -216,8 +216,7 @@ export type CodexOAuthV2RuntimePorts = CodexOAuthSharedRuntimePorts & {
 };
 
 export type CodexOAuthRuntimePorts =
-  | CodexOAuthLegacyRuntimePorts
-  | CodexOAuthV2RuntimePorts;
+  CodexOAuthLegacyRuntimePorts | CodexOAuthV2RuntimePorts;
 
 export type CodexOAuthReviewComputationResult = {
   skipped: boolean;

@@ -56,6 +56,9 @@ export type ReviewInvestigationOpenInput = Readonly<{
     hash: string;
   }>;
   initialReceipts: CanonicalJsonValue;
+  providerManifestCanonicalJson: string;
+  providerManifestHash: string;
+  ownerIdHash: string;
 }>;
 
 export type ReviewInvestigationTargetRevision = Readonly<{
@@ -178,15 +181,29 @@ export interface ReviewInvestigationControlPlanePort {
 
 export interface ReviewInvestigationLeasePort {
   acquire(input: {
+    readonly authorizationToken: string;
+    readonly snapshot: ReviewInvestigationSnapshot;
     readonly investigationId: string;
     readonly turnId: string;
     readonly providerStrategyId: string;
+    readonly providerManifestCanonicalJson: string;
+    readonly providerManifestHash: string;
+    readonly ownerIdHash: string;
   }): Promise<ReviewInvestigationLeaseAcquireResult>;
+  renew(input: {
+    readonly lease: ReviewInvestigationLease;
+    readonly ownerIdHash: string;
+  }): Promise<ReviewInvestigationLease>;
   release(input: {
     readonly investigationId: string;
     readonly turnId: string;
     readonly lease: ReviewInvestigationLease;
+    readonly ownerIdHash: string;
   }): Promise<void>;
+}
+
+export interface ReviewInvestigationDelayPort {
+  sleep(delayMs: number): Promise<void>;
 }
 
 export interface ReviewInvestigationCurrencyPort {
