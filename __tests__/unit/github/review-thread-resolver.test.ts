@@ -468,6 +468,46 @@ describe('ReviewThreadResolver', () => {
     expect(graphql).toHaveBeenCalledTimes(2);
   });
 
+  it('skips lifecycle mutation instead of deriving a fallback for conflicting markers', async () => {
+    const graphql = jest
+      .fn()
+      .mockResolvedValueOnce({
+        repository: {
+          pullRequest: {
+            headRefOid: 'head-sha',
+          },
+        },
+      })
+      .mockResolvedValueOnce(
+        threadResponse({
+          comments: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                id: 'comment-123',
+                author: { login: 'review-router-ai[bot]' },
+                body: [
+                  `<!-- review-router-finding:${'a'.repeat(24)} -->`,
+                  `reviewrouter:finding:v2:${'b'.repeat(24)}`,
+                ].join('\n'),
+                createdAt: '2026-05-14T00:00:00Z',
+                updatedAt: '2026-05-14T00:00:00Z',
+              },
+            ],
+          },
+        })
+      );
+    const resolver = new ReviewThreadResolver(githubClient(graphql));
+
+    const result = await resolver.resolveGuarded(123, 'head-sha', [record()]);
+
+    expect(result.skipped[0].reasonCodes).toContain(
+      'thread_changed_before_mutation'
+    );
+    expect(result.resolved).toEqual([]);
+    expect(graphql).toHaveBeenCalledTimes(2);
+  });
+
   it('skips mutation when pre-mutation thread comments are paginated', async () => {
     const graphql = jest
       .fn()

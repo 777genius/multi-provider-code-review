@@ -31280,11 +31280,64 @@ function shouldPostSuggestion(finding, confidence, config) {
 
 // src/github/comment-fingerprint.ts
 var import_crypto6 = require("crypto");
+
+// src/review-projection/domain/finding-marker.ts
+var RESERVED_FINDING_MARKER_PREFIX_RE = /(?:review-router-finding:|reviewrouter:finding:v2:)/gi;
+var LEGACY_FINDING_MARKER_RE = /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/gi;
+var V2_FINDING_MARKER_RE = /reviewrouter:finding:v2:([a-f0-9]{24,64})(?=$|[ \t\r\n])/g;
+var RESERVED_FINDING_MARKER_COMMENT_RE = /<!--(?:(?!-->)[\s\S])*(?:review-router-finding:|reviewrouter:finding:v2:)(?:(?!-->)[\s\S])*-->/gi;
+var UNCLOSED_RESERVED_FINDING_MARKER_COMMENT_RE = /<!--(?:(?!-->)[\s\S])*(?:review-router-finding:|reviewrouter:finding:v2:)[\s\S]*$/gi;
+var RESERVED_FINDING_MARKER_TOKEN_RE = /(?:review-router-finding:|reviewrouter:finding:v2:)[^\s<]*/gi;
+function parseFindingMarker(body) {
+  if (!body) return { kind: "absent" /* Absent */ };
+  const reservedPrefixOffsets = Array.from(
+    body.matchAll(RESERVED_FINDING_MARKER_PREFIX_RE),
+    (match2) => match2.index
+  ).filter((offset) => offset !== void 0);
+  if (reservedPrefixOffsets.length === 0) {
+    return { kind: "absent" /* Absent */ };
+  }
+  const matches = [
+    ...collectMarkerMatches(body, LEGACY_FINDING_MARKER_RE),
+    ...collectMarkerMatches(body, V2_FINDING_MARKER_RE)
+  ];
+  const everyReservedPrefixIsValid = reservedPrefixOffsets.every(
+    (offset) => matches.some((match2) => offset >= match2.start && offset < match2.end)
+  );
+  if (!everyReservedPrefixIsValid) {
+    return { kind: "malformed" /* Malformed */ };
+  }
+  const fingerprints = Array.from(
+    new Set(matches.map((match2) => match2.fingerprint))
+  ).sort();
+  if (fingerprints.length === 1) {
+    return {
+      kind: "valid" /* Valid */,
+      fingerprint: fingerprints[0]
+    };
+  }
+  if (fingerprints.length > 1) {
+    return { kind: "conflict" /* Conflict */, fingerprints };
+  }
+  return { kind: "malformed" /* Malformed */ };
+}
+function stripReservedFindingMarkerSyntax(body) {
+  return body.replace(RESERVED_FINDING_MARKER_COMMENT_RE, "").replace(UNCLOSED_RESERVED_FINDING_MARKER_COMMENT_RE, "").replace(RESERVED_FINDING_MARKER_TOKEN_RE, "").replace(/<!--\s*-->/g, "").trim();
+}
+function findingMarkerV2(fingerprint) {
+  return `reviewrouter:finding:v2:${fingerprint}`;
+}
+function collectMarkerMatches(body, pattern) {
+  return Array.from(body.matchAll(pattern), (match2) => ({
+    start: match2.index ?? 0,
+    end: (match2.index ?? 0) + match2[0].length,
+    fingerprint: (match2[1] ?? "").toLowerCase()
+  }));
+}
+
+// src/github/comment-fingerprint.ts
 var INLINE_MARKER_RE = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/i;
 var INLINE_MARKER_RE_GLOBAL = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
-var FINDING_MARKER_RE_GLOBAL = /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/gi;
-var FINDING_V2_MARKER_RE_GLOBAL = /\breviewrouter:finding:v2:([a-f0-9]{24,64})(?=$|[ \t\r\n])/g;
-var FINDING_V2_HIDDEN_MARKER_RE_GLOBAL = /<!--[ \t]*reviewrouter:finding:v2:[a-f0-9]{24,64}[ \t]*-->/g;
 var MAX_NEARBY_LINE_DISTANCE = 12;
 function signatureFromInlineComment(path28, line, body) {
   const cleanBody = stripInlineFingerprintMarkers(body);
@@ -31318,34 +31371,30 @@ function extractInlineFingerprint(body) {
   return match2?.[1]?.toLowerCase() ?? null;
 }
 function extractFindingFingerprint(body) {
-  if (!body) return null;
-  const fingerprints = /* @__PURE__ */ new Set();
-  for (const match2 of body.matchAll(FINDING_MARKER_RE_GLOBAL)) {
-    if (match2[1]) fingerprints.add(match2[1].toLowerCase());
-  }
-  for (const match2 of body.matchAll(FINDING_V2_MARKER_RE_GLOBAL)) {
-    if (match2[1]) fingerprints.add(match2[1]);
-  }
-  return fingerprints.size === 1 ? [...fingerprints][0] : null;
+  const parsed = parseFindingMarker(body);
+  return parsed.kind === "valid" /* Valid */ ? parsed.fingerprint : null;
 }
 function appendInlineFingerprintMarker(body, path28, line) {
-  const parts = [body.trimEnd()];
-  if (!extractInlineFingerprint(body)) {
+  const sanitizedBody = stripReservedFindingMarkerSyntax(body);
+  const parts = [sanitizedBody.trimEnd()];
+  if (!extractInlineFingerprint(sanitizedBody)) {
     parts.push(
-      inlineFingerprintMarker(fingerprintFromInlineComment(path28, line, body))
-    );
-  }
-  if (!extractFindingFingerprint(body)) {
-    parts.push(
-      findingFingerprintMarker(
-        findingFingerprintFromInlineComment(path28, line, body)
+      inlineFingerprintMarker(
+        fingerprintFromInlineComment(path28, line, sanitizedBody)
       )
     );
   }
+  parts.push(
+    findingFingerprintMarker(
+      findingFingerprintFromInlineComment(path28, line, sanitizedBody)
+    )
+  );
   return parts.join("\n\n");
 }
 function stripInlineFingerprintMarkers(body) {
-  return body.replace(INLINE_MARKER_RE_GLOBAL, "").replace(FINDING_MARKER_RE_GLOBAL, "").replace(FINDING_V2_HIDDEN_MARKER_RE_GLOBAL, "").replace(FINDING_V2_MARKER_RE_GLOBAL, "").trim();
+  return stripReservedFindingMarkerSyntax(
+    body.replace(INLINE_MARKER_RE_GLOBAL, "")
+  ).trim();
 }
 function isReviewRouterInlineComment(body) {
   if (!body) return false;
@@ -34821,6 +34870,383 @@ var MermaidGenerator = class {
   }
 };
 
+// src/review-projection/domain/review-projection.ts
+var LifecycleRevalidationVerdict = /* @__PURE__ */ ((LifecycleRevalidationVerdict2) => {
+  LifecycleRevalidationVerdict2["Resolved"] = "resolved";
+  LifecycleRevalidationVerdict2["StillValid"] = "still_valid";
+  LifecycleRevalidationVerdict2["Uncertain"] = "uncertain";
+  return LifecycleRevalidationVerdict2;
+})(LifecycleRevalidationVerdict || {});
+
+// src/review-projection/domain/review-projection-canonicalizer.ts
+var import_crypto7 = require("crypto");
+function canonicalizeReviewProjection(envelope) {
+  return JSON.stringify(toCanonicalValue(envelope));
+}
+function hashReviewProjectionCanonicalJson(canonicalJson14) {
+  return (0, import_crypto7.createHash)("sha256").update(canonicalJson14, "utf8").digest("hex");
+}
+function hashProjectionFact(value) {
+  return (0, import_crypto7.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
+}
+function deepFreezeProjection(value) {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+  for (const child of Object.values(value)) {
+    deepFreezeProjection(child);
+  }
+  return Object.freeze(value);
+}
+function toCanonicalValue(value) {
+  if (value === null || typeof value !== "object") {
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error("review projection contains a non-finite number");
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(toCanonicalValue);
+  }
+  const canonical = {};
+  for (const key of Object.keys(value).sort()) {
+    const child = value[key];
+    if (child !== void 0) {
+      canonical[key] = toCanonicalValue(child);
+    }
+  }
+  return canonical;
+}
+
+// src/review-projection/domain/current-review-projector.ts
+var CurrentReviewProjector = class {
+  projectOccurrences(input) {
+    const occurrences = [];
+    const matchedLineages = /* @__PURE__ */ new Set();
+    for (const finding of input.selectedFindings) {
+      const hint = this.matchPriorLineage(finding, input.priorLineageHints);
+      const lineageId = hint?.lineageId ?? this.createLineageId(input.scope, finding);
+      if (hint) matchedLineages.add(hint.lineageId);
+      const target = this.findTargetForFinding(
+        finding,
+        input.inventory.targets
+      );
+      const suppressed = target?.disposition === "command_suppressed" /* CommandSuppressed */;
+      const state = suppressed ? "suppressed_by_human" /* SuppressedByHuman */ : hint ? hint.severity === finding.severity ? "reconfirmed" /* Reconfirmed */ : "changed" /* Changed */ : "new" /* New */;
+      occurrences.push({
+        lineageId,
+        sourceFindingIds: sortedUnique(finding.sourceFindingIds),
+        state,
+        severity: finding.severity,
+        ...hint && hint.severity !== finding.severity ? { previousSeverity: hint.severity } : {},
+        category: finding.category,
+        normalizedFailureModeHash: finding.normalizedFailureModeHash,
+        ...finding.symbolAnchor ? { symbolAnchor: finding.symbolAnchor } : {},
+        ...finding.trustedMarker ? { trustedMarker: finding.trustedMarker } : {},
+        title: finding.title,
+        message: finding.message,
+        ...finding.suggestion ? { suggestion: finding.suggestion } : {},
+        filePath: finding.filePath,
+        ...finding.startLine !== void 0 ? { startLine: finding.startLine } : {},
+        ...finding.line !== void 0 ? { line: finding.line } : {},
+        ...finding.endLine !== void 0 ? { endLine: finding.endLine } : {},
+        placement: summaryPlacement(lineageId, finding.filePath, "pending"),
+        providerVoteKeys: sortedUnique(finding.providerVoteKeys),
+        observationIds: sortedUnique(finding.observationIds),
+        firstSeenHeadSha: hint?.firstSeenHeadSha ?? input.scope.reviewedHeadSha,
+        sourceHeadSha: input.scope.reviewedHeadSha,
+        blocking: false
+      });
+    }
+    const decisionByTarget = new Map(
+      input.lifecycleDecisions.map((decision) => [decision.targetId, decision])
+    );
+    for (const hint of input.priorLineageHints) {
+      if (matchedLineages.has(hint.lineageId) || !hint.active) continue;
+      const target = this.findTargetForHint(hint, input.inventory.targets);
+      if (!target) continue;
+      const decision = decisionByTarget.get(target.targetId);
+      const state = this.priorOccurrenceState(target, decision?.verdict);
+      occurrences.push({
+        lineageId: hint.lineageId,
+        sourceFindingIds: [],
+        state,
+        severity: hint.severity,
+        category: hint.category,
+        normalizedFailureModeHash: hint.normalizedFailureModeHash,
+        ...hint.symbolAnchor ? { symbolAnchor: hint.symbolAnchor } : {},
+        ...hint.trustedMarker ? { trustedMarker: hint.trustedMarker } : {},
+        title: hint.title,
+        message: hint.message,
+        filePath: target.currentPath ?? hint.filePath,
+        ...hint.startLine !== void 0 ? { startLine: hint.startLine } : {},
+        ...target.currentLine !== void 0 ? { line: target.currentLine } : hint.line !== void 0 ? { line: hint.line } : {},
+        ...hint.endLine !== void 0 ? { endLine: hint.endLine } : {},
+        placement: summaryPlacement(
+          hint.lineageId,
+          target.currentPath ?? hint.filePath,
+          "historical occurrence"
+        ),
+        providerVoteKeys: [],
+        observationIds: [],
+        firstSeenHeadSha: hint.firstSeenHeadSha,
+        sourceHeadSha: input.scope.reviewedHeadSha,
+        blocking: false
+      });
+    }
+    return sortOccurrences(occurrences);
+  }
+  priorOccurrenceState(target, verdict) {
+    if (target.disposition === "command_suppressed" /* CommandSuppressed */) {
+      return "suppressed_by_human" /* SuppressedByHuman */;
+    }
+    if (hasValidTrustedResolutionMarker(target)) {
+      return "resolved" /* Resolved */;
+    }
+    if (target.disposition === "human_reply" /* HumanReply */) {
+      return "uncertain" /* Uncertain */;
+    }
+    if (verdict === "resolved" /* Resolved */) {
+      return "resolved" /* Resolved */;
+    }
+    if (verdict === "still_valid" /* StillValid */) {
+      return "carried_unverified" /* CarriedUnverified */;
+    }
+    return "uncertain" /* Uncertain */;
+  }
+  matchPriorLineage(finding, hints) {
+    const byMarker = finding.trustedMarker ? hints.filter(
+      (hint) => hint.trustedMarker === finding.trustedMarker && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash
+    ) : [];
+    if (byMarker.length === 1) return byMarker[0];
+    if (byMarker.length > 1) return void 0;
+    const byAnchor = hints.filter(
+      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && Boolean(hint.symbolAnchor) && hint.symbolAnchor === finding.symbolAnchor
+    );
+    if (byAnchor.length === 1) return byAnchor[0];
+    if (byAnchor.length > 1) return void 0;
+    const byLocation = hints.filter(
+      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && normalizePath(hint.filePath) === normalizePath(finding.filePath) && hint.line !== void 0 && finding.line !== void 0 && Math.abs(hint.line - finding.line) <= 2
+    );
+    return byLocation.length === 1 ? byLocation[0] : void 0;
+  }
+  findTargetForFinding(finding, targets) {
+    if (finding.trustedMarker) {
+      const markerMatches = targets.filter(
+        (target) => target.trustedMarker === finding.trustedMarker
+      );
+      if (markerMatches.length === 1) return markerMatches[0];
+    }
+    const locationMatches = targets.filter(
+      (target) => normalizePath(target.currentPath ?? target.originalPath) === normalizePath(finding.filePath) && target.currentLine !== void 0 && finding.line !== void 0 && Math.abs(target.currentLine - finding.line) <= 2
+    );
+    return locationMatches.length === 1 ? locationMatches[0] : void 0;
+  }
+  findTargetForHint(hint, targets) {
+    if (!hint.trustedMarker) return void 0;
+    const markerMatches = targets.filter(
+      (target) => target.trustedMarker === hint.trustedMarker
+    );
+    return markerMatches.length === 1 ? markerMatches[0] : void 0;
+  }
+  createLineageId(scope, finding) {
+    return `rrl_${hashProjectionFact({
+      scmRepositoryIdentityId: scope.scmRepositoryIdentityId,
+      pullRequestNumber: scope.pullRequestNumber,
+      category: finding.category,
+      normalizedFailureModeHash: finding.normalizedFailureModeHash,
+      symbolAnchor: finding.symbolAnchor ?? null,
+      firstSeenHeadSha: scope.reviewedHeadSha,
+      trustedMarker: finding.trustedMarker ?? null
+    }).slice(0, 32)}`;
+  }
+};
+function hasValidTrustedResolutionMarker(target) {
+  const marker = target.resolutionMarker;
+  return Boolean(
+    marker && marker.trust === "trusted" /* Trusted */ && marker.schemaVersion === "reviewrouter-lifecycle-resolution.v1" && marker.targetId === target.targetId && marker.fingerprint === target.trustedMarker
+  );
+}
+function summaryPlacement(lineageId, path28, reason) {
+  return {
+    lineageId,
+    kind: "summary" /* Summary */,
+    path: path28,
+    reason
+  };
+}
+function sortOccurrences(occurrences) {
+  const stateOrder = {
+    ["new" /* New */]: 0,
+    ["changed" /* Changed */]: 1,
+    ["reconfirmed" /* Reconfirmed */]: 2,
+    ["carried_unverified" /* CarriedUnverified */]: 3,
+    ["uncertain" /* Uncertain */]: 4,
+    ["resolved" /* Resolved */]: 5,
+    ["suppressed_by_human" /* SuppressedByHuman */]: 6
+  };
+  const severityOrder = {
+    critical: 0,
+    major: 1,
+    minor: 2
+  };
+  return [...occurrences].sort(
+    (left, right) => stateOrder[left.state] - stateOrder[right.state] || severityOrder[left.severity] - severityOrder[right.severity] || left.filePath.localeCompare(right.filePath) || (left.line ?? 0) - (right.line ?? 0) || left.lineageId.localeCompare(right.lineageId)
+  );
+}
+function normalizePath(path28) {
+  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+}
+function sortedUnique(values) {
+  return Array.from(new Set(values)).sort(
+    (left, right) => left.localeCompare(right)
+  );
+}
+
+// src/review-projection/domain/review-lifecycle-observation.ts
+var import_crypto8 = require("crypto");
+var REVIEW_LIFECYCLE_THREAD_STATE_VERSION = "review_lifecycle_thread_state.v1";
+var REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^[a-f0-9]{24,64}$/;
+var RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+function isReviewLifecycleMarkerFingerprint(value) {
+  return typeof value === "string" && REVIEW_LIFECYCLE_MARKER_FINGERPRINT.test(value);
+}
+function hashReviewLifecycleThreadState(input) {
+  requireIdentifier(input.threadId, "thread_id");
+  if (input.comments.length === 0) {
+    throw new Error("review_lifecycle_thread_state_comments_missing");
+  }
+  const seenCommentIds = /* @__PURE__ */ new Set();
+  const comments = [...input.comments].sort((left, right) => compareCodeUnits2(left.id, right.id)).map((comment) => {
+    const commentId = requireIdentifier(comment.id, "comment_id");
+    if (seenCommentIds.has(commentId)) {
+      throw new Error("review_lifecycle_thread_state_comment_id_duplicate");
+    }
+    seenCommentIds.add(commentId);
+    return [
+      commentId,
+      normalizeAuthorLogin(comment.authorLogin),
+      sha2564(comment.body ?? ""),
+      normalizeTimestamp(comment.createdAt),
+      normalizeTimestamp(comment.updatedAt ?? comment.createdAt)
+    ];
+  });
+  const preimage = JSON.stringify([
+    REVIEW_LIFECYCLE_THREAD_STATE_VERSION,
+    input.threadId,
+    comments
+  ]);
+  return sha2564(preimage);
+}
+function requireIdentifier(value, field) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`review_lifecycle_thread_state_${field}_invalid`);
+  }
+  return value;
+}
+function normalizeAuthorLogin(value) {
+  if (value === null || value === void 0) return null;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("review_lifecycle_thread_state_author_login_invalid");
+  }
+  return value.toLowerCase();
+}
+function normalizeTimestamp(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
+  const match2 = RFC3339_TIMESTAMP.exec(value);
+  if (match2 === null || !hasValidTimestampFields(match2)) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
+  return parsed.toISOString();
+}
+function hasValidTimestampFields(match2) {
+  const year = Number(match2[1]);
+  const month = Number(match2[2]);
+  const day = Number(match2[3]);
+  const hour = Number(match2[4]);
+  const minute = Number(match2[5]);
+  const second = Number(match2[6]);
+  const offset = match2[7];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+  if (offset !== "Z") {
+    const offsetHour = Number(offset.slice(1, 3));
+    const offsetMinute = Number(offset.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return false;
+  }
+  return true;
+}
+function daysInMonth(year, month) {
+  if (month === 2) {
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leapYear ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+function sha2564(value) {
+  return (0, import_crypto8.createHash)("sha256").update(value, "utf8").digest("hex");
+}
+function compareCodeUnits2(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+// src/review-projection/domain/review-projection-limits.ts
+var REVIEW_PROJECTION_ABSOLUTE_LIMITS = {
+  maxProjectionBytes: 2e6,
+  maxFindings: 1e3,
+  maxReferencesPerFinding: 100,
+  maxLineageHints: 2e3,
+  maxLifecycleTargets: 2e3,
+  maxRevisionFiles: 5e3,
+  maxDiffBytes: 2e6,
+  maxSummaryBytes: 65e3,
+  maxCheckSummaryBytes: 65e3,
+  maxInlineComments: 500,
+  maxInlineCommentsPerChunk: 50,
+  maxInlineChunks: 20,
+  maxInlineCommentBodyBytes: 65e3,
+  maxStringBytes: 65e3
+};
+var ReviewProjectionLimitError = class extends Error {
+  constructor(limitName, actual, maximum) {
+    super(
+      `review projection ${limitName} exceeded: ${actual} is greater than ${maximum}`
+    );
+    this.limitName = limitName;
+    this.actual = actual;
+    this.maximum = maximum;
+    this.name = "ReviewProjectionLimitError";
+  }
+};
+function validateReviewProjectionLimits(limits) {
+  for (const key of Object.keys(REVIEW_PROJECTION_ABSOLUTE_LIMITS)) {
+    const value = limits[key];
+    const absoluteMaximum = REVIEW_PROJECTION_ABSOLUTE_LIMITS[key];
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new Error(`review projection ${key} must be a positive integer`);
+    }
+    if (value > absoluteMaximum) {
+      throw new ReviewProjectionLimitError(key, value, absoluteMaximum);
+    }
+  }
+  return Object.freeze({ ...limits });
+}
+function assertWithinProjectionLimit(limitName, actual, limits) {
+  const maximum = limits[limitName];
+  if (actual > maximum) {
+    throw new ReviewProjectionLimitError(limitName, actual, maximum);
+  }
+}
+
 // src/github/feedback.ts
 var FeedbackFilter = class {
   constructor(client, _providerWeightTracker, ledger) {
@@ -34973,7 +35399,11 @@ var FeedbackFilter = class {
       comment.line,
       comment.body
     );
-    const findingFingerprint = findingFingerprintFromInlineComment(
+    const marker = parseFindingMarker(comment.body);
+    if (marker.kind === "conflict" /* Conflict */ || marker.kind === "malformed" /* Malformed */) {
+      return false;
+    }
+    const findingFingerprint = marker.kind === "valid" /* Valid */ ? marker.fingerprint : findingFingerprintFromInlineComment(
       comment.path,
       comment.line,
       comment.body
@@ -35110,7 +35540,7 @@ function locationKey(path28, line) {
 }
 
 // src/github/ledger.ts
-var import_crypto7 = require("crypto");
+var import_crypto9 = require("crypto");
 var LEDGER_MARKER = "reviewrouter-ledger:v1";
 var LEDGER_RE = /<!--\s*reviewrouter-ledger:v1\s+payload=([A-Za-z0-9_-]+)\s+signature=([a-f0-9]{64})\s*-->/;
 var MAX_LEDGER_ENTRIES = 200;
@@ -35298,7 +35728,7 @@ var ReviewLedger = class {
     ].join("\n");
   }
   sign(payload) {
-    return (0, import_crypto7.createHmac)("sha256", this.secret || "").update(canonicalJson3(payload)).digest("hex");
+    return (0, import_crypto9.createHmac)("sha256", this.secret || "").update(canonicalJson3(payload)).digest("hex");
   }
   emptyPayload(prNumber) {
     return {
@@ -35334,7 +35764,7 @@ function safeEqualHex(a2, b2) {
   }
   const aBuffer = Buffer.from(a2, "hex");
   const bBuffer = Buffer.from(b2, "hex");
-  return aBuffer.length === bBuffer.length && (0, import_crypto7.timingSafeEqual)(aBuffer, bBuffer);
+  return aBuffer.length === bBuffer.length && (0, import_crypto9.timingSafeEqual)(aBuffer, bBuffer);
 }
 
 // src/learning/feedback-tracker.ts
@@ -36608,7 +37038,7 @@ var PromptGenerator = class {
 };
 
 // src/utils/sanitize.ts
-var import_crypto8 = require("crypto");
+var import_crypto10 = require("crypto");
 function encodeURIComponentSafe(value) {
   if (typeof value !== "string") {
     return "invalid";
@@ -36617,7 +37047,7 @@ function encodeURIComponentSafe(value) {
   const normalized = encoded.replace(/[+]/g, "_").replace(/%/g, "_").replace(/[<>:"|?*]/g, "_");
   const MAX_PREFIX = 120;
   const prefix = normalized.length > MAX_PREFIX ? normalized.slice(0, MAX_PREFIX) : normalized;
-  const hashSuffix = (0, import_crypto8.createHash)("sha256").update(value).digest("hex").slice(0, 16);
+  const hashSuffix = (0, import_crypto10.createHash)("sha256").update(value).digest("hex").slice(0, 16);
   return `${prefix}-${hashSuffix}`;
 }
 
@@ -37709,10 +38139,10 @@ var PluginLoader = class {
 };
 
 // src/core/batch-orchestrator.ts
-var import_crypto10 = require("crypto");
+var import_crypto12 = require("crypto");
 
 // src/review-orchestration/domain/content-defined-review-batches.ts
-var import_crypto9 = require("crypto");
+var import_crypto11 = require("crypto");
 var ROUTE_HASH_BITS = 256;
 function createContentDefinedReviewBatches(units, limits) {
   requirePositiveInteger(limits.maxFilesPerBatch, "max_files_per_batch");
@@ -37740,7 +38170,7 @@ function createContentDefinedReviewBatches(units, limits) {
     schedulingPriorities.add(unit.schedulingPriority);
     return Object.freeze({
       ...unit,
-      routeHash: sha2564(`rr.review-unit-route.v1\0${unit.routeKey}`)
+      routeHash: sha2565(`rr.review-unit-route.v1\0${unit.routeKey}`)
     });
   });
   const batches = splitBucket(routed, "", limits).sort(compareBatchSchedulingPriority).map(
@@ -37811,8 +38241,8 @@ function routeBit(hash, bitIndex) {
   const shift = 3 - bitIndex % 4;
   return nibble >> shift & 1;
 }
-function sha2564(value) {
-  return (0, import_crypto9.createHash)("sha256").update(value).digest("hex");
+function sha2565(value) {
+  return (0, import_crypto11.createHash)("sha256").update(value).digest("hex");
 }
 function compareCodePoints2(left, right) {
   if (left < right) return -1;
@@ -37951,7 +38381,7 @@ var BatchOrchestrator = class {
   }
 };
 function fileIdentity(file) {
-  return (0, import_crypto10.createHash)("sha256").update(
+  return (0, import_crypto12.createHash)("sha256").update(
     JSON.stringify({
       additions: file.additions,
       changes: file.changes,
@@ -37966,7 +38396,7 @@ function fileIdentity(file) {
 }
 
 // src/learning/suppression-tracker.ts
-var import_crypto11 = require("crypto");
+var import_crypto13 = require("crypto");
 var SuppressionTracker = class _SuppressionTracker {
   constructor(storage, repoKey) {
     this.storage = storage;
@@ -37989,7 +38419,7 @@ var SuppressionTracker = class _SuppressionTracker {
     const ttl = scope === "pr" ? _SuppressionTracker.PR_TTL_MS : _SuppressionTracker.REPO_TTL_MS;
     const timestamp3 = Date.now();
     const pattern = {
-      id: (0, import_crypto11.randomUUID)(),
+      id: (0, import_crypto13.randomUUID)(),
       category: finding.category,
       file: finding.file,
       line: finding.line,
@@ -38459,385 +38889,6 @@ var AcceptanceDetector = class {
 
 // src/github/review-thread-inventory.ts
 var import_crypto14 = require("crypto");
-
-// src/review-projection/domain/review-projection.ts
-var LifecycleRevalidationVerdict = /* @__PURE__ */ ((LifecycleRevalidationVerdict2) => {
-  LifecycleRevalidationVerdict2["Resolved"] = "resolved";
-  LifecycleRevalidationVerdict2["StillValid"] = "still_valid";
-  LifecycleRevalidationVerdict2["Uncertain"] = "uncertain";
-  return LifecycleRevalidationVerdict2;
-})(LifecycleRevalidationVerdict || {});
-
-// src/review-projection/domain/review-projection-canonicalizer.ts
-var import_crypto12 = require("crypto");
-function canonicalizeReviewProjection(envelope) {
-  return JSON.stringify(toCanonicalValue(envelope));
-}
-function hashReviewProjectionCanonicalJson(canonicalJson14) {
-  return (0, import_crypto12.createHash)("sha256").update(canonicalJson14, "utf8").digest("hex");
-}
-function hashProjectionFact(value) {
-  return (0, import_crypto12.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
-}
-function deepFreezeProjection(value) {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
-    return value;
-  }
-  for (const child of Object.values(value)) {
-    deepFreezeProjection(child);
-  }
-  return Object.freeze(value);
-}
-function toCanonicalValue(value) {
-  if (value === null || typeof value !== "object") {
-    if (typeof value === "number" && !Number.isFinite(value)) {
-      throw new Error("review projection contains a non-finite number");
-    }
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map(toCanonicalValue);
-  }
-  const canonical = {};
-  for (const key of Object.keys(value).sort()) {
-    const child = value[key];
-    if (child !== void 0) {
-      canonical[key] = toCanonicalValue(child);
-    }
-  }
-  return canonical;
-}
-
-// src/review-projection/domain/current-review-projector.ts
-var CurrentReviewProjector = class {
-  projectOccurrences(input) {
-    const occurrences = [];
-    const matchedLineages = /* @__PURE__ */ new Set();
-    for (const finding of input.selectedFindings) {
-      const hint = this.matchPriorLineage(finding, input.priorLineageHints);
-      const lineageId = hint?.lineageId ?? this.createLineageId(input.scope, finding);
-      if (hint) matchedLineages.add(hint.lineageId);
-      const target = this.findTargetForFinding(
-        finding,
-        input.inventory.targets
-      );
-      const suppressed = target?.disposition === "command_suppressed" /* CommandSuppressed */;
-      const state = suppressed ? "suppressed_by_human" /* SuppressedByHuman */ : hint ? hint.severity === finding.severity ? "reconfirmed" /* Reconfirmed */ : "changed" /* Changed */ : "new" /* New */;
-      occurrences.push({
-        lineageId,
-        sourceFindingIds: sortedUnique(finding.sourceFindingIds),
-        state,
-        severity: finding.severity,
-        ...hint && hint.severity !== finding.severity ? { previousSeverity: hint.severity } : {},
-        category: finding.category,
-        normalizedFailureModeHash: finding.normalizedFailureModeHash,
-        ...finding.symbolAnchor ? { symbolAnchor: finding.symbolAnchor } : {},
-        ...finding.trustedMarker ? { trustedMarker: finding.trustedMarker } : {},
-        title: finding.title,
-        message: finding.message,
-        ...finding.suggestion ? { suggestion: finding.suggestion } : {},
-        filePath: finding.filePath,
-        ...finding.startLine !== void 0 ? { startLine: finding.startLine } : {},
-        ...finding.line !== void 0 ? { line: finding.line } : {},
-        ...finding.endLine !== void 0 ? { endLine: finding.endLine } : {},
-        placement: summaryPlacement(lineageId, finding.filePath, "pending"),
-        providerVoteKeys: sortedUnique(finding.providerVoteKeys),
-        observationIds: sortedUnique(finding.observationIds),
-        firstSeenHeadSha: hint?.firstSeenHeadSha ?? input.scope.reviewedHeadSha,
-        sourceHeadSha: input.scope.reviewedHeadSha,
-        blocking: false
-      });
-    }
-    const decisionByTarget = new Map(
-      input.lifecycleDecisions.map((decision) => [decision.targetId, decision])
-    );
-    for (const hint of input.priorLineageHints) {
-      if (matchedLineages.has(hint.lineageId) || !hint.active) continue;
-      const target = this.findTargetForHint(hint, input.inventory.targets);
-      if (!target) continue;
-      const decision = decisionByTarget.get(target.targetId);
-      const state = this.priorOccurrenceState(target, decision?.verdict);
-      occurrences.push({
-        lineageId: hint.lineageId,
-        sourceFindingIds: [],
-        state,
-        severity: hint.severity,
-        category: hint.category,
-        normalizedFailureModeHash: hint.normalizedFailureModeHash,
-        ...hint.symbolAnchor ? { symbolAnchor: hint.symbolAnchor } : {},
-        ...hint.trustedMarker ? { trustedMarker: hint.trustedMarker } : {},
-        title: hint.title,
-        message: hint.message,
-        filePath: target.currentPath ?? hint.filePath,
-        ...hint.startLine !== void 0 ? { startLine: hint.startLine } : {},
-        ...target.currentLine !== void 0 ? { line: target.currentLine } : hint.line !== void 0 ? { line: hint.line } : {},
-        ...hint.endLine !== void 0 ? { endLine: hint.endLine } : {},
-        placement: summaryPlacement(
-          hint.lineageId,
-          target.currentPath ?? hint.filePath,
-          "historical occurrence"
-        ),
-        providerVoteKeys: [],
-        observationIds: [],
-        firstSeenHeadSha: hint.firstSeenHeadSha,
-        sourceHeadSha: input.scope.reviewedHeadSha,
-        blocking: false
-      });
-    }
-    return sortOccurrences(occurrences);
-  }
-  priorOccurrenceState(target, verdict) {
-    if (target.disposition === "command_suppressed" /* CommandSuppressed */) {
-      return "suppressed_by_human" /* SuppressedByHuman */;
-    }
-    if (hasValidTrustedResolutionMarker(target)) {
-      return "resolved" /* Resolved */;
-    }
-    if (target.disposition === "human_reply" /* HumanReply */) {
-      return "uncertain" /* Uncertain */;
-    }
-    if (verdict === "resolved" /* Resolved */) {
-      return "resolved" /* Resolved */;
-    }
-    if (verdict === "still_valid" /* StillValid */) {
-      return "carried_unverified" /* CarriedUnverified */;
-    }
-    return "uncertain" /* Uncertain */;
-  }
-  matchPriorLineage(finding, hints) {
-    const byMarker = finding.trustedMarker ? hints.filter(
-      (hint) => hint.trustedMarker === finding.trustedMarker && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash
-    ) : [];
-    if (byMarker.length === 1) return byMarker[0];
-    if (byMarker.length > 1) return void 0;
-    const byAnchor = hints.filter(
-      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && Boolean(hint.symbolAnchor) && hint.symbolAnchor === finding.symbolAnchor
-    );
-    if (byAnchor.length === 1) return byAnchor[0];
-    if (byAnchor.length > 1) return void 0;
-    const byLocation = hints.filter(
-      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && normalizePath(hint.filePath) === normalizePath(finding.filePath) && hint.line !== void 0 && finding.line !== void 0 && Math.abs(hint.line - finding.line) <= 2
-    );
-    return byLocation.length === 1 ? byLocation[0] : void 0;
-  }
-  findTargetForFinding(finding, targets) {
-    if (finding.trustedMarker) {
-      const markerMatches = targets.filter(
-        (target) => target.trustedMarker === finding.trustedMarker
-      );
-      if (markerMatches.length === 1) return markerMatches[0];
-    }
-    const locationMatches = targets.filter(
-      (target) => normalizePath(target.currentPath ?? target.originalPath) === normalizePath(finding.filePath) && target.currentLine !== void 0 && finding.line !== void 0 && Math.abs(target.currentLine - finding.line) <= 2
-    );
-    return locationMatches.length === 1 ? locationMatches[0] : void 0;
-  }
-  findTargetForHint(hint, targets) {
-    if (!hint.trustedMarker) return void 0;
-    const markerMatches = targets.filter(
-      (target) => target.trustedMarker === hint.trustedMarker
-    );
-    return markerMatches.length === 1 ? markerMatches[0] : void 0;
-  }
-  createLineageId(scope, finding) {
-    return `rrl_${hashProjectionFact({
-      scmRepositoryIdentityId: scope.scmRepositoryIdentityId,
-      pullRequestNumber: scope.pullRequestNumber,
-      category: finding.category,
-      normalizedFailureModeHash: finding.normalizedFailureModeHash,
-      symbolAnchor: finding.symbolAnchor ?? null,
-      firstSeenHeadSha: scope.reviewedHeadSha,
-      trustedMarker: finding.trustedMarker ?? null
-    }).slice(0, 32)}`;
-  }
-};
-function hasValidTrustedResolutionMarker(target) {
-  const marker = target.resolutionMarker;
-  return Boolean(
-    marker && marker.trust === "trusted" /* Trusted */ && marker.schemaVersion === "reviewrouter-lifecycle-resolution.v1" && marker.targetId === target.targetId && marker.fingerprint === target.trustedMarker
-  );
-}
-function summaryPlacement(lineageId, path28, reason) {
-  return {
-    lineageId,
-    kind: "summary" /* Summary */,
-    path: path28,
-    reason
-  };
-}
-function sortOccurrences(occurrences) {
-  const stateOrder = {
-    ["new" /* New */]: 0,
-    ["changed" /* Changed */]: 1,
-    ["reconfirmed" /* Reconfirmed */]: 2,
-    ["carried_unverified" /* CarriedUnverified */]: 3,
-    ["uncertain" /* Uncertain */]: 4,
-    ["resolved" /* Resolved */]: 5,
-    ["suppressed_by_human" /* SuppressedByHuman */]: 6
-  };
-  const severityOrder = {
-    critical: 0,
-    major: 1,
-    minor: 2
-  };
-  return [...occurrences].sort(
-    (left, right) => stateOrder[left.state] - stateOrder[right.state] || severityOrder[left.severity] - severityOrder[right.severity] || left.filePath.localeCompare(right.filePath) || (left.line ?? 0) - (right.line ?? 0) || left.lineageId.localeCompare(right.lineageId)
-  );
-}
-function normalizePath(path28) {
-  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
-}
-function sortedUnique(values) {
-  return Array.from(new Set(values)).sort(
-    (left, right) => left.localeCompare(right)
-  );
-}
-
-// src/review-projection/domain/review-lifecycle-observation.ts
-var import_crypto13 = require("crypto");
-var REVIEW_LIFECYCLE_THREAD_STATE_VERSION = "review_lifecycle_thread_state.v1";
-var REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^[a-f0-9]{24,64}$/;
-var RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
-function isReviewLifecycleMarkerFingerprint(value) {
-  return typeof value === "string" && REVIEW_LIFECYCLE_MARKER_FINGERPRINT.test(value);
-}
-function hashReviewLifecycleThreadState(input) {
-  requireIdentifier(input.threadId, "thread_id");
-  if (input.comments.length === 0) {
-    throw new Error("review_lifecycle_thread_state_comments_missing");
-  }
-  const seenCommentIds = /* @__PURE__ */ new Set();
-  const comments = [...input.comments].sort((left, right) => compareCodeUnits2(left.id, right.id)).map((comment) => {
-    const commentId = requireIdentifier(comment.id, "comment_id");
-    if (seenCommentIds.has(commentId)) {
-      throw new Error("review_lifecycle_thread_state_comment_id_duplicate");
-    }
-    seenCommentIds.add(commentId);
-    return [
-      commentId,
-      normalizeAuthorLogin(comment.authorLogin),
-      sha2565(comment.body ?? ""),
-      normalizeTimestamp(comment.createdAt),
-      normalizeTimestamp(comment.updatedAt ?? comment.createdAt)
-    ];
-  });
-  const preimage = JSON.stringify([
-    REVIEW_LIFECYCLE_THREAD_STATE_VERSION,
-    input.threadId,
-    comments
-  ]);
-  return sha2565(preimage);
-}
-function requireIdentifier(value, field) {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`review_lifecycle_thread_state_${field}_invalid`);
-  }
-  return value;
-}
-function normalizeAuthorLogin(value) {
-  if (value === null || value === void 0) return null;
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error("review_lifecycle_thread_state_author_login_invalid");
-  }
-  return value.toLowerCase();
-}
-function normalizeTimestamp(value) {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
-  }
-  const match2 = RFC3339_TIMESTAMP.exec(value);
-  if (match2 === null || !hasValidTimestampFields(match2)) {
-    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
-  }
-  return parsed.toISOString();
-}
-function hasValidTimestampFields(match2) {
-  const year = Number(match2[1]);
-  const month = Number(match2[2]);
-  const day = Number(match2[3]);
-  const hour = Number(match2[4]);
-  const minute = Number(match2[5]);
-  const second = Number(match2[6]);
-  const offset = match2[7];
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
-    return false;
-  }
-  if (offset !== "Z") {
-    const offsetHour = Number(offset.slice(1, 3));
-    const offsetMinute = Number(offset.slice(4, 6));
-    if (offsetHour > 23 || offsetMinute > 59) return false;
-  }
-  return true;
-}
-function daysInMonth(year, month) {
-  if (month === 2) {
-    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-    return leapYear ? 29 : 28;
-  }
-  return [4, 6, 9, 11].includes(month) ? 30 : 31;
-}
-function sha2565(value) {
-  return (0, import_crypto13.createHash)("sha256").update(value, "utf8").digest("hex");
-}
-function compareCodeUnits2(left, right) {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
-}
-
-// src/review-projection/domain/review-projection-limits.ts
-var REVIEW_PROJECTION_ABSOLUTE_LIMITS = {
-  maxProjectionBytes: 2e6,
-  maxFindings: 1e3,
-  maxReferencesPerFinding: 100,
-  maxLineageHints: 2e3,
-  maxLifecycleTargets: 2e3,
-  maxRevisionFiles: 5e3,
-  maxDiffBytes: 2e6,
-  maxSummaryBytes: 65e3,
-  maxCheckSummaryBytes: 65e3,
-  maxInlineComments: 500,
-  maxInlineCommentsPerChunk: 50,
-  maxInlineChunks: 20,
-  maxInlineCommentBodyBytes: 65e3,
-  maxStringBytes: 65e3
-};
-var ReviewProjectionLimitError = class extends Error {
-  constructor(limitName, actual, maximum) {
-    super(
-      `review projection ${limitName} exceeded: ${actual} is greater than ${maximum}`
-    );
-    this.limitName = limitName;
-    this.actual = actual;
-    this.maximum = maximum;
-    this.name = "ReviewProjectionLimitError";
-  }
-};
-function validateReviewProjectionLimits(limits) {
-  for (const key of Object.keys(REVIEW_PROJECTION_ABSOLUTE_LIMITS)) {
-    const value = limits[key];
-    const absoluteMaximum = REVIEW_PROJECTION_ABSOLUTE_LIMITS[key];
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      throw new Error(`review projection ${key} must be a positive integer`);
-    }
-    if (value > absoluteMaximum) {
-      throw new ReviewProjectionLimitError(key, value, absoluteMaximum);
-    }
-  }
-  return Object.freeze({ ...limits });
-}
-function assertWithinProjectionLimit(limitName, actual, limits) {
-  const maximum = limits[limitName];
-  if (actual > maximum) {
-    throw new ReviewProjectionLimitError(limitName, actual, maximum);
-  }
-}
-
-// src/github/review-thread-inventory.ts
 var DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS = ["review-router-ai[bot]"];
 var GITHUB_ACTIONS_BOT_AUTHOR = "github-actions[bot]";
 var RESOLUTION_REPLY_MARKER = "reviewrouter-lifecycle-resolution:v1";
@@ -38931,6 +38982,7 @@ var ReviewThreadInventoryLoader = class {
     const inventory = {
       candidates: [],
       manualAttention: [],
+      manualAttentionIssues: [],
       dedupeComments: [],
       warnings: [],
       failed: false
@@ -38975,6 +39027,10 @@ var ReviewThreadInventoryLoader = class {
           cursor = null;
         }
       } while (cursor);
+      if (inventory.failed) {
+        inventory.candidates = [];
+        inventory.dedupeComments = [];
+      }
     } catch (error2) {
       logger.warn(
         "Failed to load ReviewRouter review thread lifecycle inventory",
@@ -38982,6 +39038,7 @@ var ReviewThreadInventoryLoader = class {
       );
       inventory.candidates = [];
       inventory.manualAttention = [];
+      inventory.manualAttentionIssues = [];
       inventory.dedupeComments = [];
       inventory.failed = true;
       inventory.warnings.push("review thread lifecycle inventory failed");
@@ -39004,11 +39061,28 @@ var ReviewThreadInventoryLoader = class {
       );
     }
     const parent = comments[0];
-    const parentFingerprint = extractFindingFingerprint(parent?.body || "");
     if (!parent) {
       throw new Error(`thread ${thread.id} parent comment was missing`);
     }
-    if (!parentFingerprint) {
+    const trustedAuthor = this.isTrustedAuthor(parent.author?.login);
+    const marker = parseFindingMarker(parent.body ?? "");
+    if (marker.kind === "conflict" /* Conflict */ || marker.kind === "malformed" /* Malformed */) {
+      if (trustedAuthor) {
+        const reason = marker.kind === "conflict" /* Conflict */ ? "conflicting_finding_marker" : "malformed_finding_marker";
+        inventory.failed = true;
+        inventory.manualAttentionIssues.push({
+          threadId: thread.id,
+          parentCommentId: parent.id,
+          ...parent.url ? { threadUrl: parent.url } : {},
+          reason
+        });
+        inventory.warnings.push(
+          `trusted ReviewRouter thread ${thread.id} has a ${reason.replaceAll("_", " ")}`
+        );
+      }
+      return;
+    }
+    if (marker.kind === "absent" /* Absent */) {
       return;
     }
     const threadStateHash = hashReviewLifecycleThreadState({
@@ -39022,8 +39096,7 @@ var ReviewThreadInventoryLoader = class {
       }))
     });
     const body = parent.body || "";
-    const fingerprint = parentFingerprint;
-    const trustedAuthor = this.isTrustedAuthor(parent.author?.login);
+    const fingerprint = marker.fingerprint;
     const humanReply = comments.some(
       (comment, index) => index > 0 && comment.id !== parent.id && !this.isTrustedAuthor(comment.author?.login)
     );
@@ -39559,7 +39632,8 @@ var ReviewThreadResolver = class {
         reasonCodes: ["untrusted_author"]
       };
     }
-    if (extractFindingFingerprint(parent.body || "") !== candidate.target.fingerprint) {
+    const marker = parseFindingMarker(parent.body || "");
+    if (marker.kind !== "valid" /* Valid */ || marker.fingerprint !== candidate.target.fingerprint) {
       return {
         kind: "skipped",
         reasonCodes: ["thread_changed_before_mutation"]
@@ -49204,7 +49278,15 @@ var ReviewInteractionHandler = class {
       await this.postNotice(prNumber, denialReason);
       return;
     }
-    const fingerprint = extractFindingFingerprint(parent.body) || findingFingerprintFromInlineComment(
+    const parsedMarker = parseFindingMarker(parent.body);
+    if (parsedMarker.kind === "conflict" /* Conflict */ || parsedMarker.kind === "malformed" /* Malformed */) {
+      await this.postNotice(
+        prNumber,
+        "`/rr skip` was ignored because the parent ReviewRouter finding marker is invalid and needs manual attention."
+      );
+      return;
+    }
+    const fingerprint = parsedMarker.kind === "valid" /* Valid */ ? parsedMarker.fingerprint : findingFingerprintFromInlineComment(
       parent.path,
       parent.line ?? parent.original_line,
       parent.body
@@ -101998,15 +102080,25 @@ function applyPlacementDecisions(occurrences, decisions) {
 function buildInlineChunks(occurrences, limits) {
   const comments = occurrences.filter(
     (occurrence) => occurrence.placement.kind === "inline" /* Inline */ && occurrence.placement.line !== void 0 && occurrence.placement.body !== void 0 && occurrence.state !== "resolved" /* Resolved */ && occurrence.state !== "suppressed_by_human" /* SuppressedByHuman */
-  ).map((occurrence) => ({
-    lineageId: occurrence.lineageId,
-    marker: `reviewrouter:finding:v2:${occurrence.lineageId}`,
-    path: occurrence.placement.path,
-    ...occurrence.placement.startLine !== void 0 ? { startLine: occurrence.placement.startLine } : {},
-    line: occurrence.placement.line,
-    ...occurrence.placement.endLine !== void 0 ? { endLine: occurrence.placement.endLine } : {},
-    body: occurrence.placement.body
-  })).sort(
+  ).map((occurrence) => {
+    const body = stripReservedFindingMarkerSyntax(
+      occurrence.placement.body
+    );
+    if (!body) {
+      throw new Error(
+        `inline placement body for ${occurrence.lineageId} contained only reserved finding-marker syntax`
+      );
+    }
+    return {
+      lineageId: occurrence.lineageId,
+      marker: findingMarkerV2(occurrence.lineageId),
+      path: occurrence.placement.path,
+      ...occurrence.placement.startLine !== void 0 ? { startLine: occurrence.placement.startLine } : {},
+      line: occurrence.placement.line,
+      ...occurrence.placement.endLine !== void 0 ? { endLine: occurrence.placement.endLine } : {},
+      body
+    };
+  }).sort(
     (left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.lineageId.localeCompare(right.lineageId)
   );
   assertWithinProjectionLimit("maxInlineComments", comments.length, limits);

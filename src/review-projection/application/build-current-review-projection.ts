@@ -29,6 +29,10 @@ import {
   SelectedCurrentFinding,
 } from '../domain/review-projection';
 import {
+  findingMarkerV2,
+  stripReservedFindingMarkerSyntax,
+} from '../domain/finding-marker';
+import {
   isReviewLifecycleMarkerFingerprint,
   ReviewLifecycleObservationVersion,
 } from '../domain/review-lifecycle-observation';
@@ -526,19 +530,29 @@ function buildInlineChunks(
         occurrence.state !== FindingOccurrenceState.Resolved &&
         occurrence.state !== FindingOccurrenceState.SuppressedByHuman
     )
-    .map((occurrence) => ({
-      lineageId: occurrence.lineageId,
-      marker: `reviewrouter:finding:v2:${occurrence.lineageId}`,
-      path: occurrence.placement.path,
-      ...(occurrence.placement.startLine !== undefined
-        ? { startLine: occurrence.placement.startLine }
-        : {}),
-      line: occurrence.placement.line as number,
-      ...(occurrence.placement.endLine !== undefined
-        ? { endLine: occurrence.placement.endLine }
-        : {}),
-      body: occurrence.placement.body as string,
-    }))
+    .map((occurrence) => {
+      const body = stripReservedFindingMarkerSyntax(
+        occurrence.placement.body as string
+      );
+      if (!body) {
+        throw new Error(
+          `inline placement body for ${occurrence.lineageId} contained only reserved finding-marker syntax`
+        );
+      }
+      return {
+        lineageId: occurrence.lineageId,
+        marker: findingMarkerV2(occurrence.lineageId),
+        path: occurrence.placement.path,
+        ...(occurrence.placement.startLine !== undefined
+          ? { startLine: occurrence.placement.startLine }
+          : {}),
+        line: occurrence.placement.line as number,
+        ...(occurrence.placement.endLine !== undefined
+          ? { endLine: occurrence.placement.endLine }
+          : {}),
+        body,
+      };
+    })
     .sort(
       (left, right) =>
         left.path.localeCompare(right.path) ||
@@ -548,7 +562,7 @@ function buildInlineChunks(
 
   assertWithinProjectionLimit('maxInlineComments', comments.length, limits);
   const chunks: ReviewProjectionInlineChunkFact[] = [];
-  for (let offset = 0; offset < comments.length;) {
+  for (let offset = 0; offset < comments.length; ) {
     const chunkComments = comments.slice(
       offset,
       offset + limits.maxInlineCommentsPerChunk

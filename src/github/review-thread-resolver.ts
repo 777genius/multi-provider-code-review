@@ -5,7 +5,10 @@ import {
   LifecycleResolvedThread,
   LifecycleThreadRecord,
 } from '../types';
-import { extractFindingFingerprint } from './comment-fingerprint';
+import {
+  FindingMarkerParseKind,
+  parseFindingMarker,
+} from '../review-projection/domain';
 import {
   DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS,
   isTrustedReviewThreadAuthor,
@@ -405,9 +408,10 @@ export class ReviewThreadResolver {
         reasonCodes: ['untrusted_author'],
       };
     }
+    const marker = parseFindingMarker(parent.body || '');
     if (
-      extractFindingFingerprint(parent.body || '') !==
-      candidate.target.fingerprint
+      marker.kind !== FindingMarkerParseKind.Valid ||
+      marker.fingerprint !== candidate.target.fingerprint
     ) {
       return {
         kind: 'skipped',

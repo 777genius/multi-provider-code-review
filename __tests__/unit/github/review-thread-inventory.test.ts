@@ -1132,6 +1132,73 @@ describe('ReviewThreadInventoryLoader', () => {
     expect(inventory.dedupeComments).toHaveLength(0);
   });
 
+  it.each([
+    [
+      'conflicting',
+      [
+        '<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->',
+        'reviewrouter:finding:v2:bbbbbbbbbbbbbbbbbbbbbbbb',
+      ].join('\n'),
+      'conflicting_finding_marker',
+    ],
+    [
+      'malformed',
+      'reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaa_injected',
+      'malformed_finding_marker',
+    ],
+  ])(
+    'marks trusted %s finding markers incomplete and requiring manual attention',
+    async (_label, body, reason) => {
+      const graphql = jest
+        .fn()
+        .mockResolvedValue(inventoryPageWithParentBody(body));
+      const loader = new ReviewThreadInventoryLoader({
+        owner: 'owner',
+        repo: 'repo',
+        octokit: { graphql },
+      } as unknown as GitHubClient);
+
+      const inventory = await loader.load(123);
+
+      expect(inventory.failed).toBe(true);
+      expect(inventory.candidates).toEqual([]);
+      expect(inventory.dedupeComments).toEqual([]);
+      expect(inventory.manualAttentionIssues).toEqual([
+        expect.objectContaining({
+          threadId: 'marker-thread',
+          parentCommentId: 'marker-parent',
+          reason,
+        }),
+      ]);
+    }
+  );
+
+  it('ignores conflicting marker syntax on a foreign thread', async () => {
+    const graphql = jest
+      .fn()
+      .mockResolvedValue(
+        inventoryPageWithParentBody(
+          [
+            '<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->',
+            'reviewrouter:finding:v2:bbbbbbbbbbbbbbbbbbbbbbbb',
+          ].join('\n'),
+          'random-user'
+        )
+      );
+    const loader = new ReviewThreadInventoryLoader({
+      owner: 'owner',
+      repo: 'repo',
+      octokit: { graphql },
+    } as unknown as GitHubClient);
+
+    const inventory = await loader.load(123);
+
+    expect(inventory.failed).toBe(false);
+    expect(inventory.candidates).toEqual([]);
+    expect(inventory.manualAttention).toEqual([]);
+    expect(inventory.manualAttentionIssues).toEqual([]);
+  });
+
   it('trusts configured GitHub App bot comments for lifecycle candidates', async () => {
     const graphql = jest.fn().mockResolvedValue({
       repository: {
@@ -1220,6 +1287,46 @@ function inventoryPageWithPaginatedComments(endCursor: string) {
                     updatedAt: '2026-05-14T00:00:00Z',
                     path: 'src/app.ts',
                     line: 12,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    },
+  };
+}
+
+function inventoryPageWithParentBody(
+  body: string,
+  author = 'review-router-ai[bot]'
+) {
+  return {
+    repository: {
+      pullRequest: {
+        headRefOid: 'head-sha',
+        reviewThreads: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [
+            {
+              id: 'marker-thread',
+              isResolved: false,
+              viewerCanResolve: true,
+              path: 'src/app.ts',
+              line: 12,
+              comments: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [
+                  {
+                    id: 'marker-parent',
+                    author: { login: author },
+                    body,
+                    createdAt: '2026-05-14T00:00:00Z',
+                    updatedAt: '2026-05-14T00:00:00Z',
+                    path: 'src/app.ts',
+                    line: 12,
+                    url: 'https://github.test/marker-thread',
                   },
                 ],
               },

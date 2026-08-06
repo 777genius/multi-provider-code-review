@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import { GitHubClient } from './client';
 import { ReviewLedger, LedgerEntry } from './ledger';
 import {
-  extractFindingFingerprint,
   extractInlineFingerprint,
   extractInlineSeverity,
   extractInlineTitle,
@@ -10,6 +9,10 @@ import {
   isReviewRouterInlineComment,
   stripInlineFingerprintMarkers,
 } from './comment-fingerprint';
+import {
+  FindingMarkerParseKind,
+  parseFindingMarker,
+} from '../review-projection/domain';
 import { Severity } from '../types';
 import { logger } from '../utils/logger';
 import {
@@ -431,13 +434,25 @@ export class ReviewInteractionHandler {
       return;
     }
 
-    const fingerprint =
-      extractFindingFingerprint(parent.body) ||
-      findingFingerprintFromInlineComment(
-        parent.path,
-        parent.line ?? parent.original_line,
-        parent.body
+    const parsedMarker = parseFindingMarker(parent.body);
+    if (
+      parsedMarker.kind === FindingMarkerParseKind.Conflict ||
+      parsedMarker.kind === FindingMarkerParseKind.Malformed
+    ) {
+      await this.postNotice(
+        prNumber,
+        '`/rr skip` was ignored because the parent ReviewRouter finding marker is invalid and needs manual attention.'
       );
+      return;
+    }
+    const fingerprint =
+      parsedMarker.kind === FindingMarkerParseKind.Valid
+        ? parsedMarker.fingerprint
+        : findingFingerprintFromInlineComment(
+            parent.path,
+            parent.line ?? parent.original_line,
+            parent.body
+          );
     const legacyFingerprint =
       extractInlineFingerprint(parent.body) || undefined;
     const entry: LedgerEntry = {

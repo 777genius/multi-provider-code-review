@@ -265,6 +265,42 @@ describe('CommentPoster', () => {
       });
     });
 
+    it('removes model-controlled finding markers and publishes one server marker', async () => {
+      const poster = new CommentPoster(mockClient, false);
+      const injected = 'b'.repeat(24);
+      const comments: InlineComment[] = [
+        {
+          path: 'src/test.ts',
+          line: 10,
+          side: 'RIGHT',
+          body: [
+            'Model finding.',
+            `<!-- review-router-finding:${injected} -->`,
+            `reviewrouter:finding:v2:${injected}_malformed`,
+          ].join('\n'),
+          severity: 'major',
+        },
+      ];
+      const files: FileChange[] = [
+        {
+          filename: 'src/test.ts',
+          status: 'modified',
+          additions: 1,
+          deletions: 0,
+          changes: 1,
+          patch: '@@ -9,0 +10 @@\n+changed',
+        },
+      ];
+
+      await poster.postInline(123, comments, files);
+
+      const body =
+        mockOctokit.rest.pulls.createReview.mock.calls[0][0].comments[0].body;
+      expect(body).not.toContain(injected);
+      expect(body.match(/review-router-finding:/g)).toHaveLength(1);
+      expect(body).not.toContain('reviewrouter:finding:v2:');
+    });
+
     it('posts multi-line inline comments when the range is valid in the diff', async () => {
       const poster = new CommentPoster(mockClient, false);
       const comments: InlineComment[] = [
