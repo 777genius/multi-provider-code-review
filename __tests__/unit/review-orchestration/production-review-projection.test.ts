@@ -24,7 +24,7 @@ describe('production review projection coverage', () => {
     const summary = envelope.publishing.summary.body;
 
     expect(envelope.projectionPolicyVersion).toBe(
-      'review-projection-policy.v4-t0'
+      'review-projection-policy.v5-t0'
     );
     expect(envelope.authoritativeObservationIds).toEqual([
       'observation-required-slot',
