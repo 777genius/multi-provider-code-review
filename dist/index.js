@@ -35106,7 +35106,7 @@ function sortedUnique(values) {
 // src/review-projection/domain/review-lifecycle-observation.ts
 var import_crypto8 = require("crypto");
 var REVIEW_LIFECYCLE_THREAD_STATE_VERSION = "review_lifecycle_thread_state.v1";
-var REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^[a-f0-9]{24,64}$/;
+var REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^(?:rrl_[a-f0-9]{32}|[a-f0-9]{24,64})$/;
 var RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 function isReviewLifecycleMarkerFingerprint(value) {
   return typeof value === "string" && REVIEW_LIFECYCLE_MARKER_FINGERPRINT.test(value);
@@ -39286,11 +39286,13 @@ function findTrustedResolutionMarker(input) {
 }
 function parseResolutionMarker(body) {
   const match2 = new RegExp(
-    `<!--\\s*${RESOLUTION_REPLY_MARKER}\\s+target_id=([A-Za-z0-9._:-]{1,160})\\s+fingerprint=([a-f0-9]{24})\\s*-->`,
+    `<!--\\s*${RESOLUTION_REPLY_MARKER}\\s+target_id=([A-Za-z0-9._:-]{1,160})\\s+fingerprint=([A-Za-z0-9_]{1,80})\\s*-->`,
     "i"
   ).exec(body);
   if (!match2?.[1] || !match2[2]) return void 0;
-  return { targetId: match2[1], fingerprint: match2[2].toLowerCase() };
+  const fingerprint = match2[2].toLowerCase();
+  if (!isReviewLifecycleMarkerFingerprint(fingerprint)) return void 0;
+  return { targetId: match2[1], fingerprint };
 }
 function normalizeLifecycleSeverity(value) {
   if (value === "critical" || value === "major" || value === "minor") {
@@ -101971,7 +101973,9 @@ var BuildCurrentReviewProjection = class {
     );
     for (const target of inventory.targets) {
       if (!isReviewLifecycleMarkerFingerprint(target.trustedMarker)) {
-        throw new Error("lifecycle trustedMarker must be lowercase 24-64 hex");
+        throw new Error(
+          "lifecycle trustedMarker must be a supported lowercase fingerprint"
+        );
       }
       if (!/^[a-f0-9]{64}$/.test(target.threadStateHash)) {
         throw new Error("lifecycle threadStateHash must be lowercase sha256");

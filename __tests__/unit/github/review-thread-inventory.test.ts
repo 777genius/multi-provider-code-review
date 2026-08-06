@@ -206,7 +206,7 @@ describe('ReviewThreadInventoryLoader', () => {
   });
 
   it('recognizes only a trusted resolution marker bound to the exact target and fingerprint', async () => {
-    const fingerprint = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+    const fingerprint = `rrl_${'a'.repeat(32)}`;
     const targetId = `rrt_${createHash('sha256')
       .update(`active-thread\nactive-comment\n${fingerprint}`)
       .digest('hex')
@@ -230,7 +230,7 @@ describe('ReviewThreadInventoryLoader', () => {
                     {
                       id: 'active-comment',
                       author: { login: 'review-router-ai[bot]' },
-                      body: parentBody,
+                      body: `Old issue body.\nreviewrouter:finding:v2:${fingerprint}`,
                       createdAt: '2026-05-14T00:00:00Z',
                       updatedAt: '2026-05-14T00:00:00Z',
                       path: 'src/app.ts',

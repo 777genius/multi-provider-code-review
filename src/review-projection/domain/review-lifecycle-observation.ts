@@ -6,7 +6,8 @@ export enum ReviewLifecycleObservationVersion {
 
 const REVIEW_LIFECYCLE_THREAD_STATE_VERSION =
   'review_lifecycle_thread_state.v1';
-const REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^[a-f0-9]{24,64}$/;
+const REVIEW_LIFECYCLE_MARKER_FINGERPRINT =
+  /^(?:rrl_[a-f0-9]{32}|[a-f0-9]{24,64})$/;
 const RFC3339_TIMESTAMP =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 

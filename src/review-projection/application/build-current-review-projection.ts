@@ -376,7 +376,9 @@ export class BuildCurrentReviewProjection {
     );
     for (const target of inventory.targets) {
       if (!isReviewLifecycleMarkerFingerprint(target.trustedMarker)) {
-        throw new Error('lifecycle trustedMarker must be lowercase 24-64 hex');
+        throw new Error(
+          'lifecycle trustedMarker must be a supported lowercase fingerprint'
+        );
       }
       if (!/^[a-f0-9]{64}$/.test(target.threadStateHash)) {
         throw new Error('lifecycle threadStateHash must be lowercase sha256');

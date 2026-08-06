@@ -11,6 +11,7 @@ import { logger } from '../utils/logger';
 import {
   FindingMarkerParseKind,
   hashReviewLifecycleThreadState,
+  isReviewLifecycleMarkerFingerprint,
   parseFindingMarker,
 } from '../review-projection/domain';
 
@@ -582,11 +583,13 @@ function parseResolutionMarker(
   body: string
 ): { targetId: string; fingerprint: string } | undefined {
   const match = new RegExp(
-    `<!--\\s*${RESOLUTION_REPLY_MARKER}\\s+target_id=([A-Za-z0-9._:-]{1,160})\\s+fingerprint=([a-f0-9]{24})\\s*-->`,
+    `<!--\\s*${RESOLUTION_REPLY_MARKER}\\s+target_id=([A-Za-z0-9._:-]{1,160})\\s+fingerprint=([A-Za-z0-9_]{1,80})\\s*-->`,
     'i'
   ).exec(body);
   if (!match?.[1] || !match[2]) return undefined;
-  return { targetId: match[1], fingerprint: match[2].toLowerCase() };
+  const fingerprint = match[2].toLowerCase();
+  if (!isReviewLifecycleMarkerFingerprint(fingerprint)) return undefined;
+  return { targetId: match[1], fingerprint };
 }
 
 function normalizeLifecycleSeverity(

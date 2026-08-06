@@ -291,10 +291,22 @@ describe('BuildCurrentReviewProjection', () => {
       );
 
       await expect(useCase.execute(command())).rejects.toThrow(
-        'lifecycle trustedMarker must be lowercase 24-64 hex'
+        'lifecycle trustedMarker must be a supported lowercase fingerprint'
       );
     }
   );
+
+  it('accepts a canonical revision-aware lifecycle fingerprint', async () => {
+    const useCase = createUseCase(
+      new MutableInventoryPort(
+        inventory({
+          targets: [target({ trustedMarker: `rrl_${'a'.repeat(32)}` })],
+        })
+      )
+    );
+
+    await expect(useCase.execute(command())).resolves.toBeDefined();
+  });
 
   it('classifies new, reconfirmed, changed, carried and resolved occurrences', async () => {
     const newFinding = finding({
