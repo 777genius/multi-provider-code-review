@@ -27,6 +27,7 @@ import {
   CodexOAuthV2ReviewOutcome,
   CodexOAuthV2TerminalReason,
 } from '../../../src/codex-oauth/runtime';
+import { MergeGateConclusion } from '../../../src/review-projection/domain';
 import type { PRContext, ReviewConfig } from '../../../src/types';
 import { compareCodeUnits } from '../../../src/review-orchestration/infrastructure/production-review-projection';
 import {
@@ -214,6 +215,18 @@ describe('ProductionT0ReviewRunner policy', () => {
       outcome: CodexOAuthV2ReviewOutcome.Failed,
       reason: CodexOAuthV2TerminalReason.ExecutionFailed,
       blockingFailure: 'provider_failed',
+    });
+  });
+
+  it('preserves the completed projection merge gate conclusion', () => {
+    expect(
+      mapOrchestrationResultToCodexOutcome({
+        status: ReviewOrchestrationResultStatus.Completed,
+        mergeGateConclusion: MergeGateConclusion.Fail,
+      })
+    ).toEqual({
+      outcome: CodexOAuthV2ReviewOutcome.Completed,
+      mergeGateConclusion: MergeGateConclusion.Fail,
     });
   });
 
@@ -498,7 +511,8 @@ describe('ProductionT0ReviewRunner policy', () => {
   it('enables investigation only for the exact V3 contract and allowed provider', () => {
     const negotiated = authorizationWithInvestigation();
     const descriptor = negotiated.facts.reviewInvestigation as unknown as
-      Readonly<Record<string, unknown>> | undefined;
+      | Readonly<Record<string, unknown>>
+      | undefined;
     if (descriptor === undefined) {
       throw new Error('expected V3 investigation descriptor');
     }
@@ -865,7 +879,8 @@ describe('ProductionT0ReviewRunner policy', () => {
 
 function authorizationWithInvestigation(
   providerKinds: readonly (
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode
   )[] = [ReviewExecutionProviderKind.Codex]
 ): ReviewRunAuthorization {
   return authorizationWithInvestigationCapabilities(
@@ -925,7 +940,8 @@ function authorizationWithInvestigationCapabilities(
 
 function authorizationWithLegacyInvestigation(
   providerKinds: readonly (
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode
   )[] = [ReviewExecutionProviderKind.Codex]
 ): ReviewRunAuthorization {
   const base = authorization(1);

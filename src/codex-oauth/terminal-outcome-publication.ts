@@ -113,8 +113,9 @@ export class TerminalOutcomePublicationUseCase implements CodexOAuthTerminalOutc
       repository: this.input.context.repository,
       pullRequestNumber: this.input.context.pullRequestNumber,
     });
+    const currentRevisionMarker = `<!-- reviewrouter:codex-oauth:terminal:${this.input.context.headSha}:`;
     const terminalComments = comments.filter((comment) =>
-      (comment.body ?? '').includes('<!-- reviewrouter:codex-oauth:terminal:')
+      (comment.body ?? '').includes(currentRevisionMarker)
     );
     for (const comment of terminalComments) {
       await this.input.github.deletePullRequestComment({

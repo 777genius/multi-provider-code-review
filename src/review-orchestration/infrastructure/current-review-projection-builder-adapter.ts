@@ -54,6 +54,7 @@ export class CurrentReviewProjectionBuilderAdapter implements CurrentReviewProje
       commandLedgerWatermark: built.envelope.commandLedgerWatermark,
       operationsCanonicalJson,
       findingCount: built.findingCount,
+      mergeGateConclusion: built.envelope.mergeGate.conclusion,
       publicationOperationCount:
         2 +
         built.envelope.publishing.inlineReviewChunks.length +

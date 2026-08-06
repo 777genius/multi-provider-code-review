@@ -54,6 +54,7 @@ import {
   ReviewInvestigationDeferredSignal,
   ReviewInvestigationLegacyFallbackSignal,
 } from '../../review-investigation/application/run-investigation-work-slot';
+import type { MergeGateConclusion } from '../../review-projection/domain';
 
 export enum ReviewOrchestrationResultStatus {
   Completed = 'completed',
@@ -87,6 +88,7 @@ export type ReviewOrchestrationResult = {
   readonly publicationAttemptId?: string;
   readonly canonicalReceiptSetHash?: string;
   readonly failureCode?: string;
+  readonly mergeGateConclusion?: MergeGateConclusion;
 };
 
 enum ReviewWorkSlotExhaustionReason {
@@ -472,6 +474,7 @@ export class RunT0ReviewOrchestration {
           publicationAttemptId: publication.publicationAttemptId,
           partial,
           failureCode: partialFailureCode,
+          mergeGateConclusion: projection.mergeGateConclusion,
           outcome: status.outcome,
         });
       }
@@ -1335,6 +1338,7 @@ function finishPublication(input: {
   readonly publicationAttemptId: string;
   readonly partial: boolean;
   readonly failureCode?: string;
+  readonly mergeGateConclusion: MergeGateConclusion;
   readonly outcome: {
     readonly state: ReviewPublicationState;
     readonly canonicalReceiptSetHash?: string;
@@ -1391,6 +1395,7 @@ function finishPublication(input: {
     ...(input.outcome.canonicalReceiptSetHash
       ? { canonicalReceiptSetHash: input.outcome.canonicalReceiptSetHash }
       : {}),
+    mergeGateConclusion: input.mergeGateConclusion,
   };
 }
 

@@ -1,6 +1,7 @@
 import { CurrentReviewProjectionBuilderAdapter } from '../../../src/review-orchestration/infrastructure';
 import {
   ProjectionCoverageState,
+  MergeGateConclusion,
   ReviewProjectionEnvelopeVersion,
 } from '../../../src/review-projection/domain';
 
@@ -20,6 +21,7 @@ describe('CurrentReviewProjectionBuilderAdapter', () => {
       lifecycleStateHash: '2'.repeat(64),
       commandLedgerWatermark: 'watermark-1',
       coverage: { state: ProjectionCoverageState.Complete },
+      mergeGate: { conclusion: MergeGateConclusion.Fail },
       publishing,
     } as never;
     const execute = jest.fn(async () => ({
@@ -49,6 +51,7 @@ describe('CurrentReviewProjectionBuilderAdapter', () => {
       projectionEnvelopeCanonicalJson: '{"projection":true}',
       projectionHash: '3'.repeat(64),
       findingCount: 2,
+      mergeGateConclusion: MergeGateConclusion.Fail,
       publicationOperationCount: 4,
       publicationChunkCount: 1,
     });

@@ -26,12 +26,14 @@ import { GitHubActionsOidcTokenProvider } from './github-actions-oidc';
 import {
   CodexOAuthReviewRuntimeMode,
   runCodexOAuthRotatingRuntime,
+  CodexOAuthV2MergeGateFailureCode,
   CodexOAuthV2ReviewOutcome,
   CodexOAuthV2TerminalReason,
   type CodexOAuthReviewResult,
   type CodexOAuthV2ReviewResult,
   type CodexOAuthV2ReviewRunnerPort,
 } from './runtime';
+import { MergeGateConclusion } from '../review-projection/domain';
 import {
   createDefaultCodexOAuthTerminalOutcomeReporter,
   CodexOAuthTerminalOutcomeKind,
@@ -261,7 +263,7 @@ export async function runCodexOAuthRotatingAction(
         });
         await publishTerminalOutcomeCommitStatusSafely(
           terminalOutcomeReporter,
-          buildCompletedV2TerminalOutcomeCommitStatus(inputs)
+          buildCompletedV2TerminalOutcomeCommitStatus(inputs, runtime.v2Review)
         );
       }
       const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
@@ -505,7 +507,7 @@ function v2TerminalFailureCode(
 ): string | null {
   switch (review.outcome) {
     case CodexOAuthV2ReviewOutcome.Completed:
-      return null;
+      return completedV2MergeGateFailureCode(review);
     case CodexOAuthV2ReviewOutcome.Superseded:
       return 'review_superseded_by_newer_revision';
     case CodexOAuthV2ReviewOutcome.PartialCompleted:
@@ -563,15 +565,56 @@ function terminalOutcomeReport(input: {
 }
 
 function buildCompletedV2TerminalOutcomeCommitStatus(
-  inputs: ReturnType<typeof readCodexOAuthActionInputs>
+  inputs: ReturnType<typeof readCodexOAuthActionInputs>,
+  review: Extract<
+    CodexOAuthV2ReviewResult,
+    { readonly outcome: CodexOAuthV2ReviewOutcome.Completed }
+  >
 ): CodexOAuthTerminalOutcomeCommitStatus {
   const targetUrl = githubRunUrl(inputs);
+  const failureCode = completedV2MergeGateFailureCode(review);
   return {
-    state: 'success',
-    description: 'Review completed.',
+    state: failureCode ? 'failure' : 'success',
+    description: completedV2MergeGateStatusDescription(failureCode),
     context: 'ReviewRouter',
     ...(targetUrl ? { targetUrl } : {}),
   };
+}
+
+function completedV2MergeGateFailureCode(
+  review: Extract<
+    CodexOAuthV2ReviewResult,
+    { readonly outcome: CodexOAuthV2ReviewOutcome.Completed }
+  >
+): CodexOAuthV2MergeGateFailureCode | null {
+  const conclusion = (
+    review as { readonly mergeGateConclusion?: MergeGateConclusion }
+  ).mergeGateConclusion;
+  switch (conclusion) {
+    case MergeGateConclusion.Pass:
+      return null;
+    case MergeGateConclusion.Fail:
+      return CodexOAuthV2MergeGateFailureCode.Failed;
+    case MergeGateConclusion.Inconclusive:
+      return CodexOAuthV2MergeGateFailureCode.Inconclusive;
+    case undefined:
+      return CodexOAuthV2MergeGateFailureCode.Missing;
+  }
+}
+
+function completedV2MergeGateStatusDescription(
+  failureCode: CodexOAuthV2MergeGateFailureCode | null
+): string {
+  switch (failureCode) {
+    case null:
+      return 'Review completed.';
+    case CodexOAuthV2MergeGateFailureCode.Failed:
+      return 'Review completed with blocking findings.';
+    case CodexOAuthV2MergeGateFailureCode.Inconclusive:
+      return 'Review completed with an inconclusive merge gate.';
+    case CodexOAuthV2MergeGateFailureCode.Missing:
+      return 'Review completed without a merge gate conclusion.';
+  }
 }
 
 function appendTerminalOutcomeStepSummary(

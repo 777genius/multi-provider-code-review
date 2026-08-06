@@ -2,14 +2,18 @@ import { createHash } from 'crypto';
 import { GitHubClient } from './client';
 import { LifecycleReasonCode, LifecycleTarget } from '../types';
 import {
-  extractFindingFingerprint,
   extractInlineSeverity,
   extractInlineTitle,
   InlineCommentReference,
   stripInlineFingerprintMarkers,
 } from './comment-fingerprint';
 import { logger } from '../utils/logger';
-import { hashReviewLifecycleThreadState } from '../review-projection/domain';
+import {
+  FindingMarkerParseKind,
+  hashReviewLifecycleThreadState,
+  isReviewLifecycleMarkerFingerprint,
+  parseFindingMarker,
+} from '../review-projection/domain';
 
 export const DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS = ['review-router-ai[bot]'];
 const GITHUB_ACTIONS_BOT_AUTHOR = 'github-actions[bot]';
@@ -40,9 +44,17 @@ export interface ReviewThreadInventory {
   headRefOid?: string;
   candidates: ReviewThreadLifecycleTarget[];
   manualAttention: ReviewThreadLifecycleRecord[];
+  manualAttentionIssues: ReviewThreadMarkerIssue[];
   dedupeComments: InlineCommentReference[];
   warnings: string[];
   failed: boolean;
+}
+
+export interface ReviewThreadMarkerIssue {
+  readonly threadId: string;
+  readonly parentCommentId: string;
+  readonly threadUrl?: string;
+  readonly reason: 'conflicting_finding_marker' | 'malformed_finding_marker';
 }
 
 export interface ReviewThreadLifecycleTarget extends LifecycleTarget {
@@ -172,6 +184,7 @@ export class ReviewThreadInventoryLoader {
     const inventory: ReviewThreadInventory = {
       candidates: [],
       manualAttention: [],
+      manualAttentionIssues: [],
       dedupeComments: [],
       warnings: [],
       failed: false,
@@ -227,6 +240,10 @@ export class ReviewThreadInventoryLoader {
           cursor = null;
         }
       } while (cursor);
+      if (inventory.failed) {
+        inventory.candidates = [];
+        inventory.dedupeComments = [];
+      }
     } catch (error) {
       logger.warn(
         'Failed to load ReviewRouter review thread lifecycle inventory',
@@ -234,6 +251,7 @@ export class ReviewThreadInventoryLoader {
       );
       inventory.candidates = [];
       inventory.manualAttention = [];
+      inventory.manualAttentionIssues = [];
       inventory.dedupeComments = [];
       inventory.failed = true;
       inventory.warnings.push('review thread lifecycle inventory failed');
@@ -264,11 +282,34 @@ export class ReviewThreadInventoryLoader {
     }
 
     const parent = comments[0];
-    const parentFingerprint = extractFindingFingerprint(parent?.body || '');
     if (!parent) {
       throw new Error(`thread ${thread.id} parent comment was missing`);
     }
-    if (!parentFingerprint) {
+    const trustedAuthor = this.isTrustedAuthor(parent.author?.login);
+    const marker = parseFindingMarker(parent.body ?? '');
+    if (
+      marker.kind === FindingMarkerParseKind.Conflict ||
+      marker.kind === FindingMarkerParseKind.Malformed
+    ) {
+      if (trustedAuthor) {
+        const reason =
+          marker.kind === FindingMarkerParseKind.Conflict
+            ? 'conflicting_finding_marker'
+            : 'malformed_finding_marker';
+        inventory.failed = true;
+        inventory.manualAttentionIssues.push({
+          threadId: thread.id,
+          parentCommentId: parent.id,
+          ...(parent.url ? { threadUrl: parent.url } : {}),
+          reason,
+        });
+        inventory.warnings.push(
+          `trusted ReviewRouter thread ${thread.id} has a ${reason.replaceAll('_', ' ')}`
+        );
+      }
+      return;
+    }
+    if (marker.kind === FindingMarkerParseKind.Absent) {
       return;
     }
 
@@ -284,9 +325,8 @@ export class ReviewThreadInventoryLoader {
     });
 
     const body = parent.body || '';
-    const fingerprint = parentFingerprint;
+    const fingerprint = marker.fingerprint;
 
-    const trustedAuthor = this.isTrustedAuthor(parent.author?.login);
     const humanReply = comments.some(
       (comment, index) =>
         index > 0 &&
@@ -543,11 +583,13 @@ function parseResolutionMarker(
   body: string
 ): { targetId: string; fingerprint: string } | undefined {
   const match = new RegExp(
-    `<!--\\s*${RESOLUTION_REPLY_MARKER}\\s+target_id=([A-Za-z0-9._:-]{1,160})\\s+fingerprint=([a-f0-9]{24})\\s*-->`,
+    `<!--\\s*${RESOLUTION_REPLY_MARKER}\\s+target_id=([A-Za-z0-9._:-]{1,160})\\s+fingerprint=([A-Za-z0-9_]{1,80})\\s*-->`,
     'i'
   ).exec(body);
   if (!match?.[1] || !match[2]) return undefined;
-  return { targetId: match[1], fingerprint: match[2].toLowerCase() };
+  const fingerprint = match[2].toLowerCase();
+  if (!isReviewLifecycleMarkerFingerprint(fingerprint)) return undefined;
+  return { targetId: match[1], fingerprint };
 }
 
 function normalizeLifecycleSeverity(

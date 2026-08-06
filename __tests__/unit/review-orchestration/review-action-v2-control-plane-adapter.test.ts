@@ -23,6 +23,7 @@ import {
   ReviewRunAuthorizationResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
 import { ReviewActionV2RetryClass } from '../../../src/control-plane/generated/review-action-v2/review-action-v2-negotiation';
+import { MergeGateConclusion } from '../../../src/review-projection/domain';
 import { logger } from '../../../src/utils/logger';
 import {
   ReviewCapabilityKind,
@@ -1323,6 +1324,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           publicationOperationCount: 0,
           publicationChunkCount: 0,
           coverageComplete: true,
+          mergeGateConclusion: MergeGateConclusion.Pass,
         },
         allowPartial: false,
       })
@@ -1362,6 +1364,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           publicationOperationCount: 0,
           publicationChunkCount: 0,
           coverageComplete: true,
+          mergeGateConclusion: MergeGateConclusion.Pass,
         },
       })
     ).rejects.toThrow(
@@ -1395,6 +1398,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           publicationOperationCount: 0,
           publicationChunkCount: 0,
           coverageComplete: true,
+          mergeGateConclusion: MergeGateConclusion.Pass,
         },
       })
     ).resolves.toEqual({
@@ -1432,6 +1436,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           publicationOperationCount: 0,
           publicationChunkCount: 0,
           coverageComplete: true,
+          mergeGateConclusion: MergeGateConclusion.Pass,
         },
       })
     ).rejects.toThrow(
@@ -1470,6 +1475,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           publicationOperationCount: 0,
           publicationChunkCount: 0,
           coverageComplete: true,
+          mergeGateConclusion: MergeGateConclusion.Pass,
         },
       })
     ).rejects.toThrow('review_action_v2:review_publication_request:forbidden');
@@ -1506,6 +1512,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           publicationOperationCount: 0,
           publicationChunkCount: 0,
           coverageComplete: true,
+          mergeGateConclusion: MergeGateConclusion.Pass,
         },
       })
     ).resolves.toEqual({
@@ -1545,6 +1552,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           publicationOperationCount: 0,
           publicationChunkCount: 0,
           coverageComplete: true,
+          mergeGateConclusion: MergeGateConclusion.Pass,
         },
       })
     ).resolves.toEqual({

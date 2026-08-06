@@ -16,6 +16,10 @@ import {
   signatureFromInlineComment,
 } from './comment-fingerprint';
 import { ReviewLedger } from './ledger';
+import {
+  FindingMarkerParseKind,
+  parseFindingMarker,
+} from '../review-projection/domain';
 
 export interface ReviewCommentState {
   suppressed: Set<string>;
@@ -242,11 +246,21 @@ export class FeedbackFilter {
       comment.line,
       comment.body
     );
-    const findingFingerprint = findingFingerprintFromInlineComment(
-      comment.path,
-      comment.line,
-      comment.body
-    );
+    const marker = parseFindingMarker(comment.body);
+    if (
+      marker.kind === FindingMarkerParseKind.Conflict ||
+      marker.kind === FindingMarkerParseKind.Malformed
+    ) {
+      return false;
+    }
+    const findingFingerprint =
+      marker.kind === FindingMarkerParseKind.Valid
+        ? marker.fingerprint
+        : findingFingerprintFromInlineComment(
+            comment.path,
+            comment.line,
+            comment.body
+          );
     const commandDismissedFindings = state.commandDismissedFindings ?? [];
 
     return (

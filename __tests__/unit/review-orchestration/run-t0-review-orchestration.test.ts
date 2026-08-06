@@ -36,6 +36,7 @@ import {
   ReviewInvestigationLegacyFallbackSignal,
 } from '../../../src/review-investigation/application/run-investigation-work-slot';
 import { ReviewInvestigationRunStatus } from '../../../src/review-investigation/domain/investigation-state';
+import { MergeGateConclusion } from '../../../src/review-projection/domain';
 
 describe('RunT0ReviewOrchestration', () => {
   it('completes a fresh exact-revision observation and publication', async () => {
@@ -79,6 +80,28 @@ describe('RunT0ReviewOrchestration', () => {
       'publication.permit',
       projection.projectionHash,
     ]);
+  });
+
+  it('completes publication while preserving a full-coverage blocking merge gate', async () => {
+    const fixture = createFixture();
+    jest
+      .mocked(fixture.dependencies.projectionBuilder.build)
+      .mockResolvedValue({
+        ...projection,
+        findingCount: 1,
+        coverageComplete: true,
+        mergeGateConclusion: MergeGateConclusion.Fail,
+      });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Completed,
+      mergeGateConclusion: MergeGateConclusion.Fail,
+      canonicalReceiptSetHash: hash('receipt'),
+    });
+    expect(fixture.controlPlane.requestPublication).toHaveBeenCalledTimes(1);
+    expect(result.state.phase).toBe(ReviewOrchestrationPhase.Completed);
   });
 
   it('records shadow investigation evidence without replacing the legacy observation', async () => {
@@ -1648,6 +1671,7 @@ const projection = {
   publicationOperationCount: 0,
   publicationChunkCount: 0,
   coverageComplete: true,
+  mergeGateConclusion: MergeGateConclusion.Pass,
 };
 
 function coverageManifest(workSlotId: string) {

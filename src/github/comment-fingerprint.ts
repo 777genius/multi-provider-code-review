@@ -1,16 +1,15 @@
 import { createHash } from 'crypto';
 import { Finding } from '../types';
+import {
+  FindingMarkerParseKind,
+  parseFindingMarker,
+  stripReservedFindingMarkerSyntax,
+} from '../review-projection/domain/finding-marker';
 
 const INLINE_MARKER_RE =
   /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/i;
 const INLINE_MARKER_RE_GLOBAL =
   /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
-const FINDING_MARKER_RE_GLOBAL =
-  /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/gi;
-const FINDING_V2_MARKER_RE_GLOBAL =
-  /\breviewrouter:finding:v2:([a-f0-9]{24,64})(?=$|[ \t\r\n])/g;
-const FINDING_V2_HIDDEN_MARKER_RE_GLOBAL =
-  /<!--[ \t]*reviewrouter:finding:v2:[a-f0-9]{24,64}[ \t]*-->/g;
 const MAX_NEARBY_LINE_DISTANCE = 12;
 
 export interface InlineCommentReference {
@@ -71,15 +70,10 @@ export function extractInlineFingerprint(body?: string | null): string | null {
 }
 
 export function extractFindingFingerprint(body?: string | null): string | null {
-  if (!body) return null;
-  const fingerprints = new Set<string>();
-  for (const match of body.matchAll(FINDING_MARKER_RE_GLOBAL)) {
-    if (match[1]) fingerprints.add(match[1].toLowerCase());
-  }
-  for (const match of body.matchAll(FINDING_V2_MARKER_RE_GLOBAL)) {
-    if (match[1]) fingerprints.add(match[1]);
-  }
-  return fingerprints.size === 1 ? [...fingerprints][0] : null;
+  const parsed = parseFindingMarker(body);
+  return parsed.kind === FindingMarkerParseKind.Valid
+    ? parsed.fingerprint
+    : null;
 }
 
 export function appendInlineFingerprintMarker(
@@ -87,29 +81,27 @@ export function appendInlineFingerprintMarker(
   path: string | undefined,
   line: number | null | undefined
 ): string {
-  const parts = [body.trimEnd()];
-  if (!extractInlineFingerprint(body)) {
+  const sanitizedBody = stripReservedFindingMarkerSyntax(body);
+  const parts = [sanitizedBody.trimEnd()];
+  if (!extractInlineFingerprint(sanitizedBody)) {
     parts.push(
-      inlineFingerprintMarker(fingerprintFromInlineComment(path, line, body))
-    );
-  }
-  if (!extractFindingFingerprint(body)) {
-    parts.push(
-      findingFingerprintMarker(
-        findingFingerprintFromInlineComment(path, line, body)
+      inlineFingerprintMarker(
+        fingerprintFromInlineComment(path, line, sanitizedBody)
       )
     );
   }
+  parts.push(
+    findingFingerprintMarker(
+      findingFingerprintFromInlineComment(path, line, sanitizedBody)
+    )
+  );
   return parts.join('\n\n');
 }
 
 export function stripInlineFingerprintMarkers(body: string): string {
-  return body
-    .replace(INLINE_MARKER_RE_GLOBAL, '')
-    .replace(FINDING_MARKER_RE_GLOBAL, '')
-    .replace(FINDING_V2_HIDDEN_MARKER_RE_GLOBAL, '')
-    .replace(FINDING_V2_MARKER_RE_GLOBAL, '')
-    .trim();
+  return stripReservedFindingMarkerSyntax(
+    body.replace(INLINE_MARKER_RE_GLOBAL, '')
+  ).trim();
 }
 
 export function isReviewRouterInlineComment(body?: string | null): boolean {

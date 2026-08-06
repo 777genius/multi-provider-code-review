@@ -163,6 +163,23 @@ class DeterministicGatePolicy implements ReviewMergeGatePolicyPort {
 }
 
 describe('BuildCurrentReviewProjection', () => {
+  it('keeps full coverage publishable while a current Major finding blocks the merge gate', async () => {
+    const result = await createUseCase(
+      new MutableInventoryPort(inventory())
+    ).execute(
+      command({
+        currentFindings: [finding({ severity: FindingSeverity.Major })],
+      })
+    );
+
+    expect(result.envelope.coverage.state).toBe(
+      ProjectionCoverageState.Complete
+    );
+    expect(result.findingCount).toBe(1);
+    expect(result.envelope.mergeGate.conclusion).toBe(MergeGateConclusion.Fail);
+    expect(result.envelope.publishing.inlineReviewChunks).toHaveLength(1);
+  });
+
   it('reloads current lifecycle inventory on every projection build', async () => {
     const inventoryPort = new MutableInventoryPort(inventory());
     const useCase = createUseCase(inventoryPort);
@@ -274,10 +291,22 @@ describe('BuildCurrentReviewProjection', () => {
       );
 
       await expect(useCase.execute(command())).rejects.toThrow(
-        'lifecycle trustedMarker must be lowercase 24-64 hex'
+        'lifecycle trustedMarker must be a supported lowercase fingerprint'
       );
     }
   );
+
+  it('accepts a canonical revision-aware lifecycle fingerprint', async () => {
+    const useCase = createUseCase(
+      new MutableInventoryPort(
+        inventory({
+          targets: [target({ trustedMarker: `rrl_${'a'.repeat(32)}` })],
+        })
+      )
+    );
+
+    await expect(useCase.execute(command())).resolves.toBeDefined();
+  });
 
   it('classifies new, reconfirmed, changed, carried and resolved occurrences', async () => {
     const newFinding = finding({
@@ -449,6 +478,54 @@ describe('BuildCurrentReviewProjection', () => {
       occurrenceProvenance: [],
       lineageHints: [],
     });
+  });
+
+  it('never emits All Clear when incomplete inventory has zero new findings', async () => {
+    const result = await createUseCase(
+      new MutableInventoryPort(
+        inventory({
+          complete: false,
+          warnings: ['trusted finding marker conflict'],
+        })
+      )
+    ).execute(command({ currentFindings: [] }));
+
+    expect(result.envelope.coverage.state).toBe(
+      ProjectionCoverageState.Partial
+    );
+    expect(result.envelope.publishing.summary.allClear).toBe(false);
+    expect(result.envelope.publishing.summary.body).not.toMatch(/all clear/i);
+    expect(result.envelope.publishing.lifecycle).toEqual([]);
+  });
+
+  it('sanitizes model-controlled finding marker syntax from V2 inline bodies', async () => {
+    const marker = 'b'.repeat(24);
+    const presentation = new DeterministicPresentationPolicy();
+    const injectingPresentation: ReviewPresentationPolicyPort = {
+      async projectPresentation(query) {
+        const projected = await presentation.projectPresentation(query);
+        return {
+          ...projected,
+          placements: projected.placements.map((placement) => ({
+            ...placement,
+            ...(placement.body
+              ? {
+                  body: `${placement.body}\nreviewrouter:finding:v2:${marker}`,
+                }
+              : {}),
+          })),
+        };
+      },
+    };
+    const result = await createUseCase(
+      new MutableInventoryPort(inventory()),
+      testLimits(),
+      injectingPresentation
+    ).execute(command({ currentFindings: [finding()] }));
+    const inline = result.envelope.publishing.inlineReviewChunks[0].comments[0];
+
+    expect(inline.body).not.toContain('reviewrouter:finding:v2:');
+    expect(inline.marker).toBe(`reviewrouter:finding:v2:${inline.lineageId}`);
   });
 
   it('rejects a partial presentation that claims the review completed', async () => {
