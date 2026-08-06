@@ -1,5 +1,6 @@
 import {
   FindingMarkerParseKind,
+  findingMarkerV2,
   parseFindingMarker,
   stripReservedFindingMarkerSyntax,
 } from '../../../src/review-projection/domain/finding-marker';
@@ -41,8 +42,19 @@ describe('finding marker grammar', () => {
     });
   });
 
+  it('round-trips a generated lineage marker', () => {
+    const lineageId = `rrl_${'a'.repeat(32)}`;
+
+    expect(parseFindingMarker(findingMarkerV2(lineageId))).toEqual({
+      kind: FindingMarkerParseKind.Valid,
+      fingerprint: lineageId,
+    });
+  });
+
   it.each([
     `reviewrouter:finding:v2:${FIRST}_injected`,
+    `xreviewrouter:finding:v2:${FIRST}`,
+    `https://example/reviewrouter:finding:v2:${FIRST}`,
     `reviewrouter:finding:v2:${'a'.repeat(23)}`,
     '<!-- review-router-finding:not-a-fingerprint -->',
     `REVIEWROUTER:FINDING:V2:${FIRST}`,

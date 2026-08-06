@@ -86,26 +86,34 @@ describe('TerminalOutcomePublicationUseCase', () => {
     expect(github.createPullRequestComment).not.toHaveBeenCalled();
   });
 
-  it('clears only terminal outcome comments after a completed review', async () => {
+  it('clears only current-revision terminal outcomes after a completed review', async () => {
+    const currentHeadSha = 'a'.repeat(40);
+    const newerHeadSha = 'b'.repeat(40);
     const github = fakeGitHub({
       comments: [
-        { id: 201, body: '<!-- reviewrouter:codex-oauth:terminal:abc -->' },
+        {
+          id: 201,
+          body: `<!-- reviewrouter:codex-oauth:terminal:${currentHeadSha}:partial -->`,
+        },
         { id: 202, body: '<!-- reviewrouter:summary:v2:abc -->' },
-        { id: 203, body: '<!-- reviewrouter:codex-oauth:terminal:def -->' },
+        {
+          id: 203,
+          body: `<!-- reviewrouter:codex-oauth:terminal:${newerHeadSha}:partial -->`,
+        },
+        {
+          id: 204,
+          body: '<!-- reviewrouter:codex-oauth:terminal:max-changed-lines-exceeded -->',
+        },
       ],
     });
     const useCase = createUseCase(github);
 
     await useCase.clear({ reason: 'review_completed' });
 
-    expect(github.deletePullRequestComment).toHaveBeenCalledTimes(2);
-    expect(github.deletePullRequestComment).toHaveBeenNthCalledWith(1, {
+    expect(github.deletePullRequestComment).toHaveBeenCalledTimes(1);
+    expect(github.deletePullRequestComment).toHaveBeenCalledWith({
       repository: 'Padelapp-Club/monitoring-service',
       commentId: 201,
-    });
-    expect(github.deletePullRequestComment).toHaveBeenNthCalledWith(2, {
-      repository: 'Padelapp-Club/monitoring-service',
-      commentId: 203,
     });
   });
 

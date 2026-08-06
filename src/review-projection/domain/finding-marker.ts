@@ -22,7 +22,7 @@ const RESERVED_FINDING_MARKER_PREFIX_RE =
 const LEGACY_FINDING_MARKER_RE =
   /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/gi;
 const V2_FINDING_MARKER_RE =
-  /reviewrouter:finding:v2:([a-f0-9]{24,64})(?=$|[ \t\r\n])/g;
+  /(?<!\S)reviewrouter:finding:v2:((?:rrl_[a-f0-9]{32}|[a-f0-9]{24,64}))(?=$|[ \t\r\n])/g;
 const RESERVED_FINDING_MARKER_COMMENT_RE =
   /<!--(?:(?!-->)[\s\S])*(?:review-router-finding:|reviewrouter:finding:v2:)(?:(?!-->)[\s\S])*-->/gi;
 const UNCLOSED_RESERVED_FINDING_MARKER_COMMENT_RE =
