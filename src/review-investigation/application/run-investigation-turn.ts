@@ -78,7 +78,7 @@ export class RunInvestigationTurn {
     readonly maxTurns: number;
     readonly minimumCapacityParkMs: number;
     readonly snapshot: ReviewInvestigationSnapshot;
-    readonly lease: ReviewInvestigationLease;
+    readonly currentLease: () => ReviewInvestigationLease;
     readonly signal?: AbortSignal;
   }): Promise<RunInvestigationTurnResult> {
     const turn = requireActiveTurn(input.snapshot);
@@ -108,7 +108,7 @@ export class RunInvestigationTurn {
     } catch (error) {
       return this.abortProviderFailure(input, error);
     }
-    const invocationId = `${input.snapshot.investigationId}:${turn.turnId}:${input.lease.attemptId}`;
+    const invocationId = `${input.snapshot.investigationId}:${turn.turnId}:${input.currentLease().attemptId}`;
     const current = await this.dependencies.currency.check(input);
     if (current !== ReviewInvestigationCurrency.Current) {
       return this.abortSuperseded(input, invocationId);
@@ -122,7 +122,7 @@ export class RunInvestigationTurn {
         reviewRevisionHash: input.reviewRevisionHash,
         investigationId: input.snapshot.investigationId,
         turnId: turn.turnId,
-        lease: input.lease,
+        currentLease: input.currentLease,
       });
     } catch (error) {
       if (error instanceof ReviewInvestigationGatewayConfigurationError) {
@@ -140,7 +140,7 @@ export class RunInvestigationTurn {
       try {
         observation = await selection.agent.executeTurn({
           invocationId,
-          fencingToken: input.lease.fencingToken,
+          fencingToken: input.currentLease().fencingToken,
           turnId: turn.turnId,
           dossierVersion: input.snapshot.version,
           dossierDigest: input.snapshot.dossierDigest,
@@ -169,7 +169,7 @@ export class RunInvestigationTurn {
         await cancelPreservingSemanticOutcome(
           selection,
           invocationId,
-          input.lease.fencingToken,
+          input.currentLease().fencingToken,
           (error) =>
             this.recordOperationalFailure(
               input,
@@ -203,7 +203,7 @@ export class RunInvestigationTurn {
         const snapshot = await this.dependencies.controlPlane.commitTurn({
           authorizationToken: input.authorizationToken,
           snapshot: input.snapshot,
-          lease: input.lease,
+          lease: input.currentLease(),
           attestationId: accepted.attestationId,
           attestationHash: accepted.attestationHash,
           observation,
@@ -305,7 +305,7 @@ export class RunInvestigationTurn {
       const snapshot = await this.dependencies.controlPlane.abortTurn({
         authorizationToken: input.authorizationToken,
         snapshot: input.snapshot,
-        lease: input.lease,
+        lease: input.currentLease(),
         reason,
         nextEligibleAt,
       });

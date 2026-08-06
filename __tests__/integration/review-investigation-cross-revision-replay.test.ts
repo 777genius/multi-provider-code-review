@@ -133,7 +133,7 @@ describe('cross-revision investigation replay E2E', () => {
             };
           }
           if (
-            operation === ReviewActionV2OperationId.ReviewInvestigationReplay
+            operation === ReviewActionV2OperationId.ReviewInvestigationReplayV2
           ) {
             const proofs = JSON.parse(
               stringValue(payload.replayProofsCanonicalJson)
@@ -180,6 +180,9 @@ describe('cross-revision investigation replay E2E', () => {
         hash: sha256('{}'),
       },
       initialReceipts: [],
+      providerManifestCanonicalJson,
+      providerManifestHash: sha256(providerManifestCanonicalJson),
+      ownerIdHash: sha256('owner-e2e'),
     };
 
     return useCase.execute({

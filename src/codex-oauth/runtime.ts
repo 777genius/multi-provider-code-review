@@ -50,6 +50,7 @@ export enum CodexOAuthV2TerminalReason {
   RequiredReviewCoverageIncomplete = 'required_review_coverage_incomplete',
   RequiredProviderLaneBusy = 'required_provider_lane_busy',
   RequiredWorkExhausted = 'required_work_exhausted',
+  RequiredInvestigationDeferred = 'required_investigation_deferred',
   ProviderCapacityUnavailable = 'provider_capacity_unavailable',
   RevisionGuardUnavailable = 'revision_guard_unavailable',
   RevisionGuardFailed = 'revision_guard_failed',
@@ -63,6 +64,7 @@ type CodexOAuthV2PartialReason =
   | CodexOAuthV2TerminalReason.RequiredReviewCoverageIncomplete
   | CodexOAuthV2TerminalReason.RequiredProviderLaneBusy
   | CodexOAuthV2TerminalReason.RequiredWorkExhausted
+  | CodexOAuthV2TerminalReason.RequiredInvestigationDeferred
   | CodexOAuthV2TerminalReason.Unknown;
 
 type CodexOAuthV2FailureReason =
@@ -216,8 +218,7 @@ export type CodexOAuthV2RuntimePorts = CodexOAuthSharedRuntimePorts & {
 };
 
 export type CodexOAuthRuntimePorts =
-  | CodexOAuthLegacyRuntimePorts
-  | CodexOAuthV2RuntimePorts;
+  CodexOAuthLegacyRuntimePorts | CodexOAuthV2RuntimePorts;
 
 export type CodexOAuthReviewComputationResult = {
   skipped: boolean;

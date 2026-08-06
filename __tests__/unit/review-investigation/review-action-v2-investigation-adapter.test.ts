@@ -55,7 +55,7 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
     });
 
     expect(client.execute).toHaveBeenCalledWith(
-      ReviewActionV2OperationId.ReviewInvestigationOpen,
+      ReviewActionV2OperationId.ReviewInvestigationOpenV2,
       expect.objectContaining({
         seedObligationsCanonicalJson: seedEnvelopeCanonicalJson,
         seedObligationsHash: sha256(seedEnvelopeCanonicalJson),
@@ -679,7 +679,7 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
     });
 
     expect(client.execute).toHaveBeenCalledWith(
-      ReviewActionV2OperationId.ReviewInvestigationReplay,
+      ReviewActionV2OperationId.ReviewInvestigationReplayV2,
       expect.objectContaining({
         stableReviewUnitKey: open.stableReviewUnitKey,
         providerVoteLaneId: open.providerVoteLaneId,
@@ -715,6 +715,9 @@ function openInput() {
       hash: sha256('{}'),
     },
     initialReceipts: [],
+    providerManifestCanonicalJson: '{}',
+    providerManifestHash: sha256('{}'),
+    ownerIdHash: sha256('owner'),
   });
 }
 

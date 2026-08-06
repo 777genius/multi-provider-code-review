@@ -2,8 +2,10 @@ import type { LogMetadata } from '../../utils/logger';
 import {
   ReviewInvocationConfigurationMismatchError,
   ReviewInvocationFailureClass,
+  type ReviewInvestigationDiagnosticsPort,
   type ReviewInvocationDiagnosticsPort,
 } from '../application';
+import { ReviewInvestigationDeferredSignal } from '../../review-investigation/application/run-investigation-work-slot';
 
 type DiagnosticsLogger = {
   warn(message: string, metadata?: LogMetadata): void;
@@ -33,6 +35,42 @@ export class LoggingReviewInvocationDiagnostics implements ReviewInvocationDiagn
       }
     );
   }
+}
+
+export class LoggingReviewInvestigationDiagnostics implements ReviewInvestigationDiagnosticsPort {
+  constructor(private readonly logger: DiagnosticsLogger) {}
+
+  record(
+    input: Parameters<ReviewInvestigationDiagnosticsPort['record']>[0]
+  ): void {
+    this.logger.warn('Review investigation degraded safely', {
+      attempt: input.attemptOrdinal,
+      outcome: input.outcome,
+      provider: input.providerKind,
+      safeReason: classifySafeInvestigationFailureReason(input.error),
+      workSlotId: input.workSlotId,
+    });
+  }
+}
+
+export function classifySafeInvestigationFailureReason(error: unknown): string {
+  if (error instanceof ReviewInvestigationDeferredSignal) {
+    return `investigation_${error.status}`;
+  }
+  if (error instanceof ReviewInvocationConfigurationMismatchError) {
+    return error.reason;
+  }
+  const text = diagnosticText(error);
+  if (/capability_disabled_before_open/i.test(text)) {
+    return 'capability_disabled_before_open';
+  }
+  if (/review_investigation_recording_unsupported/i.test(text)) {
+    return 'investigation_recording_unsupported';
+  }
+  if (/review_investigation_(?:manifest|recording)_.*mismatch/i.test(text)) {
+    return 'investigation_contract_mismatch';
+  }
+  return 'investigation_failed';
 }
 
 export function classifySafeInvocationFailureReason(

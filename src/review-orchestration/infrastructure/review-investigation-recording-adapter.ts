@@ -1,17 +1,12 @@
 import {
-  ReviewCapabilityKind,
   ReviewExecutionProviderKind,
   ReviewInvocationConfigurationMismatchError,
   ReviewInvocationConfigurationMismatchReason,
-  ReviewInvestigationAuthorizationDescriptorVersion,
   ReviewInvestigationRecordingMode,
-  ReviewInvestigationRolloutCapability,
   ReviewTaskKind,
   type PreparedReviewInvocation,
   type ReviewInvestigationRecordingPort,
-  type ReviewInvocationLease,
   type ReviewRevisionGuardPort,
-  type ReviewRunAuthorizationFacts,
   type ReviewWorkSlotPlan,
 } from '../application';
 import {
@@ -21,10 +16,9 @@ import {
 import {
   ReviewInvestigationCurrency,
   type ReviewInvestigationCurrencyPort,
-  type ReviewInvestigationLease,
-  type ReviewInvestigationLeasePort,
 } from '../../review-investigation/application/investigation-control-plane-port';
 import {
+  ReviewInvestigationDeferredSignal,
   ReviewInvestigationLegacyFallbackSignal,
   RunInvestigationWorkSlot,
 } from '../../review-investigation/application/run-investigation-work-slot';
@@ -168,6 +162,9 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
         investigationPolicy: this.options.policy,
         seedEnvelope: requireSeedEnvelope(input.invocation),
         initialReceipts: [],
+        providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
+        providerManifestHash: input.manifest.manifestKey,
+        ownerIdHash: input.ownerIdHash,
         targetScope: {
           workspaceId: input.authorization.facts.workspaceId,
           repositoryConnectionId:
@@ -193,8 +190,6 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
           headSha: input.authorization.facts.headSha,
           reviewRevisionHash: input.authorization.facts.reviewRevisionHash,
         },
-        providerManifestCanonicalJson: input.manifest.manifestCanonicalJson,
-        providerManifestHash: sha256(input.manifest.manifestCanonicalJson),
         requestedModel: input.invocation.requestedModel,
         providerKind: requireReviewAgentProviderKind(
           input.workSlot.providerKind
@@ -214,23 +209,32 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
         certificateTtlMs: this.options.certificateTtlMs,
         minimumCapacityParkMs: this.options.minimumCapacityParkMs,
         maxStateTransitions: this.options.maxStateTransitions,
-        managedLease: () => investigationLease(input.currentLease()),
         signal: input.signal,
       });
     } catch (error) {
       throw mapInvestigationGatewayConfigurationFailure(error) ?? error;
     }
-    if (
-      this.mode === ReviewInvestigationRecordingMode.RecordOnly &&
-      (result.status === ReviewInvestigationRunStatus.Parked ||
-        result.status === ReviewInvestigationRunStatus.RecoveryRequired ||
-        result.status ===
-          ReviewInvestigationRunStatus.TransitionBudgetExhausted)
-    ) {
-      throw new ReviewInvestigationLegacyFallbackSignal();
+    if (isDeferred(result.status)) {
+      if (this.mode === ReviewInvestigationRecordingMode.RecordOnly) {
+        throw new ReviewInvestigationLegacyFallbackSignal();
+      }
+      throw new ReviewInvestigationDeferredSignal(result.status);
     }
     return terminalObservation(result.status, result.snapshot);
   }
+}
+
+function isDeferred(
+  status: ReviewInvestigationRunStatus
+): status is
+  | ReviewInvestigationRunStatus.Parked
+  | ReviewInvestigationRunStatus.RecoveryRequired
+  | ReviewInvestigationRunStatus.TransitionBudgetExhausted {
+  return (
+    status === ReviewInvestigationRunStatus.Parked ||
+    status === ReviewInvestigationRunStatus.RecoveryRequired ||
+    status === ReviewInvestigationRunStatus.TransitionBudgetExhausted
+  );
 }
 
 function mapInvestigationGatewayConfigurationFailure(
@@ -261,16 +265,6 @@ export class RevisionGuardInvestigationCurrencyAdapter implements ReviewInvestig
   }
 }
 
-export class ManagedOnlyInvestigationLeaseAdapter implements ReviewInvestigationLeasePort {
-  async acquire(): Promise<never> {
-    throw new Error('review_investigation_managed_lease_required');
-  }
-
-  async release(): Promise<never> {
-    throw new Error('review_investigation_managed_lease_release_forbidden');
-  }
-}
-
 export function reviewInvestigationCoverageContract(producerReleaseId: string) {
   if (producerReleaseId.length === 0) {
     throw new Error('review_investigation_producer_release_id_missing');
@@ -289,40 +283,6 @@ export function reviewInvestigationPolicyHash(
   policy: ReviewInvestigationPolicy = REVIEW_INVESTIGATION_PRODUCTION_POLICY
 ): string {
   return sha256(canonicalJson(policy));
-}
-
-export function matchesReviewInvestigationCapability(input: {
-  readonly facts: ReviewRunAuthorizationFacts;
-  readonly providerKind:
-    | ReviewExecutionProviderKind.Codex
-    | ReviewExecutionProviderKind.ClaudeCode;
-  readonly capability?: ReviewInvestigationRolloutCapability;
-  readonly policy?: ReviewInvestigationPolicy;
-}): boolean {
-  const descriptor = input.facts.reviewInvestigation;
-  if (
-    descriptor?.authorizationDescriptorVersion !==
-      ReviewInvestigationAuthorizationDescriptorVersion.V2 ||
-    descriptor.capability !== ReviewCapabilityKind.ReviewInvestigationV1 ||
-    descriptor.coverageProfileHash !==
-      reviewInvestigationCoverageProfileHash() ||
-    descriptor.policyHash !==
-      reviewInvestigationPolicyHash(
-        input.policy ?? REVIEW_INVESTIGATION_PRODUCTION_POLICY
-      ) ||
-    !input.facts.providerVoteLanes.some(
-      (lane) => lane.providerKind === input.providerKind
-    )
-  ) {
-    return false;
-  }
-  const capability =
-    input.capability ?? ReviewInvestigationRolloutCapability.Recording;
-  return (
-    descriptor.providerCapabilities
-      .find((row) => row.providerKind === input.providerKind)
-      ?.capabilities.includes(capability) ?? false
-  );
 }
 
 function reviewAgentProviderKind(
@@ -399,19 +359,6 @@ function investigationPrompt(
     'Do not close an obligation without complete operation receipt evidence.',
     `REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:${encodedBrief}`,
   ].join('\n');
-}
-
-function investigationLease(
-  lease: ReviewInvocationLease
-): ReviewInvestigationLease {
-  return Object.freeze({
-    leaseId: lease.leaseId,
-    attemptId: lease.attemptId,
-    leaseCapability: lease.leaseCapability,
-    fencingToken: lease.fencingToken,
-    expiresAt: lease.expiresAt,
-    resultReportUntil: lease.resultReportUntil,
-  });
 }
 
 function terminalObservation(

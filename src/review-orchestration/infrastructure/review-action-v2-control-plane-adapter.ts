@@ -4,7 +4,8 @@ import {
   ReviewActionV2ClientError,
 } from '../../control-plane/review-action-v2-client';
 import {
-  reviewInvestigationRolloutAuthorizationV2Contract,
+  reviewInvestigationExtensionV1,
+  reviewInvestigationRolloutAuthorizationV3Contract,
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
   ReviewActionV2OperationId,
@@ -29,6 +30,8 @@ import {
   ReviewEvidenceLookupKind,
   ReviewCapabilityKind,
   ReviewExecutionProviderKind,
+  ReviewEvidenceCommitRejectedError,
+  ReviewEvidenceCommitRejectionReason,
   ReviewInvestigationAuthorizationDescriptorVersion,
   ReviewInvestigationRolloutCapability,
   ReviewInvocationConfigurationMismatchError,
@@ -674,6 +677,11 @@ export class ReviewActionV2ControlPlaneAdapter
       result.status !== ReviewEvidenceCommitResultStatus.Accepted &&
       result.status !== ReviewEvidenceCommitResultStatus.Idempotent
     ) {
+      if (result.status === ReviewEvidenceCommitResultStatus.Rejected) {
+        throw new ReviewEvidenceCommitRejectedError(
+          evidenceCommitRejectionReason(result.rejectionReason)
+        );
+      }
       throw new Error(`review_action_v2_evidence_commit_${result.status}`);
     }
     return {
@@ -877,6 +885,37 @@ export class ReviewActionV2ControlPlaneAdapter
           : {}),
       },
     };
+  }
+}
+
+function evidenceCommitRejectionReason(
+  value: string | null | undefined
+): ReviewEvidenceCommitRejectionReason {
+  switch (value) {
+    case ReviewEvidenceCommitRejectionReason.AttemptNotFound:
+      return ReviewEvidenceCommitRejectionReason.AttemptNotFound;
+    case ReviewEvidenceCommitRejectionReason.AttemptAuthorityMismatch:
+      return ReviewEvidenceCommitRejectionReason.AttemptAuthorityMismatch;
+    case ReviewEvidenceCommitRejectionReason.AttemptManifestMismatch:
+      return ReviewEvidenceCommitRejectionReason.AttemptManifestMismatch;
+    case ReviewEvidenceCommitRejectionReason.AttemptNotReportable:
+      return ReviewEvidenceCommitRejectionReason.AttemptNotReportable;
+    case ReviewEvidenceCommitRejectionReason.ResultReportWindowExpired:
+      return ReviewEvidenceCommitRejectionReason.ResultReportWindowExpired;
+    case ReviewEvidenceCommitRejectionReason.ResultNotReusableSuccess:
+      return ReviewEvidenceCommitRejectionReason.ResultNotReusableSuccess;
+    case ReviewEvidenceCommitRejectionReason.EvidenceWritesDisabled:
+      return ReviewEvidenceCommitRejectionReason.EvidenceWritesDisabled;
+    case ReviewEvidenceCommitRejectionReason.ContextAttestationNotAccepted:
+      return ReviewEvidenceCommitRejectionReason.ContextAttestationNotAccepted;
+    case ReviewEvidenceCommitRejectionReason.InvestigationCertificatePathDisabled:
+      return ReviewEvidenceCommitRejectionReason.InvestigationCertificatePathDisabled;
+    case ReviewEvidenceCommitRejectionReason.InvestigationCertificateReferenceInvalid:
+      return ReviewEvidenceCommitRejectionReason.InvestigationCertificateReferenceInvalid;
+    case ReviewEvidenceCommitRejectionReason.InvestigationCertificateNotAccepted:
+      return ReviewEvidenceCommitRejectionReason.InvestigationCertificateNotAccepted;
+    default:
+      return ReviewEvidenceCommitRejectionReason.Unknown;
   }
 }
 
@@ -1382,10 +1421,10 @@ function parseReviewInvestigationCapability(
   if (!isRecord(value)) {
     throw new Error('review_action_v2_review_investigation_invalid');
   }
-  return parseReviewInvestigationCapabilityV2(value, providerVoteLanes);
+  return parseReviewInvestigationCapabilityV3(value, providerVoteLanes);
 }
 
-function parseReviewInvestigationCapabilityV2(
+function parseReviewInvestigationCapabilityV3(
   value: Record<string, unknown>,
   providerVoteLanes: readonly Readonly<{
     providerKind: ReviewExecutionProviderKind;
@@ -1395,19 +1434,34 @@ function parseReviewInvestigationCapabilityV2(
     'authorizationDescriptorVersion',
     'capability',
     'coverageProfileHash',
+    'extensionCanonicalizerDigest',
+    'extensionId',
+    'extensionSchemaDigest',
     'policyHash',
     'providerCapabilities',
   ]);
   if (
     value.authorizationDescriptorVersion !==
-      ReviewInvestigationAuthorizationDescriptorVersion.V2 ||
-    value.authorizationDescriptorVersion !==
-      reviewInvestigationRolloutAuthorizationV2Contract.authorizationDescriptorVersion ||
+      reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion ||
     value.capability !== ReviewCapabilityKind.ReviewInvestigationV1 ||
     value.capability !==
-      reviewInvestigationRolloutAuthorizationV2Contract.capability
+      reviewInvestigationRolloutAuthorizationV3Contract.capability
   ) {
     throw new Error('review_action_v2_review_investigation_capability_invalid');
+  }
+  if (
+    value.extensionId !==
+      reviewInvestigationRolloutAuthorizationV3Contract.extensionContract
+        .extensionId ||
+    value.extensionId !== reviewInvestigationExtensionV1.extensionId ||
+    value.extensionSchemaDigest !==
+      reviewInvestigationExtensionV1.schemaDigest ||
+    value.extensionCanonicalizerDigest !==
+      reviewInvestigationExtensionV1.canonicalizerDigest
+  ) {
+    throw new Error(
+      'review_action_v2_review_investigation_extension_contract_invalid'
+    );
   }
   if (
     !Array.isArray(value.providerCapabilities) ||
@@ -1430,7 +1484,7 @@ function parseReviewInvestigationCapabilityV2(
       !Array.isArray(row.capabilities) ||
       row.capabilities.length === 0 ||
       row.capabilities.length >
-        reviewInvestigationRolloutAuthorizationV2Contract.capabilities.length
+        reviewInvestigationRolloutAuthorizationV3Contract.capabilities.length
     ) {
       throw new Error(
         'review_action_v2_review_investigation_capabilities_invalid'
@@ -1464,18 +1518,22 @@ function parseReviewInvestigationCapabilityV2(
   }
   return Object.freeze({
     authorizationDescriptorVersion:
-      ReviewInvestigationAuthorizationDescriptorVersion.V2,
+      ReviewInvestigationAuthorizationDescriptorVersion.V3,
+    extensionCanonicalizerDigest:
+      reviewInvestigationExtensionV1.canonicalizerDigest,
     capability: ReviewCapabilityKind.ReviewInvestigationV1,
     coverageProfileHash: requireDigest(
       value.coverageProfileHash,
       'review_investigation_coverage_profile_hash'
     ),
+    extensionId: reviewInvestigationExtensionV1.extensionId,
     policyHash: requireDigest(
       value.policyHash,
       'review_investigation_policy_hash'
     ),
     providerCapabilities: Object.freeze(providerCapabilities),
-  });
+    extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+  }) satisfies ReviewInvestigationCapabilityDescriptor;
 }
 
 function parseInvestigationProviderKind(value: unknown) {
@@ -1495,8 +1553,8 @@ function parseRolloutCapability(
 ): ReviewInvestigationRolloutCapability {
   if (
     typeof value !== 'string' ||
-    !reviewInvestigationRolloutAuthorizationV2Contract.capabilities.includes(
-      value as (typeof reviewInvestigationRolloutAuthorizationV2Contract.capabilities)[number]
+    !reviewInvestigationRolloutAuthorizationV3Contract.capabilities.includes(
+      value as (typeof reviewInvestigationRolloutAuthorizationV3Contract.capabilities)[number]
     )
   ) {
     throw new Error(
@@ -1511,7 +1569,7 @@ function isDependencyClosed(
 ): boolean {
   const granted = new Set<string>(capabilities);
   const dependencies =
-    reviewInvestigationRolloutAuthorizationV2Contract.dependencies as Readonly<
+    reviewInvestigationRolloutAuthorizationV3Contract.dependencies as Readonly<
       Record<string, readonly string[]>
     >;
   return capabilities.every((capability) =>
@@ -1521,8 +1579,7 @@ function isDependencyClosed(
 
 function providersAreLaneAuthorized(
   providerKinds: readonly (
-    | ReviewExecutionProviderKind.Codex
-    | ReviewExecutionProviderKind.ClaudeCode
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
   )[],
   providerVoteLanes: readonly Readonly<{
     providerKind: ReviewExecutionProviderKind;

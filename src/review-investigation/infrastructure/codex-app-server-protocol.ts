@@ -1,0 +1,1114 @@
+import path from 'path';
+import {
+  ReviewAgentExecutionError,
+  ReviewAgentFailureClass,
+} from '../application/review-agent-port';
+import type { ReviewTurnUsage } from '../domain/turn-observation';
+
+export const CODEX_APP_SERVER_VERSION = '0.145.0';
+export const CODEX_APP_SERVER_MCP_NAME = 'reviewrouter';
+
+export type CodexAppServerReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+
+export type CodexAppServerProtocolRequest = Readonly<{
+  cwd: string;
+  prompt: string;
+  clientTurnId: string;
+  requestedModel: string;
+  reasoningEffort: CodexAppServerReasoningEffort;
+  outputSchema: Readonly<Record<string, unknown>>;
+  allowedTools: readonly string[];
+  maxOutputBytes: number;
+}>;
+
+export type CodexAppServerProtocolResult = Readonly<{
+  finalMessage: string;
+  actualModel: string;
+  modelProvider: string;
+  usage: ReviewTurnUsage;
+}>;
+
+export type CodexAppServerProtocolWriter = (
+  message: Readonly<Record<string, unknown>>
+) => Promise<void>;
+
+type PendingRequest = Readonly<{
+  deferred: Deferred<unknown>;
+}>;
+
+type RawTokenUsage = Readonly<{
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+}>;
+
+type ActiveItem = Readonly<{
+  type: string;
+  server?: string;
+  tool?: string;
+}>;
+
+const OPTED_OUT_NOTIFICATIONS = Object.freeze([
+  'thread/status/changed',
+  'thread/settings/updated',
+  'rawResponseItem/completed',
+  'item/agentMessage/delta',
+  'item/plan/delta',
+  'item/reasoning/summaryTextDelta',
+  'item/reasoning/summaryPartAdded',
+  'item/reasoning/textDelta',
+  'item/mcpToolCall/progress',
+  'account/updated',
+  'account/rateLimits/updated',
+  'app/list/updated',
+  'remoteControl/status/changed',
+  'deprecationNotice',
+]);
+
+const IGNORED_NOTIFICATION_METHODS = new Set(OPTED_OUT_NOTIFICATIONS);
+
+const ALLOWED_ITEM_TYPES = new Set([
+  'userMessage',
+  'agentMessage',
+  'reasoning',
+  'mcpToolCall',
+  'contextCompaction',
+]);
+
+const FORBIDDEN_ITEM_TYPES = new Set([
+  'hookPrompt',
+  'plan',
+  'commandExecution',
+  'fileChange',
+  'dynamicToolCall',
+  'collabAgentToolCall',
+  'subAgentActivity',
+  'webSearch',
+  'imageView',
+  'sleep',
+  'imageGeneration',
+  'enteredReviewMode',
+  'exitedReviewMode',
+]);
+
+export class CodexAppServerProtocolClient {
+  private readonly completion = deferred<CodexAppServerProtocolResult>();
+  private readonly threadStartedSignal = deferred<void>();
+  private readonly pending = new Map<string, PendingRequest>();
+  private readonly activeItems = new Map<string, ActiveItem>();
+  private readonly completedItemIds = new Set<string>();
+  private readonly rawUsageByResponseId = new Map<string, RawTokenUsage>();
+  private readonly allowedTools: ReadonlySet<string>;
+  private nextRequestId = 1;
+  private failed = false;
+  private initialized = false;
+  private threadId: string | null = null;
+  private provisionalThreadId: string | null = null;
+  private turnId: string | null = null;
+  private provisionalTurnId: string | null = null;
+  private threadStarted = false;
+  private turnStarted = false;
+  private turnCompleted = false;
+  private actualModel: string | null = null;
+  private modelProvider: string | null = null;
+  private readonly finalMessageCandidates: Array<{
+    readonly phase: 'final_answer' | null;
+    readonly text: string;
+  }> = [];
+  private aggregateUsage: RawTokenUsage | null = null;
+  private lastAggregateUsage: RawTokenUsage | null = null;
+  private completionResolved = false;
+  private postCompletionFailure: ReviewAgentExecutionError | null = null;
+
+  constructor(
+    private readonly request: CodexAppServerProtocolRequest,
+    private readonly write: CodexAppServerProtocolWriter
+  ) {
+    this.allowedTools = new Set(request.allowedTools);
+    void this.completion.promise.catch(() => undefined);
+    void this.threadStartedSignal.promise.catch(() => undefined);
+  }
+
+  async run(): Promise<CodexAppServerProtocolResult> {
+    const initializeResult = await this.sendRequest('initialize', {
+      clientInfo: {
+        name: 'review_router_action',
+        title: 'ReviewRouter Action',
+        version: '1',
+      },
+      capabilities: {
+        experimentalApi: true,
+        requestAttestation: false,
+        mcpServerOpenaiFormElicitation: false,
+        optOutNotificationMethods: OPTED_OUT_NOTIFICATIONS,
+      },
+    });
+    validateInitializeResponse(initializeResult);
+    this.initialized = true;
+    await this.sendNotification('initialized');
+
+    const threadStartResult = await this.sendRequest('thread/start', {
+      model: this.request.requestedModel,
+      allowProviderModelFallback: false,
+      cwd: this.request.cwd,
+      runtimeWorkspaceRoots: [],
+      approvalPolicy: 'never',
+      approvalsReviewer: 'user',
+      sandbox: 'read-only',
+      config: {
+        model_reasoning_effort: this.request.reasoningEffort,
+      },
+      ephemeral: true,
+      environments: [],
+      dynamicTools: [],
+      selectedCapabilityRoots: [],
+      experimentalRawEvents: true,
+    });
+    this.bindThread(threadStartResult);
+    await this.threadStartedSignal.promise;
+
+    const turnStartResult = await this.sendRequest('turn/start', {
+      threadId: this.threadId,
+      clientUserMessageId: this.request.clientTurnId,
+      input: [
+        {
+          type: 'text',
+          text: this.request.prompt,
+          text_elements: [],
+        },
+      ],
+      environments: [],
+      runtimeWorkspaceRoots: [],
+      approvalPolicy: 'never',
+      approvalsReviewer: 'user',
+      sandboxPolicy: {
+        type: 'readOnly',
+        networkAccess: false,
+      },
+      effort: this.request.reasoningEffort,
+      outputSchema: this.request.outputSchema,
+    });
+    this.bindTurn(turnStartResult);
+    this.maybeComplete();
+    return this.completion.promise;
+  }
+
+  receive(value: unknown): void {
+    if (this.failed) return;
+    try {
+      const message = requireRecord(value, 'protocol_message');
+      const hasMethod = Object.prototype.hasOwnProperty.call(message, 'method');
+      const hasId = Object.prototype.hasOwnProperty.call(message, 'id');
+      if (hasMethod && hasId) {
+        throw confinementFailure();
+      }
+      if (hasId) {
+        this.receiveResponse(message);
+        return;
+      }
+      if (hasMethod) {
+        this.receiveNotification(message);
+        return;
+      }
+      throw streamFailure();
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
+  fail(error: unknown): void {
+    if (this.failed) return;
+    this.failed = true;
+    const failure = normalizeProtocolFailure(error);
+    if (this.completionResolved) {
+      this.postCompletionFailure = failure;
+    }
+    for (const pending of this.pending.values()) {
+      pending.deferred.reject(failure);
+    }
+    this.pending.clear();
+    this.threadStartedSignal.reject(failure);
+    this.completion.reject(failure);
+  }
+
+  end(): void {
+    if (!this.failed && !this.turnCompleted) {
+      this.fail(streamFailure());
+    }
+  }
+
+  failureAfterCompletion(): ReviewAgentExecutionError | null {
+    return this.postCompletionFailure;
+  }
+
+  canInterrupt(): boolean {
+    return this.threadId !== null && this.turnId !== null;
+  }
+
+  async interrupt(): Promise<void> {
+    if (!this.threadId || !this.turnId || this.failed) return;
+    await this.sendRequest('turn/interrupt', {
+      threadId: this.threadId,
+      turnId: this.turnId,
+    });
+  }
+
+  private async sendRequest(
+    method: string,
+    params: Readonly<Record<string, unknown>>
+  ): Promise<unknown> {
+    if (this.failed) throw streamFailure();
+    const id = this.nextRequestId++;
+    const response = deferred<unknown>();
+    this.pending.set(requestIdKey(id), { deferred: response });
+    try {
+      await this.write({ method, id, params });
+    } catch {
+      this.pending.delete(requestIdKey(id));
+      throw processFailure();
+    }
+    return response.promise;
+  }
+
+  private sendNotification(method: string): Promise<void> {
+    if (this.failed) throw streamFailure();
+    return this.write({ method });
+  }
+
+  private receiveResponse(message: Record<string, unknown>): void {
+    const hasResult = Object.prototype.hasOwnProperty.call(message, 'result');
+    const hasError = Object.prototype.hasOwnProperty.call(message, 'error');
+    if (
+      hasResult === hasError ||
+      Object.prototype.hasOwnProperty.call(message, 'method') ||
+      Object.prototype.hasOwnProperty.call(message, 'params') ||
+      !hasOnlyKeys(message, hasResult ? ['id', 'result'] : ['error', 'id'])
+    ) {
+      throw streamFailure();
+    }
+    const id = requireRequestId(message.id);
+    const pending = this.pending.get(requestIdKey(id));
+    if (!pending) throw streamFailure();
+    this.pending.delete(requestIdKey(id));
+    if (hasError) {
+      pending.deferred.reject(responseFailure(message.error));
+      return;
+    }
+    pending.deferred.resolve(message.result);
+  }
+
+  private receiveNotification(message: Record<string, unknown>): void {
+    if (
+      !hasRequiredAndOptionalKeys(
+        message,
+        ['method', 'params'],
+        ['emittedAtMs']
+      ) ||
+      (message.emittedAtMs !== undefined &&
+        (!Number.isSafeInteger(message.emittedAtMs) ||
+          (message.emittedAtMs as number) < 0))
+    ) {
+      throw streamFailure();
+    }
+    const method = requireNonEmptyString(message.method, 'notification_method');
+    const params = requireRecord(message.params, 'notification_params');
+    switch (method) {
+      case 'thread/started':
+        this.onThreadStarted(params);
+        return;
+      case 'mcpServer/startupStatus/updated':
+        this.onMcpServerStatus(params);
+        return;
+      case 'turn/started':
+        this.onTurnStarted(params);
+        return;
+      case 'item/started':
+        this.onItemStarted(params);
+        return;
+      case 'item/completed':
+        this.onItemCompleted(params);
+        return;
+      case 'rawResponse/completed':
+        this.onRawResponseCompleted(params);
+        return;
+      case 'thread/tokenUsage/updated':
+        this.onTokenUsageUpdated(params);
+        return;
+      case 'turn/completed':
+        this.onTurnCompleted(params);
+        return;
+      case 'model/rerouted':
+        this.assertTurnFence(params);
+        throw modelFailure();
+      case 'error':
+        this.assertTurnFence(params);
+        throw responseFailure(requireRecord(params.error, 'turn_error'));
+      default:
+        if (IGNORED_NOTIFICATION_METHODS.has(method)) return;
+        throw streamFailure();
+    }
+  }
+
+  private bindThread(value: unknown): void {
+    const response = requireRecord(value, 'thread_start_response');
+    const thread = requireRecord(response.thread, 'thread');
+    const threadId = requireIdentifier(thread.id, 'thread_id');
+    const actualModel = requireModel(response.model);
+    const responseModelProvider = requireModelProvider(response.modelProvider);
+    const threadModelProvider = requireModelProvider(thread.modelProvider);
+    if (
+      responseModelProvider !== threadModelProvider ||
+      thread.ephemeral !== true ||
+      thread.path !== null ||
+      thread.cliVersion !== CODEX_APP_SERVER_VERSION ||
+      response.cwd !== this.request.cwd ||
+      thread.cwd !== this.request.cwd ||
+      response.approvalPolicy !== 'never' ||
+      response.approvalsReviewer !== 'user' ||
+      !isReadOnlySandbox(response.sandbox) ||
+      response.reasoningEffort !== this.request.reasoningEffort ||
+      !Array.isArray(response.instructionSources) ||
+      response.instructionSources.length !== 0 ||
+      !Array.isArray(thread.turns) ||
+      thread.turns.length !== 0 ||
+      (this.provisionalThreadId !== null &&
+        this.provisionalThreadId !== threadId)
+    ) {
+      throw confinementFailure();
+    }
+    this.threadId = threadId;
+    this.provisionalThreadId = threadId;
+    this.actualModel = actualModel;
+    this.modelProvider = responseModelProvider;
+  }
+
+  private bindTurn(value: unknown): void {
+    if (!this.threadId) throw streamFailure();
+    const response = requireRecord(value, 'turn_start_response');
+    const turn = requireRecord(response.turn, 'turn');
+    const turnId = requireIdentifier(turn.id, 'turn_id');
+    if (
+      turn.status !== 'inProgress' ||
+      turn.error !== null ||
+      !Array.isArray(turn.items) ||
+      turn.items.length !== 0 ||
+      (this.provisionalTurnId !== null && this.provisionalTurnId !== turnId)
+    ) {
+      throw streamFailure();
+    }
+    this.turnId = turnId;
+    this.provisionalTurnId = turnId;
+  }
+
+  private onThreadStarted(params: Record<string, unknown>): void {
+    if (!this.initialized || this.threadStarted) throw streamFailure();
+    const thread = requireRecord(params.thread, 'thread_started_thread');
+    const threadId = requireIdentifier(thread.id, 'thread_id');
+    if (
+      (this.provisionalThreadId !== null &&
+        this.provisionalThreadId !== threadId) ||
+      thread.ephemeral !== true ||
+      thread.path !== null ||
+      thread.cliVersion !== CODEX_APP_SERVER_VERSION ||
+      thread.cwd !== this.request.cwd ||
+      !Array.isArray(thread.turns) ||
+      thread.turns.length !== 0
+    ) {
+      throw confinementFailure();
+    }
+    requireModelProvider(thread.modelProvider);
+    this.provisionalThreadId = threadId;
+    this.threadStarted = true;
+    this.threadStartedSignal.resolve();
+  }
+
+  private onMcpServerStatus(params: Record<string, unknown>): void {
+    const name = requireNonEmptyString(params.name, 'mcp_server_name');
+    if (name !== CODEX_APP_SERVER_MCP_NAME) throw confinementFailure();
+    if (params.threadId !== null) {
+      this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
+    }
+    if (
+      params.status !== 'starting' &&
+      params.status !== 'ready' &&
+      params.status !== 'failed' &&
+      params.status !== 'cancelled'
+    ) {
+      throw streamFailure();
+    }
+    if (params.status === 'failed' || params.status === 'cancelled') {
+      throw processFailure();
+    }
+  }
+
+  private onTurnStarted(params: Record<string, unknown>): void {
+    if (!this.threadStarted || this.turnStarted) throw streamFailure();
+    this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
+    const turn = requireRecord(params.turn, 'turn_started_turn');
+    const turnId = requireIdentifier(turn.id, 'turn_id');
+    if (
+      (this.provisionalTurnId !== null && this.provisionalTurnId !== turnId) ||
+      turn.status !== 'inProgress' ||
+      turn.error !== null ||
+      !Array.isArray(turn.items) ||
+      turn.items.length !== 0
+    ) {
+      throw streamFailure();
+    }
+    this.provisionalTurnId = turnId;
+    this.turnStarted = true;
+  }
+
+  private onItemStarted(params: Record<string, unknown>): void {
+    this.assertTurnFence(params);
+    if (!this.turnStarted || this.turnCompleted) throw streamFailure();
+    const item = requireRecord(params.item, 'item');
+    const id = requireIdentifier(item.id, 'item_id');
+    const type = requireNonEmptyString(item.type, 'item_type');
+    if (this.activeItems.has(id) || this.completedItemIds.has(id)) {
+      throw streamFailure();
+    }
+    this.validateAllowedItem(item, 'started');
+    const active: ActiveItem =
+      type === 'mcpToolCall'
+        ? Object.freeze({
+            type,
+            server: requireNonEmptyString(item.server, 'mcp_server'),
+            tool: requireNonEmptyString(item.tool, 'mcp_tool'),
+          })
+        : Object.freeze({ type });
+    this.activeItems.set(id, active);
+  }
+
+  private onItemCompleted(params: Record<string, unknown>): void {
+    this.assertTurnFence(params);
+    if (!this.turnStarted || this.turnCompleted) throw streamFailure();
+    const item = requireRecord(params.item, 'item');
+    const id = requireIdentifier(item.id, 'item_id');
+    const type = requireNonEmptyString(item.type, 'item_type');
+    const active = this.activeItems.get(id);
+    if (!active || active.type !== type || this.completedItemIds.has(id)) {
+      throw streamFailure();
+    }
+    this.validateAllowedItem(item, 'completed');
+    if (
+      type === 'mcpToolCall' &&
+      (active.server !== item.server || active.tool !== item.tool)
+    ) {
+      throw confinementFailure();
+    }
+    this.activeItems.delete(id);
+    this.completedItemIds.add(id);
+    if (type === 'agentMessage') this.captureFinalMessage(item);
+  }
+
+  private validateAllowedItem(
+    item: Record<string, unknown>,
+    lifecycle: 'started' | 'completed'
+  ): void {
+    const type = requireNonEmptyString(item.type, 'item_type');
+    if (FORBIDDEN_ITEM_TYPES.has(type)) throw confinementFailure();
+    if (!ALLOWED_ITEM_TYPES.has(type)) throw streamFailure();
+    switch (type) {
+      case 'userMessage':
+        this.validateUserMessage(item);
+        return;
+      case 'agentMessage':
+        this.validateAgentMessage(item);
+        return;
+      case 'reasoning':
+        requireStringArray(item.summary, 'reasoning_summary');
+        requireStringArray(item.content, 'reasoning_content');
+        return;
+      case 'mcpToolCall':
+        this.validateMcpToolCall(item, lifecycle);
+        return;
+      case 'contextCompaction':
+        return;
+    }
+  }
+
+  private validateUserMessage(item: Record<string, unknown>): void {
+    if (item.clientId !== this.request.clientTurnId) throw streamFailure();
+    if (!Array.isArray(item.content) || item.content.length !== 1) {
+      throw streamFailure();
+    }
+    const content = requireRecord(item.content[0], 'user_message_content');
+    if (
+      content.type !== 'text' ||
+      content.text !== this.request.prompt ||
+      !Array.isArray(content.text_elements) ||
+      content.text_elements.length !== 0
+    ) {
+      throw streamFailure();
+    }
+  }
+
+  private validateAgentMessage(item: Record<string, unknown>): void {
+    if (
+      typeof item.text !== 'string' ||
+      (item.phase !== null &&
+        item.phase !== 'commentary' &&
+        item.phase !== 'final_answer') ||
+      item.memoryCitation !== null
+    ) {
+      throw streamFailure();
+    }
+    if (Buffer.byteLength(item.text, 'utf8') > this.request.maxOutputBytes) {
+      throw schemaFailure();
+    }
+  }
+
+  private validateMcpToolCall(
+    item: Record<string, unknown>,
+    lifecycle: 'started' | 'completed'
+  ): void {
+    const server = requireNonEmptyString(item.server, 'mcp_server');
+    const tool = requireNonEmptyString(item.tool, 'mcp_tool');
+    if (
+      server !== CODEX_APP_SERVER_MCP_NAME ||
+      !this.allowedTools.has(tool) ||
+      item.pluginId !== null ||
+      item.appContext !== null
+    ) {
+      throw confinementFailure();
+    }
+    requireRecord(item.arguments, 'mcp_arguments');
+    if (lifecycle === 'started') {
+      if (
+        item.status !== 'inProgress' ||
+        item.result !== null ||
+        item.error !== null
+      ) {
+        throw streamFailure();
+      }
+      return;
+    }
+    if (
+      item.status !== 'completed' ||
+      item.error !== null ||
+      !isRecord(item.result)
+    ) {
+      throw confinementFailure();
+    }
+  }
+
+  private captureFinalMessage(item: Record<string, unknown>): void {
+    if (item.phase === 'commentary') return;
+    const text = item.text as string;
+    if (!text.trim()) throw schemaFailure();
+    this.finalMessageCandidates.push({
+      phase: item.phase as 'final_answer' | null,
+      text,
+    });
+  }
+
+  private onRawResponseCompleted(params: Record<string, unknown>): void {
+    this.assertTurnFence(params);
+    if (!this.turnStarted || this.turnCompleted) throw streamFailure();
+    const responseId = requireIdentifier(params.responseId, 'response_id');
+    if (params.usage === null) throw usageFailure();
+    const usage = parseTokenUsage(params.usage);
+    const existing = this.rawUsageByResponseId.get(responseId);
+    if (existing) {
+      throw usageFailure();
+    }
+    this.rawUsageByResponseId.set(responseId, usage);
+  }
+
+  private onTokenUsageUpdated(params: Record<string, unknown>): void {
+    this.assertTurnFence(params);
+    if (!this.turnStarted || this.turnCompleted) throw streamFailure();
+    const tokenUsage = requireRecord(params.tokenUsage, 'thread_token_usage');
+    this.aggregateUsage = parseTokenUsage(tokenUsage.total);
+    this.lastAggregateUsage = parseTokenUsage(tokenUsage.last);
+    if (
+      tokenUsage.modelContextWindow !== null &&
+      (!Number.isSafeInteger(tokenUsage.modelContextWindow) ||
+        (tokenUsage.modelContextWindow as number) < 1)
+    ) {
+      throw usageFailure();
+    }
+  }
+
+  private onTurnCompleted(params: Record<string, unknown>): void {
+    this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
+    const turn = requireRecord(params.turn, 'turn_completed_turn');
+    this.assertTurnId(requireIdentifier(turn.id, 'turn_id'));
+    if (
+      !this.turnStarted ||
+      this.turnCompleted ||
+      turn.status !== 'completed' ||
+      turn.error !== null ||
+      !Array.isArray(turn.items) ||
+      turn.items.length !== 0 ||
+      this.activeItems.size !== 0
+    ) {
+      throw streamFailure();
+    }
+    this.turnCompleted = true;
+    this.maybeComplete();
+  }
+
+  private maybeComplete(): void {
+    if (!this.turnCompleted || this.failed) return;
+    if (!this.threadId || !this.turnId) return;
+    if (
+      !this.threadStarted ||
+      !this.turnStarted ||
+      !this.actualModel ||
+      !this.modelProvider
+    ) {
+      this.fail(streamFailure());
+      return;
+    }
+    if (
+      this.rawUsageByResponseId.size === 0 ||
+      !this.aggregateUsage ||
+      !this.lastAggregateUsage
+    ) {
+      this.fail(usageFailure());
+      return;
+    }
+    const rawUsage = sumUsage([...this.rawUsageByResponseId.values()]);
+    const lastRawUsage = [...this.rawUsageByResponseId.values()].at(-1);
+    if (
+      !sameUsage(rawUsage, this.aggregateUsage) ||
+      !lastRawUsage ||
+      !sameUsage(lastRawUsage, this.lastAggregateUsage)
+    ) {
+      this.fail(usageFailure());
+      return;
+    }
+    const finalMessage = selectFinalMessage(this.finalMessageCandidates);
+    if (finalMessage === null) {
+      this.fail(schemaFailure());
+      return;
+    }
+    this.completionResolved = true;
+    this.completion.resolve(
+      Object.freeze({
+        finalMessage,
+        actualModel: this.actualModel,
+        modelProvider: this.modelProvider,
+        usage: Object.freeze({
+          inputTokens: rawUsage.inputTokens,
+          cachedInputTokens: rawUsage.cachedInputTokens,
+          outputTokens: rawUsage.outputTokens,
+          reasoningOutputTokens: rawUsage.reasoningOutputTokens,
+          totalTokens: rawUsage.totalTokens,
+        }),
+      })
+    );
+  }
+
+  private assertTurnFence(params: Record<string, unknown>): void {
+    this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
+    this.assertTurnId(requireIdentifier(params.turnId, 'turn_id'));
+  }
+
+  private assertThreadId(threadId: string): void {
+    const expected = this.threadId ?? this.provisionalThreadId;
+    if (expected !== null && expected !== threadId) throw streamFailure();
+    if (expected === null) this.provisionalThreadId = threadId;
+  }
+
+  private assertTurnId(turnId: string): void {
+    const expected = this.turnId ?? this.provisionalTurnId;
+    if (expected !== null && expected !== turnId) throw streamFailure();
+    if (expected === null) this.provisionalTurnId = turnId;
+  }
+}
+
+function selectFinalMessage(
+  candidates: readonly Readonly<{
+    phase: 'final_answer' | null;
+    text: string;
+  }>[]
+): string | null {
+  const finalAnswers = candidates.filter(
+    (candidate) => candidate.phase === 'final_answer'
+  );
+  if (finalAnswers.length === 1) return finalAnswers[0].text;
+  if (finalAnswers.length > 1) return null;
+  const compatible = candidates.filter((candidate) => candidate.phase === null);
+  return compatible.length === 1 ? compatible[0].text : null;
+}
+
+export function classifyCodexAppServerDiagnostic(
+  diagnostic: string,
+  fallback: ReviewAgentFailureClass = ReviewAgentFailureClass.ProcessFailure
+): ReviewAgentExecutionError {
+  if (
+    /(?:401|403|unauthorized|not logged in|refresh token|oauth|authentication)/iu.test(
+      diagnostic
+    )
+  ) {
+    return new ReviewAgentExecutionError(
+      ReviewAgentFailureClass.AuthenticationUnavailable,
+      null,
+      'review_agent_authentication_unavailable'
+    );
+  }
+  if (
+    /(?:invalid_json_schema|invalid schema for response_format|(?:invalid|rejected|unsupported) structured output schema|structured output schema (?:is )?(?:invalid|rejected|unsupported))/iu.test(
+      diagnostic
+    )
+  ) {
+    return schemaFailure();
+  }
+  if (
+    /(?:usage limit|quota|insufficient_quota|billing limit)/iu.test(diagnostic)
+  ) {
+    return new ReviewAgentExecutionError(
+      ReviewAgentFailureClass.QuotaUnavailable,
+      null,
+      'review_agent_quota_unavailable'
+    );
+  }
+  if (
+    /(?:capacity[_ -]unavailable|overloaded|too many requests|\b429\b|rate limit)/iu.test(
+      diagnostic
+    )
+  ) {
+    return new ReviewAgentExecutionError(
+      ReviewAgentFailureClass.CapacityUnavailable,
+      null,
+      'review_agent_capacity_unavailable'
+    );
+  }
+  if (
+    /(?:model cache|startup|failed to start|enoent|spawn)/iu.test(diagnostic)
+  ) {
+    return new ReviewAgentExecutionError(
+      ReviewAgentFailureClass.StartupFailure,
+      null,
+      'review_agent_startup_failure'
+    );
+  }
+  return new ReviewAgentExecutionError(fallback, null, failureCode(fallback));
+}
+
+function validateInitializeResponse(value: unknown): void {
+  const response = requireRecord(value, 'initialize_response');
+  const userAgent = requireNonEmptyString(response.userAgent, 'user_agent');
+  const versionPattern = new RegExp(
+    `^[A-Za-z][A-Za-z0-9 ._-]{0,64}/${CODEX_APP_SERVER_VERSION.replaceAll('.', '\\.')}(?:\\s|$)`,
+    'u'
+  );
+  if (
+    !versionPattern.test(userAgent) ||
+    !path.isAbsolute(requireNonEmptyString(response.codexHome, 'codex_home')) ||
+    !requireNonEmptyString(response.platformFamily, 'platform_family') ||
+    !requireNonEmptyString(response.platformOs, 'platform_os')
+  ) {
+    throw new ReviewAgentExecutionError(
+      ReviewAgentFailureClass.CapabilityUnavailable,
+      null,
+      'review_agent_capability_unavailable'
+    );
+  }
+}
+
+function parseTokenUsage(value: unknown): RawTokenUsage {
+  const usage = requireRecord(value, 'token_usage');
+  if (
+    !hasOnlyKeys(usage, [
+      'cacheWriteInputTokens',
+      'cachedInputTokens',
+      'inputTokens',
+      'outputTokens',
+      'reasoningOutputTokens',
+      'totalTokens',
+    ])
+  ) {
+    throw usageFailure();
+  }
+  const parsed = Object.freeze({
+    totalTokens: requireTokenCount(usage.totalTokens),
+    inputTokens: requireTokenCount(usage.inputTokens),
+    cachedInputTokens: requireTokenCount(usage.cachedInputTokens),
+    cacheWriteInputTokens: requireTokenCount(usage.cacheWriteInputTokens),
+    outputTokens: requireTokenCount(usage.outputTokens),
+    reasoningOutputTokens: requireTokenCount(usage.reasoningOutputTokens),
+  });
+  if (
+    parsed.cachedInputTokens > parsed.inputTokens ||
+    parsed.cacheWriteInputTokens > parsed.inputTokens ||
+    parsed.reasoningOutputTokens > parsed.outputTokens ||
+    parsed.totalTokens !== parsed.inputTokens + parsed.outputTokens
+  ) {
+    throw usageFailure();
+  }
+  return parsed;
+}
+
+function sumUsage(values: readonly RawTokenUsage[]): RawTokenUsage {
+  const total = {
+    totalTokens: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+  };
+  for (const usage of values) {
+    for (const key of Object.keys(total) as (keyof RawTokenUsage)[]) {
+      const next = total[key] + usage[key];
+      if (!Number.isSafeInteger(next)) throw usageFailure();
+      total[key] = next;
+    }
+  }
+  return Object.freeze(total);
+}
+
+function sameUsage(left: RawTokenUsage, right: RawTokenUsage): boolean {
+  return (
+    left.totalTokens === right.totalTokens &&
+    left.inputTokens === right.inputTokens &&
+    left.cachedInputTokens === right.cachedInputTokens &&
+    left.cacheWriteInputTokens === right.cacheWriteInputTokens &&
+    left.outputTokens === right.outputTokens &&
+    left.reasoningOutputTokens === right.reasoningOutputTokens
+  );
+}
+
+function responseFailure(value: unknown): ReviewAgentExecutionError {
+  const error = requireRecord(value, 'protocol_error');
+  if (
+    !Number.isSafeInteger(error.code) ||
+    typeof error.message !== 'string' ||
+    error.message.length > 16_384
+  ) {
+    return streamFailure();
+  }
+  const diagnostic =
+    `${error.code} ${error.message} ${safeJson(error.data)}`.slice(0, 16_384);
+  return classifyCodexAppServerDiagnostic(diagnostic);
+}
+
+function normalizeProtocolFailure(error: unknown): ReviewAgentExecutionError {
+  return error instanceof ReviewAgentExecutionError ? error : streamFailure();
+}
+
+function requireRecord(
+  value: unknown,
+  _field: string
+): Record<string, unknown> {
+  if (!isRecord(value)) throw streamFailure();
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requireRequestId(value: unknown): string | number {
+  if (
+    typeof value === 'string' ||
+    (Number.isSafeInteger(value) && typeof value === 'number')
+  ) {
+    return value;
+  }
+  throw streamFailure();
+}
+
+function requestIdKey(value: string | number): string {
+  return `${typeof value}:${String(value)}`;
+}
+
+function requireNonEmptyString(value: unknown, _field: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.length < 1 ||
+    value.length > 16_384 ||
+    containsControlCharacter(value)
+  ) {
+    throw streamFailure();
+  }
+  return value;
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function requireIdentifier(value: unknown, field: string): string {
+  const result = requireNonEmptyString(value, field);
+  if (result.length > 512) throw streamFailure();
+  return result;
+}
+
+function requireModel(value: unknown): string {
+  const model = requireNonEmptyString(value, 'model');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/+#-]{0,199}$/u.test(model)) {
+    throw modelFailure();
+  }
+  return model;
+}
+
+function requireModelProvider(value: unknown): string {
+  const provider = requireNonEmptyString(value, 'model_provider');
+  if (provider.trim() !== provider || provider.length > 200) {
+    throw modelFailure();
+  }
+  return provider;
+}
+
+function requireStringArray(value: unknown, _field: string): readonly string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw streamFailure();
+  }
+  return value as string[];
+}
+
+function requireTokenCount(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw usageFailure();
+  }
+  return value as number;
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[]
+): boolean {
+  const keys = Object.keys(value).sort();
+  const expected = [...allowed].sort();
+  return (
+    keys.length === expected.length &&
+    keys.every((key, index) => key === expected[index])
+  );
+}
+
+function hasRequiredAndOptionalKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[]
+): boolean {
+  const allowed = new Set([...required, ...optional]);
+  return (
+    required.every((key) => Object.prototype.hasOwnProperty.call(value, key)) &&
+    Object.keys(value).every((key) => allowed.has(key))
+  );
+}
+
+function isReadOnlySandbox(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    value.type === 'readOnly' &&
+    value.networkAccess === false
+  );
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function streamFailure(): ReviewAgentExecutionError {
+  return new ReviewAgentExecutionError(
+    ReviewAgentFailureClass.StreamIncomplete,
+    null,
+    'review_agent_stream_incomplete'
+  );
+}
+
+function schemaFailure(): ReviewAgentExecutionError {
+  return new ReviewAgentExecutionError(
+    ReviewAgentFailureClass.SchemaInvalidOutput,
+    null,
+    'review_agent_output_invalid'
+  );
+}
+
+function usageFailure(): ReviewAgentExecutionError {
+  return new ReviewAgentExecutionError(
+    ReviewAgentFailureClass.UsageAttributionMissing,
+    null,
+    'review_agent_usage_attribution_missing'
+  );
+}
+
+function modelFailure(): ReviewAgentExecutionError {
+  return new ReviewAgentExecutionError(
+    ReviewAgentFailureClass.ModelAttributionMissing,
+    null,
+    'review_agent_actual_model_unavailable'
+  );
+}
+
+function confinementFailure(): ReviewAgentExecutionError {
+  return new ReviewAgentExecutionError(
+    ReviewAgentFailureClass.ConfinementViolation,
+    null,
+    'review_agent_confinement_violation'
+  );
+}
+
+function processFailure(): ReviewAgentExecutionError {
+  return new ReviewAgentExecutionError(
+    ReviewAgentFailureClass.ProcessFailure,
+    null,
+    'review_agent_process_failure'
+  );
+}
+
+function failureCode(failureClass: ReviewAgentFailureClass): string {
+  switch (failureClass) {
+    case ReviewAgentFailureClass.CapabilityUnavailable:
+      return 'review_agent_capability_unavailable';
+    case ReviewAgentFailureClass.AuthenticationUnavailable:
+      return 'review_agent_authentication_unavailable';
+    case ReviewAgentFailureClass.QuotaUnavailable:
+      return 'review_agent_quota_unavailable';
+    case ReviewAgentFailureClass.CapacityUnavailable:
+      return 'review_agent_capacity_unavailable';
+    case ReviewAgentFailureClass.StartupFailure:
+      return 'review_agent_startup_failure';
+    case ReviewAgentFailureClass.ProcessFailure:
+      return 'review_agent_process_failure';
+    case ReviewAgentFailureClass.Timeout:
+      return 'review_agent_process_timeout';
+    case ReviewAgentFailureClass.Cancelled:
+      return 'review_agent_process_cancelled';
+    case ReviewAgentFailureClass.SchemaInvalidOutput:
+      return 'review_agent_output_invalid';
+    case ReviewAgentFailureClass.StreamIncomplete:
+      return 'review_agent_stream_incomplete';
+    case ReviewAgentFailureClass.ModelAttributionMissing:
+      return 'review_agent_actual_model_unavailable';
+    case ReviewAgentFailureClass.UsageAttributionMissing:
+      return 'review_agent_usage_attribution_missing';
+    case ReviewAgentFailureClass.ConfinementViolation:
+      return 'review_agent_confinement_violation';
+  }
+}
+
+type Deferred<T> = Readonly<{
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+}>;
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}

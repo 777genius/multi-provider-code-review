@@ -1,4 +1,7 @@
-import { ReviewActionV2OperationId } from '../../src/control-plane/generated/review-action-v2/review-action-v2';
+import {
+  ReviewActionV2OperationId,
+  ReviewInvestigationLeaseResultStatus,
+} from '../../src/control-plane/generated/review-action-v2/review-action-v2';
 import { ReviewInvestigationCurrency } from '../../src/review-investigation/application/investigation-control-plane-port';
 import { buildCanonicalGitInventory } from '../../src/context-gateway/canonical-git-inventory';
 import {
@@ -44,6 +47,29 @@ describe('production-shaped disposable investigation corpus', () => {
       expect(result.snapshot.satisfiedObligationCount).toBe(2);
       expect(result.snapshot.semanticTurns).toBe(2);
       expect(harness.store.sealedTranscripts).toHaveLength(3);
+      expect(
+        harness.store.operationCounts.get(
+          ReviewActionV2OperationId.ReviewInvestigationOpenV2
+        )
+      ).toBeGreaterThan(0);
+      expect(
+        harness.store.operationCounts.get(
+          ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen
+        )
+      ).toBe(3);
+      expect(
+        harness.store.operationCounts.get(
+          ReviewActionV2OperationId.ReviewContextGatewayOpen
+        ) ?? 0
+      ).toBe(0);
+      expect(
+        [...harness.store.leases.values()].every((lease) => !lease.active)
+      ).toBe(true);
+      expect(harness.store.leaseReleaseStatuses).toEqual([
+        ReviewInvestigationLeaseResultStatus.BindingStale,
+        ReviewInvestigationLeaseResultStatus.BindingStale,
+        ReviewInvestigationLeaseResultStatus.BindingStale,
+      ]);
       const relationTranscript = harness.store.sealedTranscripts[1]!;
       const events = relationTranscript.events as Array<{
         operationKind: string;

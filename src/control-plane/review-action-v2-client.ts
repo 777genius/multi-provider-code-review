@@ -14,9 +14,16 @@ import reviewExecutionRestoreSchema from './generated/review-action-v2/schemas/r
 import reviewExecutionStartSchema from './generated/review-action-v2/schemas/review_execution_start.schema.json';
 import reviewExecutionSupersedeSchema from './generated/review-action-v2/schemas/review_execution_supersede.schema.json';
 import reviewInvestigationConcludeSchema from './generated/review-action-v2/schemas/review_investigation_conclude.schema.json';
+import reviewInvestigationContextGatewayOpenSchema from './generated/review-action-v2/schemas/review_investigation_context_gateway_open.schema.json';
+import reviewInvestigationContextGatewaySealSchema from './generated/review-action-v2/schemas/review_investigation_context_gateway_seal.schema.json';
+import reviewInvestigationLeaseAcquireSchema from './generated/review-action-v2/schemas/review_investigation_lease_acquire.schema.json';
+import reviewInvestigationLeaseReleaseSchema from './generated/review-action-v2/schemas/review_investigation_lease_release.schema.json';
+import reviewInvestigationLeaseRenewSchema from './generated/review-action-v2/schemas/review_investigation_lease_renew.schema.json';
 import reviewInvestigationOpenSchema from './generated/review-action-v2/schemas/review_investigation_open.schema.json';
+import reviewInvestigationOpenV2Schema from './generated/review-action-v2/schemas/review_investigation_open_v2.schema.json';
 import reviewInvestigationReplaySchema from './generated/review-action-v2/schemas/review_investigation_replay.schema.json';
 import reviewInvestigationReplayPrepareSchema from './generated/review-action-v2/schemas/review_investigation_replay_prepare.schema.json';
+import reviewInvestigationReplayV2Schema from './generated/review-action-v2/schemas/review_investigation_replay_v2.schema.json';
 import reviewInvestigationRestoreSchema from './generated/review-action-v2/schemas/review_investigation_restore.schema.json';
 import reviewInvestigationTurnAbortSchema from './generated/review-action-v2/schemas/review_investigation_turn_abort.schema.json';
 import reviewInvestigationTurnCommitSchema from './generated/review-action-v2/schemas/review_investigation_turn_commit.schema.json';
@@ -135,10 +142,18 @@ const responseSchemas = {
     reviewExecutionFinalizeSchema,
   [ReviewActionV2OperationId.ReviewInvestigationOpen]:
     reviewInvestigationOpenSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationOpenV2]:
+    reviewInvestigationOpenV2Schema,
   [ReviewActionV2OperationId.ReviewInvestigationRestore]:
     reviewInvestigationRestoreSchema,
   [ReviewActionV2OperationId.ReviewInvestigationTurnPlan]:
     reviewInvestigationTurnPlanSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire]:
+    reviewInvestigationLeaseAcquireSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationLeaseRenew]:
+    reviewInvestigationLeaseRenewSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationLeaseRelease]:
+    reviewInvestigationLeaseReleaseSchema,
   [ReviewActionV2OperationId.ReviewInvestigationTurnCommit]:
     reviewInvestigationTurnCommitSchema,
   [ReviewActionV2OperationId.ReviewInvestigationTurnAbort]:
@@ -149,6 +164,8 @@ const responseSchemas = {
     reviewInvestigationReplayPrepareSchema,
   [ReviewActionV2OperationId.ReviewInvestigationReplay]:
     reviewInvestigationReplaySchema,
+  [ReviewActionV2OperationId.ReviewInvestigationReplayV2]:
+    reviewInvestigationReplayV2Schema,
   [ReviewActionV2OperationId.ReviewInvocationLeaseAcquire]:
     reviewInvocationLeaseAcquireSchema,
   [ReviewActionV2OperationId.ReviewInvocationLeaseRenew]:
@@ -159,6 +176,10 @@ const responseSchemas = {
     reviewContextGatewayOpenSchema,
   [ReviewActionV2OperationId.ReviewContextGatewaySeal]:
     reviewContextGatewaySealSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen]:
+    reviewInvestigationContextGatewayOpenSchema,
+  [ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal]:
+    reviewInvestigationContextGatewaySealSchema,
   [ReviewActionV2OperationId.ReviewEvidenceLookup]: reviewEvidenceLookupSchema,
   [ReviewActionV2OperationId.ReviewContextReceiptReplayCommit]:
     reviewContextReceiptReplayCommitSchema,

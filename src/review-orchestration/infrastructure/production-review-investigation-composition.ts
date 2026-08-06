@@ -1,5 +1,8 @@
 import type { ReviewConfig } from '../../types';
-import { reviewInvestigationRolloutAuthorizationV2Contract } from '../../control-plane/generated/review-action-v2/review-action-v2';
+import {
+  reviewInvestigationExtensionV1,
+  reviewInvestigationRolloutAuthorizationV3Contract,
+} from '../../control-plane/generated/review-action-v2/review-action-v2';
 import {
   DeterministicReviewAgentSelector,
   InvestigationContextGatewayRuntimeConfigurationError,
@@ -15,6 +18,7 @@ import {
   type InvestigationContextGatewayRuntimeFactoryPort,
 } from '../../review-investigation';
 import {
+  ReviewCapabilityKind,
   ReviewExecutionProviderKind,
   ReviewInvocationConfigurationMismatchError,
   ReviewInvocationConfigurationMismatchReason,
@@ -22,7 +26,10 @@ import {
   ReviewInvestigationRolloutCapability,
   type ReviewRunAuthorization,
 } from '../application';
-import { matchesReviewInvestigationCapability } from './review-investigation-recording-adapter';
+import {
+  reviewInvestigationCoverageProfileHash,
+  reviewInvestigationPolicyHash,
+} from './review-investigation-recording-adapter';
 
 export type ProductionReviewInvestigationRolloutFlags = Readonly<{
   recordingEnabled: boolean;
@@ -115,8 +122,7 @@ export function resolveProductionReviewInvestigationRollout(input: {
   readonly agenticContext: boolean;
   readonly authorization: ReviewRunAuthorization;
   readonly primaryProviderKind:
-    | ReviewExecutionProviderKind.Codex
-    | ReviewExecutionProviderKind.ClaudeCode;
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
 }): ProductionReviewInvestigationRollout {
   assertCanonicalRolloutDependencies(input.flags);
   const recordingEnabled =
@@ -322,10 +328,10 @@ function assertCanonicalRolloutDependencies(
   flags: ProductionReviewInvestigationRolloutFlags
 ): void {
   const dependencies =
-    reviewInvestigationRolloutAuthorizationV2Contract.dependencies as Readonly<
+    reviewInvestigationRolloutAuthorizationV3Contract.dependencies as Readonly<
       Record<string, readonly string[]>
     >;
-  for (const capability of reviewInvestigationRolloutAuthorizationV2Contract.capabilities) {
+  for (const capability of reviewInvestigationRolloutAuthorizationV3Contract.capabilities) {
     for (const dependency of dependencies[capability]) {
       const capabilityKey = capability as ReviewInvestigationRolloutCapability;
       const dependencyKey = dependency as ReviewInvestigationRolloutCapability;
@@ -337,6 +343,44 @@ function assertCanonicalRolloutDependencies(
       );
     }
   }
+}
+
+function matchesReviewInvestigationCapability(input: {
+  readonly facts: ReviewRunAuthorization['facts'];
+  readonly providerKind:
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+  readonly capability: ReviewInvestigationRolloutCapability;
+}): boolean {
+  const descriptor = input.facts.reviewInvestigation;
+  if (
+    descriptor?.authorizationDescriptorVersion !==
+      reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion ||
+    descriptor.capability !== ReviewCapabilityKind.ReviewInvestigationV1 ||
+    descriptor.capability !==
+      reviewInvestigationRolloutAuthorizationV3Contract.capability ||
+    descriptor.extensionId !== reviewInvestigationExtensionV1.extensionId ||
+    descriptor.extensionSchemaDigest !==
+      reviewInvestigationExtensionV1.schemaDigest ||
+    descriptor.extensionCanonicalizerDigest !==
+      reviewInvestigationExtensionV1.canonicalizerDigest ||
+    descriptor.coverageProfileHash !==
+      reviewInvestigationCoverageProfileHash() ||
+    descriptor.policyHash !== reviewInvestigationPolicyHash() ||
+    !input.facts.providerVoteLanes.some(
+      (lane) => lane.providerKind === input.providerKind
+    ) ||
+    !Array.isArray(descriptor.providerCapabilities)
+  ) {
+    return false;
+  }
+  const providerGrant = descriptor.providerCapabilities.find(
+    (row) => row?.providerKind === input.providerKind
+  );
+  return (
+    providerGrant !== undefined &&
+    Array.isArray(providerGrant.capabilities) &&
+    providerGrant.capabilities.includes(input.capability)
+  );
 }
 
 const rolloutFlagByCapability = Object.freeze({

@@ -26,10 +26,7 @@ export const CONTEXT_GATEWAY_RUNTIME_ENV_KEYS = Object.freeze([
 ]);
 
 export type ContextDependencyKind =
-  | 'file_read'
-  | 'directory_list'
-  | 'text_search'
-  | 'git_fact';
+  'file_read' | 'directory_list' | 'text_search' | 'git_fact';
 
 export type ContextGitFactKind = 'changed_paths' | 'diff_stat' | 'merge_base';
 

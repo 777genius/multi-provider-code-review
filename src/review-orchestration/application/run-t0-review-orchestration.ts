@@ -13,6 +13,7 @@ import {
   ReviewPublicationRequestOutcomeStatus,
   ReviewPublicationState,
   ReviewInvestigationRecordingMode,
+  ReviewInvestigationDiagnosticOutcome,
   RestoredReviewWorkSlotState,
   type AcceptedReviewObservation,
   type AcceptedReviewWorkSlotEvidence,
@@ -30,6 +31,7 @@ import {
   type ReviewInvocationFailureClassifierPort,
   type ReviewInvocationLeaseSupervisorPort,
   type ReviewInvestigationRecordingPort,
+  type ReviewInvestigationDiagnosticsPort,
   type ReviewOidcTokenPort,
   type ReviewOrchestrationDelayPort,
   type ReviewOrchestrationIdentityPort,
@@ -44,8 +46,14 @@ import {
 } from './review-orchestration-ports';
 import type { ReviewPromptCoverageManifest } from '../domain';
 import { RetryableReviewContextInspectionFailure } from './review-context-inspection-failure';
-import { ReviewInvocationConfigurationMismatchError } from './review-invocation-failure';
-import { ReviewInvestigationLegacyFallbackSignal } from '../../review-investigation/application/run-investigation-work-slot';
+import {
+  ReviewInvocationConfigurationMismatchError,
+  ReviewInvocationConfigurationMismatchReason,
+} from './review-invocation-failure';
+import {
+  ReviewInvestigationDeferredSignal,
+  ReviewInvestigationLegacyFallbackSignal,
+} from '../../review-investigation/application/run-investigation-work-slot';
 
 export enum ReviewOrchestrationResultStatus {
   Completed = 'completed',
@@ -86,6 +94,7 @@ enum ReviewWorkSlotExhaustionReason {
   NotRunnable = 'not_runnable',
   ProviderAttemptsExhausted = 'provider_attempts_exhausted',
   ProviderLaneBusy = 'provider_lane_busy',
+  InvestigationDeferred = 'investigation_deferred',
   RestoredTerminal = 'restored_terminal',
 }
 
@@ -95,9 +104,11 @@ export type RunT0ReviewOrchestrationDependencies = {
   readonly oidc: ReviewOidcTokenPort;
   readonly invocationManifestAssembler: ProviderInvocationManifestAssemblerPort;
   readonly invocations: PreparedReviewInvocationPort;
+  readonly investigationInvocations?: PreparedReviewInvocationPort;
   readonly invocationFailureClassifier: ReviewInvocationFailureClassifierPort;
   readonly invocationDiagnostics?: ReviewInvocationDiagnosticsPort;
   readonly investigationRecording?: ReviewInvestigationRecordingPort;
+  readonly investigationDiagnostics?: ReviewInvestigationDiagnosticsPort;
   readonly leaseSupervisor: ReviewInvocationLeaseSupervisorPort;
   readonly projectionBuilder: CurrentReviewProjectionBuilderPort;
   readonly contextReplay?: ContextDependencyReplayPort;
@@ -549,32 +560,33 @@ export class RunT0ReviewOrchestration {
         type: ReviewOrchestrationEventType.SlotLookupStarted,
         workSlotId: input.workSlot.workSlotId,
       });
-      const invocation = await this.dependencies.invocations.prepare({
-        workSlot: input.workSlot,
-        attemptOrdinal,
-      });
-      const manifest =
+      const authoritativeInvocation =
+        await this.dependencies.invocations.prepare({
+          workSlot: input.workSlot,
+          attemptOrdinal,
+        });
+      const authoritativeManifest =
         await this.dependencies.invocationManifestAssembler.assemble(
-          invocation
+          authoritativeInvocation
         );
-      validateManifest(manifest);
+      validateManifest(authoritativeManifest);
       if (
-        manifest.providerVoteIdentityHash !==
+        authoritativeManifest.providerVoteIdentityHash !==
           input.workSlot.providerVoteIdentityHash ||
-        invocation.workSlotId !== input.workSlot.workSlotId ||
-        invocation.attemptOrdinal !== attemptOrdinal
+        authoritativeInvocation.workSlotId !== input.workSlot.workSlotId ||
+        authoritativeInvocation.attemptOrdinal !== attemptOrdinal
       ) {
         throw new Error('review_orchestration_manifest_scope_mismatch');
       }
       const reused = await this.trySatisfyFromLookup({
         ...input,
         execution: { ...input.execution, streamVersion },
-        manifest,
+        manifest: authoritativeManifest,
       });
       if (reused) {
         return {
           observation: reused.observation,
-          coverageManifest: invocation.coverageManifest,
+          coverageManifest: authoritativeInvocation.coverageManifest,
           streamVersion: reused.streamVersion,
         };
       }
@@ -582,6 +594,72 @@ export class RunT0ReviewOrchestration {
         throw new Error(
           'review_orchestration_restored_observation_unavailable'
         );
+      }
+
+      let investigationCandidate;
+      try {
+        investigationCandidate = await this.prepareInvestigationCandidate({
+          authorization: input.authorization,
+          execution: input.execution,
+          workSlot: input.workSlot,
+          attemptOrdinal,
+          ownerIdHash: input.ownerIdHash,
+          revision: input.revision,
+        });
+      } catch (error) {
+        if (!(error instanceof ReviewInvestigationDeferredSignal)) throw error;
+        this.recordInvestigationDiagnostic({
+          outcome: ReviewInvestigationDiagnosticOutcome.AuthoritativeDeferred,
+          workSlot: input.workSlot,
+          attemptOrdinal,
+          error,
+        });
+        if (attemptOrdinal < input.workSlot.attemptBudget) continue;
+        input.onEvent({
+          type: ReviewOrchestrationEventType.SlotExhausted,
+          workSlotId: input.workSlot.workSlotId,
+        });
+        return {
+          streamVersion,
+          exhaustionReason:
+            ReviewWorkSlotExhaustionReason.InvestigationDeferred,
+        };
+      }
+      const selectedInvestigationCandidate =
+        investigationCandidate !== null &&
+        this.dependencies.investigationRecording?.mode ===
+          ReviewInvestigationRecordingMode.Authoritative &&
+        (investigationCandidate.observation.findingCount > 0 ||
+          (investigationCandidate.observation.qualityFlags.includes(
+            'investigation_verified_clean'
+          ) &&
+            this.dependencies.investigationRecording
+              .verifiedCleanEffectsEnabled === true))
+          ? investigationCandidate
+          : null;
+      const invocation = selectedInvestigationCandidate
+        ? selectedInvestigationCandidate.invocation
+        : authoritativeInvocation;
+      const manifest = selectedInvestigationCandidate
+        ? selectedInvestigationCandidate.manifest
+        : authoritativeManifest;
+      const precomputedObservation = selectedInvestigationCandidate
+        ? selectedInvestigationCandidate.observation
+        : null;
+
+      if (selectedInvestigationCandidate) {
+        const reusedInvestigation = await this.trySatisfyFromLookup({
+          ...input,
+          execution: { ...input.execution, streamVersion },
+          manifest,
+        });
+        if (reusedInvestigation) {
+          return {
+            observation: reusedInvestigation.observation,
+            coverageManifest: invocation.coverageManifest,
+            streamVersion: reusedInvestigation.streamVersion,
+          };
+        }
       }
 
       const acquireRequestId = this.identity('acquire-request', [
@@ -698,18 +776,16 @@ export class RunT0ReviewOrchestration {
             return lease;
           },
           operation: (signal, currentLease) =>
-            this.executeInvocationWithRevisionWatch({
-              authorization: input.authorization,
-              execution: input.execution,
-              workSlot: input.workSlot,
-              ownerIdHash: input.ownerIdHash,
-              invocation,
-              manifest,
-              currentLease,
-              sourceExecutionId: input.execution.executionId,
-              signal,
-              revision: input.revision,
-            }),
+            precomputedObservation === null
+              ? this.executeInvocationWithRevisionWatch({
+                  invocation,
+                  manifest,
+                  currentLease,
+                  sourceExecutionId: input.execution.executionId,
+                  signal,
+                  revision: input.revision,
+                })
+              : Promise.resolve(precomputedObservation),
         });
         if (
           invocation.manifestFacts.executionProfile !== 'context_gateway_v1'
@@ -1039,10 +1115,6 @@ export class RunT0ReviewOrchestration {
     readonly invocation: PreparedReviewInvocation;
     readonly manifest: ProviderInvocationManifest;
     readonly currentLease: () => ReviewInvocationLease;
-    readonly authorization: ReviewRunAuthorization;
-    readonly execution: ReviewExecutionAdmission;
-    readonly workSlot: ReviewWorkSlotPlan;
-    readonly ownerIdHash: string;
     readonly sourceExecutionId: string;
     readonly revision: ReviewRevisionFacts;
   }): Promise<ReviewObservationPayload> {
@@ -1052,13 +1124,7 @@ export class RunT0ReviewOrchestration {
     if (input.signal.aborted) relayLeaseAbort();
     else
       input.signal.addEventListener('abort', relayLeaseAbort, { once: true });
-    const investigate =
-      this.dependencies.investigationRecording?.supports({
-        workSlot: input.workSlot,
-        invocation: input.invocation,
-      }) ?? false;
     const drainOnSupersession =
-      !investigate &&
       input.invocation.manifestFacts.executionProfile === 'context_gateway_v1';
     const monitor = async () => {
       if (drainOnSupersession) return;
@@ -1077,60 +1143,7 @@ export class RunT0ReviewOrchestration {
     };
     void monitor();
     try {
-      if (investigate) {
-        let investigationObservation: ReviewObservationPayload;
-        try {
-          investigationObservation =
-            await this.dependencies.investigationRecording!.execute({
-              authorization: input.authorization,
-              execution: input.execution,
-              workSlot: input.workSlot,
-              invocation: input.invocation,
-              manifest: input.manifest,
-              currentLease: input.currentLease,
-              ownerIdHash: input.ownerIdHash,
-              sourceReviewRevisionHash: input.revision.reviewRevisionHash,
-              signal: abort.signal,
-            });
-        } catch (error) {
-          if (!(error instanceof ReviewInvestigationLegacyFallbackSignal)) {
-            throw error;
-          }
-          return this.dependencies.invocations.execute({
-            invocation: input.invocation,
-            manifest: input.manifest,
-            lease: input.currentLease(),
-            sourceExecutionId: input.sourceExecutionId,
-            sourceReviewRevisionHash: input.revision.reviewRevisionHash,
-            signal: abort.signal,
-          });
-        }
-        if (
-          this.dependencies.investigationRecording!.mode ===
-          ReviewInvestigationRecordingMode.Authoritative
-        ) {
-          const verifiedClean = investigationObservation.qualityFlags.includes(
-            'investigation_verified_clean'
-          );
-          const findings = investigationObservation.findingCount > 0;
-          if (
-            findings ||
-            (verifiedClean &&
-              this.dependencies.investigationRecording!
-                .verifiedCleanEffectsEnabled === true)
-          ) {
-            return investigationObservation;
-          }
-        }
-      }
-      return await this.dependencies.invocations.execute({
-        invocation: input.invocation,
-        manifest: input.manifest,
-        lease: input.currentLease(),
-        sourceExecutionId: input.sourceExecutionId,
-        sourceReviewRevisionHash: input.revision.reviewRevisionHash,
-        signal: abort.signal,
-      });
+      return await this.executeLegacyInvocation(input, abort.signal);
     } catch (error) {
       if (abort.signal.reason instanceof ReviewExecutionSupersededSignal) {
         throw abort.signal.reason;
@@ -1140,6 +1153,145 @@ export class RunT0ReviewOrchestration {
       stopped = true;
       input.signal.removeEventListener('abort', relayLeaseAbort);
     }
+  }
+
+  private async prepareInvestigationCandidate(input: {
+    readonly authorization: ReviewRunAuthorization;
+    readonly execution: ReviewExecutionAdmission;
+    readonly workSlot: ReviewWorkSlotPlan;
+    readonly attemptOrdinal: number;
+    readonly ownerIdHash: string;
+    readonly revision: ReviewRevisionFacts;
+  }): Promise<{
+    readonly invocation: PreparedReviewInvocation;
+    readonly manifest: ProviderInvocationManifest;
+    readonly observation: ReviewObservationPayload;
+  } | null> {
+    const recording = this.dependencies.investigationRecording;
+    const invocations = this.dependencies.investigationInvocations;
+    if (!recording || !invocations) return null;
+    try {
+      const invocation = await invocations.prepare({
+        workSlot: input.workSlot,
+        attemptOrdinal: input.attemptOrdinal,
+      });
+      const manifest =
+        await this.dependencies.invocationManifestAssembler.assemble(
+          invocation
+        );
+      validateManifest(manifest);
+      if (
+        manifest.providerVoteIdentityHash !==
+          input.workSlot.providerVoteIdentityHash ||
+        invocation.workSlotId !== input.workSlot.workSlotId ||
+        invocation.attemptOrdinal !== input.attemptOrdinal
+      ) {
+        throw new Error('review_investigation_manifest_scope_mismatch');
+      }
+      if (!recording.supports({ workSlot: input.workSlot, invocation })) {
+        return null;
+      }
+
+      const abort = new AbortController();
+      let stopped = false;
+      const monitor = async () => {
+        while (!stopped && !abort.signal.aborted) {
+          await this.dependencies.delay.sleep(this.revisionPollIntervalMs);
+          if (stopped || abort.signal.aborted) return;
+          try {
+            await this.assertRevisionCurrent(input.revision);
+          } catch (error) {
+            if (error instanceof ReviewExecutionSupersededSignal) {
+              abort.abort(error);
+              return;
+            }
+          }
+        }
+      };
+      void monitor();
+      try {
+        const observation = await recording.execute({
+          authorization: input.authorization,
+          execution: input.execution,
+          workSlot: input.workSlot,
+          invocation,
+          manifest,
+          ownerIdHash: input.ownerIdHash,
+          sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+          signal: abort.signal,
+        });
+        return { invocation, manifest, observation };
+      } catch (error) {
+        if (abort.signal.reason instanceof ReviewExecutionSupersededSignal) {
+          throw abort.signal.reason;
+        }
+        throw error;
+      } finally {
+        stopped = true;
+      }
+    } catch (error) {
+      if (error instanceof ReviewExecutionSupersededSignal) throw error;
+      if (
+        error instanceof ReviewInvestigationLegacyFallbackSignal ||
+        recording.mode === ReviewInvestigationRecordingMode.RecordOnly
+      ) {
+        this.recordInvestigationDiagnostic({
+          outcome: ReviewInvestigationDiagnosticOutcome.LegacyFallback,
+          workSlot: input.workSlot,
+          attemptOrdinal: input.attemptOrdinal,
+          error,
+        });
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private recordInvestigationDiagnostic(input: {
+    readonly outcome: ReviewInvestigationDiagnosticOutcome;
+    readonly workSlot: ReviewWorkSlotPlan;
+    readonly attemptOrdinal: number;
+    readonly error: unknown;
+  }): void {
+    try {
+      this.dependencies.investigationDiagnostics?.record({
+        outcome: input.outcome,
+        workSlotId: input.workSlot.workSlotId,
+        attemptOrdinal: input.attemptOrdinal,
+        providerKind: input.workSlot.providerKind,
+        error: input.error,
+      });
+    } catch {
+      // Diagnostics must never change investigation fallback or safety decisions.
+    }
+  }
+
+  private executeLegacyInvocation(
+    input: {
+      readonly invocation: PreparedReviewInvocation;
+      readonly manifest: ProviderInvocationManifest;
+      readonly currentLease: () => ReviewInvocationLease;
+      readonly sourceExecutionId: string;
+      readonly revision: ReviewRevisionFacts;
+    },
+    signal: AbortSignal
+  ): Promise<ReviewObservationPayload> {
+    if (
+      input.invocation.manifestFacts.executionProfile ===
+      'investigation_gateway_v1'
+    ) {
+      throw new ReviewInvocationConfigurationMismatchError(
+        ReviewInvocationConfigurationMismatchReason.InvestigationLegacyFallbackManifestMismatch
+      );
+    }
+    return this.dependencies.invocations.execute({
+      invocation: input.invocation,
+      manifest: input.manifest,
+      lease: input.currentLease(),
+      sourceExecutionId: input.sourceExecutionId,
+      sourceReviewRevisionHash: input.revision.reviewRevisionHash,
+      signal,
+    });
   }
 
   private async releaseLease(
@@ -1255,6 +1407,9 @@ function derivePartialFailureCode(input: {
     const reason = input.exhaustedWorkSlotReasons.get(firstRequiredExhausted);
     if (reason === ReviewWorkSlotExhaustionReason.ProviderLaneBusy) {
       return 'required_provider_lane_busy';
+    }
+    if (reason === ReviewWorkSlotExhaustionReason.InvestigationDeferred) {
+      return 'required_investigation_deferred';
     }
     return 'required_work_exhausted';
   }

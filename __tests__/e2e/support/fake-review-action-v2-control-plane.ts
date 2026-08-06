@@ -1,9 +1,12 @@
 import { createServer, type Server } from 'http';
 import {
+  reviewInvestigationExtensionV1,
+  reviewInvestigationRolloutAuthorizationV3Contract,
   ReviewActionV2OperationId,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
   ReviewContextReceiptReplayCommitResultStatus,
+  ReviewInvestigationLeaseResultStatus,
   ReviewInvestigationMutationResultStatus,
   ReviewInvestigationNextAction as PublishedNextAction,
   ReviewInvestigationOpenResultStatus,
@@ -34,6 +37,10 @@ import {
   ReviewTurnObligationKind,
   ReviewTurnPurpose,
 } from '../../../src/review-investigation/domain/turn-observation';
+import {
+  reviewInvestigationCoverageProfileHash,
+  reviewInvestigationPolicyHash,
+} from '../../../src/review-orchestration/infrastructure/review-investigation-recording-adapter';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -66,6 +73,8 @@ type FakeInvestigation = {
   naturalKey: string;
   authorizationId: string;
   reviewRevisionHash: string;
+  investigationManifestCanonicalJson: string;
+  investigationManifestHash: string;
   version: number;
   state: ReviewInvestigationState;
   nextAction: ReviewInvestigationNextAction;
@@ -98,14 +107,33 @@ type FakeGatewaySession = {
   transcript: JsonRecord | null;
   attestationId: string | null;
   attestationHash: string | null;
+  leaseId: string | null;
+};
+
+type FakeInvestigationLease = {
+  investigationId: string;
+  turnId: string;
+  leaseId: string;
+  attemptId: string;
+  ownerIdHash: string;
+  providerStrategyId: string;
+  investigationManifestHash: string;
+  leaseCapability: string;
+  fencingToken: string;
+  expiresAt: string;
+  resultReportUntil: string;
+  renewal: number;
+  active: boolean;
 };
 
 export type FakeControlPlaneStore = {
   investigations: Map<string, FakeInvestigation>;
   sessions: Map<string, FakeGatewaySession>;
   attestations: Map<string, FakeGatewaySession>;
+  leases: Map<string, FakeInvestigationLease>;
   idempotentResults: Map<string, unknown>;
   operationCounts: Map<ReviewActionV2OperationId, number>;
+  leaseReleaseStatuses: ReviewInvestigationLeaseResultStatus[];
   sealedTranscripts: JsonRecord[];
   replayPreparation: JsonRecord | null;
   replayProofAccepted: boolean;
@@ -118,8 +146,10 @@ export function createFakeControlPlaneStore(): FakeControlPlaneStore {
     investigations: new Map(),
     sessions: new Map(),
     attestations: new Map(),
+    leases: new Map(),
     idempotentResults: new Map(),
     operationCounts: new Map(),
+    leaseReleaseStatuses: [],
     sealedTranscripts: [],
     replayPreparation: null,
     replayProofAccepted: false,
@@ -230,7 +260,8 @@ export class FakeReviewActionV2ControlPlane {
   ): unknown {
     const idempotencyKey = optionalString(request.idempotencyKey);
     const cacheIdempotentResult =
-      operation !== ReviewActionV2OperationId.ReviewInvestigationOpen;
+      operation !== ReviewActionV2OperationId.ReviewInvestigationOpen &&
+      operation !== ReviewActionV2OperationId.ReviewInvestigationOpenV2;
     if (idempotencyKey && cacheIdempotentResult) {
       const existing = this.store.idempotentResults.get(idempotencyKey);
       if (existing !== undefined) return existing;
@@ -241,6 +272,7 @@ export class FakeReviewActionV2ControlPlane {
         result = this.authorize();
         break;
       case ReviewActionV2OperationId.ReviewInvestigationOpen:
+      case ReviewActionV2OperationId.ReviewInvestigationOpenV2:
         result = this.openInvestigation(request);
         break;
       case ReviewActionV2OperationId.ReviewInvestigationRestore:
@@ -249,10 +281,27 @@ export class FakeReviewActionV2ControlPlane {
       case ReviewActionV2OperationId.ReviewInvestigationTurnPlan:
         result = this.planTurn(request);
         break;
+      case ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire:
+        result = this.acquireInvestigationLease(request);
+        break;
+      case ReviewActionV2OperationId.ReviewInvestigationLeaseRenew:
+        result = this.renewInvestigationLease(request);
+        break;
+      case ReviewActionV2OperationId.ReviewInvestigationLeaseRelease:
+        result = this.releaseInvestigationLease(request);
+        break;
       case ReviewActionV2OperationId.ReviewContextGatewayOpen:
         result = this.openGateway(request);
         break;
+      case ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen:
+        this.requireActiveLease(request);
+        result = this.openGateway(request);
+        break;
       case ReviewActionV2OperationId.ReviewContextGatewaySeal:
+        result = this.sealGateway(request);
+        break;
+      case ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal:
+        this.requireActiveLease(request);
         result = this.sealGateway(request);
         break;
       case ReviewActionV2OperationId.ReviewInvestigationTurnCommit:
@@ -271,6 +320,7 @@ export class FakeReviewActionV2ControlPlane {
         result = this.commitReceiptReplay(request);
         break;
       case ReviewActionV2OperationId.ReviewInvestigationReplay:
+      case ReviewActionV2OperationId.ReviewInvestigationReplayV2:
         result = this.replayInvestigation(request);
         break;
       default:
@@ -314,6 +364,24 @@ export class FakeReviewActionV2ControlPlane {
       producerReleaseId: 'producer-release-e2e',
       selectedProtocolVersion: reviewActionV2PublishedProtocolVersion,
       schemaDigest: reviewActionV2PublishedSchemaDigest,
+      reviewInvestigation: {
+        authorizationDescriptorVersion:
+          reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion,
+        capability:
+          reviewInvestigationRolloutAuthorizationV3Contract.capability,
+        coverageProfileHash: reviewInvestigationCoverageProfileHash(),
+        extensionCanonicalizerDigest:
+          reviewInvestigationExtensionV1.canonicalizerDigest,
+        extensionId: reviewInvestigationExtensionV1.extensionId,
+        extensionSchemaDigest: reviewInvestigationExtensionV1.schemaDigest,
+        policyHash: reviewInvestigationPolicyHash(),
+        providerCapabilities: [
+          {
+            providerKind: 'codex',
+            capabilities: ['recording'],
+          },
+        ],
+      },
       providerVoteLanes: [
         {
           providerKind: 'codex',
@@ -357,6 +425,10 @@ export class FakeReviewActionV2ControlPlane {
         naturalKey,
         authorizationId: string(request.authorizationId),
         reviewRevisionHash: string(request.reviewRevisionHash),
+        investigationManifestCanonicalJson:
+          optionalString(request.investigationManifestCanonicalJson) ?? '',
+        investigationManifestHash:
+          optionalString(request.investigationManifestHash) ?? '',
         version: 1,
         state: ReviewInvestigationState.AwaitingTurn,
         nextAction: ReviewInvestigationNextAction.RunTurn,
@@ -382,6 +454,14 @@ export class FakeReviewActionV2ControlPlane {
       };
       this.store.investigations.set(naturalKey, investigation);
       status = ReviewInvestigationOpenResultStatus.Opened;
+    } else if (
+      request.investigationManifestHash !== undefined &&
+      (investigation.investigationManifestHash !==
+        request.investigationManifestHash ||
+        investigation.investigationManifestCanonicalJson !==
+          request.investigationManifestCanonicalJson)
+    ) {
+      throw new Error('fake_investigation_manifest_conflict');
     }
     return mutationResult(investigation, status);
   }
@@ -453,7 +533,132 @@ export class FakeReviewActionV2ControlPlane {
     };
   }
 
-  private openGateway(_request: JsonRecord) {
+  private acquireInvestigationLease(request: JsonRecord) {
+    const investigation = requireInvestigation(this.store, request);
+    const turn = investigation.turn;
+    if (
+      !turn ||
+      turn.turnId !== request.turnId ||
+      String(investigation.version) !== request.expectedVersion ||
+      request.turnCapability !== `turn.capability.${turn.turnId}` ||
+      request.investigationManifestHash !==
+        investigation.investigationManifestHash ||
+      request.investigationManifestCanonicalJson !==
+        investigation.investigationManifestCanonicalJson
+    ) {
+      return { status: ReviewInvestigationLeaseResultStatus.BindingStale };
+    }
+    const active = [...this.store.leases.values()].find(
+      (candidate) =>
+        candidate.investigationId === investigation.investigationId &&
+        candidate.turnId === turn.turnId &&
+        candidate.active
+    );
+    if (active) {
+      return active.ownerIdHash === request.ownerIdHash
+        ? acquireLeaseResult(
+            ReviewInvestigationLeaseResultStatus.Restored,
+            active
+          )
+        : { status: ReviewInvestigationLeaseResultStatus.Busy };
+    }
+    const ordinal = this.store.leases.size + 1;
+    const lease: FakeInvestigationLease = {
+      investigationId: investigation.investigationId,
+      turnId: turn.turnId,
+      leaseId: `investigation-lease-${ordinal}`,
+      attemptId: `investigation-attempt-${ordinal}`,
+      ownerIdHash: string(request.ownerIdHash),
+      providerStrategyId: string(request.providerStrategyId),
+      investigationManifestHash: string(request.investigationManifestHash),
+      leaseCapability: `investigation.lease.capability.${ordinal}.0`,
+      fencingToken: String(ordinal),
+      expiresAt: '2026-08-03T22:10:00.000Z',
+      resultReportUntil: '2026-08-03T23:00:00.000Z',
+      renewal: 0,
+      active: true,
+    };
+    this.store.leases.set(lease.leaseId, lease);
+    return acquireLeaseResult(
+      ReviewInvestigationLeaseResultStatus.Acquired,
+      lease
+    );
+  }
+
+  private renewInvestigationLease(request: JsonRecord) {
+    const lease = this.requireActiveLease(request);
+    lease.renewal += 1;
+    lease.expiresAt = new Date(
+      Date.parse(lease.expiresAt) + 5 * 60_000
+    ).toISOString();
+    lease.leaseCapability = `investigation.lease.capability.${lease.leaseId}.${lease.renewal}`;
+    return renewLeaseResult(
+      ReviewInvestigationLeaseResultStatus.Applied,
+      lease
+    );
+  }
+
+  private releaseInvestigationLease(request: JsonRecord) {
+    const lease = this.store.leases.get(string(request.leaseId));
+    if (!lease) {
+      this.store.leaseReleaseStatuses.push(
+        ReviewInvestigationLeaseResultStatus.Missing
+      );
+      return { status: ReviewInvestigationLeaseResultStatus.Missing };
+    }
+    if (!lease.active) {
+      this.store.leaseReleaseStatuses.push(
+        ReviewInvestigationLeaseResultStatus.Restored
+      );
+      return releaseLeaseResult(
+        ReviewInvestigationLeaseResultStatus.Restored,
+        lease
+      );
+    }
+    this.assertLeaseBinding(lease, request);
+    lease.active = false;
+    const investigation = [...this.store.investigations.values()].find(
+      (candidate) => candidate.investigationId === lease.investigationId
+    );
+    const status =
+      investigation?.turn?.turnId === lease.turnId
+        ? ReviewInvestigationLeaseResultStatus.Applied
+        : ReviewInvestigationLeaseResultStatus.BindingStale;
+    this.store.leaseReleaseStatuses.push(status);
+    return releaseLeaseResult(status, lease);
+  }
+
+  private requireActiveLease(request: JsonRecord): FakeInvestigationLease {
+    const leaseId =
+      optionalString(request.sourceLeaseId) ?? string(request.leaseId);
+    const lease = this.store.leases.get(leaseId);
+    if (!lease || !lease.active)
+      throw new Error('fake_investigation_lease_missing');
+    this.assertLeaseBinding(lease, request);
+    if (
+      request.attemptId !== undefined &&
+      request.attemptId !== lease.attemptId
+    ) {
+      throw new Error('fake_investigation_lease_attempt_mismatch');
+    }
+    return lease;
+  }
+
+  private assertLeaseBinding(
+    lease: FakeInvestigationLease,
+    request: JsonRecord
+  ): void {
+    if (
+      request.leaseCapability !== lease.leaseCapability ||
+      request.fencingToken !== lease.fencingToken ||
+      (request.ownerIdHash !== undefined &&
+        request.ownerIdHash !== lease.ownerIdHash)
+    ) {
+      throw new Error('fake_investigation_lease_binding_mismatch');
+    }
+  }
+
+  private openGateway(request: JsonRecord) {
     const sessionId = `gateway-session-${this.store.sessions.size + 1}`;
     const session: FakeGatewaySession = {
       sessionId,
@@ -465,6 +670,7 @@ export class FakeReviewActionV2ControlPlane {
       transcript: null,
       attestationId: null,
       attestationHash: null,
+      leaseId: optionalString(request.sourceLeaseId),
     };
     this.store.sessions.set(sessionId, session);
     return {
@@ -480,6 +686,9 @@ export class FakeReviewActionV2ControlPlane {
   private sealGateway(request: JsonRecord) {
     const session = this.store.sessions.get(string(request.sessionId));
     if (!session) throw new Error('fake_gateway_session_missing');
+    if (session.leaseId !== null && session.leaseId !== request.sourceLeaseId) {
+      throw new Error('fake_gateway_lease_mismatch');
+    }
     const transcriptCanonicalJson = string(request.transcriptCanonicalJson);
     if (sha256(transcriptCanonicalJson) !== request.transcriptHash) {
       throw new Error('fake_gateway_transcript_hash_mismatch');
@@ -505,6 +714,7 @@ export class FakeReviewActionV2ControlPlane {
   }
 
   private commitTurn(request: JsonRecord) {
+    this.requireActiveLease(request);
     const investigation = requireInvestigation(this.store, request);
     const turn = investigation.turn;
     if (!turn || turn.turnId !== request.turnId) {
@@ -597,6 +807,7 @@ export class FakeReviewActionV2ControlPlane {
   }
 
   private abortTurn(request: JsonRecord) {
+    this.requireActiveLease(request);
     const investigation = requireInvestigation(this.store, request);
     const reason = string(request.abortReason);
     this.store.abortReasons.push(reason);
@@ -855,6 +1066,46 @@ function mutationResult(
       investigation.terminalObservationCanonicalJson,
     terminalOutcomeHash: investigation.terminalOutcomeHash,
     investigationConclusion: publishedConclusion(investigation.conclusion),
+  };
+}
+
+function acquireLeaseResult(
+  status: ReviewInvestigationLeaseResultStatus,
+  lease: FakeInvestigationLease
+) {
+  return {
+    status,
+    leaseId: lease.leaseId,
+    attemptId: lease.attemptId,
+    leaseCapability: lease.leaseCapability,
+    fencingToken: lease.fencingToken,
+    expiresAt: lease.expiresAt,
+    resultReportUntil: lease.resultReportUntil,
+  };
+}
+
+function renewLeaseResult(
+  status: ReviewInvestigationLeaseResultStatus,
+  lease: FakeInvestigationLease
+) {
+  return {
+    status,
+    leaseId: lease.leaseId,
+    leaseCapability: lease.leaseCapability,
+    fencingToken: lease.fencingToken,
+    expiresAt: lease.expiresAt,
+  };
+}
+
+function releaseLeaseResult(
+  status: ReviewInvestigationLeaseResultStatus,
+  lease: FakeInvestigationLease
+) {
+  return {
+    status,
+    leaseId: lease.leaseId,
+    fencingToken: lease.fencingToken,
+    expiresAt: lease.expiresAt,
   };
 }
 

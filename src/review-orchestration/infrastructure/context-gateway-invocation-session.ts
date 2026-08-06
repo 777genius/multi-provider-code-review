@@ -9,6 +9,7 @@ import {
   canonicalizeReviewContextGatewayEvent,
   canonicalizeReviewContextReplayHandle,
   canonicalizeReviewContextSearchQuery,
+  canonicalizeReviewInvestigationContextConfinementEvidence,
 } from '../../control-plane/generated/review-action-v2/review-action-v2';
 import {
   buildCanonicalGitInventory,
@@ -29,6 +30,7 @@ import {
   CONTEXT_GATEWAY_V4_ENABLED_TOOLS,
   CONTEXT_GATEWAY_V4_POLICY_VERSION,
 } from '../../context-gateway/context-gateway-v4-contract';
+import { ContextGatewayLeaseAuthorityKind } from '../../context-gateway/context-gateway-lease-authority';
 import { decryptContextGatewayV4ReplayMaterial } from '../../context-gateway/context-gateway-v4-replay-material';
 import {
   ContextGatewayV4Recorder,
@@ -84,6 +86,8 @@ export enum ContextGatewayExecutionProfile {
 
 export type OpenContextGatewayInvocationInput = Readonly<{
   invocationLease: ReviewInvocationLease;
+  leaseAuthorityKind: ContextGatewayLeaseAuthorityKind;
+  currentInvocationLease?: () => ReviewInvocationLease;
   sourceExecutionId: string;
   sourceWorkSlotId: string;
   sourceReviewRevisionHash: string;
@@ -127,6 +131,15 @@ export interface RequiredContextWitnessRunnerPort {
   }): Promise<void>;
 }
 
+export interface ContextGatewayAttestationPort {
+  openGatewaySession(
+    input: Parameters<ReviewContextAttestationPort['openGatewaySession']>[0]
+  ): ReturnType<ReviewContextAttestationPort['openGatewaySession']>;
+  sealGatewaySession(
+    input: Parameters<ReviewContextAttestationPort['sealGatewaySession']>[0]
+  ): ReturnType<ReviewContextAttestationPort['sealGatewaySession']>;
+}
+
 export class SubprocessRequiredContextWitnessRunner implements RequiredContextWitnessRunnerPort {
   async capture(input: {
     readonly gatewayBundlePath: string;
@@ -157,7 +170,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
   private gatewayBundleSnapshotPromise: Promise<Buffer> | undefined;
 
   constructor(
-    private readonly attestations: ReviewContextAttestationPort,
+    private readonly attestations: ContextGatewayAttestationPort,
     private readonly options: Readonly<{
       checkoutRoot: string;
       gatewayBundlePath: string;
@@ -231,7 +244,10 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       throw error;
     }
     const confinementEvidenceHash = sha256(
-      canonicalizeReviewContextConfinementEvidence({
+      (input.leaseAuthorityKind ===
+        ContextGatewayLeaseAuthorityKind.StandardExecution
+        ? canonicalizeReviewContextConfinementEvidence
+        : canonicalizeReviewInvestigationContextConfinementEvidence)({
         attemptId: input.invocationLease.attemptId,
         sourceLeaseId: input.invocationLease.leaseId,
         sourceFencingToken: input.invocationLease.fencingToken,
@@ -298,7 +314,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     }
     return new ContextGatewayInvocationSession(
       this.attestations,
-      input.invocationLease,
+      input.currentInvocationLease ?? (() => input.invocationLease),
       serverSession,
       providerConfig,
       secret,
@@ -405,10 +421,10 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
   readonly credentialLease: ContextGatewayCredentialLease;
 
   constructor(
-    private readonly attestations: ReviewContextAttestationPort,
-    private readonly invocationLease: ReviewInvocationLease,
+    private readonly attestations: ContextGatewayAttestationPort,
+    private readonly currentInvocationLease: () => ReviewInvocationLease,
     private readonly serverSession: Awaited<
-      ReturnType<ReviewContextAttestationPort['openGatewaySession']>
+      ReturnType<ContextGatewayAttestationPort['openGatewaySession']>
     >,
     readonly providerConfig: ContextGatewayInvocationConfig,
     private readonly secret: Buffer,
@@ -503,7 +519,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
       createWireSealPayload(transcript, replayMaterial);
     await rm(this.replayMaterialPath);
     return this.attestations.sealGatewaySession({
-      invocationLease: this.invocationLease,
+      invocationLease: this.currentInvocationLease(),
       session: this.serverSession,
       providerSucceeded: true,
       schemaValidated: true,
@@ -548,7 +564,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
       );
       await rm(this.replayMaterialPath);
       return this.attestations.sealGatewaySession({
-        invocationLease: this.invocationLease,
+        invocationLease: this.currentInvocationLease(),
         session: this.serverSession,
         providerSucceeded: true,
         schemaValidated: true,

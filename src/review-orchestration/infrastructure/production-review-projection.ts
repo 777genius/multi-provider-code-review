@@ -146,6 +146,13 @@ class ProductionReviewProjectionCommandFactory implements ReviewProjectionComman
           `work_slot_context_inspection_incomplete:${assignment.workSlotId}`
         );
       }
+      if (
+        accepted.observation.qualityFlags.includes('investigation_inconclusive')
+      ) {
+        coverageLimitations.push(
+          `work_slot_investigation_inconclusive:${assignment.workSlotId}`
+        );
+      }
       for (const path of manifest.paths) {
         if (path.kind === ReviewPromptPathCoverageKind.FullPatch) {
           reviewedFiles.add(path.path);

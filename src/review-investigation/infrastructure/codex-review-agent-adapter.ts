@@ -1,8 +1,8 @@
-import { mkdtemp, open, rm, writeFile } from 'fs/promises';
-import os from 'os';
-import path from 'path';
-import { TextDecoder } from 'util';
-import type { ReviewTurnRequest } from '../application/review-agent-port';
+import {
+  ReviewAgentExecutionError,
+  ReviewAgentFailureClass,
+  type ReviewTurnRequest,
+} from '../application/review-agent-port';
 import {
   ReviewAgentEventStreamSupport,
   ReviewAgentProviderKind,
@@ -13,19 +13,18 @@ import {
   parseReviewAgentTurnOutput,
   type ReviewTurnObservation,
 } from '../domain/turn-observation';
+import {
+  NodeCodexAppServerTurnRunner,
+  type CodexAppServerTurnRunnerPort,
+} from './codex-app-server-turn-runner';
+import type { ReviewAgentProcessResult } from './review-agent-process-runner';
 import type { ReviewAgentProcessRunnerPort } from './review-agent-process-runner';
 import type {
   ReviewAgentExecutionSessionResolverPort,
   ReviewAgentGatewayLaunchBinding,
 } from './review-agent-execution-session';
-import {
-  StrictCliReviewAgent,
-  parseUsage,
-  requireObservedModel,
-  schemaFailure,
-  streamFailure,
-  usageFailure,
-} from './strict-cli-review-agent';
+import { StrictCliReviewAgent, schemaFailure } from './strict-cli-review-agent';
+import type { CodexAppServerReasoningEffort } from './codex-app-server-protocol';
 
 const DISABLED_CODEX_FEATURES = Object.freeze([
   'shell_tool',
@@ -34,19 +33,25 @@ const DISABLED_CODEX_FEATURES = Object.freeze([
   'computer_use',
   'js_repl',
   'tool_search',
-  'web_search_request',
   'plugins',
 ]);
 
+export type CodexReviewAgentAdapterOptions = Readonly<{
+  executionSessions: ReviewAgentExecutionSessionResolverPort;
+  providerCredentialEnvironment?: () => Readonly<NodeJS.ProcessEnv>;
+  binary?: string;
+  reasoningEffort?: CodexAppServerReasoningEffort;
+  appServerRunner?: CodexAppServerTurnRunnerPort;
+  interruptGraceMs?: number;
+  processResultObserver?: (result: ReviewAgentProcessResult) => void;
+}>;
+
 export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
+  private readonly appServerRunner: CodexAppServerTurnRunnerPort;
+
   constructor(
     runner: ReviewAgentProcessRunnerPort,
-    private readonly options: Readonly<{
-      executionSessions: ReviewAgentExecutionSessionResolverPort;
-      providerCredentialEnvironment?: () => Readonly<NodeJS.ProcessEnv>;
-      binary?: string;
-      reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
-    }>
+    private readonly options: CodexReviewAgentAdapterOptions
   ) {
     super(
       createGatewayAttestedRuntimeProfile({
@@ -58,116 +63,90 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
       options.executionSessions,
       options.providerCredentialEnvironment ?? (() => ({}))
     );
+    this.appServerRunner =
+      options.appServerRunner ??
+      new NodeCodexAppServerTurnRunner({
+        ...(options.interruptGraceMs === undefined
+          ? {}
+          : { interruptGraceMs: options.interruptGraceMs }),
+        ...(options.processResultObserver === undefined
+          ? {}
+          : { processResultObserver: options.processResultObserver }),
+      });
   }
 
   async executeTurn(
     request: ReviewTurnRequest
   ): Promise<ReviewTurnObservation> {
     const execution = this.prepareExecution(request);
-    const directory = await mkdtemp(
-      path.join(os.tmpdir(), 'review-agent-codex-')
-    );
-    const schemaPath = path.join(directory, 'turn-output.schema.json');
-    const outputPath = path.join(directory, 'turn-output.json');
+    const reasoningEffort = this.options.reasoningEffort ?? 'xhigh';
+    const result = await this.appServerRunner.executeTurn({
+      invocationId: request.invocationId,
+      fencingToken: request.fencingToken,
+      binary: this.options.binary ?? 'codex',
+      args: this.buildArguments(execution.gateway),
+      cwd: execution.gateway.cwd,
+      environment: this.executionEnvironment(execution),
+      timeoutMs: request.timeoutMs,
+      maxOutputBytes: this.profile.maxOutputBytes * 3,
+      signal: request.signal,
+      protocol: {
+        cwd: execution.gateway.cwd,
+        prompt: request.prompt,
+        clientTurnId: request.turnId,
+        requestedModel: request.requestedModel,
+        reasoningEffort,
+        outputSchema: buildReviewAgentTurnOutputSchema(),
+        allowedTools: execution.gateway.enabledTools,
+        maxOutputBytes: this.profile.maxOutputBytes,
+      },
+    });
+
+    let output;
     try {
-      await Promise.all([
-        writeFile(
-          schemaPath,
-          JSON.stringify(buildReviewAgentTurnOutputSchema()),
-          {
-            mode: 0o600,
-          }
-        ),
-        writeFile(outputPath, '', { mode: 0o600 }),
-      ]);
-      const result = await this.runProcess(request, execution, {
-        binary: this.options.binary ?? 'codex',
-        args: this.buildArguments(
-          request,
-          execution.gateway,
-          schemaPath,
-          outputPath
-        ),
-      });
-      try {
-        const output = parseReviewAgentTurnOutput(
-          JSON.parse(
-            await readBoundedUtf8File(outputPath, this.profile.maxOutputBytes)
-          )
-        );
-        const events = parseJsonLines(result.stdout);
-        const models = new Set<string>();
-        let usage: ReturnType<typeof parseUsage> | null = null;
-        let turnCompleted = false;
-        for (const event of events) {
-          collectConfiguredModels(event, models, 0);
-          if (event.type === 'turn.completed') {
-            if (turnCompleted)
-              throw new Error('review_agent_turn_completed_duplicate');
-            turnCompleted = true;
-            if (!isRecord(event.usage)) {
-              throw usageFailure('review_agent_codex_usage_missing');
-            }
-            const rawUsage = requireRecord(event.usage, 'codex_usage');
-            usage = parseUsage({
-              inputTokens: rawUsage.input_tokens,
-              cachedInputTokens: rawUsage.cached_input_tokens,
-              outputTokens: rawUsage.output_tokens,
-              reasoningOutputTokens: rawUsage.reasoning_output_tokens,
-            });
-          }
-        }
-        if (!turnCompleted) {
-          throw streamFailure('review_agent_codex_stream_incomplete');
-        }
-        if (!usage) throw usageFailure('review_agent_codex_usage_missing');
-        return this.observation(
-          request,
-          {
-            output,
-            actualModel: requireObservedModel(models),
-            usage,
-          },
-          result.durationMs
-        );
-      } catch (error) {
-        throw schemaFailure(error);
-      }
-    } finally {
-      await rm(directory, { recursive: true, force: true });
+      output = parseReviewAgentTurnOutput(JSON.parse(result.finalMessage));
+    } catch (error) {
+      throw schemaFailure(error);
+    }
+    return this.observation(
+      request,
+      {
+        output,
+        actualModel: result.actualModel,
+        usage: result.usage,
+      },
+      result.durationMs
+    );
+  }
+
+  async cancel(invocationId: string, fencingToken: string): Promise<void> {
+    try {
+      await this.appServerRunner.cancel(invocationId, fencingToken);
+    } catch {
+      throw new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.ProcessFailure,
+        null,
+        'review_agent_cancel_failure'
+      );
     }
   }
 
   private buildArguments(
-    request: ReviewTurnRequest,
-    gateway: ReviewAgentGatewayLaunchBinding,
-    schemaPath: string,
-    outputPath: string
+    gateway: ReviewAgentGatewayLaunchBinding
   ): readonly string[] {
-    const args = [
-      'exec',
-      '--model',
-      request.requestedModel,
-      '--sandbox',
-      'read-only',
-      '--ephemeral',
-      '--ignore-user-config',
-      '--ignore-rules',
-      '--strict-config',
-      '--color',
-      'never',
-      '-c',
-      'approval_policy=never',
-      '--output-last-message',
-      outputPath,
-      '--output-schema',
-      schemaPath,
-      '--json',
-    ];
+    const args = ['app-server', '--stdio', '--strict-config'];
     for (const feature of DISABLED_CODEX_FEATURES) {
       args.push('--disable', feature);
     }
     args.push(
+      '-c',
+      'approval_policy="never"',
+      '-c',
+      'sandbox_mode="read-only"',
+      '-c',
+      'project_doc_max_bytes=0',
+      '-c',
+      'web_search="disabled"',
       '-c',
       'mcp_servers={}',
       '-c',
@@ -193,90 +172,10 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
       '-c',
       `mcp_servers.reviewrouter.enabled_tools=${tomlStringArray(
         gateway.enabledTools
-      )}`,
-      '-c',
-      `model_reasoning_effort=${tomlString(
-        this.options.reasoningEffort ?? 'xhigh'
-      )}`,
-      '-'
+      )}`
     );
     return Object.freeze(args);
   }
-}
-
-async function readBoundedUtf8File(
-  filePath: string,
-  maxBytes: number
-): Promise<string> {
-  const handle = await open(filePath, 'r');
-  try {
-    const metadata = await handle.stat();
-    if (!metadata.isFile() || metadata.size > maxBytes) {
-      throw new Error('review_agent_output_file_size_invalid');
-    }
-    const buffer = Buffer.alloc(metadata.size + 1);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
-    if (bytesRead > maxBytes || bytesRead !== metadata.size) {
-      throw new Error('review_agent_output_file_size_invalid');
-    }
-    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
-      buffer.subarray(0, bytesRead)
-    );
-  } finally {
-    await handle.close();
-  }
-}
-
-function parseJsonLines(value: string): readonly Record<string, unknown>[] {
-  const events: Record<string, unknown>[] = [];
-  for (const line of value.split(/\r?\n/u)) {
-    if (!line.trim()) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      throw streamFailure('review_agent_codex_event_json_invalid');
-    }
-    events.push(requireRecord(parsed, 'codex_event'));
-  }
-  if (events.length === 0)
-    throw streamFailure('review_agent_codex_event_stream_empty');
-  return events;
-}
-
-function collectConfiguredModels(
-  value: unknown,
-  models: Set<string>,
-  depth: number
-): void {
-  if (!value || typeof value !== 'object' || depth > 5) return;
-  const record = value as Record<string, unknown>;
-  if (record.type === 'session_configured') {
-    for (const candidate of [
-      record.model,
-      isRecord(record.payload) ? record.payload.model : undefined,
-      isRecord(record.data) ? record.data.model : undefined,
-      isRecord(record.session) ? record.session.model : undefined,
-    ]) {
-      if (typeof candidate === 'string') models.add(candidate);
-    }
-  }
-  for (const nested of Object.values(record)) {
-    if (nested && typeof nested === 'object') {
-      collectConfiguredModels(nested, models, depth + 1);
-    }
-  }
-}
-
-function requireRecord(value: unknown, field: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`review_agent_${field}_invalid`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function tomlString(value: string): string {

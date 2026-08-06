@@ -33,6 +33,7 @@ import {
   serializeProviderVisibleReviewCoverage,
 } from '../domain';
 import { normalizeReviewObservation } from './review-observation-normalizer';
+import { ContextGatewayLeaseAuthorityKind } from '../../context-gateway/context-gateway-lease-authority';
 import type { ContextGatewayInvocationSessionFactoryPort } from './context-gateway-invocation-session';
 import { buildReviewAgentTurnOutputSchema } from '../../review-investigation/domain/turn-observation';
 import {
@@ -359,6 +360,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
 
     const session = await this.contextGateway.open({
       invocationLease: input.lease,
+      leaseAuthorityKind: ContextGatewayLeaseAuthorityKind.StandardExecution,
       sourceExecutionId: input.sourceExecutionId,
       sourceWorkSlotId: input.invocation.workSlotId,
       sourceReviewRevisionHash: input.sourceReviewRevisionHash,

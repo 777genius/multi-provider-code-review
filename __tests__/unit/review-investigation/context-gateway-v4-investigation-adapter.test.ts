@@ -119,7 +119,7 @@ describe('ContextGatewayV4InvestigationAdapter', () => {
         reviewRevisionHash: hash,
         investigationId: 'investigation-1',
         turnId: 'turn-1',
-        lease,
+        currentLease: () => lease,
       })
     ).rejects.toMatchObject({
       name: ReviewInvestigationGatewayConfigurationError.name,
@@ -170,7 +170,7 @@ describe('ContextGatewayV4InvestigationAdapter', () => {
       reviewRevisionHash: hash,
       investigationId: 'investigation-1',
       turnId: 'turn-2',
-      lease,
+      currentLease: () => lease,
     });
 
     expect(adapter.executionAuthority).toMatchObject({

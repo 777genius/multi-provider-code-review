@@ -18,8 +18,10 @@ import {
   ReviewInvestigationRestoreResultStatus,
   type ReviewInvestigationConcludeResult,
   type ReviewInvestigationOpenResult,
+  type ReviewInvestigationOpenV2Result,
   type ReviewInvestigationReplayPrepareResult,
   type ReviewInvestigationReplayResult,
+  type ReviewInvestigationReplayV2Result,
   type ReviewInvestigationRestoreResult,
   type ReviewInvestigationTurnAbortResult,
   type ReviewInvestigationTurnCommitResult,
@@ -51,12 +53,14 @@ import {
 
 type InvestigationResult =
   | ReviewInvestigationOpenResult
+  | ReviewInvestigationOpenV2Result
   | ReviewInvestigationRestoreResult
   | ReviewInvestigationTurnPlanResult
   | ReviewInvestigationTurnCommitResult
   | ReviewInvestigationTurnAbortResult
   | ReviewInvestigationConcludeResult
-  | ReviewInvestigationReplayResult;
+  | ReviewInvestigationReplayResult
+  | ReviewInvestigationReplayV2Result;
 
 export class ReviewActionV2InvestigationAdapter
   implements
@@ -72,36 +76,43 @@ export class ReviewActionV2InvestigationAdapter
     const policy = document(input.investigationPolicy);
     const receipts = document(input.initialReceipts);
     const result = await this.mutation(
-      ReviewActionV2OperationId.ReviewInvestigationOpen,
+      ReviewActionV2OperationId.ReviewInvestigationOpenV2,
       () =>
-        this.client.execute(ReviewActionV2OperationId.ReviewInvestigationOpen, {
-          authorizationToken: input.authorizationToken,
-          idempotencyKey: idempotencyKey('open', {
+        this.client.execute(
+          ReviewActionV2OperationId.ReviewInvestigationOpenV2,
+          {
+            authorizationToken: input.authorizationToken,
+            idempotencyKey: idempotencyKey('open', {
+              executionId: input.executionId,
+              workSlotId: input.workSlotId,
+              reviewRevisionHash: input.reviewRevisionHash,
+              stableReviewUnitKey: input.stableReviewUnitKey,
+              providerVoteLaneId: input.providerVoteLaneId,
+              investigationManifestHash: input.providerManifestHash,
+              coverageContractHash: coverage.hash,
+              runtimeProfile: input.runtimeProfile,
+            }),
+            authorizationId: input.authorizationId,
             executionId: input.executionId,
             workSlotId: input.workSlotId,
             reviewRevisionHash: input.reviewRevisionHash,
             stableReviewUnitKey: input.stableReviewUnitKey,
             providerVoteLaneId: input.providerVoteLaneId,
+            providerStrategyId: input.providerStrategyId,
+            runtimeProfile: runtimeProfile(input.runtimeProfile),
+            coverageContractCanonicalJson: coverage.canonicalJson,
             coverageContractHash: coverage.hash,
-            runtimeProfile: input.runtimeProfile,
-          }),
-          authorizationId: input.authorizationId,
-          executionId: input.executionId,
-          workSlotId: input.workSlotId,
-          reviewRevisionHash: input.reviewRevisionHash,
-          stableReviewUnitKey: input.stableReviewUnitKey,
-          providerVoteLaneId: input.providerVoteLaneId,
-          providerStrategyId: input.providerStrategyId,
-          runtimeProfile: runtimeProfile(input.runtimeProfile),
-          coverageContractCanonicalJson: coverage.canonicalJson,
-          coverageContractHash: coverage.hash,
-          investigationPolicyCanonicalJson: policy.canonicalJson,
-          investigationPolicyHash: policy.hash,
-          seedObligationsCanonicalJson: input.seedEnvelope.canonicalJson,
-          seedObligationsHash: input.seedEnvelope.hash,
-          initialReceiptsCanonicalJson: receipts.canonicalJson,
-          initialReceiptsHash: receipts.hash,
-        })
+            investigationPolicyCanonicalJson: policy.canonicalJson,
+            investigationPolicyHash: policy.hash,
+            seedObligationsCanonicalJson: input.seedEnvelope.canonicalJson,
+            seedObligationsHash: input.seedEnvelope.hash,
+            initialReceiptsCanonicalJson: receipts.canonicalJson,
+            initialReceiptsHash: receipts.hash,
+            investigationManifestCanonicalJson:
+              input.providerManifestCanonicalJson,
+            investigationManifestHash: input.providerManifestHash,
+          }
+        )
     );
     if (
       result.status !== ReviewInvestigationOpenResultStatus.Opened &&
@@ -398,10 +409,10 @@ export class ReviewActionV2InvestigationAdapter
     const targetRevision = document(input.revision);
     const replayProofs = document(input.replayProofs);
     const result = await this.mutation(
-      ReviewActionV2OperationId.ReviewInvestigationReplay,
+      ReviewActionV2OperationId.ReviewInvestigationReplayV2,
       () =>
         this.client.execute(
-          ReviewActionV2OperationId.ReviewInvestigationReplay,
+          ReviewActionV2OperationId.ReviewInvestigationReplayV2,
           {
             authorizationToken: input.open.authorizationToken,
             idempotencyKey: idempotencyKey('replay', {
@@ -411,6 +422,7 @@ export class ReviewActionV2InvestigationAdapter
               targetWorkSlotId: input.open.workSlotId,
               targetRevisionHash: targetRevision.hash,
               providerStrategyId: input.open.providerStrategyId,
+              investigationManifestHash: input.open.providerManifestHash,
               coverageContractHash: coverage.hash,
               investigationPolicyHash: policy.hash,
               seedObligationsHash: input.open.seedEnvelope.hash,
@@ -425,6 +437,9 @@ export class ReviewActionV2InvestigationAdapter
             stableReviewUnitKey: input.open.stableReviewUnitKey,
             providerVoteLaneId: input.open.providerVoteLaneId,
             providerStrategyId: input.open.providerStrategyId,
+            investigationManifestCanonicalJson:
+              input.open.providerManifestCanonicalJson,
+            investigationManifestHash: input.open.providerManifestHash,
             runtimeProfile: runtimeProfile(input.open.runtimeProfile),
             coverageContractCanonicalJson: coverage.canonicalJson,
             coverageContractHash: coverage.hash,
