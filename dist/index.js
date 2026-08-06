@@ -50231,7 +50231,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.77",
+  version: "1.0.78",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -102886,7 +102886,7 @@ function sha25615(value) {
 }
 
 // src/review-orchestration/infrastructure/production-review-projection.ts
-var productionReviewProjectionPolicyVersion = "review-projection-policy.v4-t0";
+var productionReviewProjectionPolicyVersion = "review-projection-policy.v5-t0";
 function createProductionReviewProjectionBuilder(input) {
   const limits = projectionLimits(input.config, input.protocolLimits);
   const policy = new LegacyReviewProjectionPolicyAdapter(input.config);

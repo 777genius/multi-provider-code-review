@@ -42,6 +42,8 @@ describe('committed production review runtime bundle', () => {
     expect(bundle).toContain('REVIEWROUTER_CONTEXT_GATEWAY_SECRET');
     expect(bundle).toContain('CLAUDE_CONFIG_DIR');
     expect(bundle).toContain('review_agent_runtime_environment_invalid');
+    expect(bundle).toContain('review-projection-policy.v5-t0');
+    expect(bundle).not.toContain('review-projection-policy.v4-t0');
     expect(bundle).toContain('//# sourceMappingURL=index.js.map');
   });
 

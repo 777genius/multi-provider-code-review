@@ -37,7 +37,7 @@ import {
 } from './current-review-projection-builder-adapter';
 
 const productionReviewProjectionPolicyVersion =
-  'review-projection-policy.v4-t0';
+  'review-projection-policy.v5-t0';
 
 export type ProductionWorkAssignmentFacts = {
   readonly workSlotId: string;
