@@ -16,4 +16,25 @@ describe('hashReviewLifecycleThreadState', () => {
       '9bab955ad13af6be85a71a3ad9e3d43db8e485f6dcab798ce91e8111a0495245'
     );
   });
+
+  it.each(['2026-02-31T12:00:00Z', '2025-02-29T12:00:00Z'])(
+    'rejects impossible calendar timestamp %s',
+    (createdAt) => {
+      expect(() =>
+        hashReviewLifecycleThreadState({
+          threadId: 'thread-1',
+          comments: [{ id: 'comment-1', createdAt }],
+        })
+      ).toThrow('review_lifecycle_thread_state_timestamp_invalid');
+    }
+  );
+
+  it('accepts a valid leap-day timestamp with an offset', () => {
+    expect(() =>
+      hashReviewLifecycleThreadState({
+        threadId: 'thread-1',
+        comments: [{ id: 'comment-1', createdAt: '2024-02-29T23:30:00+02:00' }],
+      })
+    ).not.toThrow();
+  });
 });

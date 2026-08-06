@@ -38697,6 +38697,7 @@ function sortedUnique(values) {
 var import_crypto13 = require("crypto");
 var REVIEW_LIFECYCLE_THREAD_STATE_VERSION = "review_lifecycle_thread_state.v1";
 var REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^[a-f0-9]{24,64}$/;
+var RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 function isReviewLifecycleMarkerFingerprint(value) {
   return typeof value === "string" && REVIEW_LIFECYCLE_MARKER_FINGERPRINT.test(value);
 }
@@ -38744,11 +38745,40 @@ function normalizeTimestamp(value) {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error("review_lifecycle_thread_state_timestamp_invalid");
   }
+  const match2 = RFC3339_TIMESTAMP.exec(value);
+  if (match2 === null || !hasValidTimestampFields(match2)) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     throw new Error("review_lifecycle_thread_state_timestamp_invalid");
   }
   return parsed.toISOString();
+}
+function hasValidTimestampFields(match2) {
+  const year = Number(match2[1]);
+  const month = Number(match2[2]);
+  const day = Number(match2[3]);
+  const hour = Number(match2[4]);
+  const minute = Number(match2[5]);
+  const second = Number(match2[6]);
+  const offset = match2[7];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+  if (offset !== "Z") {
+    const offsetHour = Number(offset.slice(1, 3));
+    const offsetMinute = Number(offset.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return false;
+  }
+  return true;
+}
+function daysInMonth(year, month) {
+  if (month === 2) {
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leapYear ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
 }
 function sha2565(value) {
   return (0, import_crypto13.createHash)("sha256").update(value, "utf8").digest("hex");

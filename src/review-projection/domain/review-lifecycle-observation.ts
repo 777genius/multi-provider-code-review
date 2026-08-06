@@ -7,6 +7,8 @@ export enum ReviewLifecycleObservationVersion {
 const REVIEW_LIFECYCLE_THREAD_STATE_VERSION =
   'review_lifecycle_thread_state.v1';
 const REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^[a-f0-9]{24,64}$/;
+const RFC3339_TIMESTAMP =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 
 export interface ReviewLifecycleThreadStateComment {
   readonly id: string;
@@ -77,11 +79,53 @@ function normalizeTimestamp(value: string): string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error('review_lifecycle_thread_state_timestamp_invalid');
   }
+  const match = RFC3339_TIMESTAMP.exec(value);
+  if (match === null || !hasValidTimestampFields(match)) {
+    throw new Error('review_lifecycle_thread_state_timestamp_invalid');
+  }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     throw new Error('review_lifecycle_thread_state_timestamp_invalid');
   }
   return parsed.toISOString();
+}
+
+function hasValidTimestampFields(match: RegExpExecArray): boolean {
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offset = match[7];
+
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth(year, month) ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59
+  ) {
+    return false;
+  }
+
+  if (offset !== 'Z') {
+    const offsetHour = Number(offset.slice(1, 3));
+    const offsetMinute = Number(offset.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return false;
+  }
+
+  return true;
+}
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leapYear ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
 }
 
 function sha256(value: string): string {
