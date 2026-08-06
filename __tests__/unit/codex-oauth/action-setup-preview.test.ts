@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as core from '../../../src/actions/core';
 import { runCodexOAuthRotatingRuntime } from '../../../src/codex-oauth/runtime';
 import {
   runCodexOAuthRotatingAction,
@@ -8,11 +9,13 @@ import {
 } from '../../../src/codex-oauth/action';
 import {
   CodexOAuthReviewRuntimeMode,
+  CodexOAuthV2MergeGateFailureCode,
   CodexOAuthV2ReviewOutcome,
   CodexOAuthV2TerminalReason,
   type CodexOAuthV2ReviewResult,
   type CodexOAuthV2ReviewRunnerPort,
 } from '../../../src/codex-oauth/runtime';
+import { MergeGateConclusion } from '../../../src/review-projection/domain';
 import {
   ReviewActionV2RuntimeMode,
   type ReviewActionV2Activation,
@@ -613,7 +616,10 @@ describe('Codex OAuth rotating setup PR preview', () => {
     mockedRuntime.mockResolvedValue({
       status: 'completed',
       publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
-      v2Review: { outcome: CodexOAuthV2ReviewOutcome.Completed },
+      v2Review: {
+        outcome: CodexOAuthV2ReviewOutcome.Completed,
+        mergeGateConclusion: MergeGateConclusion.Pass,
+      },
     });
     process.env = {
       ...actionEnv({
@@ -625,9 +631,12 @@ describe('Codex OAuth rotating setup PR preview', () => {
       GITHUB_SERVER_URL: 'https://github.example.com',
     };
     const v2ReviewRunner: CodexOAuthV2ReviewRunnerPort = {
-      run: jest.fn(async (): Promise<CodexOAuthV2ReviewResult> => ({
-        outcome: CodexOAuthV2ReviewOutcome.Completed,
-      })),
+      run: jest.fn(
+        async (): Promise<CodexOAuthV2ReviewResult> => ({
+          outcome: CodexOAuthV2ReviewOutcome.Completed,
+          mergeGateConclusion: MergeGateConclusion.Pass,
+        })
+      ),
     };
     const terminalOutcomeReporter = {
       post: jest.fn(async () => undefined),
@@ -682,11 +691,89 @@ describe('Codex OAuth rotating setup PR preview', () => {
     );
   });
 
+  it.each([
+    [
+      MergeGateConclusion.Fail,
+      CodexOAuthV2MergeGateFailureCode.Failed,
+      'Review completed with blocking findings.',
+    ],
+    [
+      MergeGateConclusion.Inconclusive,
+      CodexOAuthV2MergeGateFailureCode.Inconclusive,
+      'Review completed with an inconclusive merge gate.',
+    ],
+    [
+      undefined,
+      CodexOAuthV2MergeGateFailureCode.Missing,
+      'Review completed without a merge gate conclusion.',
+    ],
+  ])(
+    'fails the workflow after completed publication for merge gate %s',
+    async (mergeGateConclusion, failureCode, description) => {
+      const v2Review = (mergeGateConclusion === undefined
+        ? { outcome: CodexOAuthV2ReviewOutcome.Completed }
+        : {
+            outcome: CodexOAuthV2ReviewOutcome.Completed,
+            mergeGateConclusion,
+          }) as unknown as CodexOAuthV2ReviewResult;
+      mockedRuntime.mockResolvedValue({
+        status: 'completed',
+        publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
+        v2Review,
+      });
+      process.env = {
+        ...actionEnv({
+          eventPath,
+          outputPath,
+          headRef: 'feature/change',
+        }),
+        GITHUB_RUN_ID: '123456789',
+        GITHUB_SERVER_URL: 'https://github.example.com',
+      };
+      const terminalOutcomeReporter = {
+        post: jest.fn(async () => undefined),
+        clear: jest.fn(async () => undefined),
+        status: jest.fn(async () => undefined),
+      };
+      const setFailed = jest.spyOn(core, 'setFailed');
+
+      await runCodexOAuthRotatingAction({
+        reviewActionV2Activation: {
+          mode: ReviewActionV2RuntimeMode.T0,
+          handoff: {
+            saasSourceCommit: 'a'.repeat(40),
+            expectedPublicActionBaseCommit: 'b'.repeat(40),
+            schemaDigest: 'c'.repeat(64),
+            canonicalizerDigest: 'd'.repeat(64),
+            goldenFixtureDigest: 'e'.repeat(64),
+            generatedFileCount: 8,
+          },
+        },
+        terminalOutcomeReporter,
+      });
+
+      expect(terminalOutcomeReporter.clear).toHaveBeenCalledWith({
+        reason: 'review_completed',
+      });
+      expect(terminalOutcomeReporter.status).toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'failure', description })
+      );
+      expect(process.exitCode).toBe(1);
+      expect(setFailed).toHaveBeenCalledWith(failureCode);
+      expect(fs.readFileSync(outputPath, 'utf8')).toContain(
+        'reviewrouter_v2_outcome'
+      );
+    }
+  );
+
   it('uses the production T0 runner when no test runner is injected', async () => {
     mockedRuntime.mockResolvedValue({
       status: 'completed',
       publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
-      v2Review: { outcome: CodexOAuthV2ReviewOutcome.Completed },
+      v2Review: {
+        outcome: CodexOAuthV2ReviewOutcome.Completed,
+        mergeGateConclusion: MergeGateConclusion.Pass,
+      },
     });
     process.env = actionEnv({
       eventPath,

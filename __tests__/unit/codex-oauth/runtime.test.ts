@@ -9,6 +9,7 @@ import {
   type CodexOAuthV2ReviewRunnerPort,
   CodexOAuthV2RuntimePorts,
 } from '../../../src/codex-oauth/runtime';
+import { MergeGateConclusion } from '../../../src/review-projection/domain';
 
 describe('Codex OAuth rotating runtime', () => {
   const authJsonBytes = JSON.stringify({
@@ -215,7 +216,10 @@ describe('Codex OAuth rotating runtime', () => {
         expect(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe(
           'oidc-request-token'
         );
-        return { outcome: CodexOAuthV2ReviewOutcome.Completed };
+        return {
+          outcome: CodexOAuthV2ReviewOutcome.Completed,
+          mergeGateConclusion: MergeGateConclusion.Pass,
+        };
       }
     );
     const ports = buildV2Ports(events, { run: v2Review });
@@ -238,7 +242,10 @@ describe('Codex OAuth rotating runtime', () => {
     expect(result).toEqual({
       status: 'completed',
       publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
-      v2Review: { outcome: CodexOAuthV2ReviewOutcome.Completed },
+      v2Review: {
+        outcome: CodexOAuthV2ReviewOutcome.Completed,
+        mergeGateConclusion: MergeGateConclusion.Pass,
+      },
     });
     expect(v2Review).toHaveBeenCalledTimes(1);
     expect(events).toEqual([
@@ -299,6 +306,7 @@ describe('Codex OAuth rotating runtime', () => {
     const v2Review: CodexOAuthV2ReviewRunnerPort['run'] = jest.fn(
       async (): Promise<CodexOAuthV2ReviewResult> => ({
         outcome: CodexOAuthV2ReviewOutcome.Completed,
+        mergeGateConclusion: MergeGateConclusion.Pass,
       })
     );
     const ports = buildV2Ports(events, { run: v2Review });
@@ -344,6 +352,7 @@ describe('Codex OAuth rotating runtime', () => {
     const v2Review: CodexOAuthV2ReviewRunnerPort['run'] = jest.fn(
       async (): Promise<CodexOAuthV2ReviewResult> => ({
         outcome: CodexOAuthV2ReviewOutcome.Completed,
+        mergeGateConclusion: MergeGateConclusion.Pass,
       })
     );
     const ports = buildV2Ports(events, { run: v2Review });

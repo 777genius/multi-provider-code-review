@@ -1,3 +1,5 @@
+import type { MergeGateConclusion } from '../../review-projection/domain';
+
 export enum ReviewEvidenceLookupKind {
   Miss = 'miss',
   Hit = 'hit',
@@ -29,7 +31,8 @@ export enum ReviewInvestigationRolloutCapability {
 
 export type ReviewInvestigationProviderCapabilities = Readonly<{
   providerKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode;
   capabilities: readonly ReviewInvestigationRolloutCapability[];
 }>;
 
@@ -367,6 +370,7 @@ export type CurrentReviewProjection = {
   readonly commandLedgerWatermark: string;
   readonly operationsCanonicalJson: string;
   readonly findingCount: number;
+  readonly mergeGateConclusion: MergeGateConclusion;
   readonly publicationOperationCount: number;
   readonly publicationChunkCount: number;
   readonly coverageComplete: boolean;

@@ -163,6 +163,23 @@ class DeterministicGatePolicy implements ReviewMergeGatePolicyPort {
 }
 
 describe('BuildCurrentReviewProjection', () => {
+  it('keeps full coverage publishable while a current Major finding blocks the merge gate', async () => {
+    const result = await createUseCase(
+      new MutableInventoryPort(inventory())
+    ).execute(
+      command({
+        currentFindings: [finding({ severity: FindingSeverity.Major })],
+      })
+    );
+
+    expect(result.envelope.coverage.state).toBe(
+      ProjectionCoverageState.Complete
+    );
+    expect(result.findingCount).toBe(1);
+    expect(result.envelope.mergeGate.conclusion).toBe(MergeGateConclusion.Fail);
+    expect(result.envelope.publishing.inlineReviewChunks).toHaveLength(1);
+  });
+
   it('reloads current lifecycle inventory on every projection build', async () => {
     const inventoryPort = new MutableInventoryPort(inventory());
     const useCase = createUseCase(inventoryPort);

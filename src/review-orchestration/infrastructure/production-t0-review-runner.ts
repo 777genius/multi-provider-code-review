@@ -43,6 +43,7 @@ import {
   createStableReviewBatchId,
   createStableReviewWorkPlan,
 } from '../domain';
+import type { MergeGateConclusion } from '../../review-projection/domain';
 import {
   CodexReviewInvocationAdapter,
   CooperativeReviewLeaseSupervisor,
@@ -593,10 +594,16 @@ function createConfiguredProductionInvestigationAgents(input: {
 export function mapOrchestrationResultToCodexOutcome(result: {
   readonly status: ReviewOrchestrationResultStatus;
   readonly failureCode?: string;
+  readonly mergeGateConclusion?: MergeGateConclusion;
 }): CodexOAuthV2ReviewResult {
   switch (result.status) {
     case ReviewOrchestrationResultStatus.Completed:
-      return { outcome: CodexOAuthV2ReviewOutcome.Completed };
+      return {
+        outcome: CodexOAuthV2ReviewOutcome.Completed,
+        mergeGateConclusion: requireMergeGateConclusion(
+          result.mergeGateConclusion
+        ),
+      };
     case ReviewOrchestrationResultStatus.PartialCompleted:
       return {
         outcome: CodexOAuthV2ReviewOutcome.PartialCompleted,
@@ -627,6 +634,15 @@ export function mapOrchestrationResultToCodexOutcome(result: {
           result.failureCode ?? `review_action_v2_${result.status}`,
       };
   }
+}
+
+function requireMergeGateConclusion(
+  conclusion: MergeGateConclusion | undefined
+): MergeGateConclusion {
+  if (conclusion === undefined) {
+    throw new Error('review_orchestration_merge_gate_conclusion_missing');
+  }
+  return conclusion;
 }
 
 export function mapRevisionGuardErrorToCodexOutcome(error: unknown):

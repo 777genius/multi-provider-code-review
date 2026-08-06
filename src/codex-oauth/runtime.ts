@@ -19,6 +19,7 @@ import {
 } from './crypto';
 import * as path from 'path';
 import type { Review } from '../types';
+import type { MergeGateConclusion } from '../review-projection/domain';
 
 export type CodexOAuthRuntimeInputs = {
   apiUrl: string;
@@ -60,6 +61,12 @@ export enum CodexOAuthV2TerminalReason {
   Unknown = 'unknown',
 }
 
+export enum CodexOAuthV2MergeGateFailureCode {
+  Failed = 'review_merge_gate_failed',
+  Inconclusive = 'review_merge_gate_inconclusive',
+  Missing = 'review_merge_gate_conclusion_missing',
+}
+
 type CodexOAuthV2PartialReason =
   | CodexOAuthV2TerminalReason.RequiredReviewCoverageIncomplete
   | CodexOAuthV2TerminalReason.RequiredProviderLaneBusy
@@ -75,7 +82,10 @@ type CodexOAuthV2FailureReason =
   | CodexOAuthV2TerminalReason.Unknown;
 
 export type CodexOAuthV2ReviewResult =
-  | { readonly outcome: CodexOAuthV2ReviewOutcome.Completed }
+  | {
+      readonly outcome: CodexOAuthV2ReviewOutcome.Completed;
+      readonly mergeGateConclusion: MergeGateConclusion;
+    }
   | {
       readonly outcome: CodexOAuthV2ReviewOutcome.PartialCompleted;
       readonly reason: CodexOAuthV2PartialReason;
@@ -218,7 +228,8 @@ export type CodexOAuthV2RuntimePorts = CodexOAuthSharedRuntimePorts & {
 };
 
 export type CodexOAuthRuntimePorts =
-  CodexOAuthLegacyRuntimePorts | CodexOAuthV2RuntimePorts;
+  | CodexOAuthLegacyRuntimePorts
+  | CodexOAuthV2RuntimePorts;
 
 export type CodexOAuthReviewComputationResult = {
   skipped: boolean;
