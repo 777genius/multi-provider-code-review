@@ -31284,7 +31284,7 @@ var import_crypto6 = require("crypto");
 // src/review-projection/domain/finding-marker.ts
 var RESERVED_FINDING_MARKER_PREFIX_RE = /(?:review-router-finding:|reviewrouter:finding:v2:)/gi;
 var LEGACY_FINDING_MARKER_RE = /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/gi;
-var V2_FINDING_MARKER_RE = /reviewrouter:finding:v2:([a-f0-9]{24,64})(?=$|[ \t\r\n])/g;
+var V2_FINDING_MARKER_RE = /(?<!\S)reviewrouter:finding:v2:((?:rrl_[a-f0-9]{32}|[a-f0-9]{24,64}))(?=$|[ \t\r\n])/g;
 var RESERVED_FINDING_MARKER_COMMENT_RE = /<!--(?:(?!-->)[\s\S])*(?:review-router-finding:|reviewrouter:finding:v2:)(?:(?!-->)[\s\S])*-->/gi;
 var UNCLOSED_RESERVED_FINDING_MARKER_COMMENT_RE = /<!--(?:(?!-->)[\s\S])*(?:review-router-finding:|reviewrouter:finding:v2:)[\s\S]*$/gi;
 var RESERVED_FINDING_MARKER_TOKEN_RE = /(?:review-router-finding:|reviewrouter:finding:v2:)[^\s<]*/gi;
@@ -55412,8 +55412,9 @@ var TerminalOutcomePublicationUseCase = class {
       repository: this.input.context.repository,
       pullRequestNumber: this.input.context.pullRequestNumber
     });
+    const currentRevisionMarker = `<!-- reviewrouter:codex-oauth:terminal:${this.input.context.headSha}:`;
     const terminalComments = comments.filter(
-      (comment) => (comment.body ?? "").includes("<!-- reviewrouter:codex-oauth:terminal:")
+      (comment) => (comment.body ?? "").includes(currentRevisionMarker)
     );
     for (const comment of terminalComments) {
       await this.input.github.deletePullRequestComment({
