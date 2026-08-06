@@ -25,9 +25,17 @@ import {
 } from './run-investigation-turn';
 import type { ReviewAgentProviderKind } from '../domain/runtime-profile';
 
+export enum ReviewInvestigationLegacyFallbackReason {
+  CapabilityDisabledBeforeOpen = 'capability_disabled_before_open',
+  RecordOnlyDeferred = 'record_only_deferred',
+}
+
 export class ReviewInvestigationLegacyFallbackSignal extends Error {
-  constructor() {
-    super('review_investigation_capability_disabled_before_open');
+  constructor(
+    readonly reason: ReviewInvestigationLegacyFallbackReason = ReviewInvestigationLegacyFallbackReason.CapabilityDisabledBeforeOpen,
+    readonly deferredStatus: ReviewInvestigationDeferredRunStatus | null = null
+  ) {
+    super(`review_investigation_legacy_fallback:${reason}`);
     this.name = 'ReviewInvestigationLegacyFallbackSignal';
   }
 }

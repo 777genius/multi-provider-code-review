@@ -3,6 +3,7 @@ import {
   isTrustedReviewThreadAuthor,
   trustedReviewThreadAuthorsFromEnv,
 } from '../../../src/github/review-thread-inventory';
+import { extractFindingFingerprint } from '../../../src/github/comment-fingerprint';
 import { GitHubClient } from '../../../src/github/client';
 import { createHash } from 'crypto';
 
@@ -15,6 +16,65 @@ const parentBody = [
 ].join('\n');
 
 describe('ReviewThreadInventoryLoader', () => {
+  it.each([
+    ['legacy HTML', '<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->'],
+    ['plain v2', 'reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa'],
+  ])('extracts the %s finding marker dialect', (_label, marker) => {
+    expect(extractFindingFingerprint(`Finding\n${marker}`)).toBe(
+      'aaaaaaaaaaaaaaaaaaaaaaaa'
+    );
+  });
+
+  it('accepts duplicate markers when every dialect names the same fingerprint', () => {
+    expect(
+      extractFindingFingerprint(
+        [
+          '<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->',
+          '<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->',
+          '<!-- reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa -->',
+          'reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa',
+        ].join('\n')
+      )
+    ).toBe('aaaaaaaaaaaaaaaaaaaaaaaa');
+  });
+
+  it.each([
+    [
+      'conflicting legacy markers',
+      [
+        '<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->',
+        '<!-- review-router-finding:bbbbbbbbbbbbbbbbbbbbbbbb -->',
+      ],
+    ],
+    [
+      'conflicting v2 markers',
+      [
+        'reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa',
+        'reviewrouter:finding:v2:bbbbbbbbbbbbbbbbbbbbbbbb',
+      ],
+    ],
+    [
+      'mixed conflicting markers',
+      [
+        '<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->',
+        'reviewrouter:finding:v2:bbbbbbbbbbbbbbbbbbbbbbbb',
+      ],
+    ],
+  ])('rejects %s', (_label, markers) => {
+    expect(extractFindingFingerprint(markers.join('\n'))).toBeNull();
+  });
+
+  it.each(['g', 'Z', '_suffix', '-suffix'])(
+    'rejects a v2 marker followed by identifier junk %s',
+    (suffix) => {
+      expect(
+        extractFindingFingerprint(
+          `<!-- reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa${suffix} -->`
+        )
+      ).toBeNull();
+    }
+  );
+
   it('builds a strict trusted author allowlist from configured GitHub App identity', () => {
     const authors = trustedReviewThreadAuthorsFromEnv({
       REVIEW_APP_SLUG: 'review-router-owner',
@@ -418,6 +478,61 @@ describe('ReviewThreadInventoryLoader', () => {
     expect(inventory.dedupeComments).toHaveLength(0);
   });
 
+  it('fails closed when review thread pagination repeats a cursor', async () => {
+    const graphql = jest.fn().mockResolvedValue({
+      repository: {
+        pullRequest: {
+          headRefOid: 'head-sha',
+          reviewThreads: {
+            pageInfo: { hasNextPage: true, endCursor: 'repeated-cursor' },
+            nodes: [],
+          },
+        },
+      },
+    });
+    const loader = new ReviewThreadInventoryLoader({
+      owner: 'owner',
+      repo: 'repo',
+      octokit: { graphql },
+    } as unknown as GitHubClient);
+
+    const inventory = await loader.load(123);
+
+    expect(inventory.failed).toBe(true);
+    expect(graphql).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed when review thread pagination exceeds its page bound', async () => {
+    let page = 0;
+    const graphql = jest.fn(async () => {
+      page += 1;
+      return {
+        repository: {
+          pullRequest: {
+            headRefOid: 'head-sha',
+            reviewThreads: {
+              pageInfo: {
+                hasNextPage: true,
+                endCursor: `threads-page-${page}`,
+              },
+              nodes: [],
+            },
+          },
+        },
+      };
+    });
+    const loader = new ReviewThreadInventoryLoader({
+      owner: 'owner',
+      repo: 'repo',
+      octokit: { graphql },
+    } as unknown as GitHubClient);
+
+    const inventory = await loader.load(123);
+
+    expect(inventory.failed).toBe(true);
+    expect(graphql).toHaveBeenCalledTimes(100);
+  });
+
   it('fails closed when an unresolved thread has no comment connection', async () => {
     const graphql = jest.fn().mockResolvedValue({
       repository: {
@@ -746,7 +861,7 @@ describe('ReviewThreadInventoryLoader', () => {
     );
   });
 
-  it('does not make a lifecycle candidate when comment pagination is incomplete', async () => {
+  it('fails the fresh inventory closed when comment pagination is incomplete', async () => {
     const graphql = jest
       .fn()
       .mockResolvedValueOnce({
@@ -794,13 +909,178 @@ describe('ReviewThreadInventoryLoader', () => {
 
     const inventory = await loader.load(123);
 
+    expect(inventory.failed).toBe(true);
     expect(inventory.candidates).toHaveLength(0);
-    expect(inventory.manualAttention[0].reasonCodes).toContain(
-      'pagination_incomplete'
+    expect(inventory.manualAttention).toHaveLength(0);
+    expect(inventory.dedupeComments).toHaveLength(0);
+    expect(inventory.warnings).toContain(
+      'review thread lifecycle inventory failed'
     );
-    expect(inventory.warnings[0]).toContain(
-      'pagination could not be completed'
+  });
+
+  it('fails closed when per-thread comment pagination repeats a cursor', async () => {
+    const graphql = jest
+      .fn()
+      .mockResolvedValueOnce(
+        inventoryPageWithPaginatedComments('repeated-comments-cursor')
+      )
+      .mockResolvedValueOnce({
+        node: {
+          comments: {
+            pageInfo: {
+              hasNextPage: true,
+              endCursor: 'repeated-comments-cursor',
+            },
+            nodes: [],
+          },
+        },
+      });
+    const loader = new ReviewThreadInventoryLoader({
+      owner: 'owner',
+      repo: 'repo',
+      octokit: { graphql },
+    } as unknown as GitHubClient);
+
+    const inventory = await loader.load(123);
+
+    expect(inventory.failed).toBe(true);
+    expect(graphql).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed when per-thread comment pagination exceeds its page bound', async () => {
+    let commentPage = 0;
+    const graphql = jest
+      .fn()
+      .mockResolvedValueOnce(
+        inventoryPageWithPaginatedComments('comments-page-0')
+      )
+      .mockImplementation(async () => {
+        commentPage += 1;
+        return {
+          node: {
+            comments: {
+              pageInfo: {
+                hasNextPage: true,
+                endCursor: `comments-page-${commentPage}`,
+              },
+              nodes: [],
+            },
+          },
+        };
+      });
+    const loader = new ReviewThreadInventoryLoader({
+      owner: 'owner',
+      repo: 'repo',
+      octokit: { graphql },
+    } as unknown as GitHubClient);
+
+    const inventory = await loader.load(123);
+
+    expect(inventory.failed).toBe(true);
+    expect(graphql).toHaveBeenCalledTimes(101);
+  });
+
+  it('loads a lifecycle candidate from the plain v2 finding marker dialect', async () => {
+    const graphql = jest.fn().mockResolvedValue({
+      repository: {
+        pullRequest: {
+          headRefOid: 'head-sha',
+          reviewThreads: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                id: 'plain-v2-thread',
+                isResolved: false,
+                viewerCanResolve: true,
+                path: 'src/app.ts',
+                line: 12,
+                comments: {
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                  nodes: [
+                    {
+                      id: 'plain-v2-comment',
+                      author: { login: 'review-router-ai[bot]' },
+                      body: [
+                        '**🟡 Major - Previous Bug**',
+                        '',
+                        'Old issue body.',
+                        '',
+                        'reviewrouter:finding:v2:bbbbbbbbbbbbbbbbbbbbbbbb',
+                      ].join('\n'),
+                      createdAt: '2026-05-14T00:00:00Z',
+                      updatedAt: '2026-05-14T00:00:00Z',
+                      path: 'src/app.ts',
+                      line: 12,
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+    const loader = new ReviewThreadInventoryLoader({
+      owner: 'owner',
+      repo: 'repo',
+      octokit: { graphql },
+    } as unknown as GitHubClient);
+
+    const inventory = await loader.load(123);
+
+    expect(inventory.failed).toBe(false);
+    expect(inventory.candidates).toHaveLength(1);
+    expect(inventory.candidates[0].fingerprint).toBe(
+      'bbbbbbbbbbbbbbbbbbbbbbbb'
     );
+  });
+
+  it('fails the fresh inventory closed on an invalid lifecycle comment timestamp', async () => {
+    const graphql = jest.fn().mockResolvedValue({
+      repository: {
+        pullRequest: {
+          headRefOid: 'head-sha',
+          reviewThreads: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                id: 'thread-1',
+                isResolved: false,
+                viewerCanResolve: true,
+                path: 'src/app.ts',
+                line: 12,
+                comments: {
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                  nodes: [
+                    {
+                      id: 'comment-1',
+                      author: { login: 'review-router-ai[bot]' },
+                      body: parentBody,
+                      createdAt: 'not-a-timestamp',
+                      updatedAt: null,
+                      path: 'src/app.ts',
+                      line: 12,
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+    const loader = new ReviewThreadInventoryLoader({
+      owner: 'owner',
+      repo: 'repo',
+      octokit: { graphql },
+    } as unknown as GitHubClient);
+
+    const inventory = await loader.load(123);
+
+    expect(inventory.failed).toBe(true);
+    expect(inventory.candidates).toHaveLength(0);
+    expect(inventory.manualAttention).toHaveLength(0);
+    expect(inventory.dedupeComments).toHaveLength(0);
   });
 
   it('does not let untrusted marker comments suppress new current findings', async () => {
@@ -913,4 +1193,40 @@ function expectGraphqlBracesBalanced(query: string): void {
     expect(balance).toBeGreaterThanOrEqual(0);
   }
   expect(balance).toBe(0);
+}
+
+function inventoryPageWithPaginatedComments(endCursor: string) {
+  return {
+    repository: {
+      pullRequest: {
+        headRefOid: 'head-sha',
+        reviewThreads: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [
+            {
+              id: 'paginated-thread',
+              isResolved: false,
+              viewerCanResolve: true,
+              path: 'src/app.ts',
+              line: 12,
+              comments: {
+                pageInfo: { hasNextPage: true, endCursor },
+                nodes: [
+                  {
+                    id: 'paginated-parent',
+                    author: { login: 'review-router-ai[bot]' },
+                    body: parentBody,
+                    createdAt: '2026-05-14T00:00:00Z',
+                    updatedAt: '2026-05-14T00:00:00Z',
+                    path: 'src/app.ts',
+                    line: 12,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    },
+  };
 }

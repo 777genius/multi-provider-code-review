@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import path from 'path';
 import {
   ReviewAgentExecutionError,
@@ -51,6 +52,11 @@ type ActiveItem = Readonly<{
   tool?: string;
 }>;
 
+type ParsedTurnError = Readonly<{
+  failure: ReviewAgentExecutionError;
+  fingerprint: string;
+}>;
+
 const OPTED_OUT_NOTIFICATIONS = Object.freeze([
   'thread/status/changed',
   'thread/settings/updated',
@@ -94,12 +100,33 @@ const FORBIDDEN_ITEM_TYPES = new Set([
   'exitedReviewMode',
 ]);
 
+const CODEX_ERROR_INFO_STRING_VARIANTS = new Set([
+  'contextWindowExceeded',
+  'sessionBudgetExceeded',
+  'usageLimitExceeded',
+  'serverOverloaded',
+  'cyberPolicy',
+  'internalServerError',
+  'unauthorized',
+  'badRequest',
+  'threadRollbackFailed',
+  'sandboxError',
+  'other',
+]);
+
+const CODEX_ERROR_INFO_HTTP_VARIANTS = new Set([
+  'httpConnectionFailed',
+  'responseStreamConnectionFailed',
+  'responseStreamDisconnected',
+  'responseTooManyFailedAttempts',
+]);
+
 export class CodexAppServerProtocolClient {
   private readonly completion = deferred<CodexAppServerProtocolResult>();
   private readonly threadStartedSignal = deferred<void>();
   private readonly pending = new Map<string, PendingRequest>();
   private readonly activeItems = new Map<string, ActiveItem>();
-  private readonly completedItemIds = new Set<string>();
+  private readonly completedItems = new Map<string, ActiveItem>();
   private readonly rawUsageByResponseId = new Map<string, RawTokenUsage>();
   private readonly allowedTools: ReadonlySet<string>;
   private nextRequestId = 1;
@@ -122,6 +149,7 @@ export class CodexAppServerProtocolClient {
   private lastAggregateUsage: RawTokenUsage | null = null;
   private completionResolved = false;
   private postCompletionFailure: ReviewAgentExecutionError | null = null;
+  private retainedTerminalError: ParsedTurnError | null = null;
 
   constructor(
     private readonly request: CodexAppServerProtocolRequest,
@@ -344,8 +372,8 @@ export class CodexAppServerProtocolClient {
         this.assertTurnFence(params);
         throw modelFailure();
       case 'error':
-        this.assertTurnFence(params);
-        throw responseFailure(requireRecord(params.error, 'turn_error'));
+        this.onErrorNotification(params);
+        return;
       default:
         if (IGNORED_NOTIFICATION_METHODS.has(method)) return;
         throw streamFailure();
@@ -468,7 +496,7 @@ export class CodexAppServerProtocolClient {
     const item = requireRecord(params.item, 'item');
     const id = requireIdentifier(item.id, 'item_id');
     const type = requireNonEmptyString(item.type, 'item_type');
-    if (this.activeItems.has(id) || this.completedItemIds.has(id)) {
+    if (this.activeItems.has(id) || this.completedItems.has(id)) {
       throw streamFailure();
     }
     this.validateAllowedItem(item, 'started');
@@ -490,7 +518,7 @@ export class CodexAppServerProtocolClient {
     const id = requireIdentifier(item.id, 'item_id');
     const type = requireNonEmptyString(item.type, 'item_type');
     const active = this.activeItems.get(id);
-    if (!active || active.type !== type || this.completedItemIds.has(id)) {
+    if (!active || active.type !== type || this.completedItems.has(id)) {
       throw streamFailure();
     }
     this.validateAllowedItem(item, 'completed');
@@ -501,8 +529,36 @@ export class CodexAppServerProtocolClient {
       throw confinementFailure();
     }
     this.activeItems.delete(id);
-    this.completedItemIds.add(id);
+    this.completedItems.set(id, active);
     if (type === 'agentMessage') this.captureFinalMessage(item);
+  }
+
+  private validateTurnItemSnapshot(items: readonly unknown[]): void {
+    const snapshotItemIds = new Set<string>();
+    for (const value of items) {
+      try {
+        const item = requireRecord(value, 'turn_snapshot_item');
+        const id = requireIdentifier(item.id, 'item_id');
+        const type = requireNonEmptyString(item.type, 'item_type');
+        this.validateAllowedItem(item, 'completed');
+        const observed = this.completedItems.get(id);
+        if (
+          !observed ||
+          snapshotItemIds.has(id) ||
+          observed.type !== type ||
+          (type === 'mcpToolCall' &&
+            (observed.server !== item.server || observed.tool !== item.tool))
+        ) {
+          throw streamFailure();
+        }
+        snapshotItemIds.add(id);
+      } catch (error) {
+        if (error instanceof ReviewAgentExecutionError) {
+          throw streamFailure();
+        }
+        throw error;
+      }
+    }
   }
 
   private validateAllowedItem(
@@ -634,23 +690,70 @@ export class CodexAppServerProtocolClient {
     }
   }
 
+  private onErrorNotification(params: Record<string, unknown>): void {
+    if (
+      !this.turnStarted ||
+      this.turnCompleted ||
+      !hasOnlyKeys(params, ['error', 'threadId', 'turnId', 'willRetry']) ||
+      typeof params.willRetry !== 'boolean'
+    ) {
+      throw streamFailure();
+    }
+    this.assertTurnFence(params);
+    const parsed = parseTurnError(params.error);
+    if (params.willRetry) {
+      if (this.retainedTerminalError !== null) throw streamFailure();
+      return;
+    }
+    if (this.retainedTerminalError !== null) throw streamFailure();
+    this.retainedTerminalError = parsed;
+  }
+
   private onTurnCompleted(params: Record<string, unknown>): void {
     this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
     const turn = requireRecord(params.turn, 'turn_completed_turn');
     this.assertTurnId(requireIdentifier(turn.id, 'turn_id'));
-    if (
-      !this.turnStarted ||
-      this.turnCompleted ||
-      turn.status !== 'completed' ||
-      turn.error !== null ||
-      !Array.isArray(turn.items) ||
-      turn.items.length !== 0 ||
-      this.activeItems.size !== 0
-    ) {
+    if (!this.turnStarted || this.turnCompleted || !Array.isArray(turn.items)) {
       throw streamFailure();
     }
-    this.turnCompleted = true;
-    this.maybeComplete();
+    this.validateTurnItemSnapshot(turn.items);
+    const turnError = turn.error ?? null;
+    switch (turn.status) {
+      case 'completed':
+        if (
+          turnError !== null ||
+          this.retainedTerminalError !== null ||
+          this.activeItems.size !== 0
+        ) {
+          throw streamFailure();
+        }
+        this.turnCompleted = true;
+        this.maybeComplete();
+        return;
+      case 'failed': {
+        if (this.activeItems.size !== 0) throw streamFailure();
+        const completedError = parseTurnError(turnError);
+        const retained = this.retainedTerminalError;
+        if (
+          retained === null ||
+          retained.fingerprint !== completedError.fingerprint
+        ) {
+          throw streamFailure();
+        }
+        this.turnCompleted = true;
+        this.fail(retained.failure);
+        return;
+      }
+      case 'interrupted':
+        if (turnError !== null || this.activeItems.size !== 0) {
+          throw streamFailure();
+        }
+        this.turnCompleted = true;
+        this.fail(cancelledFailure());
+        return;
+      default:
+        throw streamFailure();
+    }
   }
 
   private maybeComplete(): void {
@@ -761,7 +864,9 @@ export function classifyCodexAppServerDiagnostic(
     return schemaFailure();
   }
   if (
-    /(?:usage limit|quota|insufficient_quota|billing limit)/iu.test(diagnostic)
+    /(?:usage\s*limit|usageLimitExceeded|sessionBudgetExceeded|quota|insufficient_quota|billing limit)/iu.test(
+      diagnostic
+    )
   ) {
     return new ReviewAgentExecutionError(
       ReviewAgentFailureClass.QuotaUnavailable,
@@ -770,7 +875,7 @@ export function classifyCodexAppServerDiagnostic(
     );
   }
   if (
-    /(?:capacity[_ -]unavailable|overloaded|too many requests|\b429\b|rate limit)/iu.test(
+    /(?:capacity[_ -]unavailable|serverOverloaded|overloaded|too many requests|\b429\b|rate limit)/iu.test(
       diagnostic
     )
   ) {
@@ -888,6 +993,106 @@ function responseFailure(value: unknown): ReviewAgentExecutionError {
   const diagnostic =
     `${error.code} ${error.message} ${safeJson(error.data)}`.slice(0, 16_384);
   return classifyCodexAppServerDiagnostic(diagnostic);
+}
+
+function parseTurnError(value: unknown): ParsedTurnError {
+  const error = requireRecord(value, 'turn_error');
+  const additionalDetails = error.additionalDetails ?? null;
+  const codexErrorInfo = parseCodexErrorInfo(error.codexErrorInfo ?? null);
+  if (
+    typeof error.message !== 'string' ||
+    error.message.length > 16_384 ||
+    (additionalDetails !== null &&
+      (typeof additionalDetails !== 'string' ||
+        additionalDetails.length > 16_384))
+  ) {
+    throw streamFailure();
+  }
+  if (
+    error.message.length === 0 &&
+    !hasCodexErrorClassification(codexErrorInfo)
+  ) {
+    throw streamFailure();
+  }
+  const normalized = Object.freeze({
+    message: error.message,
+    additionalDetails,
+    codexErrorInfo,
+  });
+  const canonical = canonicalProtocolValue(normalized);
+  if (Buffer.byteLength(canonical, 'utf8') > 32_768) {
+    throw streamFailure();
+  }
+  const diagnostic = [
+    error.message,
+    additionalDetails ?? '',
+    safeJson(codexErrorInfo),
+  ]
+    .join(' ')
+    .slice(0, 16_384);
+  return Object.freeze({
+    failure: classifyCodexAppServerDiagnostic(diagnostic),
+    fingerprint: createHash('sha256').update(canonical).digest('hex'),
+  });
+}
+
+function hasCodexErrorClassification(value: unknown): boolean {
+  return value !== null;
+}
+
+function parseCodexErrorInfo(value: unknown): unknown {
+  if (value === null) return null;
+  if (typeof value === 'string') {
+    if (!CODEX_ERROR_INFO_STRING_VARIANTS.has(value)) throw streamFailure();
+    return value;
+  }
+  const tagged = requireRecord(value, 'codex_error_info');
+  const variants = Object.keys(tagged);
+  if (variants.length !== 1) throw streamFailure();
+  const variant = variants[0];
+  const payload = requireRecord(tagged[variant], 'codex_error_info_payload');
+  if (CODEX_ERROR_INFO_HTTP_VARIANTS.has(variant)) {
+    if (!hasRequiredAndOptionalKeys(payload, [], ['httpStatusCode'])) {
+      throw streamFailure();
+    }
+    const status = payload.httpStatusCode;
+    if (
+      status !== undefined &&
+      status !== null &&
+      (!Number.isSafeInteger(status) ||
+        (status as number) < 0 ||
+        (status as number) > 65_535)
+    ) {
+      throw streamFailure();
+    }
+    return value;
+  }
+  if (
+    variant === 'activeTurnNotSteerable' &&
+    hasOnlyKeys(payload, ['turnKind']) &&
+    (payload.turnKind === 'review' || payload.turnKind === 'compact')
+  ) {
+    return value;
+  }
+  throw streamFailure();
+}
+
+function canonicalProtocolValue(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    const encoded = JSON.stringify(value);
+    if (typeof encoded !== 'string') throw streamFailure();
+    return encoded;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalProtocolValue).join(',')}]`;
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  return `{${Object.keys(record)
+    .sort()
+    .map(
+      (key) => `${JSON.stringify(key)}:${canonicalProtocolValue(record[key])}`
+    )
+    .join(',')}}`;
 }
 
 function normalizeProtocolFailure(error: unknown): ReviewAgentExecutionError {
@@ -1063,6 +1268,14 @@ function processFailure(): ReviewAgentExecutionError {
     ReviewAgentFailureClass.ProcessFailure,
     null,
     'review_agent_process_failure'
+  );
+}
+
+function cancelledFailure(): ReviewAgentExecutionError {
+  return new ReviewAgentExecutionError(
+    ReviewAgentFailureClass.Cancelled,
+    null,
+    'review_agent_process_cancelled'
   );
 }
 

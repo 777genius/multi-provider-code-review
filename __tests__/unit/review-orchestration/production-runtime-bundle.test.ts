@@ -6,6 +6,10 @@ type ProductionSourceMap = Readonly<{
 }>;
 
 const bundledReviewSources = Object.freeze([
+  'src/control-plane/review-action-v2-client.ts',
+  'src/github/comment-fingerprint.ts',
+  'src/github/review-thread-inventory.ts',
+  'src/review-investigation/infrastructure/codex-app-server-protocol.ts',
   'src/review-investigation/infrastructure/review-action-v2-investigation-adapter.ts',
   'src/review-investigation/infrastructure/strict-cli-review-agent.ts',
   'src/review-orchestration/infrastructure/context-gateway-invocation-session.ts',
@@ -13,6 +17,7 @@ const bundledReviewSources = Object.freeze([
   'src/review-orchestration/infrastructure/production-review-projection.ts',
   'src/review-orchestration/infrastructure/production-t0-review-runner.ts',
   'src/review-projection/application/build-current-review-projection.ts',
+  'src/review-projection/domain/review-lifecycle-observation.ts',
   'src/review-projection/domain/review-projection.ts',
 ]);
 

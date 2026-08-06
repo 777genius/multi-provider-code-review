@@ -1,3 +1,5 @@
+import { ReviewLifecycleObservationVersion } from './review-lifecycle-observation';
+
 export enum ReviewProjectionEnvelopeVersion {
   V1 = 'review_projection.v1',
 }
@@ -151,6 +153,7 @@ export interface LiveLifecycleTarget {
   readonly currentLine?: number;
   readonly parentCommentUpdatedAt: string;
   readonly threadCommentCount: number;
+  readonly threadStateHash: string;
   readonly disposition: LifecycleTargetDisposition;
   readonly viewerCanResolve: boolean;
   /**
@@ -261,6 +264,8 @@ export interface ReviewProjectionInlineChunkFact {
 export interface ReviewProjectionLifecycleFact {
   readonly targetId: string;
   readonly threadId: string;
+  readonly markerFingerprint: string;
+  readonly threadStateHash: string;
   readonly lineageId?: string;
   readonly verdict: LifecycleRevalidationVerdict | 'suppressed_by_human';
   readonly reasonCodes: readonly string[];
@@ -297,6 +302,7 @@ export interface LineageHintFact {
 }
 
 export interface ReviewProjectionPublishingFacts {
+  readonly lifecycleObservationVersion: ReviewLifecycleObservationVersion.V1;
   readonly summary: ReviewProjectionSummaryFact;
   readonly check: ReviewProjectionCheckFact;
   readonly inlineReviewChunks: readonly ReviewProjectionInlineChunkFact[];

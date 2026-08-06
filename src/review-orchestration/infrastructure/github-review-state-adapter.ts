@@ -218,6 +218,7 @@ function mapFreshInventory(
       : {}),
     parentCommentUpdatedAt: target.parentCommentUpdatedAt,
     threadCommentCount: target.threadCommentCount,
+    threadStateHash: requireThreadStateHash(target.threadStateHash),
     disposition: target.reasonCodes?.includes('command_dismissed')
       ? LifecycleTargetDisposition.CommandSuppressed
       : manual || target.hasHumanReply
@@ -277,6 +278,13 @@ function requireCommitSha(value: unknown, field: string): string {
     throw new Error(`review_action_v2_${field}_invalid`);
   }
   return value.toLowerCase();
+}
+
+function requireThreadStateHash(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error('review_action_v2_lifecycle_thread_state_hash_invalid');
+  }
+  return value;
 }
 
 const TRANSIENT_GITHUB_NETWORK_ERROR_CODES = [

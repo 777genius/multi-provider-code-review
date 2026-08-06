@@ -33,6 +33,45 @@ and `dist/index.js.map` before registering that release. The production reusable
 workflow executes `dist/index.js`; changing TypeScript source without rebuilding
 the committed runtime does not update production behavior.
 
+Lifecycle observation follows the same parser-first rule. New Action releases
+emit `review_lifecycle_observation.v1` and bind every lifecycle target to both
+its finding-marker fingerprint and a current GitHub thread-state witness. The
+SaaS parser for that version must be deployed before the producer release is
+registered or selected. Legacy envelopes remain accepted only through the
+explicit legacy authorization boundary; unknown, mixed, or incomplete witness
+shapes fail closed.
+
+The v1 thread-state witness is the lowercase SHA-256 of canonical JSON with this
+preimage shape:
+
+```text
+["review_lifecycle_thread_state.v1", threadId, commentsSortedById]
+```
+
+Each comment tuple is `[id, lowercasedAuthorLoginOrNull, sha256(body),
+createdAtIso, updatedAtIso]`. Full GitHub comment pagination is required.
+`isResolved` is deliberately excluded because an authorized lifecycle mutation
+may change it after the observation is issued. ReviewRouter accepts both the
+legacy HTML finding marker and the plain v2 marker, but a lifecycle target must
+contain exactly one unique valid fingerprint across all marker occurrences.
+Conflicting valid markers fail closed; malformed markers never produce a
+lifecycle identity.
+
+## Codex app-server terminal semantics
+
+Codex app-server notifications are facts, not transport success signals. A
+retryable `error` notification does not terminate the stream. A non-retryable
+error is retained and paired with the terminal `turn/completed` status; matching
+errors are normalized and deduplicated before classification. Interrupted turns
+are cancelled. Failed turns are failures even when earlier item notifications
+were received.
+
+Only output items observed during the current turn may be projected from the
+terminal snapshot. Every terminal item is revalidated against the allowed item
+contract, IDs must be unique, and unseen, forbidden, duplicate, or inconsistent
+items produce `stream_incomplete`. A deferred app-server path must report that
+it was record-only/deferred; it must not be described as a disabled capability.
+
 ## Cross-repository handoff
 
 After the canonical SaaS protocol artifacts are committed, export them into a
@@ -71,6 +110,15 @@ Never edit the generated handoff or release manifest manually. A release remains
 inactive until the SaaS release registry, attestation registry, safety policy,
 worker lane, workflow inventory, and mutation epoch all agree on the same full
 Action commit SHA.
+
+## Rotating Codex authorization
+
+Never write `REVIEWROUTER_CODEX_AUTH_JSON` directly with `gh secret set` for a
+rotating Codex lane. Direct replacement bypasses the generation contract and a
+queued run can receive an older secret generation. Seed or refresh repository
+authorization only through `scripts/reseed-codex-rotating-auth.sh`, using a
+dedicated account copy for that repository. Do not reuse the desktop-global
+`~/.codex/auth.json` or one rotating auth file across repositories.
 
 Investigation capabilities require authorization descriptor V3. A descriptor
 without `authorizationDescriptorVersion: 3` is ignored, so mixed-version peers

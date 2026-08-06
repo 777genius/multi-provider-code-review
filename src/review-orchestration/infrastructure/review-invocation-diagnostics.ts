@@ -5,7 +5,11 @@ import {
   type ReviewInvestigationDiagnosticsPort,
   type ReviewInvocationDiagnosticsPort,
 } from '../application';
-import { ReviewInvestigationDeferredSignal } from '../../review-investigation/application/run-investigation-work-slot';
+import {
+  ReviewInvestigationDeferredSignal,
+  ReviewInvestigationLegacyFallbackReason,
+  ReviewInvestigationLegacyFallbackSignal,
+} from '../../review-investigation/application/run-investigation-work-slot';
 
 type DiagnosticsLogger = {
   warn(message: string, metadata?: LogMetadata): void;
@@ -57,13 +61,21 @@ export function classifySafeInvestigationFailureReason(error: unknown): string {
   if (error instanceof ReviewInvestigationDeferredSignal) {
     return `investigation_${error.status}`;
   }
+  if (error instanceof ReviewInvestigationLegacyFallbackSignal) {
+    if (
+      error.reason ===
+      ReviewInvestigationLegacyFallbackReason.CapabilityDisabledBeforeOpen
+    ) {
+      return 'capability_disabled_before_open';
+    }
+    return error.deferredStatus === null
+      ? 'investigation_record_only_deferred'
+      : `investigation_${error.deferredStatus}`;
+  }
   if (error instanceof ReviewInvocationConfigurationMismatchError) {
     return error.reason;
   }
   const text = diagnosticText(error);
-  if (/capability_disabled_before_open/i.test(text)) {
-    return 'capability_disabled_before_open';
-  }
   if (/review_investigation_recording_unsupported/i.test(text)) {
     return 'investigation_recording_unsupported';
   }

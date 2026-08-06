@@ -53,6 +53,75 @@ describe('NodeCodexAppServerTurnRunner', () => {
     });
   }, 15_000);
 
+  it('keeps the child alive across a retryable app-server error notification', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'rr-app-server-test-'));
+    const server = path.join(root, 'retrying-app-server.cjs');
+    await writeFile(
+      server,
+      fakeAppServer(
+        '',
+        `notify('error', {
+          threadId, turnId, willRetry: true,
+          error: {
+            message: 'temporary disconnect',
+            codexErrorInfo: {
+              responseStreamDisconnected: { httpStatusCode: null },
+            },
+            additionalDetails: null,
+          },
+        });`
+      ),
+      'utf8'
+    );
+    const runner = new NodeCodexAppServerTurnRunner({
+      versionProbe: { assertSupported: async () => undefined },
+    });
+
+    await expect(
+      runner.executeTurn(request(root, server))
+    ).resolves.toMatchObject({ finalMessage: '{"outputVersion":2}' });
+  }, 15_000);
+
+  it('classifies an official terminal error notification paired with a failed turn', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'rr-app-server-test-'));
+    const server = path.join(root, 'terminal-error-app-server.cjs');
+    await writeFile(
+      server,
+      fakeAppServer(
+        '',
+        `const terminalError = {
+          message: '',
+          codexErrorInfo: 'serverOverloaded',
+          additionalDetails: null,
+        };
+        notify('error', {
+          threadId, turnId, willRetry: false, error: terminalError,
+        });
+        notify('turn/completed', {
+          threadId,
+          turn: {
+            id: turnId,
+            status: 'failed',
+            error: terminalError,
+            items: [],
+          },
+        });
+        return;`
+      ),
+      'utf8'
+    );
+    const runner = new NodeCodexAppServerTurnRunner({
+      versionProbe: { assertSupported: async () => undefined },
+    });
+
+    await expect(
+      runner.executeTurn(request(root, server))
+    ).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.CapacityUnavailable,
+      message: 'review_agent_capacity_unavailable',
+    });
+  }, 15_000);
+
   it('cancels during the version probe without launching app-server', async () => {
     let probeStarted!: () => void;
     const started = new Promise<void>((resolve) => {
@@ -141,7 +210,7 @@ function request(root: string, script: string): CodexAppServerTurnRequest {
   };
 }
 
-function fakeAppServer(trailingEvent = ''): string {
+function fakeAppServer(trailingEvent = '', beforeCompletionEvent = ''): string {
   return String.raw`
 const readline = require('readline');
 const cwd = process.env.RR_TEST_CWD;
@@ -209,6 +278,7 @@ rl.on('line', (line) => {
   if (message.method === 'turn/start') {
     send({ id: message.id, result: { turn: turn('inProgress') }});
     notify('turn/started', { threadId, turn: turn('inProgress') });
+    ${beforeCompletionEvent}
     const item = {
       type: 'agentMessage',
       id: 'final-1',

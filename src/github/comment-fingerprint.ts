@@ -5,10 +5,12 @@ const INLINE_MARKER_RE =
   /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/i;
 const INLINE_MARKER_RE_GLOBAL =
   /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
-const FINDING_MARKER_RE =
-  /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/i;
 const FINDING_MARKER_RE_GLOBAL =
   /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/gi;
+const FINDING_V2_MARKER_RE_GLOBAL =
+  /\breviewrouter:finding:v2:([a-f0-9]{24,64})(?=$|[ \t\r\n])/g;
+const FINDING_V2_HIDDEN_MARKER_RE_GLOBAL =
+  /<!--[ \t]*reviewrouter:finding:v2:[a-f0-9]{24,64}[ \t]*-->/g;
 const MAX_NEARBY_LINE_DISTANCE = 12;
 
 export interface InlineCommentReference {
@@ -69,8 +71,15 @@ export function extractInlineFingerprint(body?: string | null): string | null {
 }
 
 export function extractFindingFingerprint(body?: string | null): string | null {
-  const match = body?.match(FINDING_MARKER_RE);
-  return match?.[1]?.toLowerCase() ?? null;
+  if (!body) return null;
+  const fingerprints = new Set<string>();
+  for (const match of body.matchAll(FINDING_MARKER_RE_GLOBAL)) {
+    if (match[1]) fingerprints.add(match[1].toLowerCase());
+  }
+  for (const match of body.matchAll(FINDING_V2_MARKER_RE_GLOBAL)) {
+    if (match[1]) fingerprints.add(match[1]);
+  }
+  return fingerprints.size === 1 ? [...fingerprints][0] : null;
 }
 
 export function appendInlineFingerprintMarker(
@@ -98,6 +107,8 @@ export function stripInlineFingerprintMarkers(body: string): string {
   return body
     .replace(INLINE_MARKER_RE_GLOBAL, '')
     .replace(FINDING_MARKER_RE_GLOBAL, '')
+    .replace(FINDING_V2_HIDDEN_MARKER_RE_GLOBAL, '')
+    .replace(FINDING_V2_MARKER_RE_GLOBAL, '')
     .trim();
 }
 

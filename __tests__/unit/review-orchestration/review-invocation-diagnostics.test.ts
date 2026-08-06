@@ -5,7 +5,11 @@ import {
   ReviewInvestigationDiagnosticOutcome,
   ReviewExecutionProviderKind,
 } from '../../../src/review-orchestration/application';
-import { ReviewInvestigationDeferredSignal } from '../../../src/review-investigation/application/run-investigation-work-slot';
+import {
+  ReviewInvestigationDeferredSignal,
+  ReviewInvestigationLegacyFallbackReason,
+  ReviewInvestigationLegacyFallbackSignal,
+} from '../../../src/review-investigation/application/run-investigation-work-slot';
 import { ReviewInvestigationRunStatus } from '../../../src/review-investigation/domain/investigation-state';
 import {
   classifySafeInvestigationFailureReason,
@@ -143,5 +147,21 @@ describe('review invocation diagnostics', () => {
         )
       )
     ).toBe('investigation_parked');
+  });
+
+  it('distinguishes capability fallback from record-only deferred work', () => {
+    expect(
+      classifySafeInvestigationFailureReason(
+        new ReviewInvestigationLegacyFallbackSignal()
+      )
+    ).toBe('capability_disabled_before_open');
+    expect(
+      classifySafeInvestigationFailureReason(
+        new ReviewInvestigationLegacyFallbackSignal(
+          ReviewInvestigationLegacyFallbackReason.RecordOnlyDeferred,
+          ReviewInvestigationRunStatus.RecoveryRequired
+        )
+      )
+    ).toBe('investigation_recovery_required');
   });
 });

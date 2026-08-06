@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "review_finding_marker_grammar.v1",
+  "cases": [
+    {
+      "name": "legacy lowercase",
+      "body": "<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->",
+      "expectedFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "legacy uppercase normalizes",
+      "body": "<!-- REVIEW-ROUTER-FINDING:AAAAAAAAAAAAAAAAAAAAAAAA -->",
+      "expectedFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "plain v2",
+      "body": "reviewrouter:finding:v2:bbbbbbbbbbbbbbbbbbbbbbbb",
+      "expectedFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "name": "hidden v2",
+      "body": "<!-- reviewrouter:finding:v2:bbbbbbbbbbbbbbbbbbbbbbbb -->",
+      "expectedFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "name": "same fingerprint in both dialects",
+      "body": "<!-- review-router-finding:cccccccccccccccccccccccc -->\nreviewrouter:finding:v2:cccccccccccccccccccccccc",
+      "expectedFingerprint": "cccccccccccccccccccccccc"
+    },
+    {
+      "name": "same dialect duplicate",
+      "body": "reviewrouter:finding:v2:dddddddddddddddddddddddd\nreviewrouter:finding:v2:dddddddddddddddddddddddd",
+      "expectedFingerprint": "dddddddddddddddddddddddd"
+    },
+    {
+      "name": "conflicting legacy markers",
+      "body": "<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->\n<!-- review-router-finding:bbbbbbbbbbbbbbbbbbbbbbbb -->",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "conflicting v2 markers",
+      "body": "reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa\nreviewrouter:finding:v2:bbbbbbbbbbbbbbbbbbbbbbbb",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "conflicting dialects",
+      "body": "<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->\nreviewrouter:finding:v2:bbbbbbbbbbbbbbbbbbbbbbbb",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "uppercase v2 fingerprint",
+      "body": "reviewrouter:finding:v2:AAAAAAAAAAAAAAAAAAAAAAAA",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "v2 alphanumeric suffix",
+      "body": "reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaag",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "v2 punctuation suffix",
+      "body": "reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa_suffix",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "v2 hyphen suffix",
+      "body": "reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa-suffix",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "too short",
+      "body": "reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "unrelated body",
+      "body": "No ReviewRouter marker here.",
+      "expectedFingerprint": null
+    }
+  ]
+}
