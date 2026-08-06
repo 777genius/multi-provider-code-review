@@ -29,6 +29,10 @@ import {
   SelectedCurrentFinding,
 } from '../domain/review-projection';
 import {
+  isReviewLifecycleMarkerFingerprint,
+  ReviewLifecycleObservationVersion,
+} from '../domain/review-lifecycle-observation';
+import {
   canonicalizeReviewProjection,
   deepFreezeProjection,
   hashProjectionFact,
@@ -229,6 +233,7 @@ export class BuildCurrentReviewProjection {
         reasonCodes: sortedUnique(gate.reasonCodes),
       },
       publishing: {
+        lifecycleObservationVersion: ReviewLifecycleObservationVersion.V1,
         summary: {
           marker: publicationMarker('summary', command.scope),
           body: summaryBody,
@@ -366,6 +371,12 @@ export class BuildCurrentReviewProjection {
       inventory.targets.map((target) => target.targetId)
     );
     for (const target of inventory.targets) {
+      if (!isReviewLifecycleMarkerFingerprint(target.trustedMarker)) {
+        throw new Error('lifecycle trustedMarker must be lowercase 24-64 hex');
+      }
+      if (!/^[a-f0-9]{64}$/.test(target.threadStateHash)) {
+        throw new Error('lifecycle threadStateHash must be lowercase sha256');
+      }
       for (const value of [
         target.targetId,
         target.threadId,
@@ -374,6 +385,7 @@ export class BuildCurrentReviewProjection {
         target.message,
         target.originalPath,
         target.currentPath ?? '',
+        target.threadStateHash,
       ]) {
         assertWithinProjectionLimit(
           'maxStringBytes',
@@ -608,6 +620,8 @@ function buildLifecycleFacts(
       return {
         targetId: target.targetId,
         threadId: target.threadId,
+        markerFingerprint: target.trustedMarker,
+        threadStateHash: target.threadStateHash,
         ...(hint ? { lineageId: hint.lineageId } : {}),
         verdict,
         reasonCodes,

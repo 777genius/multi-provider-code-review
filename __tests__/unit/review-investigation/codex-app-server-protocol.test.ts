@@ -8,6 +8,46 @@ import {
 const threadId = '019fd00f-9954-7320-a8c3-c17458ec2e2d';
 const turnId = 'turn-1';
 
+const supportedCodexErrorInfo = [
+  ...[
+    'contextWindowExceeded',
+    'sessionBudgetExceeded',
+    'usageLimitExceeded',
+    'serverOverloaded',
+    'cyberPolicy',
+    'internalServerError',
+    'unauthorized',
+    'badRequest',
+    'threadRollbackFailed',
+    'sandboxError',
+    'other',
+  ].map((value) => [`string ${value}`, value] as const),
+  [
+    'object httpConnectionFailed',
+    { httpConnectionFailed: { httpStatusCode: 503 } },
+  ] as const,
+  [
+    'object responseStreamConnectionFailed',
+    { responseStreamConnectionFailed: { httpStatusCode: null } },
+  ] as const,
+  [
+    'object responseStreamDisconnected',
+    { responseStreamDisconnected: {} },
+  ] as const,
+  [
+    'object responseTooManyFailedAttempts',
+    { responseTooManyFailedAttempts: { httpStatusCode: 429 } },
+  ] as const,
+  [
+    'object activeTurnNotSteerable review',
+    { activeTurnNotSteerable: { turnKind: 'review' } },
+  ] as const,
+  [
+    'object activeTurnNotSteerable compact',
+    { activeTurnNotSteerable: { turnKind: 'compact' } },
+  ] as const,
+];
+
 describe('CodexAppServerProtocolClient', () => {
   it('uses the observed model and exact total without double-counting reasoning', async () => {
     const fixture = await activeTurn();
@@ -96,6 +136,272 @@ describe('CodexAppServerProtocolClient', () => {
 
     await expect(fixture.result).rejects.toMatchObject({
       failureClass: ReviewAgentFailureClass.ModelAttributionMissing,
+    });
+  });
+
+  it('continues after a retryable app-server error and accepts a successful turn', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('error', {
+        threadId,
+        turnId,
+        willRetry: true,
+        error: turnError('temporary upstream disconnect', {
+          responseStreamDisconnected: { httpStatusCode: null },
+        }),
+      })
+    );
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it('preserves a terminal app-server error instead of reporting an incomplete stream', async () => {
+    const fixture = await activeTurn();
+    const error = turnError('provider overloaded', 'serverOverloaded');
+    fixture.client.receive(
+      notification('error', {
+        threadId,
+        turnId,
+        willRetry: false,
+        error,
+      })
+    );
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: { id: turnId, status: 'failed', error, items: [] },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.CapacityUnavailable,
+      message: 'review_agent_capacity_unavailable',
+    });
+  });
+
+  it('accepts an empty schema-valid message when Codex supplies error classification', async () => {
+    const fixture = await activeTurn();
+    const error = turnError('', 'serverOverloaded');
+    fixture.client.receive(
+      notification('error', {
+        threadId,
+        turnId,
+        willRetry: false,
+        error,
+      })
+    );
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: { id: turnId, status: 'failed', error, items: [] },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.CapacityUnavailable,
+      message: 'review_agent_capacity_unavailable',
+    });
+  });
+
+  it.each(supportedCodexErrorInfo)(
+    'accepts pinned Codex v0.145 codexErrorInfo variant: %s',
+    async (_label, codexErrorInfo) => {
+      const fixture = await activeTurn();
+      fixture.client.receive(
+        notification('error', {
+          threadId,
+          turnId,
+          willRetry: true,
+          error: turnError('', codexErrorInfo),
+        })
+      );
+      completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+      completeUsage(fixture.client);
+      completeTurn(fixture.client);
+
+      await expect(fixture.result).resolves.toMatchObject({
+        finalMessage: '{"ok":true}',
+      });
+    }
+  );
+
+  it.each([
+    ['unknown tag', { futureFailure: {} }],
+    [
+      'multiple tags',
+      { httpConnectionFailed: {}, responseStreamDisconnected: {} },
+    ],
+    [
+      'out-of-range HTTP status',
+      { httpConnectionFailed: { httpStatusCode: 65_536 } },
+    ],
+    [
+      'unknown active turn kind',
+      { activeTurnNotSteerable: { turnKind: 'shell' } },
+    ],
+  ])(
+    'fails closed on malformed codexErrorInfo object: %s',
+    async (_label, codexErrorInfo) => {
+      const fixture = await activeTurn();
+      fixture.client.receive(
+        notification('error', {
+          threadId,
+          turnId,
+          willRetry: true,
+          error: turnError('', codexErrorInfo),
+        })
+      );
+
+      await expect(fixture.result).rejects.toMatchObject({
+        failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      });
+    }
+  );
+
+  it('maps an interrupted terminal turn to cancellation', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: { id: turnId, status: 'interrupted', error: null, items: [] },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.Cancelled,
+    });
+  });
+
+  it('fails closed on malformed or unpaired app-server terminal errors', async () => {
+    const malformed = await activeTurn();
+    malformed.client.receive(
+      notification('error', {
+        threadId,
+        turnId,
+        error: turnError('missing retry flag', null),
+      })
+    );
+    await expect(malformed.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+    });
+
+    const emptyUnclassified = await activeTurn();
+    emptyUnclassified.client.receive(
+      notification('error', {
+        threadId,
+        turnId,
+        willRetry: false,
+        error: turnError('', null),
+      })
+    );
+    await expect(emptyUnclassified.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+    });
+
+    const unpaired = await activeTurn();
+    unpaired.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          id: turnId,
+          status: 'failed',
+          error: turnError('provider overloaded', 'serverOverloaded'),
+          items: [],
+        },
+      })
+    );
+    await expect(unpaired.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+    });
+  });
+
+  it('normalizes optional turn-error fields', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('error', {
+        threadId,
+        turnId,
+        willRetry: false,
+        error: { message: 'not logged in' },
+      })
+    );
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          id: turnId,
+          status: 'failed',
+          error: {
+            message: 'not logged in',
+            additionalDetails: null,
+            codexErrorInfo: null,
+          },
+          items: [],
+        },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.AuthenticationUnavailable,
+      message: 'review_agent_authentication_unavailable',
+    });
+  });
+
+  it('accepts a populated terminal snapshot containing an observed allowed item', async () => {
+    const fixture = await activeTurn();
+    const item = agentMessageItem('final', 'final_answer', '{"ok":true}');
+    completeMessage(fixture.client, item.id, item.phase, item.text);
+    completeUsage(fixture.client);
+    completeTurn(fixture.client, [item]);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it.each([
+    [
+      'unseen allowed item',
+      [agentMessageItem('unseen', 'final_answer', '{"ok":true}')],
+    ],
+    ['forbidden item', [{ id: 'native-command', type: 'commandExecution' }]],
+  ])('fails terminal snapshot confinement for %s', async (_label, items) => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: { id: turnId, status: 'completed', error: null, items },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+    });
+  });
+
+  it('fails closed when a terminal snapshot repeats an observed item id', async () => {
+    const fixture = await activeTurn();
+    const item = agentMessageItem('final', 'final_answer', '{"ok":true}');
+    completeMessage(fixture.client, item.id, item.phase, item.text);
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          id: turnId,
+          status: 'completed',
+          error: null,
+          items: [item, item],
+        },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
     });
   });
 
@@ -288,6 +594,13 @@ function turn(status: 'inProgress' | 'completed') {
   return { id: turnId, status, error: null, items: [] };
 }
 
+function turnError(
+  message: string,
+  codexErrorInfo: string | Readonly<Record<string, unknown>> | null
+) {
+  return { message, codexErrorInfo, additionalDetails: null };
+}
+
 function notification(method: string, params: Record<string, unknown>) {
   return { method, params, emittedAtMs: 1 };
 }
@@ -298,7 +611,7 @@ function completeMessage(
   phase: 'final_answer' | null,
   text: string
 ) {
-  const item = { type: 'agentMessage', id, text, phase, memoryCitation: null };
+  const item = agentMessageItem(id, phase, text);
   client.receive(
     notification('item/started', {
       threadId,
@@ -339,13 +652,24 @@ function completeUsage(client: CodexAppServerProtocolClient) {
   );
 }
 
-function completeTurn(client: CodexAppServerProtocolClient) {
+function completeTurn(
+  client: CodexAppServerProtocolClient,
+  items: readonly unknown[] = []
+) {
   client.receive(
     notification('turn/completed', {
       threadId,
-      turn: turn('completed'),
+      turn: { ...turn('completed'), items },
     })
   );
+}
+
+function agentMessageItem(
+  id: string,
+  phase: 'final_answer' | null,
+  text: string
+) {
+  return { type: 'agentMessage', id, text, phase, memoryCitation: null };
 }
 
 function usage(inputTokens: number, outputTokens: number, reasoning: number) {

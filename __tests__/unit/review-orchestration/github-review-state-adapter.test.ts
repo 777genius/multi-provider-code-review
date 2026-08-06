@@ -1,4 +1,11 @@
-import { GitHubReviewRevisionGuard } from '../../../src/review-orchestration/infrastructure/github-review-state-adapter';
+import type { GitHubClient } from '../../../src/github/client';
+import type { ReviewLedger } from '../../../src/github/ledger';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import {
+  FreshGitHubLifecycleInventory,
+  GitHubReviewRevisionGuard,
+} from '../../../src/review-orchestration/infrastructure/github-review-state-adapter';
 
 describe('GitHubReviewRevisionGuard', () => {
   const scope = {
@@ -68,5 +75,97 @@ describe('GitHubReviewRevisionGuard', () => {
       'review_action_v2_revision_guard_failed'
     );
     expect(deprecatedCodeGetter).not.toHaveBeenCalled();
+  });
+});
+
+describe('FreshGitHubLifecycleInventory', () => {
+  it('maps the complete SCM thread state into the portable projection witness', async () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        resolve(
+          process.cwd(),
+          'src/review-projection/fixtures/review-lifecycle-thread-state.v1.golden.json'
+        ),
+        'utf8'
+      )
+    ) as {
+      readonly expectedProjectionTarget: Readonly<Record<string, string>>;
+    };
+    const headSha = 'a'.repeat(40);
+    const graphql = jest.fn().mockResolvedValue({
+      repository: {
+        pullRequest: {
+          headRefOid: headSha,
+          reviewThreads: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                id: 'PRRT_reviewrouter_golden_1',
+                isResolved: false,
+                viewerCanResolve: true,
+                path: 'src/app.ts',
+                line: 12,
+                comments: {
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                  nodes: [
+                    {
+                      id: 'PRRC_1',
+                      author: { login: 'Review-Router-AI[bot]' },
+                      body: [
+                        '<!-- review-router-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->',
+                        'Finding',
+                      ].join('\n'),
+                      createdAt: '2026-08-05T09:00:00.000Z',
+                      updatedAt: '2026-08-05T09:05:00.000Z',
+                      path: 'src/app.ts',
+                      line: 12,
+                    },
+                    {
+                      id: 'PRRC_2',
+                      author: { login: 'Human.User' },
+                      body: 'Looks fixed.\n',
+                      createdAt: '2026-08-05T10:00:00.000Z',
+                      updatedAt: '2026-08-05T10:00:00.000Z',
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+    const client = {
+      owner: 'owner',
+      repo: 'repo',
+      octokit: { graphql },
+    } as unknown as GitHubClient;
+    const ledger = {
+      load: jest.fn().mockResolvedValue({
+        valid: true,
+        payload: { version: 1, repo: 'owner/repo', pr: 420, entries: [] },
+      }),
+    } as unknown as ReviewLedger;
+    const adapter = new FreshGitHubLifecycleInventory(client, ledger);
+
+    const inventory = await adapter.loadCurrent({
+      scope: {
+        scmRepositoryIdentityId: 'repository-1',
+        pullRequestNumber: 420,
+        baseSha: 'b'.repeat(40),
+        reviewedHeadSha: headSha,
+        reviewRevisionHash: 'c'.repeat(64),
+      },
+    });
+
+    expect(inventory.targets).toHaveLength(1);
+    expect(inventory.targets[0]).toMatchObject({
+      targetId: fixture.expectedProjectionTarget.targetId,
+      threadId: fixture.expectedProjectionTarget.threadId,
+      trustedMarker: fixture.expectedProjectionTarget.markerFingerprint,
+      threadStateHash: fixture.expectedProjectionTarget.threadStateHash,
+    });
+    expect(inventory.targets[0]).not.toHaveProperty('parentOwnedByIntegration');
+    expect(inventory.targets[0]).not.toHaveProperty('hasHumanReply');
   });
 });

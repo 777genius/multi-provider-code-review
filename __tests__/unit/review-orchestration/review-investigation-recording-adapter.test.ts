@@ -39,7 +39,7 @@ import {
 } from '../../../src/review-investigation/domain/review-investigation-seed-envelope';
 import {
   ReviewInvestigationDeferredSignal,
-  ReviewInvestigationLegacyFallbackSignal,
+  ReviewInvestigationLegacyFallbackReason,
 } from '../../../src/review-investigation/application/run-investigation-work-slot';
 import capabilityGolden from '../../../src/review-investigation/fixtures/review-investigation-capability-v1.golden.json';
 
@@ -392,9 +392,11 @@ describe('ReviewInvestigationRecordingAdapter', () => {
         options()
       );
 
-      await expect(adapter.execute(executionInput())).rejects.toBeInstanceOf(
-        ReviewInvestigationLegacyFallbackSignal
-      );
+      await expect(adapter.execute(executionInput())).rejects.toMatchObject({
+        name: 'ReviewInvestigationLegacyFallbackSignal',
+        reason: ReviewInvestigationLegacyFallbackReason.RecordOnlyDeferred,
+        deferredStatus: status,
+      });
     }
   );
 

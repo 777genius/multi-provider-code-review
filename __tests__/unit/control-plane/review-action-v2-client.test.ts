@@ -85,6 +85,54 @@ describe('ReviewActionV2Client', () => {
     expect(JSON.parse(bodies[0]).requestBodyHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it('waits with bounded jitter and performs only one capacity-limited semantic retry', async () => {
+    const sleep = jest.fn(async () => undefined);
+    const fetchImpl = jest.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      return jsonResponse(
+        {
+          protocolVersion: reviewActionV2PublishedProtocolVersion,
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
+          requestId: request.requestId,
+          serverTime: '2026-07-22T12:00:00.000Z',
+          error: {
+            errorCode: ReviewActionV2ProtocolErrorCode.CapacityLimited,
+            retryClass: ReviewActionV2RetryClass.SameRequest,
+            details: { issues: ['lifecycle_unavailable'] },
+          },
+        },
+        429
+      );
+    });
+    const client = new ReviewActionV2Client({
+      apiUrl: 'http://127.0.0.1:3000',
+      allowInsecureLocalhost: true,
+      fetchImpl,
+      maxAttempts: 3,
+      requestIdFactory: () => 'rr:test-request',
+      sleep,
+      random: () => 0.5,
+    });
+
+    await expect(
+      client.execute(ReviewActionV2OperationId.ReviewRunAuthorize, {
+        oidcToken: 'header.payload.signature',
+        supportedProtocols: [
+          {
+            protocolVersion: reviewActionV2PublishedProtocolVersion,
+            schemaDigest: reviewActionV2PublishedSchemaDigest,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      code: ReviewActionV2ClientFailureCode.ProtocolError,
+      protocolErrorCode: ReviewActionV2ProtocolErrorCode.CapacityLimited,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledWith(750);
+  });
+
   it('surfaces typed 426 without converting it to v1 behavior', async () => {
     const fetchImpl = jest.fn(async (_url, init) => {
       const request = JSON.parse(String(init?.body));

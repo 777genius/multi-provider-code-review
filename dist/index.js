@@ -31282,8 +31282,9 @@ function shouldPostSuggestion(finding, confidence, config) {
 var import_crypto6 = require("crypto");
 var INLINE_MARKER_RE = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/i;
 var INLINE_MARKER_RE_GLOBAL = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
-var FINDING_MARKER_RE = /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/i;
 var FINDING_MARKER_RE_GLOBAL = /<!--\s*review-router-finding:([a-f0-9]{24,64})\s*-->/gi;
+var FINDING_V2_MARKER_RE_GLOBAL = /\breviewrouter:finding:v2:([a-f0-9]{24,64})(?=$|[ \t\r\n])/g;
+var FINDING_V2_HIDDEN_MARKER_RE_GLOBAL = /<!--[ \t]*reviewrouter:finding:v2:[a-f0-9]{24,64}[ \t]*-->/g;
 var MAX_NEARBY_LINE_DISTANCE = 12;
 function signatureFromInlineComment(path28, line, body) {
   const cleanBody = stripInlineFingerprintMarkers(body);
@@ -31317,8 +31318,15 @@ function extractInlineFingerprint(body) {
   return match2?.[1]?.toLowerCase() ?? null;
 }
 function extractFindingFingerprint(body) {
-  const match2 = body?.match(FINDING_MARKER_RE);
-  return match2?.[1]?.toLowerCase() ?? null;
+  if (!body) return null;
+  const fingerprints = /* @__PURE__ */ new Set();
+  for (const match2 of body.matchAll(FINDING_MARKER_RE_GLOBAL)) {
+    if (match2[1]) fingerprints.add(match2[1].toLowerCase());
+  }
+  for (const match2 of body.matchAll(FINDING_V2_MARKER_RE_GLOBAL)) {
+    if (match2[1]) fingerprints.add(match2[1]);
+  }
+  return fingerprints.size === 1 ? [...fingerprints][0] : null;
 }
 function appendInlineFingerprintMarker(body, path28, line) {
   const parts = [body.trimEnd()];
@@ -31337,7 +31345,7 @@ function appendInlineFingerprintMarker(body, path28, line) {
   return parts.join("\n\n");
 }
 function stripInlineFingerprintMarkers(body) {
-  return body.replace(INLINE_MARKER_RE_GLOBAL, "").replace(FINDING_MARKER_RE_GLOBAL, "").trim();
+  return body.replace(INLINE_MARKER_RE_GLOBAL, "").replace(FINDING_MARKER_RE_GLOBAL, "").replace(FINDING_V2_HIDDEN_MARKER_RE_GLOBAL, "").replace(FINDING_V2_MARKER_RE_GLOBAL, "").trim();
 }
 function isReviewRouterInlineComment(body) {
   if (!body) return false;
@@ -38450,7 +38458,386 @@ var AcceptanceDetector = class {
 };
 
 // src/github/review-thread-inventory.ts
+var import_crypto14 = require("crypto");
+
+// src/review-projection/domain/review-projection.ts
+var LifecycleRevalidationVerdict = /* @__PURE__ */ ((LifecycleRevalidationVerdict2) => {
+  LifecycleRevalidationVerdict2["Resolved"] = "resolved";
+  LifecycleRevalidationVerdict2["StillValid"] = "still_valid";
+  LifecycleRevalidationVerdict2["Uncertain"] = "uncertain";
+  return LifecycleRevalidationVerdict2;
+})(LifecycleRevalidationVerdict || {});
+
+// src/review-projection/domain/review-projection-canonicalizer.ts
 var import_crypto12 = require("crypto");
+function canonicalizeReviewProjection(envelope) {
+  return JSON.stringify(toCanonicalValue(envelope));
+}
+function hashReviewProjectionCanonicalJson(canonicalJson14) {
+  return (0, import_crypto12.createHash)("sha256").update(canonicalJson14, "utf8").digest("hex");
+}
+function hashProjectionFact(value) {
+  return (0, import_crypto12.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
+}
+function deepFreezeProjection(value) {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+  for (const child of Object.values(value)) {
+    deepFreezeProjection(child);
+  }
+  return Object.freeze(value);
+}
+function toCanonicalValue(value) {
+  if (value === null || typeof value !== "object") {
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error("review projection contains a non-finite number");
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(toCanonicalValue);
+  }
+  const canonical = {};
+  for (const key of Object.keys(value).sort()) {
+    const child = value[key];
+    if (child !== void 0) {
+      canonical[key] = toCanonicalValue(child);
+    }
+  }
+  return canonical;
+}
+
+// src/review-projection/domain/current-review-projector.ts
+var CurrentReviewProjector = class {
+  projectOccurrences(input) {
+    const occurrences = [];
+    const matchedLineages = /* @__PURE__ */ new Set();
+    for (const finding of input.selectedFindings) {
+      const hint = this.matchPriorLineage(finding, input.priorLineageHints);
+      const lineageId = hint?.lineageId ?? this.createLineageId(input.scope, finding);
+      if (hint) matchedLineages.add(hint.lineageId);
+      const target = this.findTargetForFinding(
+        finding,
+        input.inventory.targets
+      );
+      const suppressed = target?.disposition === "command_suppressed" /* CommandSuppressed */;
+      const state = suppressed ? "suppressed_by_human" /* SuppressedByHuman */ : hint ? hint.severity === finding.severity ? "reconfirmed" /* Reconfirmed */ : "changed" /* Changed */ : "new" /* New */;
+      occurrences.push({
+        lineageId,
+        sourceFindingIds: sortedUnique(finding.sourceFindingIds),
+        state,
+        severity: finding.severity,
+        ...hint && hint.severity !== finding.severity ? { previousSeverity: hint.severity } : {},
+        category: finding.category,
+        normalizedFailureModeHash: finding.normalizedFailureModeHash,
+        ...finding.symbolAnchor ? { symbolAnchor: finding.symbolAnchor } : {},
+        ...finding.trustedMarker ? { trustedMarker: finding.trustedMarker } : {},
+        title: finding.title,
+        message: finding.message,
+        ...finding.suggestion ? { suggestion: finding.suggestion } : {},
+        filePath: finding.filePath,
+        ...finding.startLine !== void 0 ? { startLine: finding.startLine } : {},
+        ...finding.line !== void 0 ? { line: finding.line } : {},
+        ...finding.endLine !== void 0 ? { endLine: finding.endLine } : {},
+        placement: summaryPlacement(lineageId, finding.filePath, "pending"),
+        providerVoteKeys: sortedUnique(finding.providerVoteKeys),
+        observationIds: sortedUnique(finding.observationIds),
+        firstSeenHeadSha: hint?.firstSeenHeadSha ?? input.scope.reviewedHeadSha,
+        sourceHeadSha: input.scope.reviewedHeadSha,
+        blocking: false
+      });
+    }
+    const decisionByTarget = new Map(
+      input.lifecycleDecisions.map((decision) => [decision.targetId, decision])
+    );
+    for (const hint of input.priorLineageHints) {
+      if (matchedLineages.has(hint.lineageId) || !hint.active) continue;
+      const target = this.findTargetForHint(hint, input.inventory.targets);
+      if (!target) continue;
+      const decision = decisionByTarget.get(target.targetId);
+      const state = this.priorOccurrenceState(target, decision?.verdict);
+      occurrences.push({
+        lineageId: hint.lineageId,
+        sourceFindingIds: [],
+        state,
+        severity: hint.severity,
+        category: hint.category,
+        normalizedFailureModeHash: hint.normalizedFailureModeHash,
+        ...hint.symbolAnchor ? { symbolAnchor: hint.symbolAnchor } : {},
+        ...hint.trustedMarker ? { trustedMarker: hint.trustedMarker } : {},
+        title: hint.title,
+        message: hint.message,
+        filePath: target.currentPath ?? hint.filePath,
+        ...hint.startLine !== void 0 ? { startLine: hint.startLine } : {},
+        ...target.currentLine !== void 0 ? { line: target.currentLine } : hint.line !== void 0 ? { line: hint.line } : {},
+        ...hint.endLine !== void 0 ? { endLine: hint.endLine } : {},
+        placement: summaryPlacement(
+          hint.lineageId,
+          target.currentPath ?? hint.filePath,
+          "historical occurrence"
+        ),
+        providerVoteKeys: [],
+        observationIds: [],
+        firstSeenHeadSha: hint.firstSeenHeadSha,
+        sourceHeadSha: input.scope.reviewedHeadSha,
+        blocking: false
+      });
+    }
+    return sortOccurrences(occurrences);
+  }
+  priorOccurrenceState(target, verdict) {
+    if (target.disposition === "command_suppressed" /* CommandSuppressed */) {
+      return "suppressed_by_human" /* SuppressedByHuman */;
+    }
+    if (hasValidTrustedResolutionMarker(target)) {
+      return "resolved" /* Resolved */;
+    }
+    if (target.disposition === "human_reply" /* HumanReply */) {
+      return "uncertain" /* Uncertain */;
+    }
+    if (verdict === "resolved" /* Resolved */) {
+      return "resolved" /* Resolved */;
+    }
+    if (verdict === "still_valid" /* StillValid */) {
+      return "carried_unverified" /* CarriedUnverified */;
+    }
+    return "uncertain" /* Uncertain */;
+  }
+  matchPriorLineage(finding, hints) {
+    const byMarker = finding.trustedMarker ? hints.filter(
+      (hint) => hint.trustedMarker === finding.trustedMarker && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash
+    ) : [];
+    if (byMarker.length === 1) return byMarker[0];
+    if (byMarker.length > 1) return void 0;
+    const byAnchor = hints.filter(
+      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && Boolean(hint.symbolAnchor) && hint.symbolAnchor === finding.symbolAnchor
+    );
+    if (byAnchor.length === 1) return byAnchor[0];
+    if (byAnchor.length > 1) return void 0;
+    const byLocation = hints.filter(
+      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && normalizePath(hint.filePath) === normalizePath(finding.filePath) && hint.line !== void 0 && finding.line !== void 0 && Math.abs(hint.line - finding.line) <= 2
+    );
+    return byLocation.length === 1 ? byLocation[0] : void 0;
+  }
+  findTargetForFinding(finding, targets) {
+    if (finding.trustedMarker) {
+      const markerMatches = targets.filter(
+        (target) => target.trustedMarker === finding.trustedMarker
+      );
+      if (markerMatches.length === 1) return markerMatches[0];
+    }
+    const locationMatches = targets.filter(
+      (target) => normalizePath(target.currentPath ?? target.originalPath) === normalizePath(finding.filePath) && target.currentLine !== void 0 && finding.line !== void 0 && Math.abs(target.currentLine - finding.line) <= 2
+    );
+    return locationMatches.length === 1 ? locationMatches[0] : void 0;
+  }
+  findTargetForHint(hint, targets) {
+    if (!hint.trustedMarker) return void 0;
+    const markerMatches = targets.filter(
+      (target) => target.trustedMarker === hint.trustedMarker
+    );
+    return markerMatches.length === 1 ? markerMatches[0] : void 0;
+  }
+  createLineageId(scope, finding) {
+    return `rrl_${hashProjectionFact({
+      scmRepositoryIdentityId: scope.scmRepositoryIdentityId,
+      pullRequestNumber: scope.pullRequestNumber,
+      category: finding.category,
+      normalizedFailureModeHash: finding.normalizedFailureModeHash,
+      symbolAnchor: finding.symbolAnchor ?? null,
+      firstSeenHeadSha: scope.reviewedHeadSha,
+      trustedMarker: finding.trustedMarker ?? null
+    }).slice(0, 32)}`;
+  }
+};
+function hasValidTrustedResolutionMarker(target) {
+  const marker = target.resolutionMarker;
+  return Boolean(
+    marker && marker.trust === "trusted" /* Trusted */ && marker.schemaVersion === "reviewrouter-lifecycle-resolution.v1" && marker.targetId === target.targetId && marker.fingerprint === target.trustedMarker
+  );
+}
+function summaryPlacement(lineageId, path28, reason) {
+  return {
+    lineageId,
+    kind: "summary" /* Summary */,
+    path: path28,
+    reason
+  };
+}
+function sortOccurrences(occurrences) {
+  const stateOrder = {
+    ["new" /* New */]: 0,
+    ["changed" /* Changed */]: 1,
+    ["reconfirmed" /* Reconfirmed */]: 2,
+    ["carried_unverified" /* CarriedUnverified */]: 3,
+    ["uncertain" /* Uncertain */]: 4,
+    ["resolved" /* Resolved */]: 5,
+    ["suppressed_by_human" /* SuppressedByHuman */]: 6
+  };
+  const severityOrder = {
+    critical: 0,
+    major: 1,
+    minor: 2
+  };
+  return [...occurrences].sort(
+    (left, right) => stateOrder[left.state] - stateOrder[right.state] || severityOrder[left.severity] - severityOrder[right.severity] || left.filePath.localeCompare(right.filePath) || (left.line ?? 0) - (right.line ?? 0) || left.lineageId.localeCompare(right.lineageId)
+  );
+}
+function normalizePath(path28) {
+  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+}
+function sortedUnique(values) {
+  return Array.from(new Set(values)).sort(
+    (left, right) => left.localeCompare(right)
+  );
+}
+
+// src/review-projection/domain/review-lifecycle-observation.ts
+var import_crypto13 = require("crypto");
+var REVIEW_LIFECYCLE_THREAD_STATE_VERSION = "review_lifecycle_thread_state.v1";
+var REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^[a-f0-9]{24,64}$/;
+var RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+function isReviewLifecycleMarkerFingerprint(value) {
+  return typeof value === "string" && REVIEW_LIFECYCLE_MARKER_FINGERPRINT.test(value);
+}
+function hashReviewLifecycleThreadState(input) {
+  requireIdentifier(input.threadId, "thread_id");
+  if (input.comments.length === 0) {
+    throw new Error("review_lifecycle_thread_state_comments_missing");
+  }
+  const seenCommentIds = /* @__PURE__ */ new Set();
+  const comments = [...input.comments].sort((left, right) => compareCodeUnits2(left.id, right.id)).map((comment) => {
+    const commentId = requireIdentifier(comment.id, "comment_id");
+    if (seenCommentIds.has(commentId)) {
+      throw new Error("review_lifecycle_thread_state_comment_id_duplicate");
+    }
+    seenCommentIds.add(commentId);
+    return [
+      commentId,
+      normalizeAuthorLogin(comment.authorLogin),
+      sha2565(comment.body ?? ""),
+      normalizeTimestamp(comment.createdAt),
+      normalizeTimestamp(comment.updatedAt ?? comment.createdAt)
+    ];
+  });
+  const preimage = JSON.stringify([
+    REVIEW_LIFECYCLE_THREAD_STATE_VERSION,
+    input.threadId,
+    comments
+  ]);
+  return sha2565(preimage);
+}
+function requireIdentifier(value, field) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`review_lifecycle_thread_state_${field}_invalid`);
+  }
+  return value;
+}
+function normalizeAuthorLogin(value) {
+  if (value === null || value === void 0) return null;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("review_lifecycle_thread_state_author_login_invalid");
+  }
+  return value.toLowerCase();
+}
+function normalizeTimestamp(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
+  const match2 = RFC3339_TIMESTAMP.exec(value);
+  if (match2 === null || !hasValidTimestampFields(match2)) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
+  return parsed.toISOString();
+}
+function hasValidTimestampFields(match2) {
+  const year = Number(match2[1]);
+  const month = Number(match2[2]);
+  const day = Number(match2[3]);
+  const hour = Number(match2[4]);
+  const minute = Number(match2[5]);
+  const second = Number(match2[6]);
+  const offset = match2[7];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+  if (offset !== "Z") {
+    const offsetHour = Number(offset.slice(1, 3));
+    const offsetMinute = Number(offset.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return false;
+  }
+  return true;
+}
+function daysInMonth(year, month) {
+  if (month === 2) {
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leapYear ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+function sha2565(value) {
+  return (0, import_crypto13.createHash)("sha256").update(value, "utf8").digest("hex");
+}
+function compareCodeUnits2(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+// src/review-projection/domain/review-projection-limits.ts
+var REVIEW_PROJECTION_ABSOLUTE_LIMITS = {
+  maxProjectionBytes: 2e6,
+  maxFindings: 1e3,
+  maxReferencesPerFinding: 100,
+  maxLineageHints: 2e3,
+  maxLifecycleTargets: 2e3,
+  maxRevisionFiles: 5e3,
+  maxDiffBytes: 2e6,
+  maxSummaryBytes: 65e3,
+  maxCheckSummaryBytes: 65e3,
+  maxInlineComments: 500,
+  maxInlineCommentsPerChunk: 50,
+  maxInlineChunks: 20,
+  maxInlineCommentBodyBytes: 65e3,
+  maxStringBytes: 65e3
+};
+var ReviewProjectionLimitError = class extends Error {
+  constructor(limitName, actual, maximum) {
+    super(
+      `review projection ${limitName} exceeded: ${actual} is greater than ${maximum}`
+    );
+    this.limitName = limitName;
+    this.actual = actual;
+    this.maximum = maximum;
+    this.name = "ReviewProjectionLimitError";
+  }
+};
+function validateReviewProjectionLimits(limits) {
+  for (const key of Object.keys(REVIEW_PROJECTION_ABSOLUTE_LIMITS)) {
+    const value = limits[key];
+    const absoluteMaximum = REVIEW_PROJECTION_ABSOLUTE_LIMITS[key];
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new Error(`review projection ${key} must be a positive integer`);
+    }
+    if (value > absoluteMaximum) {
+      throw new ReviewProjectionLimitError(key, value, absoluteMaximum);
+    }
+  }
+  return Object.freeze({ ...limits });
+}
+function assertWithinProjectionLimit(limitName, actual, limits) {
+  const maximum = limits[limitName];
+  if (actual > maximum) {
+    throw new ReviewProjectionLimitError(limitName, actual, maximum);
+  }
+}
+
+// src/github/review-thread-inventory.ts
 var DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS = ["review-router-ai[bot]"];
 var GITHUB_ACTIONS_BOT_AUTHOR = "github-actions[bot]";
 var RESOLUTION_REPLY_MARKER = "reviewrouter-lifecycle-resolution:v1";
@@ -38469,6 +38856,8 @@ var APP_SLUG_ENV_KEYS = [
   "REVIEWROUTER_APP_SLUG",
   "AI_ROBOT_REVIEW_APP_SLUG"
 ];
+var MAX_REVIEW_THREAD_PAGES = 100;
+var MAX_REVIEW_THREAD_COMMENT_PAGES = 100;
 var INVENTORY_QUERY = `
 query ReviewRouterThreadInventory(
   $owner: String!
@@ -38548,7 +38937,13 @@ var ReviewThreadInventoryLoader = class {
     };
     try {
       let cursor;
+      let pageCount = 0;
+      const seenCursors = /* @__PURE__ */ new Set();
       do {
+        if (pageCount >= MAX_REVIEW_THREAD_PAGES) {
+          throw new Error("review thread pagination page limit exceeded");
+        }
+        pageCount += 1;
         const response = await this.graphql(INVENTORY_QUERY, {
           owner: this.client.owner,
           repo: this.client.repo,
@@ -38571,6 +38966,10 @@ var ReviewThreadInventoryLoader = class {
           if (!threads.pageInfo.endCursor) {
             throw new Error("review thread pagination cursor was missing");
           }
+          if (seenCursors.has(threads.pageInfo.endCursor)) {
+            throw new Error("review thread pagination cursor repeated");
+          }
+          seenCursors.add(threads.pageInfo.endCursor);
           cursor = threads.pageInfo.endCursor;
         } else {
           cursor = null;
@@ -38597,24 +38996,12 @@ var ReviewThreadInventoryLoader = class {
       throw new Error(`thread ${thread.id} comments connection was missing`);
     }
     let comments = thread.comments.nodes;
-    let commentsTruncated = Boolean(thread.comments?.pageInfo.hasNextPage);
-    if (commentsTruncated) {
-      try {
-        comments = await this.loadRemainingThreadComments(
-          thread.id,
-          comments,
-          thread.comments?.pageInfo.endCursor ?? null
-        );
-        commentsTruncated = false;
-      } catch (error2) {
-        logger.warn(
-          `Failed to load complete review thread comments for ${thread.id}`,
-          error2
-        );
-        inventory.warnings.push(
-          `thread ${thread.id} comments pagination could not be completed`
-        );
-      }
+    if (thread.comments.pageInfo.hasNextPage) {
+      comments = await this.loadRemainingThreadComments(
+        thread.id,
+        comments,
+        thread.comments.pageInfo.endCursor ?? null
+      );
     }
     const parent = comments[0];
     const parentFingerprint = extractFindingFingerprint(parent?.body || "");
@@ -38622,13 +39009,18 @@ var ReviewThreadInventoryLoader = class {
       throw new Error(`thread ${thread.id} parent comment was missing`);
     }
     if (!parentFingerprint) {
-      if (commentsTruncated) {
-        inventory.warnings.push(
-          `thread ${thread.id} has truncated comments before a ReviewRouter parent could be identified`
-        );
-      }
       return;
     }
+    const threadStateHash = hashReviewLifecycleThreadState({
+      threadId: thread.id,
+      comments: comments.map((comment) => ({
+        id: comment.id,
+        authorLogin: comment.author?.login,
+        body: comment.body,
+        createdAt: requireCommentTimestamp(comment.createdAt),
+        updatedAt: comment.updatedAt
+      }))
+    });
     const body = parent.body || "";
     const fingerprint = parentFingerprint;
     const trustedAuthor = this.isTrustedAuthor(parent.author?.login);
@@ -38647,9 +39039,8 @@ var ReviewThreadInventoryLoader = class {
     if (!trustedAuthor) reasonCodes.push("untrusted_author");
     if (humanReply) reasonCodes.push("human_reply");
     if (!hasOldFindingDetails) reasonCodes.push("missing_old_finding_details");
-    if (commentsTruncated) reasonCodes.push("pagination_incomplete");
     const targetId = targetIdFor(thread.id, parent.id, fingerprint);
-    const trustedResolutionMarker = commentsTruncated ? void 0 : findTrustedResolutionMarker({
+    const trustedResolutionMarker = findTrustedResolutionMarker({
       comments,
       targetId,
       fingerprint,
@@ -38671,8 +39062,11 @@ var ReviewThreadInventoryLoader = class {
       diffHunk: parent.diffHunk ?? void 0,
       parentCommentId: parent.id,
       parentCommentDatabaseId: parent.databaseId ?? void 0,
-      parentCommentUpdatedAt: parent.updatedAt || parent.createdAt || (/* @__PURE__ */ new Date(0)).toISOString(),
+      parentCommentUpdatedAt: normalizeCommentTimestamp(
+        parent.updatedAt ?? requireCommentTimestamp(parent.createdAt)
+      ),
       threadCommentCount: comments.length,
+      threadStateHash,
       viewerCanResolve: Boolean(thread.viewerCanResolve),
       hasHumanReply: humanReply,
       trustedAuthor,
@@ -38704,7 +39098,13 @@ var ReviewThreadInventoryLoader = class {
     }
     const comments = [...initialComments];
     let cursor = initialCursor;
+    let pageCount = 0;
+    const seenCursors = /* @__PURE__ */ new Set([initialCursor]);
     while (cursor) {
+      if (pageCount >= MAX_REVIEW_THREAD_COMMENT_PAGES) {
+        throw new Error("thread comments pagination page limit exceeded");
+      }
+      pageCount += 1;
       const response = await this.graphql(
         THREAD_COMMENTS_QUERY,
         {
@@ -38716,7 +39116,10 @@ var ReviewThreadInventoryLoader = class {
       if (!connection) {
         throw new Error("thread comments connection was missing");
       }
-      comments.push(...connection.nodes ?? []);
+      if (!Array.isArray(connection.nodes)) {
+        throw new Error("thread comments nodes were missing");
+      }
+      comments.push(...connection.nodes);
       if (!connection.pageInfo.hasNextPage) {
         cursor = null;
         break;
@@ -38724,6 +39127,10 @@ var ReviewThreadInventoryLoader = class {
       if (!connection.pageInfo.endCursor) {
         throw new Error("thread comments pagination cursor was missing");
       }
+      if (seenCursors.has(connection.pageInfo.endCursor)) {
+        throw new Error("thread comments pagination cursor repeated");
+      }
+      seenCursors.add(connection.pageInfo.endCursor);
       cursor = connection.pageInfo.endCursor;
     }
     return comments;
@@ -38774,7 +39181,7 @@ function shouldTrustGitHubActionsBot(env) {
   return env.REVIEW_ROUTER_COMMENT_TOKEN_STATUS === "fallback";
 }
 function targetIdFor(threadId, parentCommentId, fingerprint) {
-  return `rrt_${(0, import_crypto12.createHash)("sha256").update(`${threadId}
+  return `rrt_${(0, import_crypto14.createHash)("sha256").update(`${threadId}
 ${parentCommentId}
 ${fingerprint}`).digest("hex").slice(0, 16)}`;
 }
@@ -38797,7 +39204,9 @@ function findTrustedResolutionMarker(input) {
       targetId: marker.targetId,
       fingerprint: marker.fingerprint,
       commentId: comment.id,
-      commentUpdatedAt: comment.updatedAt || comment.createdAt || (/* @__PURE__ */ new Date(0)).toISOString()
+      commentUpdatedAt: normalizeCommentTimestamp(
+        comment.updatedAt ?? requireCommentTimestamp(comment.createdAt)
+      )
     };
   }
   return void 0;
@@ -38815,6 +39224,19 @@ function normalizeLifecycleSeverity(value) {
     return value;
   }
   return "unknown";
+}
+function requireCommentTimestamp(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("review thread comment timestamp was missing");
+  }
+  return value;
+}
+function normalizeCommentTimestamp(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("review thread comment timestamp was invalid");
+  }
+  return parsed.toISOString();
 }
 function stripLifecycleCommentBody(body) {
   return stripInlineFingerprintMarkers(body).replace(/<sub><!--\s*review-router-skip-help\s*-->[\s\S]*?<\/sub>/gi, "").replace(/<sub>\s*Models?:[\s\S]*?<\/sub>/gi, "").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, "").trim();
@@ -39414,7 +39836,7 @@ function safeReason(message) {
 }
 
 // src/control-plane/memory.ts
-var import_crypto13 = require("crypto");
+var import_crypto15 = require("crypto");
 var ControlPlaneMemoryClient = class {
   constructor(runtimeConfig, env = process.env, fetchImpl = fetch, memoryLogger = logger) {
     this.runtimeConfig = runtimeConfig;
@@ -39545,7 +39967,7 @@ function buildSafeMemoryRetrievalQuery(pr2) {
   return normalized.length > 0 ? normalized : null;
 }
 function memorySourceHash(value) {
-  return (0, import_crypto13.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto15.createHash)("sha256").update(value).digest("hex");
 }
 function parseActionMemoryBundle(value) {
   if (!value || typeof value !== "object") {
@@ -39706,7 +40128,7 @@ var ExecutionDeadline = class {
 
 // src/review-execution/infrastructure/http-review-checkpoint-client.ts
 var fs14 = __toESM(require("fs/promises"));
-var import_crypto14 = require("crypto");
+var import_crypto16 = require("crypto");
 
 // src/review-execution/domain/review-checkpoint.ts
 var REVIEW_CHECKPOINT_PROTOCOL_VERSION = 1;
@@ -40790,7 +41212,7 @@ var FileReviewCheckpointFinalizationMarkerWriter = class _FileReviewCheckpointFi
   }
   async write(marker) {
     const validated = reviewCheckpointFinalizationMarkerSchema.parse(marker);
-    const temporaryPath = `${this.path}.tmp-${process.pid}-${(0, import_crypto14.randomUUID)()}`;
+    const temporaryPath = `${this.path}.tmp-${process.pid}-${(0, import_crypto16.randomUUID)()}`;
     try {
       await fs14.writeFile(temporaryPath, JSON.stringify(validated), {
         encoding: "utf8",
@@ -45271,7 +45693,7 @@ function prioritizeFilesByRisk(files) {
 }
 
 // src/review-execution/domain/review-batch-plan.ts
-var import_crypto15 = require("crypto");
+var import_crypto17 = require("crypto");
 function compareCodePoints3(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
@@ -45316,10 +45738,10 @@ function createReviewBatchPlan(input) {
     providerNames,
     batches: canonicalBatches
   };
-  const planHash = (0, import_crypto15.createHash)("sha256").update(JSON.stringify(payload)).digest("hex");
+  const planHash = (0, import_crypto17.createHash)("sha256").update(JSON.stringify(payload)).digest("hex");
   const batches = Object.freeze(
     input.batches.map((batch, index) => {
-      const id = (0, import_crypto15.createHash)("sha256").update(
+      const id = (0, import_crypto17.createHash)("sha256").update(
         JSON.stringify({
           version: "v1" /* V1 */,
           planHash,
@@ -49292,7 +49714,7 @@ function sanitizeNoticeError(error2) {
 }
 
 // src/github/discussion.ts
-var import_crypto16 = require("crypto");
+var import_crypto18 = require("crypto");
 var DISCUSSION_MARKER = "reviewrouter-discussion:v1";
 var DISCUSSION_MARKER_RE = /<!--\s*reviewrouter-discussion:v1\s+user_comment_id=(\d+)\s+body_sha=([a-f0-9]{64})\s*-->/;
 var ReviewDiscussionHandler = class {
@@ -49537,7 +49959,7 @@ function isBotUser(user) {
   return user?.type === "Bot" || login.endsWith("[bot]");
 }
 function bodyHash(body) {
-  return (0, import_crypto16.createHash)("sha256").update(body.trim()).digest("hex");
+  return (0, import_crypto18.createHash)("sha256").update(body.trim()).digest("hex");
 }
 function sanitizeError(error2) {
   const message = error2 instanceof Error ? error2.message : String(error2);
@@ -49725,7 +50147,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.76",
+  version: "1.0.77",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -51153,7 +51575,7 @@ function safeOidcErrorCode(payload) {
 }
 
 // src/codex-oauth/crypto.ts
-var import_crypto17 = require("crypto");
+var import_crypto19 = require("crypto");
 
 // node_modules/libsodium/dist/modules-esm/libsodium.mjs
 var import_meta = {};
@@ -54607,7 +55029,7 @@ function compactCodexAuthJsonBytes(input) {
   return {
     compactAuthJsonBytes,
     byteLength: compactByteLength,
-    exactBytesSha256: (0, import_crypto17.createHash)("sha256").update(input.authJsonBytes, "utf8").digest("hex")
+    exactBytesSha256: (0, import_crypto19.createHash)("sha256").update(input.authJsonBytes, "utf8").digest("hex")
   };
 }
 function computeCodexAuthGenerationHash(input) {
@@ -54615,7 +55037,7 @@ function computeCodexAuthGenerationHash(input) {
   if (salt.length < 16) {
     throw new Error("generation_hash_salt_too_short");
   }
-  return (0, import_crypto17.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
+  return (0, import_crypto19.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
 }
 async function encryptCodexAuthForGitHubSecret(input) {
   const compact = compactCodexAuthJsonBytes({
@@ -54653,7 +55075,7 @@ function buildCodexRotatingWritebackRequest(input) {
     latestGenerationHash: input.latestGenerationHash,
     encryptedValue: input.encryptedValue,
     keyId: input.keyId,
-    idempotencyKey: input.idempotencyKey ?? `wrb:${(0, import_crypto17.randomUUID)()}`
+    idempotencyKey: input.idempotencyKey ?? `wrb:${(0, import_crypto19.randomUUID)()}`
   };
 }
 function assertCodexChatGptAuth(value) {
@@ -55260,7 +55682,7 @@ function safeGitError(value) {
 }
 
 // src/control-plane/review-action-v2-contract.ts
-var import_crypto19 = require("crypto");
+var import_crypto21 = require("crypto");
 var import_fs = require("fs");
 var import_path2 = __toESM(require("path"));
 
@@ -61130,7 +61552,7 @@ function verifyReviewActionV2Handoff(generatedRoot) {
   }
   for (const file of actualFiles) {
     const expectedDigest = value.generatedFileDigests[file];
-    if (typeof expectedDigest !== "string" || !DIGEST_PATTERN.test(expectedDigest) || sha2565((0, import_fs.readFileSync)(import_path2.default.join(generatedRoot, ...file.split("/")))) !== expectedDigest) {
+    if (typeof expectedDigest !== "string" || !DIGEST_PATTERN.test(expectedDigest) || sha2566((0, import_fs.readFileSync)(import_path2.default.join(generatedRoot, ...file.split("/")))) !== expectedDigest) {
       throw new Error("review_action_v2_handoff_file_digest_mismatch");
     }
   }
@@ -61205,21 +61627,21 @@ function assertExactKeys(value, expected) {
     throw new Error("review_action_v2_handoff_fields_invalid");
   }
 }
-function sha2565(value) {
-  return (0, import_crypto19.createHash)("sha256").update(value).digest("hex");
+function sha2566(value) {
+  return (0, import_crypto21.createHash)("sha256").update(value).digest("hex");
 }
 function isRecord3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // src/review-orchestration/infrastructure/production-t0-review-runner.ts
-var import_crypto38 = require("crypto");
+var import_crypto40 = require("crypto");
 var import_child_process19 = require("child_process");
 var path26 = __toESM(require("path"));
 var import_util13 = require("util");
 
 // src/control-plane/review-action-v2-client.ts
-var import_crypto20 = require("crypto");
+var import_crypto22 = require("crypto");
 var import__ = __toESM(require__());
 var import_ajv_formats = __toESM(require_dist());
 
@@ -92906,14 +93328,16 @@ var ReviewActionV2Client = class {
   fetchImpl;
   requestIdFactory;
   sleep;
+  random;
   maxAttempts;
   maxResponseBytes;
   validators;
   constructor(options) {
     this.apiUrl = parseApiUrl(options.apiUrl, options.allowInsecureLocalhost);
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.requestIdFactory = options.requestIdFactory ?? (() => `rr:${(0, import_crypto20.randomUUID)()}`);
+    this.requestIdFactory = options.requestIdFactory ?? (() => `rr:${(0, import_crypto22.randomUUID)()}`);
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve5) => setTimeout(resolve5, delayMs)));
+    this.random = options.random ?? Math.random;
     this.maxAttempts = clampInteger(options.maxAttempts ?? 2, 1, 3);
     this.maxResponseBytes = clampInteger(
       options.maxResponseBytes ?? 2097152,
@@ -92928,6 +93352,7 @@ var ReviewActionV2Client = class {
     const manifest = requireOperationManifest(operationId);
     const request = this.frameRequest(operationId, payload);
     const serializedRequest = JSON.stringify(request);
+    let capacityRetryConsumed = false;
     if (Buffer.byteLength(serializedRequest, "utf8") > descriptor.bodyLimitBytes) {
       throw new ReviewActionV2ClientError(
         "invalid_request" /* InvalidRequest */,
@@ -92944,10 +93369,11 @@ var ReviewActionV2Client = class {
         );
       } catch (error2) {
         const normalized = normalizeClientError(error2, operationId);
-        if (attempt >= this.maxAttempts || !isRetryAllowed(descriptor.semanticRetryClass, normalized)) {
+        if (attempt >= this.maxAttempts || !isRetryAllowed(descriptor.semanticRetryClass, normalized) || isCapacityLimited(normalized) && capacityRetryConsumed) {
           throw normalized;
         }
-        await this.sleep(normalized.retryAfterMs ?? 0);
+        if (isCapacityLimited(normalized)) capacityRetryConsumed = true;
+        await this.sleep(retryDelayMs(normalized, attempt, this.random));
       }
     }
     throw new ReviewActionV2ClientError(
@@ -92965,7 +93391,7 @@ var ReviewActionV2Client = class {
     };
     const request = descriptor.mutability === "read" || operationId === "review_run_authorize" /* ReviewRunAuthorize */ ? base : {
       ...base,
-      requestBodyHash: sha2566(
+      requestBodyHash: sha2567(
         canonicalizeReviewActionV2Request(operationId, {
           ...base,
           requestBodyHash: "0".repeat(64)
@@ -93185,6 +93611,17 @@ function isRetryAllowed(semanticRetryClass, error2) {
   }
   return true;
 }
+function isCapacityLimited(error2) {
+  return error2.code === "protocol_error" /* ProtocolError */ && error2.protocolErrorCode === "capacity_limited" /* CapacityLimited */;
+}
+function retryDelayMs(error2, attempt, random) {
+  if (!isCapacityLimited(error2)) return error2.retryAfterMs ?? 0;
+  const baseDelayMs = Math.min(500 * 2 ** Math.max(0, attempt - 1), 5e3);
+  const sample = random();
+  const boundedSample = Number.isFinite(sample) && sample >= 0 && sample < 1 ? sample : 0;
+  const jitteredDelayMs = baseDelayMs + Math.floor(baseDelayMs * boundedSample);
+  return Math.min(Math.max(error2.retryAfterMs ?? 0, jitteredDelayMs), 3e4);
+}
 function readRetryAfterMs(response) {
   const value = response.headers.get("retry-after");
   if (!value) return void 0;
@@ -93196,8 +93633,8 @@ function readRetryAfterMs(response) {
   if (!Number.isFinite(at2)) return void 0;
   return Math.min(Math.max(0, at2 - Date.now()), 3e4);
 }
-function sha2566(value) {
-  return (0, import_crypto20.createHash)("sha256").update(value).digest("hex");
+function sha2567(value) {
+  return (0, import_crypto22.createHash)("sha256").update(value).digest("hex");
 }
 function clampInteger(value, minimum, maximum) {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
@@ -93345,7 +93782,7 @@ var ReviewInvocationConfigurationMismatchError = class extends Error {
 };
 
 // src/review-orchestration/application/run-t0-review-orchestration.ts
-var import_crypto23 = require("crypto");
+var import_crypto25 = require("crypto");
 
 // src/review-orchestration/domain/review-orchestration-state.ts
 function createReviewOrchestrationState(workSlotIds) {
@@ -93479,7 +93916,7 @@ function requireIdentity(value) {
 }
 
 // src/review-orchestration/domain/review-prompt-coverage.ts
-var import_crypto21 = require("crypto");
+var import_crypto23 = require("crypto");
 function createReviewPromptCoverageManifest(input) {
   if (!input.workSlotId || !/^[a-f0-9]{64}$/.test(input.reviewRevisionHash)) {
     throw new Error("review_prompt_coverage_scope_invalid");
@@ -93513,7 +93950,7 @@ function createReviewPromptCoverageManifest(input) {
     workSlotId: input.workSlotId,
     reviewRevisionHash: input.reviewRevisionHash,
     paths,
-    coverageHash: sha2567(canonicalFacts)
+    coverageHash: sha2568(canonicalFacts)
   });
 }
 function isReviewPromptCoverageComplete(manifest) {
@@ -93526,7 +93963,7 @@ function createProviderVisibleReviewCoverage(manifest) {
   return Object.freeze({
     version: "provider_visible_review_coverage.v1",
     paths,
-    coverageHash: sha2567(
+    coverageHash: sha2568(
       canonicalJson6({
         paths,
         version: "provider_visible_review_coverage.v1"
@@ -93566,12 +94003,12 @@ function canonicalJson6(value) {
   }
   return JSON.stringify(value);
 }
-function sha2567(value) {
-  return (0, import_crypto21.createHash)("sha256").update(value).digest("hex");
+function sha2568(value) {
+  return (0, import_crypto23.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/domain/stable-review-work-plan.ts
-var import_crypto22 = require("crypto");
+var import_crypto24 = require("crypto");
 function createStableReviewBatchId(input) {
   if (!Object.values(ReviewTaskKind).includes(input.taskKind)) {
     throw new Error("review_batch_task_kind_invalid");
@@ -93592,7 +94029,7 @@ function createStableReviewBatchId(input) {
   })).sort(
     (left, right) => compareCodePoints5(left.filename, right.filename) || compareCodePoints5(canonicalJson7(left), canonicalJson7(right))
   );
-  return sha2568(
+  return sha2569(
     `rr.review-batch.v2\0${canonicalJson7({
       members,
       taskKind: input.taskKind
@@ -93654,7 +94091,7 @@ function createStableReviewWorkPlan(input) {
       if (!Number.isSafeInteger(provider.attemptBudget) || provider.attemptBudget < 1 || provider.attemptBudget > input.maxAttemptsPerSlot) {
         throw new Error("review_work_plan_attempt_limit_exceeded");
       }
-      const workSlotId = sha2568(
+      const workSlotId = sha2569(
         `rr.review-work-slot.v1\0${canonicalJson7({
           batchId: batch.batchId,
           compatibilityKey: input.compatibilityKey,
@@ -93694,7 +94131,7 @@ function createStableReviewWorkPlan(input) {
   const workSlotsCanonicalJson = canonicalJson7(
     canonicalAssignments.map((assignment) => assignment.workSlot)
   );
-  const planHash = sha2568(
+  const planHash = sha2569(
     `rr.review-work-plan.v1\0${canonicalJson7({
       compatibilityKey: input.compatibilityKey,
       reviewRevisionHash: input.reviewRevisionHash,
@@ -93732,8 +94169,8 @@ function compareCodePoints5(left, right) {
   if (left > right) return 1;
   return 0;
 }
-function sha2568(value) {
-  return (0, import_crypto22.createHash)("sha256").update(value).digest("hex");
+function sha2569(value) {
+  return (0, import_crypto24.createHash)("sha256").update(value).digest("hex");
 }
 function requireDigest2(value, field) {
   if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`${field}_invalid`);
@@ -94220,8 +94657,10 @@ function boundedRetryAfterMs(value) {
 
 // src/review-investigation/application/run-investigation-work-slot.ts
 var ReviewInvestigationLegacyFallbackSignal = class extends Error {
-  constructor() {
-    super("review_investigation_capability_disabled_before_open");
+  constructor(reason = "capability_disabled_before_open" /* CapabilityDisabledBeforeOpen */, deferredStatus = null) {
+    super(`review_investigation_legacy_fallback:${reason}`);
+    this.reason = reason;
+    this.deferredStatus = deferredStatus;
     this.name = "ReviewInvestigationLegacyFallbackSignal";
   }
 };
@@ -95591,7 +96030,7 @@ function sameRestoredWorkSlotPlan(current, admitted) {
   });
 }
 function observationRefId(executionId, workSlotId, observationId) {
-  return `obsref:${sha2569(
+  return `obsref:${sha25610(
     JSON.stringify(canonicalize3({ executionId, observationId, workSlotId }))
   )}`;
 }
@@ -95627,7 +96066,7 @@ function validatePlanAgainstLimits(workSlots, limits) {
   }
 }
 function validateObservationAgainstLimits(observation, limits) {
-  if (!isCanonicalJson2(observation.payloadCanonicalJson) || sha2569(observation.payloadCanonicalJson) !== observation.payloadHash || Buffer.byteLength(observation.payloadCanonicalJson, "utf8") !== observation.byteCount || observation.byteCount < 0 || observation.byteCount > limits.maxObservationBytes || observation.findingCount < 0 || observation.findingCount > limits.maxObservationFindings) {
+  if (!isCanonicalJson2(observation.payloadCanonicalJson) || sha25610(observation.payloadCanonicalJson) !== observation.payloadHash || Buffer.byteLength(observation.payloadCanonicalJson, "utf8") !== observation.byteCount || observation.byteCount < 0 || observation.byteCount > limits.maxObservationBytes || observation.findingCount < 0 || observation.findingCount > limits.maxObservationFindings) {
     throw new Error("review_orchestration_observation_limit_exceeded");
   }
 }
@@ -95668,8 +96107,8 @@ function canonicalize3(value) {
   }
   return value;
 }
-function sha2569(value) {
-  return (0, import_crypto23.createHash)("sha256").update(value).digest("hex");
+function sha25610(value) {
+  return (0, import_crypto25.createHash)("sha256").update(value).digest("hex");
 }
 function safeFailureCode(error2) {
   if (!(error2 instanceof Error)) return "unknown_failure";
@@ -95691,7 +96130,7 @@ var ReviewProviderUnavailableSignal = class extends Error {
 };
 
 // src/review-orchestration/infrastructure/codex-review-invocation-adapter.ts
-var import_crypto25 = require("crypto");
+var import_crypto27 = require("crypto");
 
 // src/control-plane/generated/review-action-v2/provider-invocation-manifest-v1.ts
 var providerInvocationManifestV1CanonicalizerDescriptor = {
@@ -95996,7 +96435,7 @@ function isRecord4(value) {
 }
 
 // src/review-orchestration/infrastructure/review-observation-normalizer.ts
-var import_crypto24 = require("crypto");
+var import_crypto26 = require("crypto");
 var reviewEvidencePayloadVersion = 2;
 function normalizeReviewObservation(input) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(input.workSlotId)) {
@@ -96034,7 +96473,7 @@ function normalizeReviewObservation(input) {
   }
   return Object.freeze({
     payloadCanonicalJson,
-    payloadHash: sha25610(payloadCanonicalJson),
+    payloadHash: sha25611(payloadCanonicalJson),
     byteCount: Buffer.byteLength(payloadCanonicalJson, "utf8"),
     findingCount: payload.normalizedFindings.length,
     actualModel: input.result.actualModel ?? input.requestedModel,
@@ -96061,7 +96500,7 @@ function normalizeFinding3(finding) {
     endLine,
     evidence,
     message,
-    normalizedFailureModeHash: sha25610(
+    normalizedFailureModeHash: sha25611(
       canonicalJson9({
         category: normalizeText3(category),
         message: normalizeText3(message),
@@ -96123,8 +96562,8 @@ function canonicalJson9(value) {
   }
   return JSON.stringify(value);
 }
-function sha25610(value) {
-  return (0, import_crypto24.createHash)("sha256").update(value).digest("hex");
+function sha25611(value) {
+  return (0, import_crypto26.createHash)("sha256").update(value).digest("hex");
 }
 function redactSensitiveText2(value) {
   return value.replace(
@@ -96160,7 +96599,7 @@ function buildReviewInvestigationSeedEnvelope(input) {
   if (input.canonicalInventory === void 0) {
     throw new Error("review_investigation_seed_inventory_missing");
   }
-  const paths = [...input.coverageManifest.paths].map((item) => item.path).sort(compareCodeUnits2);
+  const paths = [...input.coverageManifest.paths].map((item) => item.path).sort(compareCodeUnits3);
   if (new Set(paths).size !== paths.length) {
     throw new Error("review_investigation_seed_path_duplicate");
   }
@@ -96329,7 +96768,7 @@ function normalizeInventoryEntry(entry, oidWidth) {
     "lineCount",
     "status"
   ];
-  const actualKeys = Object.keys(entry).sort(compareCodeUnits2);
+  const actualKeys = Object.keys(entry).sort(compareCodeUnits3);
   if (actualKeys.length !== expectedKeys.length || actualKeys.some((key, index) => key !== expectedKeys[index])) {
     throw new Error("review_investigation_seed_inventory_entry_invalid");
   }
@@ -96592,10 +97031,10 @@ function canonicalInventoryPathHashes(entries) {
     if (entry.beforePath !== null) paths.add(entry.beforePath);
     if (entry.afterPath !== null) paths.add(entry.afterPath);
   }
-  return [...paths].map(sha2562).sort(compareCodeUnits2);
+  return [...paths].map(sha2562).sort(compareCodeUnits3);
 }
 function compareObligations(left, right) {
-  return compareCodeUnits2(left.canonicalSubject, right.canonicalSubject) || compareCodeUnits2(left.canonicalRequirement, right.canonicalRequirement);
+  return compareCodeUnits3(left.canonicalSubject, right.canonicalSubject) || compareCodeUnits3(left.canonicalRequirement, right.canonicalRequirement);
 }
 function changedContentEvidenceTargets(fact) {
   switch (fact.status) {
@@ -96681,9 +97120,9 @@ function isZeroOid(value) {
   return /^0+$/u.test(value);
 }
 function compareChangedPaths(left, right) {
-  return compareCodeUnits2(left.path, right.path) || compareCodeUnits2(left.previousPath ?? "", right.previousPath ?? "") || compareCodeUnits2(left.status, right.status);
+  return compareCodeUnits3(left.path, right.path) || compareCodeUnits3(left.previousPath ?? "", right.previousPath ?? "") || compareCodeUnits3(left.status, right.status);
 }
-function compareCodeUnits2(left, right) {
+function compareCodeUnits3(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
@@ -96798,7 +97237,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
       manifestFacts: Object.freeze({
         taskKindSet,
         providerKind: "codex" /* Codex */,
-        providerCapabilityHash: sha25611(
+        providerCapabilityHash: sha25612(
           investigationContract ?? canonicalJson10({
             agenticContext: this.agenticContext,
             contextGateway: gatewayPlanningConfig ? {
@@ -96812,13 +97251,13 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             providerKind: prepared.providerKind
           })
         ),
-        providerRequestEnvelopeHash: investigationSeedEnvelope ? investigationSeedEnvelope.hash : sha25611(prepared.observableInputPreimage),
-        outputSchemaHash: sha25611(
+        providerRequestEnvelopeHash: investigationSeedEnvelope ? investigationSeedEnvelope.hash : sha25612(prepared.observableInputPreimage),
+        outputSchemaHash: sha25612(
           canonicalJson10(
             investigationEligible ? buildReviewAgentTurnOutputSchema() : request.outputSchema ?? null
           )
         ),
-        filePatchManifestHash: sha25611(
+        filePatchManifestHash: sha25612(
           canonicalJson10(
             assignment.context.files.map((file) => ({
               additions: file.additions,
@@ -96831,7 +97270,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             }))
           )
         ),
-        contextManifestHash: sha25611(
+        contextManifestHash: sha25612(
           canonicalJson10({
             author: assignment.context.author,
             body: assignment.context.body,
@@ -96843,18 +97282,18 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             title: assignment.context.title
           })
         ),
-        lifecycleTargetSetHash: assignment.lifecycleTargets.length > 0 ? sha25611(
+        lifecycleTargetSetHash: assignment.lifecycleTargets.length > 0 ? sha25612(
           canonicalJson10(
             assignment.lifecycleTargets.map((target) => ({
               fingerprint: target.fingerprint,
               targetId: target.targetId
             })).sort(
-              (left, right) => compareCodeUnits3(left.targetId, right.targetId)
+              (left, right) => compareCodeUnits4(left.targetId, right.targetId)
             )
           )
         ) : null,
         liveLifecycleStateHash: assignment.lifecycleTargets.length > 0 ? assignment.liveLifecycleStateHash : null,
-        toolPolicyHash: sha25611(
+        toolPolicyHash: sha25612(
           canonicalJson10(
             gatewayPlanningConfig ? {
               sandbox: "read-only",
@@ -96874,10 +97313,10 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           )
         ),
         executionProfile: gatewayPlanningConfig ? investigationEligible ? "investigation_gateway_v1" : "context_gateway_v1" : this.agenticContext ? "agentic_unbounded_v1" : "prompt_only_envelope_v1",
-        baseTreeHash: gatewayPlanningConfig ? sha25611(
+        baseTreeHash: gatewayPlanningConfig ? sha25612(
           gatewayPlanningConfig.runtimeEnvironment.REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID
         ) : null,
-        environmentContractHash: sha25611(
+        environmentContractHash: sha25612(
           investigationEligible ? canonicalJson10({
             credentialKeys: [
               "CODEX_HOME",
@@ -97044,7 +97483,7 @@ var GeneratedProviderInvocationManifestAssembler = class {
   constructor(authorization, reviewConfig, runtimeCompatibilityKey) {
     this.authorization = authorization;
     this.runtimeCompatibilityKey = runtimeCompatibilityKey;
-    this.scopeHash = sha25611(
+    this.scopeHash = sha25612(
       canonicalJson10({
         pullRequestNumber: authorization.facts.pullRequestNumber,
         repositoryConnectionId: authorization.facts.repositoryConnectionId,
@@ -97052,7 +97491,7 @@ var GeneratedProviderInvocationManifestAssembler = class {
         workspaceId: authorization.facts.workspaceId
       })
     );
-    this.reviewConfigHash = sha25611(canonicalJson10(reviewConfig));
+    this.reviewConfigHash = sha25612(canonicalJson10(reviewConfig));
   }
   scopeHash;
   reviewConfigHash;
@@ -97124,7 +97563,7 @@ var DeterministicReviewOrchestrationIdentity = class {
     if (!/^[a-z0-9-]{1,80}$/.test(namespace)) {
       throw new Error("review_action_v2_identity_namespace_invalid");
     }
-    return `rr:${namespace}:${sha25611(canonicalJson10(parts)).slice(0, 40)}`;
+    return `rr:${namespace}:${sha25612(canonicalJson10(parts)).slice(0, 40)}`;
   }
 };
 var CooperativeReviewLeaseSupervisor = class {
@@ -97230,13 +97669,13 @@ function isSafeReviewActionV2Diagnostic(message) {
   }
   return false;
 }
-function sha25611(value) {
-  return (0, import_crypto25.createHash)("sha256").update(value).digest("hex");
+function sha25612(value) {
+  return (0, import_crypto27.createHash)("sha256").update(value).digest("hex");
 }
 function sha256Bytes(value) {
-  return (0, import_crypto25.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto27.createHash)("sha256").update(value).digest("hex");
 }
-function compareCodeUnits3(left, right) {
+function compareCodeUnits4(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
@@ -97244,7 +97683,7 @@ function compareCodeUnits3(left, right) {
 
 // src/review-orchestration/infrastructure/context-gateway-invocation-session.ts
 var import_child_process13 = require("child_process");
-var import_crypto28 = require("crypto");
+var import_crypto30 = require("crypto");
 var import_promises2 = require("fs/promises");
 var os9 = __toESM(require("os"));
 var path20 = __toESM(require("path"));
@@ -97436,7 +97875,7 @@ function groupRenameCandidates(entries, oid) {
     groups.set(candidateOid, group);
   }
   for (const group of groups.values()) {
-    group.sort((left, right) => compareCodeUnits4(left.path, right.path));
+    group.sort((left, right) => compareCodeUnits5(left.path, right.path));
   }
   return groups;
 }
@@ -97562,12 +98001,12 @@ function requireGitOidOrZero2(value) {
   return requireGitOid(value.toLowerCase(), "canonical_inventory_object_oid");
 }
 function compareInventoryEntries(left, right) {
-  return compareCodeUnits4(
+  return compareCodeUnits5(
     `${left.afterPath ?? left.beforePath}\0${left.status}\0${left.beforePath ?? ""}`,
     `${right.afterPath ?? right.beforePath}\0${right.status}\0${right.beforePath ?? ""}`
   );
 }
-function compareCodeUnits4(left, right) {
+function compareCodeUnits5(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
@@ -97604,7 +98043,7 @@ function gitOptions(root, encoding) {
 }
 
 // src/context-gateway/context-gateway-v4-replay-material.ts
-var import_crypto26 = require("crypto");
+var import_crypto28 = require("crypto");
 var MAX_STATE_BYTES = 2 * 1024 * 1024;
 var MAX_ENCRYPTED_STATE_BYTES = Math.ceil(MAX_STATE_BYTES * 4 / 3) + 4096;
 var REPLAY_ENCRYPTION_VERSION = 1;
@@ -97630,7 +98069,7 @@ function decryptContextGatewayV4ReplayMaterial(input) {
     if (nonce.byteLength !== 12 || authTag.byteLength !== 16) {
       throw new Error("invalid_envelope");
     }
-    const decipher = (0, import_crypto26.createDecipheriv)(
+    const decipher = (0, import_crypto28.createDecipheriv)(
       REPLAY_ENCRYPTION_ALGORITHM,
       replayEncryptionKey(input.secret, input.sessionId),
       nonce
@@ -97650,7 +98089,7 @@ function decryptContextGatewayV4ReplayMaterial(input) {
   }
 }
 function replayEncryptionKey(secret, sessionId) {
-  return (0, import_crypto26.createHmac)("sha256", secret).update("reviewrouter.context-gateway-v4.replay-material.v1\0", "utf8").update(sessionId, "utf8").digest();
+  return (0, import_crypto28.createHmac)("sha256", secret).update("reviewrouter.context-gateway-v4.replay-material.v1\0", "utf8").update(sessionId, "utf8").digest();
 }
 function replayAssociatedData(sessionId) {
   return Buffer.from(
@@ -97672,7 +98111,7 @@ function isRecord5(value) {
 }
 
 // src/context-gateway/context-gateway-v4-recorder.ts
-var import_crypto27 = require("crypto");
+var import_crypto29 = require("crypto");
 var import_promises = require("fs/promises");
 var import_path3 = __toESM(require("path"));
 var MAX_EVENTS = 2e3;
@@ -97904,7 +98343,7 @@ function sanitizeReason(value) {
 }
 async function atomicPrivateWrite(target, content) {
   await (0, import_promises.mkdir)(import_path3.default.dirname(target), { recursive: true, mode: 448 });
-  const temporary = `${target}.${process.pid}.${(0, import_crypto27.randomBytes)(6).toString("hex")}.tmp`;
+  const temporary = `${target}.${process.pid}.${(0, import_crypto29.randomBytes)(6).toString("hex")}.tmp`;
   await (0, import_promises.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
   await (0, import_promises.rename)(temporary, target);
 }
@@ -97949,7 +98388,7 @@ var ContextGatewayInvocationSessionFactory = class {
       this.gatewayBundleSnapshot(),
       this.revisionTreeOids(revision)
     ]);
-    const gatewayBinaryHash = sha25612(gatewayBundleSnapshot);
+    const gatewayBinaryHash = sha25613(gatewayBundleSnapshot);
     return this.providerConfig({
       revision,
       sessionId: "planning-session",
@@ -97976,7 +98415,7 @@ var ContextGatewayInvocationSessionFactory = class {
       this.revisionTreeOids(input.revision)
     ]);
     const { checkoutTreeOid } = revisionTreeOids;
-    const gatewayBinaryHash = sha25612(gatewayBundleSnapshot);
+    const gatewayBinaryHash = sha25613(gatewayBundleSnapshot);
     const gatewayPolicyVersion = this.policyVersion();
     const directory = await (0, import_promises2.mkdtemp)(
       path20.join(os9.tmpdir(), "reviewrouter-context-gateway-")
@@ -97993,7 +98432,7 @@ var ContextGatewayInvocationSessionFactory = class {
       await (0, import_promises2.rm)(directory, { recursive: true, force: true });
       throw error2;
     }
-    const confinementEvidenceHash = sha25612(
+    const confinementEvidenceHash = sha25613(
       (input.leaseAuthorityKind === "standard_execution" /* StandardExecution */ ? canonicalizeReviewContextConfinementEvidence : canonicalizeReviewInvestigationContextConfinementEvidence)({
         attemptId: input.invocationLease.attemptId,
         sourceLeaseId: input.invocationLease.leaseId,
@@ -98227,9 +98666,9 @@ var ContextGatewayInvocationSession = class {
       actualModel: input.actualModel,
       terminalOutcomeHash: input.terminalOutcomeHash,
       transcriptCanonicalJson,
-      transcriptHash: sha25612(transcriptCanonicalJson),
+      transcriptHash: sha25613(transcriptCanonicalJson),
       replayMaterialCanonicalJson,
-      replayMaterialHash: sha25612(replayMaterialCanonicalJson)
+      replayMaterialHash: sha25613(replayMaterialCanonicalJson)
     });
   }
   async sealV4(input) {
@@ -98266,9 +98705,9 @@ var ContextGatewayInvocationSession = class {
         actualModel: input.actualModel,
         terminalOutcomeHash: input.terminalOutcomeHash,
         transcriptCanonicalJson,
-        transcriptHash: sha25612(transcriptCanonicalJson),
+        transcriptHash: sha25613(transcriptCanonicalJson),
         replayMaterialCanonicalJson,
-        replayMaterialHash: sha25612(replayMaterialCanonicalJson)
+        replayMaterialHash: sha25613(replayMaterialCanonicalJson)
       });
     } catch (error2) {
       if (error2 instanceof ReviewContextInspectionFailure) throw error2;
@@ -98309,7 +98748,7 @@ function verifyTranscript(input) {
   let previousEventHash = input.eventChainSeedHash;
   for (let index = 0; index < transcript.dependencies.length; index += 1) {
     const entry = transcript.dependencies[index];
-    if (entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha25612(canonicalJson(entry.operation))) {
+    if (entry.sequence !== index + 1 || entry.previousEventHash !== previousEventHash || entry.operationKey !== sha25613(canonicalJson(entry.operation))) {
       throw new Error("context_gateway_transcript_chain_invalid");
     }
     const eventHash = keyedSha2562(
@@ -98348,7 +98787,7 @@ function verifyTranscript(input) {
     throw new Error("context_gateway_replay_material_count_invalid");
   }
   for (const entry of input.replayMaterial.entries) {
-    const replayHandleHash = sha25612(entry.replayHandle);
+    const replayHandleHash = sha25613(entry.replayHandle);
     const expected = replayableSearches.get(replayHandleHash);
     if (!expected || expected.operationKey !== entry.operationKey || replayHandleHash !== expected.replayHandleHash || expected.queryDigest !== keyedSha2562(
       input.secret,
@@ -98408,7 +98847,7 @@ function createV4WireSealPayload(transcript) {
   });
 }
 function keyedSha2562(secret, value) {
-  return (0, import_crypto28.createHmac)("sha256", secret).update(value).digest("hex");
+  return (0, import_crypto30.createHmac)("sha256", secret).update(value).digest("hex");
 }
 function requireProviderKind(value) {
   switch (value) {
@@ -98438,20 +98877,20 @@ function requireExecutionProfile(value) {
       throw new Error("context_gateway_execution_profile_invalid");
   }
 }
-function sha25612(value) {
-  return (0, import_crypto28.createHash)("sha256").update(value).digest("hex");
+function sha25613(value) {
+  return (0, import_crypto30.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/infrastructure/context-attestation-replay-runner.ts
 var import_child_process16 = require("child_process");
-var import_crypto30 = require("crypto");
+var import_crypto32 = require("crypto");
 var import_promises6 = require("fs/promises");
 var os10 = __toESM(require("os"));
 var path24 = __toESM(require("path"));
 var import_util11 = require("util");
 
 // src/context-gateway/context-gateway-recorder.ts
-var import_crypto29 = require("crypto");
+var import_crypto31 = require("crypto");
 var import_promises3 = require("fs/promises");
 var path21 = __toESM(require("path"));
 var MAX_RECORDER_STATE_BYTES = 2 * 1024 * 1024;
@@ -98698,7 +99137,7 @@ function parseCanonicalState(raw, kind) {
 }
 async function atomicPrivateWrite2(target, content) {
   await (0, import_promises3.mkdir)(path21.dirname(target), { recursive: true, mode: 448 });
-  const temporary = `${target}.${process.pid}.${(0, import_crypto29.randomBytes)(6).toString("hex")}.tmp`;
+  const temporary = `${target}.${process.pid}.${(0, import_crypto31.randomBytes)(6).toString("hex")}.tmp`;
   await (0, import_promises3.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
   await (0, import_promises3.rename)(temporary, target);
 }
@@ -100103,7 +100542,7 @@ var ContextAttestationReplayRunner = class {
     const directory = await (0, import_promises6.mkdtemp)(
       path24.join(os10.tmpdir(), "reviewrouter-context-replay-")
     );
-    const secret = (0, import_crypto30.randomBytes)(32);
+    const secret = (0, import_crypto32.randomBytes)(32);
     try {
       const eventChainSeedHash = sha256(
         canonicalizeReviewContextReplayChainSeed({
@@ -100185,7 +100624,7 @@ var ContextAttestationReplayRunner = class {
     const directory = await (0, import_promises6.mkdtemp)(
       path24.join(os10.tmpdir(), "reviewrouter-context-replay-v4-")
     );
-    const secret = (0, import_crypto30.randomBytes)(32);
+    const secret = (0, import_crypto32.randomBytes)(32);
     try {
       const eventChainSeedHash = sha256(
         canonicalizeReviewContextReplayChainSeed({
@@ -100650,7 +101089,7 @@ function requireDigestArray2(value, field, maximum) {
     throw new Error(`context_replay_${field}_invalid`);
   }
   const result2 = value.map((entry) => requireSha256(entry, field));
-  const sorted = [...result2].sort(compareCodeUnits5);
+  const sorted = [...result2].sort(compareCodeUnits6);
   if (new Set(result2).size !== result2.length || canonicalJson(result2) !== canonicalJson(sorted)) {
     throw new Error(`context_replay_${field}_invalid`);
   }
@@ -100710,7 +101149,7 @@ function requireAllowedKeys(value, allowed) {
     throw new Error("context_replay_object_shape_invalid");
   }
 }
-function compareCodeUnits5(left, right) {
+function compareCodeUnits6(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
@@ -100777,13 +101216,16 @@ function classifySafeInvestigationFailureReason(error2) {
   if (error2 instanceof ReviewInvestigationDeferredSignal) {
     return `investigation_${error2.status}`;
   }
+  if (error2 instanceof ReviewInvestigationLegacyFallbackSignal) {
+    if (error2.reason === "capability_disabled_before_open" /* CapabilityDisabledBeforeOpen */) {
+      return "capability_disabled_before_open";
+    }
+    return error2.deferredStatus === null ? "investigation_record_only_deferred" : `investigation_${error2.deferredStatus}`;
+  }
   if (error2 instanceof ReviewInvocationConfigurationMismatchError) {
     return error2.reason;
   }
   const text = diagnosticText(error2);
-  if (/capability_disabled_before_open/i.test(text)) {
-    return "capability_disabled_before_open";
-  }
   if (/review_investigation_recording_unsupported/i.test(text)) {
     return "investigation_recording_unsupported";
   }
@@ -100920,290 +101362,7 @@ async function runGitCommand(args, options) {
 }
 
 // src/review-orchestration/infrastructure/github-review-state-adapter.ts
-var import_crypto32 = require("crypto");
-
-// src/review-projection/domain/review-projection.ts
-var LifecycleRevalidationVerdict = /* @__PURE__ */ ((LifecycleRevalidationVerdict2) => {
-  LifecycleRevalidationVerdict2["Resolved"] = "resolved";
-  LifecycleRevalidationVerdict2["StillValid"] = "still_valid";
-  LifecycleRevalidationVerdict2["Uncertain"] = "uncertain";
-  return LifecycleRevalidationVerdict2;
-})(LifecycleRevalidationVerdict || {});
-
-// src/review-projection/domain/review-projection-canonicalizer.ts
-var import_crypto31 = require("crypto");
-function canonicalizeReviewProjection(envelope) {
-  return JSON.stringify(toCanonicalValue(envelope));
-}
-function hashReviewProjectionCanonicalJson(canonicalJson14) {
-  return (0, import_crypto31.createHash)("sha256").update(canonicalJson14, "utf8").digest("hex");
-}
-function hashProjectionFact(value) {
-  return (0, import_crypto31.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
-}
-function deepFreezeProjection(value) {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
-    return value;
-  }
-  for (const child of Object.values(value)) {
-    deepFreezeProjection(child);
-  }
-  return Object.freeze(value);
-}
-function toCanonicalValue(value) {
-  if (value === null || typeof value !== "object") {
-    if (typeof value === "number" && !Number.isFinite(value)) {
-      throw new Error("review projection contains a non-finite number");
-    }
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map(toCanonicalValue);
-  }
-  const canonical = {};
-  for (const key of Object.keys(value).sort()) {
-    const child = value[key];
-    if (child !== void 0) {
-      canonical[key] = toCanonicalValue(child);
-    }
-  }
-  return canonical;
-}
-
-// src/review-projection/domain/current-review-projector.ts
-var CurrentReviewProjector = class {
-  projectOccurrences(input) {
-    const occurrences = [];
-    const matchedLineages = /* @__PURE__ */ new Set();
-    for (const finding of input.selectedFindings) {
-      const hint = this.matchPriorLineage(finding, input.priorLineageHints);
-      const lineageId = hint?.lineageId ?? this.createLineageId(input.scope, finding);
-      if (hint) matchedLineages.add(hint.lineageId);
-      const target = this.findTargetForFinding(
-        finding,
-        input.inventory.targets
-      );
-      const suppressed = target?.disposition === "command_suppressed" /* CommandSuppressed */;
-      const state = suppressed ? "suppressed_by_human" /* SuppressedByHuman */ : hint ? hint.severity === finding.severity ? "reconfirmed" /* Reconfirmed */ : "changed" /* Changed */ : "new" /* New */;
-      occurrences.push({
-        lineageId,
-        sourceFindingIds: sortedUnique(finding.sourceFindingIds),
-        state,
-        severity: finding.severity,
-        ...hint && hint.severity !== finding.severity ? { previousSeverity: hint.severity } : {},
-        category: finding.category,
-        normalizedFailureModeHash: finding.normalizedFailureModeHash,
-        ...finding.symbolAnchor ? { symbolAnchor: finding.symbolAnchor } : {},
-        ...finding.trustedMarker ? { trustedMarker: finding.trustedMarker } : {},
-        title: finding.title,
-        message: finding.message,
-        ...finding.suggestion ? { suggestion: finding.suggestion } : {},
-        filePath: finding.filePath,
-        ...finding.startLine !== void 0 ? { startLine: finding.startLine } : {},
-        ...finding.line !== void 0 ? { line: finding.line } : {},
-        ...finding.endLine !== void 0 ? { endLine: finding.endLine } : {},
-        placement: summaryPlacement(lineageId, finding.filePath, "pending"),
-        providerVoteKeys: sortedUnique(finding.providerVoteKeys),
-        observationIds: sortedUnique(finding.observationIds),
-        firstSeenHeadSha: hint?.firstSeenHeadSha ?? input.scope.reviewedHeadSha,
-        sourceHeadSha: input.scope.reviewedHeadSha,
-        blocking: false
-      });
-    }
-    const decisionByTarget = new Map(
-      input.lifecycleDecisions.map((decision) => [decision.targetId, decision])
-    );
-    for (const hint of input.priorLineageHints) {
-      if (matchedLineages.has(hint.lineageId) || !hint.active) continue;
-      const target = this.findTargetForHint(hint, input.inventory.targets);
-      if (!target) continue;
-      const decision = decisionByTarget.get(target.targetId);
-      const state = this.priorOccurrenceState(target, decision?.verdict);
-      occurrences.push({
-        lineageId: hint.lineageId,
-        sourceFindingIds: [],
-        state,
-        severity: hint.severity,
-        category: hint.category,
-        normalizedFailureModeHash: hint.normalizedFailureModeHash,
-        ...hint.symbolAnchor ? { symbolAnchor: hint.symbolAnchor } : {},
-        ...hint.trustedMarker ? { trustedMarker: hint.trustedMarker } : {},
-        title: hint.title,
-        message: hint.message,
-        filePath: target.currentPath ?? hint.filePath,
-        ...hint.startLine !== void 0 ? { startLine: hint.startLine } : {},
-        ...target.currentLine !== void 0 ? { line: target.currentLine } : hint.line !== void 0 ? { line: hint.line } : {},
-        ...hint.endLine !== void 0 ? { endLine: hint.endLine } : {},
-        placement: summaryPlacement(
-          hint.lineageId,
-          target.currentPath ?? hint.filePath,
-          "historical occurrence"
-        ),
-        providerVoteKeys: [],
-        observationIds: [],
-        firstSeenHeadSha: hint.firstSeenHeadSha,
-        sourceHeadSha: input.scope.reviewedHeadSha,
-        blocking: false
-      });
-    }
-    return sortOccurrences(occurrences);
-  }
-  priorOccurrenceState(target, verdict) {
-    if (target.disposition === "command_suppressed" /* CommandSuppressed */) {
-      return "suppressed_by_human" /* SuppressedByHuman */;
-    }
-    if (hasValidTrustedResolutionMarker(target)) {
-      return "resolved" /* Resolved */;
-    }
-    if (target.disposition === "human_reply" /* HumanReply */) {
-      return "uncertain" /* Uncertain */;
-    }
-    if (verdict === "resolved" /* Resolved */) {
-      return "resolved" /* Resolved */;
-    }
-    if (verdict === "still_valid" /* StillValid */) {
-      return "carried_unverified" /* CarriedUnverified */;
-    }
-    return "uncertain" /* Uncertain */;
-  }
-  matchPriorLineage(finding, hints) {
-    const byMarker = finding.trustedMarker ? hints.filter(
-      (hint) => hint.trustedMarker === finding.trustedMarker && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash
-    ) : [];
-    if (byMarker.length === 1) return byMarker[0];
-    if (byMarker.length > 1) return void 0;
-    const byAnchor = hints.filter(
-      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && Boolean(hint.symbolAnchor) && hint.symbolAnchor === finding.symbolAnchor
-    );
-    if (byAnchor.length === 1) return byAnchor[0];
-    if (byAnchor.length > 1) return void 0;
-    const byLocation = hints.filter(
-      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && normalizePath(hint.filePath) === normalizePath(finding.filePath) && hint.line !== void 0 && finding.line !== void 0 && Math.abs(hint.line - finding.line) <= 2
-    );
-    return byLocation.length === 1 ? byLocation[0] : void 0;
-  }
-  findTargetForFinding(finding, targets) {
-    if (finding.trustedMarker) {
-      const markerMatches = targets.filter(
-        (target) => target.trustedMarker === finding.trustedMarker
-      );
-      if (markerMatches.length === 1) return markerMatches[0];
-    }
-    const locationMatches = targets.filter(
-      (target) => normalizePath(target.currentPath ?? target.originalPath) === normalizePath(finding.filePath) && target.currentLine !== void 0 && finding.line !== void 0 && Math.abs(target.currentLine - finding.line) <= 2
-    );
-    return locationMatches.length === 1 ? locationMatches[0] : void 0;
-  }
-  findTargetForHint(hint, targets) {
-    if (!hint.trustedMarker) return void 0;
-    const markerMatches = targets.filter(
-      (target) => target.trustedMarker === hint.trustedMarker
-    );
-    return markerMatches.length === 1 ? markerMatches[0] : void 0;
-  }
-  createLineageId(scope, finding) {
-    return `rrl_${hashProjectionFact({
-      scmRepositoryIdentityId: scope.scmRepositoryIdentityId,
-      pullRequestNumber: scope.pullRequestNumber,
-      category: finding.category,
-      normalizedFailureModeHash: finding.normalizedFailureModeHash,
-      symbolAnchor: finding.symbolAnchor ?? null,
-      firstSeenHeadSha: scope.reviewedHeadSha,
-      trustedMarker: finding.trustedMarker ?? null
-    }).slice(0, 32)}`;
-  }
-};
-function hasValidTrustedResolutionMarker(target) {
-  const marker = target.resolutionMarker;
-  return Boolean(
-    marker && marker.trust === "trusted" /* Trusted */ && marker.schemaVersion === "reviewrouter-lifecycle-resolution.v1" && marker.targetId === target.targetId && marker.fingerprint === target.trustedMarker
-  );
-}
-function summaryPlacement(lineageId, path28, reason) {
-  return {
-    lineageId,
-    kind: "summary" /* Summary */,
-    path: path28,
-    reason
-  };
-}
-function sortOccurrences(occurrences) {
-  const stateOrder = {
-    ["new" /* New */]: 0,
-    ["changed" /* Changed */]: 1,
-    ["reconfirmed" /* Reconfirmed */]: 2,
-    ["carried_unverified" /* CarriedUnverified */]: 3,
-    ["uncertain" /* Uncertain */]: 4,
-    ["resolved" /* Resolved */]: 5,
-    ["suppressed_by_human" /* SuppressedByHuman */]: 6
-  };
-  const severityOrder = {
-    critical: 0,
-    major: 1,
-    minor: 2
-  };
-  return [...occurrences].sort(
-    (left, right) => stateOrder[left.state] - stateOrder[right.state] || severityOrder[left.severity] - severityOrder[right.severity] || left.filePath.localeCompare(right.filePath) || (left.line ?? 0) - (right.line ?? 0) || left.lineageId.localeCompare(right.lineageId)
-  );
-}
-function normalizePath(path28) {
-  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
-}
-function sortedUnique(values) {
-  return Array.from(new Set(values)).sort(
-    (left, right) => left.localeCompare(right)
-  );
-}
-
-// src/review-projection/domain/review-projection-limits.ts
-var REVIEW_PROJECTION_ABSOLUTE_LIMITS = {
-  maxProjectionBytes: 2e6,
-  maxFindings: 1e3,
-  maxReferencesPerFinding: 100,
-  maxLineageHints: 2e3,
-  maxLifecycleTargets: 2e3,
-  maxRevisionFiles: 5e3,
-  maxDiffBytes: 2e6,
-  maxSummaryBytes: 65e3,
-  maxCheckSummaryBytes: 65e3,
-  maxInlineComments: 500,
-  maxInlineCommentsPerChunk: 50,
-  maxInlineChunks: 20,
-  maxInlineCommentBodyBytes: 65e3,
-  maxStringBytes: 65e3
-};
-var ReviewProjectionLimitError = class extends Error {
-  constructor(limitName, actual, maximum) {
-    super(
-      `review projection ${limitName} exceeded: ${actual} is greater than ${maximum}`
-    );
-    this.limitName = limitName;
-    this.actual = actual;
-    this.maximum = maximum;
-    this.name = "ReviewProjectionLimitError";
-  }
-};
-function validateReviewProjectionLimits(limits) {
-  for (const key of Object.keys(REVIEW_PROJECTION_ABSOLUTE_LIMITS)) {
-    const value = limits[key];
-    const absoluteMaximum = REVIEW_PROJECTION_ABSOLUTE_LIMITS[key];
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      throw new Error(`review projection ${key} must be a positive integer`);
-    }
-    if (value > absoluteMaximum) {
-      throw new ReviewProjectionLimitError(key, value, absoluteMaximum);
-    }
-  }
-  return Object.freeze({ ...limits });
-}
-function assertWithinProjectionLimit(limitName, actual, limits) {
-  const maximum = limits[limitName];
-  if (actual > maximum) {
-    throw new ReviewProjectionLimitError(limitName, actual, maximum);
-  }
-}
-
-// src/review-orchestration/infrastructure/github-review-state-adapter.ts
+var import_crypto33 = require("crypto");
 var GitHubReviewRevisionGuard = class {
   constructor(client, scope) {
     this.client = client;
@@ -101277,7 +101436,7 @@ var GitHubReviewRevisionGuard = class {
       baseSha: facts.baseSha,
       mergeBaseSha: facts.mergeBaseSha,
       headSha: facts.headSha,
-      reviewRevisionHash: sha25613(canonicalJson11(facts))
+      reviewRevisionHash: sha25614(canonicalJson11(facts))
     });
   }
 };
@@ -101327,7 +101486,7 @@ function mapFreshInventory(raw, expectedHeadSha, ledger) {
       manual: true
     }))
   ].sort(
-    (left, right) => compareCodeUnits6(left.target.targetId, right.target.targetId)
+    (left, right) => compareCodeUnits7(left.target.targetId, right.target.targetId)
   );
   if (new Set(rawTargets.map(({ target }) => target.targetId)).size !== rawTargets.length) {
     throw new Error("review_action_v2_lifecycle_inventory_duplicate_target");
@@ -101349,6 +101508,7 @@ function mapFreshInventory(raw, expectedHeadSha, ledger) {
     ...target.currentLine !== void 0 ? { currentLine: target.currentLine } : {},
     parentCommentUpdatedAt: target.parentCommentUpdatedAt,
     threadCommentCount: target.threadCommentCount,
+    threadStateHash: requireThreadStateHash(target.threadStateHash),
     disposition: target.reasonCodes?.includes("command_dismissed") ? "command_suppressed" /* CommandSuppressed */ : manual || target.hasHumanReply ? "human_reply" /* HumanReply */ : "active" /* Active */,
     viewerCanResolve: target.viewerCanResolve,
     ...target.trustedResolutionMarker ? {
@@ -101362,7 +101522,7 @@ function mapFreshInventory(raw, expectedHeadSha, ledger) {
   }));
   const commandWatermark = commandLedgerWatermark(ledger.payload);
   const commandLedgerWatermarkValue = String(commandWatermark);
-  const lifecycleStateHash = sha25613(
+  const lifecycleStateHash = sha25614(
     canonicalJson11({
       commandLedgerWatermark: commandLedgerWatermarkValue,
       complete: true,
@@ -101398,6 +101558,12 @@ function requireCommitSha(value, field) {
     throw new Error(`review_action_v2_${field}_invalid`);
   }
   return value.toLowerCase();
+}
+function requireThreadStateHash(value) {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error("review_action_v2_lifecycle_thread_state_hash_invalid");
+  }
+  return value;
 }
 var TRANSIENT_GITHUB_NETWORK_ERROR_CODES2 = [
   "EAI_AGAIN",
@@ -101463,17 +101629,17 @@ function canonicalJson11(value) {
   }
   return JSON.stringify(value);
 }
-function sha25613(value) {
-  return (0, import_crypto32.createHash)("sha256").update(value).digest("hex");
+function sha25614(value) {
+  return (0, import_crypto33.createHash)("sha256").update(value).digest("hex");
 }
-function compareCodeUnits6(left, right) {
+function compareCodeUnits7(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
 }
 
 // src/review-orchestration/infrastructure/production-review-projection.ts
-var import_crypto34 = require("crypto");
+var import_crypto35 = require("crypto");
 
 // src/review-projection/application/build-current-review-projection.ts
 var BuildCurrentReviewProjection = class {
@@ -101592,6 +101758,7 @@ var BuildCurrentReviewProjection = class {
         reasonCodes: sortedUnique2(gate.reasonCodes)
       },
       publishing: {
+        lifecycleObservationVersion: "review_lifecycle_observation.v1" /* V1 */,
         summary: {
           marker: publicationMarker("summary", command.scope),
           body: summaryBody,
@@ -101718,6 +101885,12 @@ var BuildCurrentReviewProjection = class {
       inventory.targets.map((target) => target.targetId)
     );
     for (const target of inventory.targets) {
+      if (!isReviewLifecycleMarkerFingerprint(target.trustedMarker)) {
+        throw new Error("lifecycle trustedMarker must be lowercase 24-64 hex");
+      }
+      if (!/^[a-f0-9]{64}$/.test(target.threadStateHash)) {
+        throw new Error("lifecycle threadStateHash must be lowercase sha256");
+      }
       for (const value of [
         target.targetId,
         target.threadId,
@@ -101725,7 +101898,8 @@ var BuildCurrentReviewProjection = class {
         target.title,
         target.message,
         target.originalPath,
-        target.currentPath ?? ""
+        target.currentPath ?? "",
+        target.threadStateHash
       ]) {
         assertWithinProjectionLimit(
           "maxStringBytes",
@@ -101882,6 +102056,8 @@ function buildLifecycleFacts(inventory, decisions, hints, coverage, occurrences)
     return {
       targetId: target.targetId,
       threadId: target.threadId,
+      markerFingerprint: target.trustedMarker,
+      threadStateHash: target.threadStateHash,
       ...hint ? { lineageId: hint.lineageId } : {},
       verdict,
       reasonCodes,
@@ -102561,7 +102737,7 @@ function sortedUnique3(values) {
 }
 
 // src/review-orchestration/infrastructure/current-review-projection-builder-adapter.ts
-var import_crypto33 = require("crypto");
+var import_crypto34 = require("crypto");
 var CurrentReviewProjectionBuilderAdapter = class {
   constructor(projection, commands) {
     this.projection = projection;
@@ -102574,7 +102750,7 @@ var CurrentReviewProjectionBuilderAdapter = class {
     }
     const built = await this.projection.execute(command);
     const operationsCanonicalJson = canonicalJson12(built.envelope.publishing);
-    const artifactHash = sha25614(
+    const artifactHash = sha25615(
       `rr.review-artifact.v1\0${canonicalJson12({
         operationsCanonicalJson,
         projectionHash: built.projectionHash
@@ -102605,8 +102781,8 @@ function canonicalJson12(value) {
   }
   return JSON.stringify(value);
 }
-function sha25614(value) {
-  return (0, import_crypto33.createHash)("sha256").update(value).digest("hex");
+function sha25615(value) {
+  return (0, import_crypto34.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/infrastructure/production-review-projection.ts
@@ -102641,7 +102817,7 @@ var ProductionReviewProjectionCommandFactory = class {
       reviewRevisionHash: input.reviewRevisionHash
     });
     const authoritativeObservationIds = Object.freeze(
-      [...evidence.values()].map(({ observation }) => observation.observationId).sort(compareCodeUnits7)
+      [...evidence.values()].map(({ observation }) => observation.observationId).sort(compareCodeUnits8)
     );
     const findings = [];
     const revalidations = [];
@@ -102740,13 +102916,13 @@ var ProductionReviewProjectionCommandFactory = class {
       providerExecution,
       currentFindings: Object.freeze(
         findings.sort(
-          (left, right) => compareCodeUnits7(left.sourceFindingId, right.sourceFindingId)
+          (left, right) => compareCodeUnits8(left.sourceFindingId, right.sourceFindingId)
         )
       ),
       priorLineageHints: Object.freeze([]),
       lifecycleRevalidations: Object.freeze(
         revalidations.sort(
-          (left, right) => compareCodeUnits7(left.targetId, right.targetId)
+          (left, right) => compareCodeUnits8(left.targetId, right.targetId)
         )
       ),
       coverage: {
@@ -102977,19 +103153,19 @@ function isRecord7(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function deterministicId(namespace, parts) {
-  return `rr:${namespace}:${sha25615(parts.join("\0")).slice(0, 40)}`;
+  return `rr:${namespace}:${sha25616(parts.join("\0")).slice(0, 40)}`;
 }
-function compareCodeUnits7(left, right) {
+function compareCodeUnits8(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
 }
-function sha25615(value) {
-  return (0, import_crypto34.createHash)("sha256").update(value).digest("hex");
+function sha25616(value) {
+  return (0, import_crypto35.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter.ts
-var import_crypto35 = require("crypto");
+var import_crypto36 = require("crypto");
 var ReviewActionV2ControlPlaneAdapter = class {
   constructor(client) {
     this.client = client;
@@ -104418,7 +104594,7 @@ function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function digest(value) {
-  return (0, import_crypto35.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto36.createHash)("sha256").update(value).digest("hex");
 }
 function deterministicIdempotencyKey(purpose, parts) {
   return `rr:${purpose}:${digest(
@@ -104467,7 +104643,7 @@ var ReplayInvestigationOnRevision = class {
     }
     if (!await this.isCurrent(input)) return null;
     replayProofs.sort(
-      (left, right) => compareCodeUnits8(left.obligationId, right.obligationId)
+      (left, right) => compareCodeUnits9(left.obligationId, right.obligationId)
     );
     return this.dependencies.controlPlane.replay({
       open: input.open,
@@ -104497,7 +104673,7 @@ var ReplayInvestigationOnRevision = class {
     }) === "current" /* Current */;
   }
 };
-function compareCodeUnits8(left, right) {
+function compareCodeUnits9(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
@@ -104997,6 +105173,7 @@ var CLAUDE_NATIVE_TOOLS = Object.freeze([
 ]);
 
 // src/review-investigation/infrastructure/codex-app-server-protocol.ts
+var import_crypto37 = require("crypto");
 var import_path5 = __toESM(require("path"));
 var CODEX_APP_SERVER_VERSION = "0.145.0";
 var CODEX_APP_SERVER_MCP_NAME = "reviewrouter";
@@ -105039,6 +105216,25 @@ var FORBIDDEN_ITEM_TYPES = /* @__PURE__ */ new Set([
   "enteredReviewMode",
   "exitedReviewMode"
 ]);
+var CODEX_ERROR_INFO_STRING_VARIANTS = /* @__PURE__ */ new Set([
+  "contextWindowExceeded",
+  "sessionBudgetExceeded",
+  "usageLimitExceeded",
+  "serverOverloaded",
+  "cyberPolicy",
+  "internalServerError",
+  "unauthorized",
+  "badRequest",
+  "threadRollbackFailed",
+  "sandboxError",
+  "other"
+]);
+var CODEX_ERROR_INFO_HTTP_VARIANTS = /* @__PURE__ */ new Set([
+  "httpConnectionFailed",
+  "responseStreamConnectionFailed",
+  "responseStreamDisconnected",
+  "responseTooManyFailedAttempts"
+]);
 var CodexAppServerProtocolClient = class {
   constructor(request, write) {
     this.request = request;
@@ -105051,7 +105247,7 @@ var CodexAppServerProtocolClient = class {
   threadStartedSignal = deferred();
   pending = /* @__PURE__ */ new Map();
   activeItems = /* @__PURE__ */ new Map();
-  completedItemIds = /* @__PURE__ */ new Set();
+  completedItems = /* @__PURE__ */ new Map();
   rawUsageByResponseId = /* @__PURE__ */ new Map();
   allowedTools;
   nextRequestId = 1;
@@ -105071,6 +105267,7 @@ var CodexAppServerProtocolClient = class {
   lastAggregateUsage = null;
   completionResolved = false;
   postCompletionFailure = null;
+  retainedTerminalError = null;
   async run() {
     const initializeResult = await this.sendRequest("initialize", {
       clientInfo: {
@@ -105258,8 +105455,8 @@ var CodexAppServerProtocolClient = class {
         this.assertTurnFence(params);
         throw modelFailure();
       case "error":
-        this.assertTurnFence(params);
-        throw responseFailure(requireRecord2(params.error, "turn_error"));
+        this.onErrorNotification(params);
+        return;
       default:
         if (IGNORED_NOTIFICATION_METHODS.has(method)) return;
         throw streamFailure2();
@@ -105268,7 +105465,7 @@ var CodexAppServerProtocolClient = class {
   bindThread(value) {
     const response = requireRecord2(value, "thread_start_response");
     const thread = requireRecord2(response.thread, "thread");
-    const threadId = requireIdentifier(thread.id, "thread_id");
+    const threadId = requireIdentifier2(thread.id, "thread_id");
     const actualModel = requireModel(response.model);
     const responseModelProvider = requireModelProvider(response.modelProvider);
     const threadModelProvider = requireModelProvider(thread.modelProvider);
@@ -105284,7 +105481,7 @@ var CodexAppServerProtocolClient = class {
     if (!this.threadId) throw streamFailure2();
     const response = requireRecord2(value, "turn_start_response");
     const turn = requireRecord2(response.turn, "turn");
-    const turnId = requireIdentifier(turn.id, "turn_id");
+    const turnId = requireIdentifier2(turn.id, "turn_id");
     if (turn.status !== "inProgress" || turn.error !== null || !Array.isArray(turn.items) || turn.items.length !== 0 || this.provisionalTurnId !== null && this.provisionalTurnId !== turnId) {
       throw streamFailure2();
     }
@@ -105294,7 +105491,7 @@ var CodexAppServerProtocolClient = class {
   onThreadStarted(params) {
     if (!this.initialized || this.threadStarted) throw streamFailure2();
     const thread = requireRecord2(params.thread, "thread_started_thread");
-    const threadId = requireIdentifier(thread.id, "thread_id");
+    const threadId = requireIdentifier2(thread.id, "thread_id");
     if (this.provisionalThreadId !== null && this.provisionalThreadId !== threadId || thread.ephemeral !== true || thread.path !== null || thread.cliVersion !== CODEX_APP_SERVER_VERSION || thread.cwd !== this.request.cwd || !Array.isArray(thread.turns) || thread.turns.length !== 0) {
       throw confinementFailure();
     }
@@ -105307,7 +105504,7 @@ var CodexAppServerProtocolClient = class {
     const name = requireNonEmptyString(params.name, "mcp_server_name");
     if (name !== CODEX_APP_SERVER_MCP_NAME) throw confinementFailure();
     if (params.threadId !== null) {
-      this.assertThreadId(requireIdentifier(params.threadId, "thread_id"));
+      this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
     }
     if (params.status !== "starting" && params.status !== "ready" && params.status !== "failed" && params.status !== "cancelled") {
       throw streamFailure2();
@@ -105318,9 +105515,9 @@ var CodexAppServerProtocolClient = class {
   }
   onTurnStarted(params) {
     if (!this.threadStarted || this.turnStarted) throw streamFailure2();
-    this.assertThreadId(requireIdentifier(params.threadId, "thread_id"));
+    this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
     const turn = requireRecord2(params.turn, "turn_started_turn");
-    const turnId = requireIdentifier(turn.id, "turn_id");
+    const turnId = requireIdentifier2(turn.id, "turn_id");
     if (this.provisionalTurnId !== null && this.provisionalTurnId !== turnId || turn.status !== "inProgress" || turn.error !== null || !Array.isArray(turn.items) || turn.items.length !== 0) {
       throw streamFailure2();
     }
@@ -105331,9 +105528,9 @@ var CodexAppServerProtocolClient = class {
     this.assertTurnFence(params);
     if (!this.turnStarted || this.turnCompleted) throw streamFailure2();
     const item = requireRecord2(params.item, "item");
-    const id = requireIdentifier(item.id, "item_id");
+    const id = requireIdentifier2(item.id, "item_id");
     const type2 = requireNonEmptyString(item.type, "item_type");
-    if (this.activeItems.has(id) || this.completedItemIds.has(id)) {
+    if (this.activeItems.has(id) || this.completedItems.has(id)) {
       throw streamFailure2();
     }
     this.validateAllowedItem(item, "started");
@@ -105348,10 +105545,10 @@ var CodexAppServerProtocolClient = class {
     this.assertTurnFence(params);
     if (!this.turnStarted || this.turnCompleted) throw streamFailure2();
     const item = requireRecord2(params.item, "item");
-    const id = requireIdentifier(item.id, "item_id");
+    const id = requireIdentifier2(item.id, "item_id");
     const type2 = requireNonEmptyString(item.type, "item_type");
     const active = this.activeItems.get(id);
-    if (!active || active.type !== type2 || this.completedItemIds.has(id)) {
+    if (!active || active.type !== type2 || this.completedItems.has(id)) {
       throw streamFailure2();
     }
     this.validateAllowedItem(item, "completed");
@@ -105359,8 +105556,29 @@ var CodexAppServerProtocolClient = class {
       throw confinementFailure();
     }
     this.activeItems.delete(id);
-    this.completedItemIds.add(id);
+    this.completedItems.set(id, active);
     if (type2 === "agentMessage") this.captureFinalMessage(item);
+  }
+  validateTurnItemSnapshot(items) {
+    const snapshotItemIds = /* @__PURE__ */ new Set();
+    for (const value of items) {
+      try {
+        const item = requireRecord2(value, "turn_snapshot_item");
+        const id = requireIdentifier2(item.id, "item_id");
+        const type2 = requireNonEmptyString(item.type, "item_type");
+        this.validateAllowedItem(item, "completed");
+        const observed = this.completedItems.get(id);
+        if (!observed || snapshotItemIds.has(id) || observed.type !== type2 || type2 === "mcpToolCall" && (observed.server !== item.server || observed.tool !== item.tool)) {
+          throw streamFailure2();
+        }
+        snapshotItemIds.add(id);
+      } catch (error2) {
+        if (error2 instanceof ReviewAgentExecutionError) {
+          throw streamFailure2();
+        }
+        throw error2;
+      }
+    }
   }
   validateAllowedItem(item, lifecycle) {
     const type2 = requireNonEmptyString(item.type, "item_type");
@@ -105431,7 +105649,7 @@ var CodexAppServerProtocolClient = class {
   onRawResponseCompleted(params) {
     this.assertTurnFence(params);
     if (!this.turnStarted || this.turnCompleted) throw streamFailure2();
-    const responseId = requireIdentifier(params.responseId, "response_id");
+    const responseId = requireIdentifier2(params.responseId, "response_id");
     if (params.usage === null) throw usageFailure2();
     const usage = parseTokenUsage(params.usage);
     const existing = this.rawUsageByResponseId.get(responseId);
@@ -105450,15 +105668,57 @@ var CodexAppServerProtocolClient = class {
       throw usageFailure2();
     }
   }
-  onTurnCompleted(params) {
-    this.assertThreadId(requireIdentifier(params.threadId, "thread_id"));
-    const turn = requireRecord2(params.turn, "turn_completed_turn");
-    this.assertTurnId(requireIdentifier(turn.id, "turn_id"));
-    if (!this.turnStarted || this.turnCompleted || turn.status !== "completed" || turn.error !== null || !Array.isArray(turn.items) || turn.items.length !== 0 || this.activeItems.size !== 0) {
+  onErrorNotification(params) {
+    if (!this.turnStarted || this.turnCompleted || !hasOnlyKeys(params, ["error", "threadId", "turnId", "willRetry"]) || typeof params.willRetry !== "boolean") {
       throw streamFailure2();
     }
-    this.turnCompleted = true;
-    this.maybeComplete();
+    this.assertTurnFence(params);
+    const parsed = parseTurnError(params.error);
+    if (params.willRetry) {
+      if (this.retainedTerminalError !== null) throw streamFailure2();
+      return;
+    }
+    if (this.retainedTerminalError !== null) throw streamFailure2();
+    this.retainedTerminalError = parsed;
+  }
+  onTurnCompleted(params) {
+    this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
+    const turn = requireRecord2(params.turn, "turn_completed_turn");
+    this.assertTurnId(requireIdentifier2(turn.id, "turn_id"));
+    if (!this.turnStarted || this.turnCompleted || !Array.isArray(turn.items)) {
+      throw streamFailure2();
+    }
+    this.validateTurnItemSnapshot(turn.items);
+    const turnError = turn.error ?? null;
+    switch (turn.status) {
+      case "completed":
+        if (turnError !== null || this.retainedTerminalError !== null || this.activeItems.size !== 0) {
+          throw streamFailure2();
+        }
+        this.turnCompleted = true;
+        this.maybeComplete();
+        return;
+      case "failed": {
+        if (this.activeItems.size !== 0) throw streamFailure2();
+        const completedError = parseTurnError(turnError);
+        const retained = this.retainedTerminalError;
+        if (retained === null || retained.fingerprint !== completedError.fingerprint) {
+          throw streamFailure2();
+        }
+        this.turnCompleted = true;
+        this.fail(retained.failure);
+        return;
+      }
+      case "interrupted":
+        if (turnError !== null || this.activeItems.size !== 0) {
+          throw streamFailure2();
+        }
+        this.turnCompleted = true;
+        this.fail(cancelledFailure());
+        return;
+      default:
+        throw streamFailure2();
+    }
   }
   maybeComplete() {
     if (!this.turnCompleted || this.failed) return;
@@ -105499,8 +105759,8 @@ var CodexAppServerProtocolClient = class {
     );
   }
   assertTurnFence(params) {
-    this.assertThreadId(requireIdentifier(params.threadId, "thread_id"));
-    this.assertTurnId(requireIdentifier(params.turnId, "turn_id"));
+    this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
+    this.assertTurnId(requireIdentifier2(params.turnId, "turn_id"));
   }
   assertThreadId(threadId) {
     const expected = this.threadId ?? this.provisionalThreadId;
@@ -105537,14 +105797,16 @@ function classifyCodexAppServerDiagnostic(diagnostic, fallback2 = "process_failu
   )) {
     return schemaFailure2();
   }
-  if (/(?:usage limit|quota|insufficient_quota|billing limit)/iu.test(diagnostic)) {
+  if (/(?:usage\s*limit|usageLimitExceeded|sessionBudgetExceeded|quota|insufficient_quota|billing limit)/iu.test(
+    diagnostic
+  )) {
     return new ReviewAgentExecutionError(
       "quota_unavailable" /* QuotaUnavailable */,
       null,
       "review_agent_quota_unavailable"
     );
   }
-  if (/(?:capacity[_ -]unavailable|overloaded|too many requests|\b429\b|rate limit)/iu.test(
+  if (/(?:capacity[_ -]unavailable|serverOverloaded|overloaded|too many requests|\b429\b|rate limit)/iu.test(
     diagnostic
   )) {
     return new ReviewAgentExecutionError(
@@ -105631,6 +105893,78 @@ function responseFailure(value) {
   const diagnostic = `${error2.code} ${error2.message} ${safeJson(error2.data)}`.slice(0, 16384);
   return classifyCodexAppServerDiagnostic(diagnostic);
 }
+function parseTurnError(value) {
+  const error2 = requireRecord2(value, "turn_error");
+  const additionalDetails = error2.additionalDetails ?? null;
+  const codexErrorInfo = parseCodexErrorInfo(error2.codexErrorInfo ?? null);
+  if (typeof error2.message !== "string" || error2.message.length > 16384 || additionalDetails !== null && (typeof additionalDetails !== "string" || additionalDetails.length > 16384)) {
+    throw streamFailure2();
+  }
+  if (error2.message.length === 0 && !hasCodexErrorClassification(codexErrorInfo)) {
+    throw streamFailure2();
+  }
+  const normalized = Object.freeze({
+    message: error2.message,
+    additionalDetails,
+    codexErrorInfo
+  });
+  const canonical = canonicalProtocolValue(normalized);
+  if (Buffer.byteLength(canonical, "utf8") > 32768) {
+    throw streamFailure2();
+  }
+  const diagnostic = [
+    error2.message,
+    additionalDetails ?? "",
+    safeJson(codexErrorInfo)
+  ].join(" ").slice(0, 16384);
+  return Object.freeze({
+    failure: classifyCodexAppServerDiagnostic(diagnostic),
+    fingerprint: (0, import_crypto37.createHash)("sha256").update(canonical).digest("hex")
+  });
+}
+function hasCodexErrorClassification(value) {
+  return value !== null;
+}
+function parseCodexErrorInfo(value) {
+  if (value === null) return null;
+  if (typeof value === "string") {
+    if (!CODEX_ERROR_INFO_STRING_VARIANTS.has(value)) throw streamFailure2();
+    return value;
+  }
+  const tagged = requireRecord2(value, "codex_error_info");
+  const variants = Object.keys(tagged);
+  if (variants.length !== 1) throw streamFailure2();
+  const variant = variants[0];
+  const payload = requireRecord2(tagged[variant], "codex_error_info_payload");
+  if (CODEX_ERROR_INFO_HTTP_VARIANTS.has(variant)) {
+    if (!hasRequiredAndOptionalKeys(payload, [], ["httpStatusCode"])) {
+      throw streamFailure2();
+    }
+    const status = payload.httpStatusCode;
+    if (status !== void 0 && status !== null && (!Number.isSafeInteger(status) || status < 0 || status > 65535)) {
+      throw streamFailure2();
+    }
+    return value;
+  }
+  if (variant === "activeTurnNotSteerable" && hasOnlyKeys(payload, ["turnKind"]) && (payload.turnKind === "review" || payload.turnKind === "compact")) {
+    return value;
+  }
+  throw streamFailure2();
+}
+function canonicalProtocolValue(value) {
+  if (value === null || typeof value !== "object") {
+    const encoded = JSON.stringify(value);
+    if (typeof encoded !== "string") throw streamFailure2();
+    return encoded;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalProtocolValue).join(",")}]`;
+  }
+  const record = value;
+  return `{${Object.keys(record).sort().map(
+    (key) => `${JSON.stringify(key)}:${canonicalProtocolValue(record[key])}`
+  ).join(",")}}`;
+}
 function normalizeProtocolFailure(error2) {
   return error2 instanceof ReviewAgentExecutionError ? error2 : streamFailure2();
 }
@@ -105665,7 +105999,7 @@ function containsControlCharacter(value) {
   }
   return false;
 }
-function requireIdentifier(value, field) {
+function requireIdentifier2(value, field) {
   const result2 = requireNonEmptyString(value, field);
   if (result2.length > 512) throw streamFailure2();
   return result2;
@@ -105757,6 +106091,13 @@ function processFailure() {
     "review_agent_process_failure"
   );
 }
+function cancelledFailure() {
+  return new ReviewAgentExecutionError(
+    "cancelled" /* Cancelled */,
+    null,
+    "review_agent_process_cancelled"
+  );
+}
 function failureCode(failureClass) {
   switch (failureClass) {
     case "capability_unavailable" /* CapabilityUnavailable */:
@@ -105819,7 +106160,7 @@ var NodeCodexAppServerTurnRunner = class {
     if (this.active.has(request.invocationId)) {
       throw processFailure2();
     }
-    if (request.signal?.aborted) throw cancelledFailure();
+    if (request.signal?.aborted) throw cancelledFailure2();
     const startedAt = Date.now();
     const abortController = new AbortController();
     const active = {
@@ -105837,7 +106178,7 @@ var NodeCodexAppServerTurnRunner = class {
         signal: abortController.signal,
         timeoutMs: request.timeoutMs
       });
-      if (abortController.signal.aborted) throw cancelledFailure();
+      if (abortController.signal.aborted) throw cancelledFailure2();
       const remainingMs = request.timeoutMs - (Date.now() - startedAt);
       if (remainingMs < 1) throw timeoutFailure();
       let child;
@@ -105905,7 +106246,7 @@ var NodeCodexAppServerTurnRunner = class {
 };
 var NodeCodexAppServerVersionProbe = class {
   assertSupported(request) {
-    if (request.signal?.aborted) return Promise.reject(cancelledFailure());
+    if (request.signal?.aborted) return Promise.reject(cancelledFailure2());
     return new Promise((resolve5, reject) => {
       let child;
       try {
@@ -105968,7 +106309,7 @@ var NodeCodexAppServerVersionProbe = class {
       });
       child.on("close", (code) => {
         if (termination === "cancelled") {
-          settle(cancelledFailure());
+          settle(cancelledFailure2());
           return;
         }
         if (termination === "timed_out") {
@@ -106197,7 +106538,7 @@ var CodexAppServerChildTurn = class {
       return;
     }
     if (this.forcedTermination === "cancelled" /* Cancelled */) {
-      this.settleFailure(cancelledFailure());
+      this.settleFailure(cancelledFailure2());
       return;
     }
     if (this.terminalError) {
@@ -106268,7 +106609,7 @@ function timeoutFailure() {
     "review_agent_process_timeout"
   );
 }
-function cancelledFailure() {
+function cancelledFailure2() {
   return new ReviewAgentExecutionError(
     "cancelled" /* Cancelled */,
     null,
@@ -107412,9 +107753,9 @@ function nullableTimestamp(value, field) {
 }
 
 // src/review-investigation/infrastructure/review-action-v2-investigation-lease-adapter.ts
-var import_crypto36 = require("crypto");
+var import_crypto38 = require("crypto");
 var ReviewActionV2InvestigationLeaseAdapter = class {
-  constructor(client, requestId = import_crypto36.randomUUID) {
+  constructor(client, requestId = import_crypto38.randomUUID) {
     this.client = client;
     this.requestId = requestId;
   }
@@ -107582,7 +107923,7 @@ function leaseFromAcquire(input) {
   return lease;
 }
 function deterministicId2(namespace, parts) {
-  const digest2 = (0, import_crypto36.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
+  const digest2 = (0, import_crypto38.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
   return `rr:${namespace}:${digest2}`;
 }
 function requireString5(value, field) {
@@ -107997,7 +108338,10 @@ var ReviewInvestigationRecordingAdapter = class {
     }
     if (isDeferred(result2.status)) {
       if (this.mode === "record_only" /* RecordOnly */) {
-        throw new ReviewInvestigationLegacyFallbackSignal();
+        throw new ReviewInvestigationLegacyFallbackSignal(
+          "record_only_deferred" /* RecordOnlyDeferred */,
+          result2.status
+        );
       }
       throw new ReviewInvestigationDeferredSignal(result2.status);
     }
@@ -108366,7 +108710,7 @@ function capabilityUnavailable(message) {
 }
 
 // src/review-orchestration/infrastructure/review-action-v2-investigation-context-attestation-adapter.ts
-var import_crypto37 = require("crypto");
+var import_crypto39 = require("crypto");
 var ReviewActionV2InvestigationContextAttestationAdapter = class {
   constructor(client, authorizationToken) {
     this.client = client;
@@ -108476,7 +108820,7 @@ var ReviewActionV2InvestigationContextAttestationAdapter = class {
   }
 };
 function deterministicId3(namespace, parts) {
-  const digest2 = (0, import_crypto37.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
+  const digest2 = (0, import_crypto39.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
   return `rr:${namespace}:${digest2}`;
 }
 function requireString6(value, field) {
@@ -108796,7 +109140,7 @@ var ProductionT0ReviewRunner = class {
         ),
         sourceRunId: authorization.facts.sourceRunId,
         sourceRunAttempt: authorization.facts.sourceRunAttempt,
-        ownerIdHash: sha25616(
+        ownerIdHash: sha25617(
           canonicalJson13({
             authorizationId: authorization.authorizationId,
             providerInstanceId: input.providerInstanceId,
@@ -109245,8 +109589,8 @@ function canonicalJson13(value) {
   }
   return JSON.stringify(value);
 }
-function sha25616(value) {
-  return (0, import_crypto38.createHash)("sha256").update(value).digest("hex");
+function sha25617(value) {
+  return (0, import_crypto40.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/codex-oauth/action.ts

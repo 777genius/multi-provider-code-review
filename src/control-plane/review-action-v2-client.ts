@@ -119,6 +119,7 @@ export interface ReviewActionV2ClientOptions {
   readonly fetchImpl?: FetchImplementation;
   readonly requestIdFactory?: () => string;
   readonly sleep?: (delayMs: number) => Promise<void>;
+  readonly random?: () => number;
   readonly maxAttempts?: number;
   readonly maxResponseBytes?: number;
   readonly allowInsecureLocalhost?: boolean;
@@ -212,6 +213,7 @@ export class ReviewActionV2Client {
   private readonly fetchImpl: FetchImplementation;
   private readonly requestIdFactory: () => string;
   private readonly sleep: (delayMs: number) => Promise<void>;
+  private readonly random: () => number;
   private readonly maxAttempts: number;
   private readonly maxResponseBytes: number;
   private readonly validators: Record<
@@ -227,6 +229,7 @@ export class ReviewActionV2Client {
     this.sleep =
       options.sleep ??
       ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
+    this.random = options.random ?? Math.random;
     this.maxAttempts = clampInteger(options.maxAttempts ?? 2, 1, 3);
     this.maxResponseBytes = clampInteger(
       options.maxResponseBytes ?? 2_097_152,
@@ -245,6 +248,7 @@ export class ReviewActionV2Client {
     const manifest = requireOperationManifest(operationId);
     const request = this.frameRequest(operationId, payload);
     const serializedRequest = JSON.stringify(request);
+    let capacityRetryConsumed = false;
 
     if (
       Buffer.byteLength(serializedRequest, 'utf8') > descriptor.bodyLimitBytes
@@ -267,11 +271,13 @@ export class ReviewActionV2Client {
         const normalized = normalizeClientError(error, operationId);
         if (
           attempt >= this.maxAttempts ||
-          !isRetryAllowed(descriptor.semanticRetryClass, normalized)
+          !isRetryAllowed(descriptor.semanticRetryClass, normalized) ||
+          (isCapacityLimited(normalized) && capacityRetryConsumed)
         ) {
           throw normalized;
         }
-        await this.sleep(normalized.retryAfterMs ?? 0);
+        if (isCapacityLimited(normalized)) capacityRetryConsumed = true;
+        await this.sleep(retryDelayMs(normalized, attempt, this.random));
       }
     }
 
@@ -581,6 +587,27 @@ function isRetryAllowed(
     return error.retryClass === semanticRetryClass;
   }
   return true;
+}
+
+function isCapacityLimited(error: ReviewActionV2ClientError): boolean {
+  return (
+    error.code === ReviewActionV2ClientFailureCode.ProtocolError &&
+    error.protocolErrorCode === ReviewActionV2ProtocolErrorCode.CapacityLimited
+  );
+}
+
+function retryDelayMs(
+  error: ReviewActionV2ClientError,
+  attempt: number,
+  random: () => number
+): number {
+  if (!isCapacityLimited(error)) return error.retryAfterMs ?? 0;
+  const baseDelayMs = Math.min(500 * 2 ** Math.max(0, attempt - 1), 5_000);
+  const sample = random();
+  const boundedSample =
+    Number.isFinite(sample) && sample >= 0 && sample < 1 ? sample : 0;
+  const jitteredDelayMs = baseDelayMs + Math.floor(baseDelayMs * boundedSample);
+  return Math.min(Math.max(error.retryAfterMs ?? 0, jitteredDelayMs), 30_000);
 }
 
 function readRetryAfterMs(response: Response): number | undefined {

@@ -19,6 +19,7 @@ import {
 } from '../../review-investigation/application/investigation-control-plane-port';
 import {
   ReviewInvestigationDeferredSignal,
+  ReviewInvestigationLegacyFallbackReason,
   ReviewInvestigationLegacyFallbackSignal,
   RunInvestigationWorkSlot,
 } from '../../review-investigation/application/run-investigation-work-slot';
@@ -216,7 +217,10 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
     }
     if (isDeferred(result.status)) {
       if (this.mode === ReviewInvestigationRecordingMode.RecordOnly) {
-        throw new ReviewInvestigationLegacyFallbackSignal();
+        throw new ReviewInvestigationLegacyFallbackSignal(
+          ReviewInvestigationLegacyFallbackReason.RecordOnlyDeferred,
+          result.status
+        );
       }
       throw new ReviewInvestigationDeferredSignal(result.status);
     }

@@ -1,10 +1,6 @@
 import { createHash } from 'crypto';
 import { GitHubClient } from './client';
-import {
-  LifecycleReasonCode,
-  LifecycleTarget,
-  LifecycleThreadRecord,
-} from '../types';
+import { LifecycleReasonCode, LifecycleTarget } from '../types';
 import {
   extractFindingFingerprint,
   extractInlineSeverity,
@@ -13,6 +9,7 @@ import {
   stripInlineFingerprintMarkers,
 } from './comment-fingerprint';
 import { logger } from '../utils/logger';
+import { hashReviewLifecycleThreadState } from '../review-projection/domain';
 
 export const DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS = ['review-router-ai[bot]'];
 const GITHUB_ACTIONS_BOT_AUTHOR = 'github-actions[bot]';
@@ -36,13 +33,25 @@ const APP_SLUG_ENV_KEYS = [
   'AI_ROBOT_REVIEW_APP_SLUG',
 ];
 
+const MAX_REVIEW_THREAD_PAGES = 100;
+const MAX_REVIEW_THREAD_COMMENT_PAGES = 100;
+
 export interface ReviewThreadInventory {
   headRefOid?: string;
-  candidates: LifecycleTarget[];
-  manualAttention: LifecycleThreadRecord[];
+  candidates: ReviewThreadLifecycleTarget[];
+  manualAttention: ReviewThreadLifecycleRecord[];
   dedupeComments: InlineCommentReference[];
   warnings: string[];
   failed: boolean;
+}
+
+export interface ReviewThreadLifecycleTarget extends LifecycleTarget {
+  readonly threadStateHash: string;
+}
+
+export interface ReviewThreadLifecycleRecord {
+  readonly target: ReviewThreadLifecycleTarget;
+  readonly reasonCodes: LifecycleReasonCode[];
 }
 
 interface GraphQLPageInfo {
@@ -170,7 +179,13 @@ export class ReviewThreadInventoryLoader {
 
     try {
       let cursor: string | null | undefined;
+      let pageCount = 0;
+      const seenCursors = new Set<string>();
       do {
+        if (pageCount >= MAX_REVIEW_THREAD_PAGES) {
+          throw new Error('review thread pagination page limit exceeded');
+        }
+        pageCount += 1;
         const response = await this.graphql<{
           repository?: {
             pullRequest?: {
@@ -203,6 +218,10 @@ export class ReviewThreadInventoryLoader {
           if (!threads.pageInfo.endCursor) {
             throw new Error('review thread pagination cursor was missing');
           }
+          if (seenCursors.has(threads.pageInfo.endCursor)) {
+            throw new Error('review thread pagination cursor repeated');
+          }
+          seenCursors.add(threads.pageInfo.endCursor);
           cursor = threads.pageInfo.endCursor;
         } else {
           cursor = null;
@@ -236,24 +255,12 @@ export class ReviewThreadInventoryLoader {
     }
 
     let comments = thread.comments.nodes;
-    let commentsTruncated = Boolean(thread.comments?.pageInfo.hasNextPage);
-    if (commentsTruncated) {
-      try {
-        comments = await this.loadRemainingThreadComments(
-          thread.id,
-          comments,
-          thread.comments?.pageInfo.endCursor ?? null
-        );
-        commentsTruncated = false;
-      } catch (error) {
-        logger.warn(
-          `Failed to load complete review thread comments for ${thread.id}`,
-          error as Error
-        );
-        inventory.warnings.push(
-          `thread ${thread.id} comments pagination could not be completed`
-        );
-      }
+    if (thread.comments.pageInfo.hasNextPage) {
+      comments = await this.loadRemainingThreadComments(
+        thread.id,
+        comments,
+        thread.comments.pageInfo.endCursor ?? null
+      );
     }
 
     const parent = comments[0];
@@ -262,13 +269,19 @@ export class ReviewThreadInventoryLoader {
       throw new Error(`thread ${thread.id} parent comment was missing`);
     }
     if (!parentFingerprint) {
-      if (commentsTruncated) {
-        inventory.warnings.push(
-          `thread ${thread.id} has truncated comments before a ReviewRouter parent could be identified`
-        );
-      }
       return;
     }
+
+    const threadStateHash = hashReviewLifecycleThreadState({
+      threadId: thread.id,
+      comments: comments.map((comment) => ({
+        id: comment.id,
+        authorLogin: comment.author?.login,
+        body: comment.body,
+        createdAt: requireCommentTimestamp(comment.createdAt),
+        updatedAt: comment.updatedAt,
+      })),
+    });
 
     const body = parent.body || '';
     const fingerprint = parentFingerprint;
@@ -293,19 +306,15 @@ export class ReviewThreadInventoryLoader {
     if (!trustedAuthor) reasonCodes.push('untrusted_author');
     if (humanReply) reasonCodes.push('human_reply');
     if (!hasOldFindingDetails) reasonCodes.push('missing_old_finding_details');
-    if (commentsTruncated) reasonCodes.push('pagination_incomplete');
-
     const targetId = targetIdFor(thread.id, parent.id, fingerprint);
-    const trustedResolutionMarker = commentsTruncated
-      ? undefined
-      : findTrustedResolutionMarker({
-          comments,
-          targetId,
-          fingerprint,
-          expectedAuthorLogin: parent.author?.login,
-          isTrustedAuthor: (login) => this.isTrustedAuthor(login),
-        });
-    const target: LifecycleTarget = {
+    const trustedResolutionMarker = findTrustedResolutionMarker({
+      comments,
+      targetId,
+      fingerprint,
+      expectedAuthorLogin: parent.author?.login,
+      isTrustedAuthor: (login) => this.isTrustedAuthor(login),
+    });
+    const target: ReviewThreadLifecycleTarget = {
       targetId,
       threadId: thread.id,
       threadUrl: parent.url ?? undefined,
@@ -320,9 +329,11 @@ export class ReviewThreadInventoryLoader {
       diffHunk: parent.diffHunk ?? undefined,
       parentCommentId: parent.id,
       parentCommentDatabaseId: parent.databaseId ?? undefined,
-      parentCommentUpdatedAt:
-        parent.updatedAt || parent.createdAt || new Date(0).toISOString(),
+      parentCommentUpdatedAt: normalizeCommentTimestamp(
+        parent.updatedAt ?? requireCommentTimestamp(parent.createdAt)
+      ),
       threadCommentCount: comments.length,
+      threadStateHash,
       viewerCanResolve: Boolean(thread.viewerCanResolve),
       hasHumanReply: humanReply,
       trustedAuthor,
@@ -368,8 +379,14 @@ export class ReviewThreadInventoryLoader {
     }
     const comments = [...initialComments];
     let cursor: string | null = initialCursor;
+    let pageCount = 0;
+    const seenCursors = new Set([initialCursor]);
 
     while (cursor) {
+      if (pageCount >= MAX_REVIEW_THREAD_COMMENT_PAGES) {
+        throw new Error('thread comments pagination page limit exceeded');
+      }
+      pageCount += 1;
       const response: GraphQLThreadCommentsResponse =
         await this.graphql<GraphQLThreadCommentsResponse>(
           THREAD_COMMENTS_QUERY,
@@ -382,7 +399,10 @@ export class ReviewThreadInventoryLoader {
       if (!connection) {
         throw new Error('thread comments connection was missing');
       }
-      comments.push(...(connection.nodes ?? []));
+      if (!Array.isArray(connection.nodes)) {
+        throw new Error('thread comments nodes were missing');
+      }
+      comments.push(...connection.nodes);
       if (!connection.pageInfo.hasNextPage) {
         cursor = null;
         break;
@@ -390,6 +410,10 @@ export class ReviewThreadInventoryLoader {
       if (!connection.pageInfo.endCursor) {
         throw new Error('thread comments pagination cursor was missing');
       }
+      if (seenCursors.has(connection.pageInfo.endCursor)) {
+        throw new Error('thread comments pagination cursor repeated');
+      }
+      seenCursors.add(connection.pageInfo.endCursor);
       cursor = connection.pageInfo.endCursor;
     }
 
@@ -507,8 +531,9 @@ function findTrustedResolutionMarker(input: {
       targetId: marker.targetId,
       fingerprint: marker.fingerprint,
       commentId: comment.id,
-      commentUpdatedAt:
-        comment.updatedAt || comment.createdAt || new Date(0).toISOString(),
+      commentUpdatedAt: normalizeCommentTimestamp(
+        comment.updatedAt ?? requireCommentTimestamp(comment.createdAt)
+      ),
     };
   }
   return undefined;
@@ -532,6 +557,21 @@ function normalizeLifecycleSeverity(
     return value;
   }
   return 'unknown';
+}
+
+function requireCommentTimestamp(value?: string | null): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('review thread comment timestamp was missing');
+  }
+  return value;
+}
+
+function normalizeCommentTimestamp(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('review thread comment timestamp was invalid');
+  }
+  return parsed.toISOString();
 }
 
 function stripLifecycleCommentBody(body: string): string {

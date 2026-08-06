@@ -39,6 +39,14 @@ import {
 
 const HEAD = '1'.repeat(40);
 const BASE = '0'.repeat(40);
+const DEFAULT_MARKER = 'a'.repeat(24);
+const SAME_MARKER = 'b'.repeat(24);
+const CHANGED_MARKER = 'c'.repeat(24);
+const CARRIED_MARKER = 'd'.repeat(24);
+const RESOLVED_MARKER = 'e'.repeat(24);
+const CURRENT_MARKER = 'f'.repeat(24);
+const FINDING_MARKER = '1'.repeat(24);
+const ANOTHER_MARKER = '2'.repeat(24);
 
 class MutableInventoryPort implements CurrentLifecycleInventoryPort {
   calls = 0;
@@ -240,6 +248,37 @@ describe('BuildCurrentReviewProjection', () => {
     );
   });
 
+  it('rejects a lifecycle target without a lowercase sha256 state witness', async () => {
+    const useCase = createUseCase(
+      new MutableInventoryPort(
+        inventory({ targets: [target({ threadStateHash: 'A'.repeat(64) })] })
+      )
+    );
+
+    await expect(useCase.execute(command())).rejects.toThrow(
+      'lifecycle threadStateHash must be lowercase sha256'
+    );
+  });
+
+  it.each([
+    ['uppercase', 'A'.repeat(24)],
+    ['too short', 'a'.repeat(23)],
+    ['non-hex', `${'a'.repeat(23)}g`],
+  ])(
+    'rejects a lifecycle target with an invalid %s marker fingerprint',
+    async (_label, trustedMarker) => {
+      const useCase = createUseCase(
+        new MutableInventoryPort(
+          inventory({ targets: [target({ trustedMarker })] })
+        )
+      );
+
+      await expect(useCase.execute(command())).rejects.toThrow(
+        'lifecycle trustedMarker must be lowercase 24-64 hex'
+      );
+    }
+  );
+
   it('classifies new, reconfirmed, changed, carried and resolved occurrences', async () => {
     const newFinding = finding({
       sourceFindingId: 'new',
@@ -249,14 +288,14 @@ describe('BuildCurrentReviewProjection', () => {
     });
     const reconfirmedFinding = finding({
       sourceFindingId: 'same',
-      trustedMarker: 'same-marker',
+      trustedMarker: SAME_MARKER,
       normalizedFailureModeHash: 'same-mode',
       title: 'Same defect',
       line: 3,
     });
     const changedFinding = finding({
       sourceFindingId: 'changed',
-      trustedMarker: 'changed-marker',
+      trustedMarker: CHANGED_MARKER,
       normalizedFailureModeHash: 'changed-mode',
       severity: FindingSeverity.Critical,
       title: 'Changed defect',
@@ -264,10 +303,10 @@ describe('BuildCurrentReviewProjection', () => {
     });
     const inv = inventory({
       targets: [
-        target({ targetId: 'carried-target', trustedMarker: 'carried-marker' }),
+        target({ targetId: 'carried-target', trustedMarker: CARRIED_MARKER }),
         target({
           targetId: 'resolved-target',
-          trustedMarker: 'resolved-marker',
+          trustedMarker: RESOLVED_MARKER,
         }),
       ],
     });
@@ -277,25 +316,25 @@ describe('BuildCurrentReviewProjection', () => {
         priorLineageHints: [
           hint({
             lineageId: 'same-lineage',
-            trustedMarker: 'same-marker',
+            trustedMarker: SAME_MARKER,
             normalizedFailureModeHash: 'same-mode',
             title: 'Same defect',
           }),
           hint({
             lineageId: 'changed-lineage',
-            trustedMarker: 'changed-marker',
+            trustedMarker: CHANGED_MARKER,
             normalizedFailureModeHash: 'changed-mode',
             title: 'Changed defect',
           }),
           hint({
             lineageId: 'carried-lineage',
-            trustedMarker: 'carried-marker',
+            trustedMarker: CARRIED_MARKER,
             normalizedFailureModeHash: 'carried-mode',
             title: 'Carried defect',
           }),
           hint({
             lineageId: 'resolved-lineage',
-            trustedMarker: 'resolved-marker',
+            trustedMarker: RESOLVED_MARKER,
             normalizedFailureModeHash: 'resolved-mode',
             title: 'Resolved defect',
           }),
@@ -385,10 +424,27 @@ describe('BuildCurrentReviewProjection', () => {
       expect.objectContaining({
         targetId: 'target-1',
         threadId: 'thread-1',
+        markerFingerprint: DEFAULT_MARKER,
+        threadStateHash: 'a'.repeat(64),
         mutationEligible: false,
         reasonCodes: expect.arrayContaining(['partial_coverage']),
       }),
     ]);
+    expect(result.envelope.publishing.lifecycle[0]).not.toHaveProperty(
+      'parentCommentUpdatedAt'
+    );
+    expect(result.envelope.publishing.lifecycle[0]).not.toHaveProperty(
+      'threadCommentCount'
+    );
+    expect(result.envelope.publishing.lifecycle[0]).not.toHaveProperty(
+      'parentOwnedByIntegration'
+    );
+    expect(result.envelope.publishing.lifecycle[0]).not.toHaveProperty(
+      'hasHumanReply'
+    );
+    expect(result.envelope.publishing.lifecycleObservationVersion).toBe(
+      'review_lifecycle_observation.v1'
+    );
     expect(result.envelope.snapshot).toEqual({
       occurrenceProvenance: [],
       lineageHints: [],
@@ -417,9 +473,9 @@ describe('BuildCurrentReviewProjection', () => {
   });
 
   it('changes projection when a current human reply or skip changes inventory', async () => {
-    const currentFinding = finding({ trustedMarker: 'fp-1' });
+    const currentFinding = finding({ trustedMarker: CURRENT_MARKER });
     const inventoryPort = new MutableInventoryPort(
-      inventory({ targets: [target({ trustedMarker: 'fp-1' })] })
+      inventory({ targets: [target({ trustedMarker: CURRENT_MARKER })] })
     );
     const useCase = createUseCase(inventoryPort);
     const active = await useCase.execute(
@@ -429,7 +485,7 @@ describe('BuildCurrentReviewProjection', () => {
       lifecycleStateHash: 'human-reply-state',
       targets: [
         target({
-          trustedMarker: 'fp-1',
+          trustedMarker: CURRENT_MARKER,
           disposition: LifecycleTargetDisposition.HumanReply,
         }),
       ],
@@ -442,7 +498,7 @@ describe('BuildCurrentReviewProjection', () => {
       commandLedgerWatermark: 'ledger-2',
       targets: [
         target({
-          trustedMarker: 'fp-1',
+          trustedMarker: CURRENT_MARKER,
           disposition: LifecycleTargetDisposition.CommandSuppressed,
         }),
       ],
@@ -467,18 +523,18 @@ describe('BuildCurrentReviewProjection', () => {
   it('treats a matching trusted resolution reply as resolved for #252-style inventory', async () => {
     const prior = hint({
       lineageId: 'lineage-252',
-      trustedMarker: 'finding-fingerprint',
+      trustedMarker: FINDING_MARKER,
       title: 'Old finding',
     });
     const inv = inventory({
       targets: [
         target({
           targetId: 'target-252',
-          trustedMarker: 'finding-fingerprint',
+          trustedMarker: FINDING_MARKER,
           resolutionMarker: {
             schemaVersion: 'reviewrouter-lifecycle-resolution.v1',
             targetId: 'target-252',
-            fingerprint: 'finding-fingerprint',
+            fingerprint: FINDING_MARKER,
             trust: LifecycleResolutionMarkerTrust.Trusted,
           },
         }),
@@ -502,12 +558,12 @@ describe('BuildCurrentReviewProjection', () => {
     {
       label: 'untrusted author',
       trust: LifecycleResolutionMarkerTrust.Untrusted,
-      fingerprint: 'finding-fingerprint',
+      fingerprint: FINDING_MARKER,
     },
     {
       label: 'mismatched fingerprint',
       trust: LifecycleResolutionMarkerTrust.Trusted,
-      fingerprint: 'another-fingerprint',
+      fingerprint: ANOTHER_MARKER,
     },
   ])(
     'does not trust a resolution marker from $label',
@@ -516,7 +572,7 @@ describe('BuildCurrentReviewProjection', () => {
         targets: [
           target({
             targetId: 'target-252',
-            trustedMarker: 'finding-fingerprint',
+            trustedMarker: FINDING_MARKER,
             resolutionMarker: {
               schemaVersion: 'reviewrouter-lifecycle-resolution.v1',
               targetId: 'target-252',
@@ -528,7 +584,7 @@ describe('BuildCurrentReviewProjection', () => {
       });
       const result = await createUseCase(new MutableInventoryPort(inv)).execute(
         command({
-          priorLineageHints: [hint({ trustedMarker: 'finding-fingerprint' })],
+          priorLineageHints: [hint({ trustedMarker: FINDING_MARKER })],
         })
       );
 
@@ -735,7 +791,7 @@ function target(
   return {
     targetId: 'target-1',
     threadId: 'thread-1',
-    trustedMarker: 'marker-1',
+    trustedMarker: DEFAULT_MARKER,
     title: 'Previous defect',
     message: 'Previous message',
     severity: FindingSeverity.Major,
@@ -745,6 +801,7 @@ function target(
     currentLine: 2,
     parentCommentUpdatedAt: '2026-07-22T00:00:00.000Z',
     threadCommentCount: 1,
+    threadStateHash: 'a'.repeat(64),
     disposition: LifecycleTargetDisposition.Active,
     viewerCanResolve: false,
     ...overrides,
