@@ -144,8 +144,9 @@ jobs:
 
           git tag "$VERSION" "$GITHUB_SHA"
           git tag -f "$MAJOR_TAG" "$GITHUB_SHA"
-          git push origin "refs/tags/$VERSION"
-          git push --force origin "refs/tags/$MAJOR_TAG"
+          git push --atomic origin \
+            "refs/tags/$VERSION" \
+            "+refs/tags/$MAJOR_TAG"
 
       - name: Create GitHub Release
         if: ${{ inputs.create_github_release }}

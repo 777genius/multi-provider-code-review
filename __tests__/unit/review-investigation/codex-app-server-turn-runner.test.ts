@@ -278,6 +278,17 @@ rl.on('line', (line) => {
   if (message.method === 'turn/start') {
     send({ id: message.id, result: { turn: turn('inProgress') }});
     notify('turn/started', { threadId, turn: turn('inProgress') });
+    notify('model/verification', {
+      threadId, turnId, verifications: ['trustedAccessForCyber'],
+    });
+    notify('turn/moderationMetadata', {
+      threadId, turnId, metadata: { presentation: 'inline' },
+    });
+    notify('model/safetyBuffering/updated', {
+      threadId, turnId, model: 'gpt-5.6-sol',
+      useCases: ['cyber'], reasons: ['user_risk'],
+      showBufferingUi: true, fasterModel: null,
+    });
     ${beforeCompletionEvent}
     const item = {
       type: 'agentMessage',
