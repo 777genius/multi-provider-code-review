@@ -1,4 +1,5 @@
 import { applyControlPlaneRuntimeConfig } from '../../../src/control-plane/runtime-config';
+import { readProductionReviewInvestigationRolloutFlags } from '../../../src/review-orchestration/infrastructure/production-review-investigation-composition';
 
 describe('applyControlPlaneRuntimeConfig', () => {
   const baseEnv = {
@@ -40,6 +41,11 @@ describe('applyControlPlaneRuntimeConfig', () => {
             CODEX_MODEL: 'gpt-5.5',
             CODEX_REASONING_EFFORT: 'medium',
             REVIEW_AUTH_MODE: 'codex-oauth',
+            REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: '1',
+            REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: '1',
+            REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED: '1',
+            REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED:
+              '1',
           },
         })
       );
@@ -56,6 +62,12 @@ describe('applyControlPlaneRuntimeConfig', () => {
     expect(env.CODEX_MODEL).toBe('gpt-5.5');
     expect(env.CODEX_REASONING_EFFORT).toBe('medium');
     expect(env.REVIEW_AUTH_MODE).toBe('codex-oauth');
+    expect(readProductionReviewInvestigationRolloutFlags(env)).toMatchObject({
+      recordingEnabled: true,
+      shadowEnabled: true,
+      contextCriticEnabled: true,
+      crossRevisionReplayEnabled: true,
+    });
     expect(String(fetchImpl.mock.calls[0][0])).toContain(
       'audience=reviewrouter'
     );

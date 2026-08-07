@@ -15,6 +15,8 @@ import {
   REVIEW_INVESTIGATION_COVERAGE_PROFILE,
   REVIEW_INVESTIGATION_PRODUCTION_POLICY,
   ReviewInvestigationRecordingAdapter,
+  ReviewInvestigationRecordingSupportReason,
+  reviewInvestigationRecordingSupportDecision,
   reviewInvestigationCoverageContract,
   reviewInvestigationCoverageProfileHash,
   reviewInvestigationPolicyHash,
@@ -30,6 +32,7 @@ import { ReviewTurnPurpose } from '../../../src/review-investigation/domain/turn
 import { canonicalJson } from '../../../src/review-investigation/domain/canonical-json';
 import {
   ReviewInvestigationChangedFileStatus,
+  ReviewInvestigationProbePlanStatus,
   createReviewInvestigationProbePlan,
 } from '../../../src/review-investigation/domain/deterministic-context-probe-plan';
 import {
@@ -42,6 +45,7 @@ import {
   ReviewInvestigationLegacyFallbackReason,
 } from '../../../src/review-investigation/application/run-investigation-work-slot';
 import capabilityGolden from '../../../src/review-investigation/fixtures/review-investigation-capability-v1.golden.json';
+import { logger } from '../../../src/utils/logger';
 
 const hash = (value: string) =>
   createHash('sha256').update(value).digest('hex');
@@ -268,6 +272,333 @@ describe('ReviewInvestigationRecordingAdapter', () => {
         },
       })
     ).toBe(false);
+    expect(
+      reviewInvestigationRecordingSupportDecision(
+        {
+          workSlot: input.workSlot,
+          invocation: {
+            ...input.invocation,
+            manifestFacts: {
+              ...input.invocation.manifestFacts,
+              taskKindSet: [ReviewTaskKind.LifecycleRevalidation],
+            },
+          },
+        },
+        REVIEW_INVESTIGATION_PRODUCTION_POLICY
+      )
+    ).toEqual({
+      supported: false,
+      reason: ReviewInvestigationRecordingSupportReason.TaskKindSetUnsupported,
+    });
+  });
+
+  it('reports the safe reason before an unsupported candidate returns early', () => {
+    const info = jest.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const adapter = new ReviewInvestigationRecordingAdapter(
+      () => ({ execute: jest.fn() }) as never,
+      options()
+    );
+    const input = executionInput();
+
+    try {
+      expect(
+        adapter.supports({
+          workSlot: input.workSlot,
+          invocation: {
+            ...input.invocation,
+            investigationSeedEnvelope: null,
+          },
+        })
+      ).toBe(false);
+      expect(info).toHaveBeenCalledWith(
+        'Review investigation candidate: supported=false reason=seed_envelope_missing'
+      );
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it('keeps candidate eligibility unchanged when telemetry is unavailable', () => {
+    const info = jest.spyOn(logger, 'info').mockImplementation(() => {
+      throw new Error('logger unavailable');
+    });
+    const adapter = new ReviewInvestigationRecordingAdapter(
+      () => ({ execute: jest.fn() }) as never,
+      options()
+    );
+    const input = executionInput();
+
+    try {
+      expect(
+        adapter.supports({
+          workSlot: input.workSlot,
+          invocation: input.invocation,
+        })
+      ).toBe(true);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it('reports every candidate reason with deterministic fail-closed precedence', () => {
+    const base = executionInput();
+    const candidate = (
+      invocationOverrides: Readonly<Record<string, unknown>> = {},
+      workSlotOverrides: Readonly<Record<string, unknown>> = {}
+    ) => ({
+      workSlot: { ...base.workSlot, ...workSlotOverrides },
+      invocation: { ...base.invocation, ...invocationOverrides },
+    });
+    const manifest = (overrides: Readonly<Record<string, unknown>>) =>
+      candidate({
+        manifestFacts: { ...base.invocation.manifestFacts, ...overrides },
+      });
+    const incompletePlan = {
+      ...base.invocation.investigationProbePlan,
+      status: ReviewInvestigationProbePlanStatus.LimitExceeded,
+    };
+    const cases = [
+      {
+        reason: ReviewInvestigationRecordingSupportReason.Supported,
+        input: candidate(),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.ProviderUnsupported,
+        input: executionInput(ReviewExecutionProviderKind.OpenRouter),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.ProviderMismatch,
+        input: manifest({
+          providerKind: ReviewExecutionProviderKind.ClaudeCode,
+        }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.WorkSlotMismatch,
+        input: candidate({ workSlotId: 'other-slot' }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.ExecutionProfileMismatch,
+        input: manifest({ executionProfile: 'agentic_unbounded_v1' }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.TaskKindSetUnsupported,
+        input: manifest({
+          taskKindSet: [ReviewTaskKind.LifecycleRevalidation],
+        }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.CoverageWorkSlotMismatch,
+        input: candidate({
+          coverageManifest: {
+            ...base.invocation.coverageManifest,
+            workSlotId: 'other-slot',
+          },
+        }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.SeedEnvelopeMissing,
+        input: candidate({ investigationSeedEnvelope: null }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.SeedEnvelopeUnbound,
+        input: manifest({ providerRequestEnvelopeHash: '0'.repeat(64) }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.ProbePlanIncomplete,
+        input: candidate({ investigationProbePlan: incompletePlan }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.ProbeLimitsMismatch,
+        input: candidate({
+          investigationProbePlan: {
+            ...base.invocation.investigationProbePlan,
+            limits: {
+              ...base.invocation.investigationProbePlan.limits,
+              maxProbesOverall:
+                base.invocation.investigationProbePlan.limits.maxProbesOverall +
+                1,
+            },
+          },
+        }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.ObligationLimitExceeded,
+        input: candidate(),
+        policy: {
+          ...REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+          maxObligations: 1,
+        },
+      },
+    ] as const;
+
+    expect(new Set(cases.map(({ reason }) => reason))).toEqual(
+      new Set(Object.values(ReviewInvestigationRecordingSupportReason))
+    );
+    for (const testCase of cases) {
+      expect(
+        reviewInvestigationRecordingSupportDecision(
+          testCase.input as never,
+          testCase.policy
+        )
+      ).toMatchObject({ reason: testCase.reason });
+    }
+
+    type CandidateState = {
+      input: ReturnType<typeof candidate>;
+      policy: Parameters<typeof reviewInvestigationRecordingSupportDecision>[1];
+    };
+    const updateInvocation = (
+      state: CandidateState,
+      overrides: Readonly<Record<string, unknown>>
+    ): CandidateState => ({
+      ...state,
+      input: {
+        ...state.input,
+        invocation: { ...state.input.invocation, ...overrides },
+      },
+    });
+    const updateManifest = (
+      state: CandidateState,
+      overrides: Readonly<Record<string, unknown>>
+    ): CandidateState =>
+      updateInvocation(state, {
+        manifestFacts: {
+          ...state.input.invocation.manifestFacts,
+          ...overrides,
+        },
+      });
+    const faults: readonly Readonly<{
+      reason: Exclude<
+        ReviewInvestigationRecordingSupportReason,
+        ReviewInvestigationRecordingSupportReason.Supported
+      >;
+      apply: (state: CandidateState) => CandidateState;
+    }>[] = [
+      {
+        reason: ReviewInvestigationRecordingSupportReason.ProviderUnsupported,
+        apply: (state) => ({
+          ...state,
+          input: {
+            ...state.input,
+            workSlot: {
+              ...state.input.workSlot,
+              providerKind: ReviewExecutionProviderKind.OpenRouter,
+            },
+          },
+        }),
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.ProviderMismatch,
+        apply: (state) =>
+          updateManifest(state, {
+            providerKind: ReviewExecutionProviderKind.ClaudeCode,
+          }),
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.WorkSlotMismatch,
+        apply: (state) => updateInvocation(state, { workSlotId: 'other-slot' }),
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.ExecutionProfileMismatch,
+        apply: (state) =>
+          updateManifest(state, { executionProfile: 'agentic_unbounded_v1' }),
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.TaskKindSetUnsupported,
+        apply: (state) =>
+          updateManifest(state, {
+            taskKindSet: [ReviewTaskKind.LifecycleRevalidation],
+          }),
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.CoverageWorkSlotMismatch,
+        apply: (state) =>
+          updateInvocation(state, {
+            coverageManifest: {
+              ...state.input.invocation.coverageManifest,
+              workSlotId: 'other-slot',
+            },
+          }),
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.SeedEnvelopeMissing,
+        apply: (state) =>
+          updateInvocation(state, { investigationSeedEnvelope: null }),
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.SeedEnvelopeUnbound,
+        apply: (state) =>
+          updateManifest(state, {
+            providerRequestEnvelopeHash: '0'.repeat(64),
+          }),
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.ProbePlanIncomplete,
+        apply: (state) =>
+          updateInvocation(state, {
+            investigationProbePlan: {
+              ...state.input.invocation.investigationProbePlan,
+              status: ReviewInvestigationProbePlanStatus.LimitExceeded,
+            },
+          }),
+      },
+      {
+        reason: ReviewInvestigationRecordingSupportReason.ProbeLimitsMismatch,
+        apply: (state) =>
+          updateInvocation(state, {
+            investigationProbePlan: {
+              ...state.input.invocation.investigationProbePlan,
+              limits: {
+                ...state.input.invocation.investigationProbePlan.limits,
+                maxProbesOverall:
+                  state.input.invocation.investigationProbePlan.limits
+                    .maxProbesOverall + 1,
+              },
+            },
+          }),
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.ObligationLimitExceeded,
+        apply: (state) => ({
+          ...state,
+          policy: { ...state.policy, maxObligations: 1 },
+        }),
+      },
+    ];
+    for (const [index, fault] of faults.entries()) {
+      let state: CandidateState = {
+        input: candidate(),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      };
+      for (let later = faults.length - 1; later >= index; later -= 1) {
+        state = faults[later].apply(state);
+      }
+      expect(
+        reviewInvestigationRecordingSupportDecision(
+          state.input as never,
+          state.policy
+        ).reason
+      ).toBe(fault.reason);
+    }
   });
 
   it('does not claim investigation support for an incomplete probe plan', () => {
@@ -302,6 +633,18 @@ describe('ReviewInvestigationRecordingAdapter', () => {
         },
       })
     ).toBe(false);
+    expect(
+      reviewInvestigationRecordingSupportDecision(
+        {
+          workSlot: input.workSlot,
+          invocation: {
+            ...input.invocation,
+            investigationProbePlan: incompleteProbePlan,
+          },
+        },
+        REVIEW_INVESTIGATION_PRODUCTION_POLICY
+      ).reason
+    ).toBe(ReviewInvestigationRecordingSupportReason.ProbePlanIncomplete);
   });
 
   it('does not claim an invocation whose transient seed envelope is not manifest-bound', () => {
@@ -323,6 +666,47 @@ describe('ReviewInvestigationRecordingAdapter', () => {
         },
       })
     ).toBe(false);
+    expect(
+      reviewInvestigationRecordingSupportDecision(
+        {
+          workSlot: input.workSlot,
+          invocation: {
+            ...input.invocation,
+            investigationSeedEnvelope: {
+              ...input.invocation.investigationSeedEnvelope,
+              hash: 'f'.repeat(64),
+            },
+          },
+        },
+        REVIEW_INVESTIGATION_PRODUCTION_POLICY
+      ).reason
+    ).toBe(ReviewInvestigationRecordingSupportReason.SeedEnvelopeUnbound);
+  });
+
+  it('binds investigation seed identity to the exact review revision', () => {
+    const { invocation } = executionInput();
+    const nextRevisionCoverage = {
+      ...invocation.coverageManifest,
+      reviewRevisionHash: hash('next-empty-commit-revision'),
+    };
+    const nextRevisionSeed = buildReviewInvestigationSeedEnvelope({
+      canonicalInventory: canonicalInventory([
+        inventoryEntry('src/z.ts'),
+        inventoryEntry('src/a.ts'),
+        inventoryEntry('src/auth/session.ts'),
+      ]),
+      coverageManifest: nextRevisionCoverage,
+      probePlan: invocation.investigationProbePlan,
+      requestedModel: invocation.requestedModel,
+      reviewPrompt: invocation.reviewPrompt,
+    });
+
+    expect(nextRevisionSeed.hash).not.toBe(
+      invocation.investigationSeedEnvelope.hash
+    );
+    expect(nextRevisionSeed.canonicalJson).toContain(
+      nextRevisionCoverage.reviewRevisionHash
+    );
   });
 
   it('supports provider-neutral Codex and Claude Code work slots', () => {

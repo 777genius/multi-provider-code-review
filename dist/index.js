@@ -50231,7 +50231,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.85",
+  version: "1.0.86",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -93891,6 +93891,14 @@ function verifyGoldenHash(value, expectedCanonicalJson, expectedHash, field) {
   return expectedHash;
 }
 
+// src/review-orchestration/infrastructure/review-investigation-telemetry.ts
+function emitReviewInvestigationTelemetry(message) {
+  try {
+    logger.info(message);
+  } catch {
+  }
+}
+
 // src/review-orchestration/application/review-orchestration-ports.ts
 var ReviewExecutionProviderKind = /* @__PURE__ */ ((ReviewExecutionProviderKind2) => {
   ReviewExecutionProviderKind2["Codex"] = "codex";
@@ -97889,16 +97897,20 @@ var GeneratedProviderInvocationManifestAssembler = class {
         lane.providerVoteIdentityHash
       )
     );
-    logger.info(
+    emitReviewInvestigationTelemetry(
       [
         "Review invocation manifest:",
-        `manifest=${digestPrefix(manifestKey)}`,
-        `invocation=${digestPrefix(providerInvocationKey)}`,
-        `request=${digestPrefix(facts.providerRequestEnvelopeHash)}`,
-        `patch=${digestPrefix(facts.filePatchManifestHash)}`,
-        `context=${digestPrefix(facts.contextManifestHash)}`,
-        `baseTree=${digestPrefix(facts.baseTreeHash)}`,
-        `environment=${digestPrefix(facts.environmentContractHash)}`
+        `manifestKey=${digestPrefix(manifestKey)}`,
+        `providerInvocationKey=${digestPrefix(providerInvocationKey)}`,
+        `providerVoteIdentityHash=${digestPrefix(
+          lane.providerVoteIdentityHash
+        )}`,
+        ...Object.entries(manifestInput).map(
+          ([component, value]) => `${component}=${manifestIdentityComponentDigestPrefix(
+            component,
+            value
+          )}`
+        )
       ].join(" ")
     );
     return Object.freeze({
@@ -97911,6 +97923,22 @@ var GeneratedProviderInvocationManifestAssembler = class {
 };
 function digestPrefix(value) {
   return value && /^[a-f0-9]{64}$/u.test(value) ? value.slice(0, 12) : "none";
+}
+var manifestIdentityComponentKind = new Map(
+  providerInvocationManifestV1CanonicalizerDescriptor.fields.map((field) => [
+    field.name,
+    field.kind
+  ])
+);
+function manifestIdentityComponentDigestPrefix(component, value) {
+  if (value === null) return "none";
+  const componentKind = manifestIdentityComponentKind.get(
+    component
+  );
+  if ((componentKind === "hash" || componentKind === "nullable_hash") && typeof value === "string" && /^[a-f0-9]{64}$/u.test(value)) {
+    return digestPrefix(value);
+  }
+  return digestPrefix(sha25612(canonicalJson10(value)));
 }
 var DeterministicReviewOrchestrationIdentity = class {
   deterministicId(namespace, parts) {
@@ -104720,9 +104748,18 @@ function parseProviderVoteLanes(value) {
 function parseOptionalReviewInvestigationCapability(value, providerVoteLanes) {
   try {
     return parseReviewInvestigationCapability(value, providerVoteLanes);
-  } catch {
+  } catch (error2) {
+    emitReviewInvestigationTelemetry(
+      `Review investigation authorization descriptor: accepted=false reason=${safeInvestigationDescriptorRejectionReason(
+        error2
+      )}`
+    );
     return void 0;
   }
+}
+function safeInvestigationDescriptorRejectionReason(error2) {
+  const reason = error2 instanceof Error ? error2.message : "";
+  return /^review_action_v2_review_investigation_[a-z_]+$/u.test(reason) ? reason : "review_action_v2_review_investigation_invalid";
 }
 function parseReviewInvestigationCapability(value, providerVoteLanes) {
   if (!isRecord8(value)) {
@@ -108936,10 +108973,17 @@ var ReviewInvestigationRecordingAdapter = class {
     this.verifiedCleanEffectsEnabled = verifiedCleanEffectsEnabled;
   }
   supports(input) {
-    return reviewAgentProviderKind(input.workSlot.providerKind) !== null && input.invocation.manifestFacts.providerKind === input.workSlot.providerKind && input.invocation.workSlotId === input.workSlot.workSlotId && input.invocation.manifestFacts.executionProfile === "investigation_gateway_v1" && input.invocation.manifestFacts.taskKindSet.length === 1 && input.invocation.manifestFacts.taskKindSet[0] === "finding_discovery" /* FindingDiscovery */ && input.invocation.coverageManifest.workSlotId === input.workSlot.workSlotId && input.invocation.investigationSeedEnvelope !== void 0 && input.invocation.investigationSeedEnvelope !== null && input.invocation.investigationSeedEnvelope.hash === input.invocation.manifestFacts.providerRequestEnvelopeHash && supportsProbePlan(input.invocation, this.options.policy);
+    const decision = reviewInvestigationRecordingSupportDecision(
+      input,
+      this.options.policy
+    );
+    emitReviewInvestigationTelemetry(
+      `Review investigation candidate: supported=${decision.supported} reason=${decision.reason}`
+    );
+    return decision.supported;
   }
   async execute(input) {
-    if (!this.supports(input)) {
+    if (!reviewInvestigationRecordingSupportDecision(input, this.options.policy).supported) {
       throw new Error("review_investigation_recording_unsupported");
     }
     if (input.sourceReviewRevisionHash !== input.authorization.facts.reviewRevisionHash || input.invocation.coverageManifest.reviewRevisionHash !== input.sourceReviewRevisionHash) {
@@ -109078,9 +109122,68 @@ function requireReviewAgentProviderKind(providerKind) {
   }
   return mapped;
 }
-function supportsProbePlan(invocation, policy) {
-  const plan = invocation.investigationProbePlan;
-  return plan.status === "complete" /* Complete */ && plan.limits.maxProbesPerFile === policy.maxSeedProbesPerFile && plan.limits.maxProbesOverall === policy.maxSeedProbesOverall && 1 + invocation.coverageManifest.paths.length + plan.probes.length <= policy.maxObligations;
+function reviewInvestigationRecordingSupportDecision(input, policy) {
+  const unsupported = (reason) => Object.freeze({ supported: false, reason });
+  if (reviewAgentProviderKind(input.workSlot.providerKind) === null) {
+    return unsupported(
+      "provider_unsupported" /* ProviderUnsupported */
+    );
+  }
+  if (input.invocation.manifestFacts.providerKind !== input.workSlot.providerKind) {
+    return unsupported(
+      "provider_mismatch" /* ProviderMismatch */
+    );
+  }
+  if (input.invocation.workSlotId !== input.workSlot.workSlotId) {
+    return unsupported(
+      "work_slot_mismatch" /* WorkSlotMismatch */
+    );
+  }
+  if (input.invocation.manifestFacts.executionProfile !== "investigation_gateway_v1") {
+    return unsupported(
+      "execution_profile_mismatch" /* ExecutionProfileMismatch */
+    );
+  }
+  if (input.invocation.manifestFacts.taskKindSet.length !== 1 || input.invocation.manifestFacts.taskKindSet[0] !== "finding_discovery" /* FindingDiscovery */) {
+    return unsupported(
+      "task_kind_set_unsupported" /* TaskKindSetUnsupported */
+    );
+  }
+  if (input.invocation.coverageManifest.workSlotId !== input.workSlot.workSlotId) {
+    return unsupported(
+      "coverage_work_slot_mismatch" /* CoverageWorkSlotMismatch */
+    );
+  }
+  if (!input.invocation.investigationSeedEnvelope) {
+    return unsupported(
+      "seed_envelope_missing" /* SeedEnvelopeMissing */
+    );
+  }
+  if (input.invocation.investigationSeedEnvelope.hash !== input.invocation.manifestFacts.providerRequestEnvelopeHash) {
+    return unsupported(
+      "seed_envelope_unbound" /* SeedEnvelopeUnbound */
+    );
+  }
+  const plan = input.invocation.investigationProbePlan;
+  if (plan.status !== "complete" /* Complete */) {
+    return unsupported(
+      "probe_plan_incomplete" /* ProbePlanIncomplete */
+    );
+  }
+  if (plan.limits.maxProbesPerFile !== policy.maxSeedProbesPerFile || plan.limits.maxProbesOverall !== policy.maxSeedProbesOverall) {
+    return unsupported(
+      "probe_limits_mismatch" /* ProbeLimitsMismatch */
+    );
+  }
+  if (1 + input.invocation.coverageManifest.paths.length + plan.probes.length > policy.maxObligations) {
+    return unsupported(
+      "obligation_limit_exceeded" /* ObligationLimitExceeded */
+    );
+  }
+  return Object.freeze({
+    supported: true,
+    reason: "supported" /* Supported */
+  });
 }
 function requireSeedEnvelope(invocation) {
   const envelope = invocation.investigationSeedEnvelope;
@@ -109192,14 +109295,14 @@ function readProductionReviewInvestigationRolloutFlags(env = process.env) {
     )
   });
 }
-function resolveProductionReviewInvestigationRollout(input) {
+function resolveProductionReviewInvestigationRolloutResolution(input) {
   assertCanonicalRolloutDependencies(input.flags);
-  const recordingEnabled = input.flags.recordingEnabled && input.agenticContext && matchesReviewInvestigationCapability({
-    facts: input.authorization.facts,
-    providerKind: input.primaryProviderKind,
+  const recordingDecision = resolveRecordingCapability({
+    ...input,
     capability: "recording" /* Recording */
   });
-  return Object.freeze({
+  const recordingEnabled = recordingDecision === "enabled" /* Enabled */;
+  const rollout = Object.freeze({
     recordingEnabled,
     shadowEnabled: recordingEnabled && input.flags.shadowEnabled && matchesReviewInvestigationCapability({
       facts: input.authorization.facts,
@@ -109227,6 +109330,84 @@ function resolveProductionReviewInvestigationRollout(input) {
       capability: "production_effects" /* ProductionEffects */
     })
   });
+  return Object.freeze({ rollout, reason: recordingDecision });
+}
+function createProductionReviewInvestigationInvocation(input) {
+  return input.rollout.recordingEnabled ? input.create() : void 0;
+}
+function resolveRecordingCapability(input) {
+  if (!input.flags.recordingEnabled) {
+    return "recording_flag_disabled" /* RecordingFlagDisabled */;
+  }
+  if (!input.agenticContext) {
+    return "agentic_context_disabled" /* AgenticContextDisabled */;
+  }
+  return reviewInvestigationCapabilityMismatchReason({
+    facts: input.authorization.facts,
+    providerKind: input.primaryProviderKind,
+    capability: input.capability
+  }) ?? "enabled" /* Enabled */;
+}
+function reviewInvestigationCapabilityMismatchReason(input) {
+  const descriptor = input.facts.reviewInvestigation;
+  if (!descriptor) {
+    return "authorization_descriptor_missing" /* AuthorizationDescriptorMissing */;
+  }
+  if (descriptor.authorizationDescriptorVersion !== reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion) {
+    return "authorization_descriptor_version_mismatch" /* AuthorizationDescriptorVersionMismatch */;
+  }
+  if (descriptor.capability !== "review_investigation_v1" /* ReviewInvestigationV1 */ || descriptor.capability !== reviewInvestigationRolloutAuthorizationV3Contract.capability) {
+    return "capability_mismatch" /* CapabilityMismatch */;
+  }
+  if (descriptor.extensionId !== reviewInvestigationExtensionV1.extensionId) {
+    return "extension_id_mismatch" /* ExtensionIdMismatch */;
+  }
+  if (descriptor.extensionSchemaDigest !== reviewInvestigationExtensionV1.schemaDigest) {
+    return "extension_schema_digest_mismatch" /* ExtensionSchemaDigestMismatch */;
+  }
+  if (descriptor.extensionCanonicalizerDigest !== reviewInvestigationExtensionV1.canonicalizerDigest) {
+    return "extension_canonicalizer_digest_mismatch" /* ExtensionCanonicalizerDigestMismatch */;
+  }
+  if (descriptor.coverageProfileHash !== reviewInvestigationCoverageProfileHash()) {
+    return "coverage_profile_hash_mismatch" /* CoverageProfileHashMismatch */;
+  }
+  if (descriptor.policyHash !== reviewInvestigationPolicyHash()) {
+    return "policy_hash_mismatch" /* PolicyHashMismatch */;
+  }
+  if (!input.facts.providerVoteLanes.some(
+    (lane) => lane.providerKind === input.providerKind
+  )) {
+    return "provider_vote_lane_missing" /* ProviderVoteLaneMissing */;
+  }
+  if (!Array.isArray(descriptor.providerCapabilities)) {
+    return "provider_capabilities_missing" /* ProviderCapabilitiesMissing */;
+  }
+  const providerGrant = descriptor.providerCapabilities.find(
+    (row) => row?.providerKind === input.providerKind
+  );
+  if (!providerGrant || !Array.isArray(providerGrant.capabilities)) {
+    return "provider_grant_missing" /* ProviderGrantMissing */;
+  }
+  if (!providerGrant.capabilities.includes(input.capability)) {
+    return input.capability === "recording" /* Recording */ ? "recording_grant_missing" /* RecordingGrantMissing */ : "provider_grant_missing" /* ProviderGrantMissing */;
+  }
+  return null;
+}
+function formatProductionReviewInvestigationRolloutTelemetry(resolution) {
+  const rollout = resolution.rollout;
+  return [
+    "Review investigation rollout:",
+    `recording=${rollout.recordingEnabled}`,
+    `reason=${resolution.reason}`,
+    `shadow=${rollout.shadowEnabled}`,
+    `contextCritic=${rollout.contextCriticEnabled}`,
+    `verifiedClean=${rollout.verifiedCleanEnabled}`,
+    `crossRevisionReplay=${rollout.crossRevisionReplayEnabled}`,
+    `productionEffects=${rollout.productionEffectsEnabled}`
+  ].join(" ");
+}
+function matchesReviewInvestigationCapability(input) {
+  return reviewInvestigationCapabilityMismatchReason(input) === null;
 }
 function productionReviewInvestigationRecordingMode(rollout) {
   return rollout.productionEffectsEnabled ? "authoritative" /* Authoritative */ : "record_only" /* RecordOnly */;
@@ -109334,18 +109515,6 @@ function assertCanonicalRolloutDependencies(flags) {
       );
     }
   }
-}
-function matchesReviewInvestigationCapability(input) {
-  const descriptor = input.facts.reviewInvestigation;
-  if (descriptor?.authorizationDescriptorVersion !== reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion || descriptor.capability !== "review_investigation_v1" /* ReviewInvestigationV1 */ || descriptor.capability !== reviewInvestigationRolloutAuthorizationV3Contract.capability || descriptor.extensionId !== reviewInvestigationExtensionV1.extensionId || descriptor.extensionSchemaDigest !== reviewInvestigationExtensionV1.schemaDigest || descriptor.extensionCanonicalizerDigest !== reviewInvestigationExtensionV1.canonicalizerDigest || descriptor.coverageProfileHash !== reviewInvestigationCoverageProfileHash() || descriptor.policyHash !== reviewInvestigationPolicyHash() || !input.facts.providerVoteLanes.some(
-    (lane) => lane.providerKind === input.providerKind
-  ) || !Array.isArray(descriptor.providerCapabilities)) {
-    return false;
-  }
-  const providerGrant = descriptor.providerCapabilities.find(
-    (row) => row?.providerKind === input.providerKind
-  );
-  return providerGrant !== void 0 && Array.isArray(providerGrant.capabilities) && providerGrant.capabilities.includes(input.capability);
 }
 var rolloutFlagByCapability = Object.freeze({
   ["context_critic" /* ContextCritic */]: "contextCriticEnabled",
@@ -109604,12 +109773,18 @@ var ProductionT0ReviewRunner = class {
     const codexProviderName = selectCodexProvider(config);
     const model = codexProviderName.slice("codex/".length);
     const agenticContext = config.codexAgenticContext ?? true;
-    const investigationRollout = resolveProductionReviewInvestigationRollout({
+    const investigationRolloutResolution = resolveProductionReviewInvestigationRolloutResolution({
       flags: readProductionReviewInvestigationRolloutFlags(),
       agenticContext,
       authorization,
       primaryProviderKind: "codex" /* Codex */
     });
+    const investigationRollout = investigationRolloutResolution.rollout;
+    emitReviewInvestigationTelemetry(
+      formatProductionReviewInvestigationRolloutTelemetry(
+        investigationRolloutResolution
+      )
+    );
     const investigationRecordingEnabled = investigationRollout.recordingEnabled;
     const provider = new CodexProvider(model, {
       agenticContext,
@@ -109654,15 +109829,18 @@ var ProductionT0ReviewRunner = class {
       contextGateway,
       false
     );
-    const investigationInvocationAdapter = investigationRecordingEnabled ? new CodexReviewInvocationAdapter(
-      provider,
-      new PromptBuilder(config),
-      planned.assignments,
-      Math.max(1e3, config.runTimeoutSeconds * 1e3),
-      agenticContext,
-      contextGateway,
-      true
-    ) : void 0;
+    const investigationInvocationAdapter = createProductionReviewInvestigationInvocation({
+      rollout: investigationRollout,
+      create: () => new CodexReviewInvocationAdapter(
+        provider,
+        new PromptBuilder(config),
+        planned.assignments,
+        Math.max(1e3, config.runTimeoutSeconds * 1e3),
+        agenticContext,
+        contextGateway,
+        true
+      )
+    });
     const identities = new DeterministicReviewOrchestrationIdentity();
     const investigationProtocol = investigationRecordingEnabled ? new ReviewActionV2InvestigationAdapter(reviewActionClient) : void 0;
     const investigationControlPlane = investigationProtocol ? new LegacyFallbackBeforeInvestigationAuthorityControlPlane(

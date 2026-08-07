@@ -19,6 +19,7 @@ import { PullRequestLoader } from '../../github/pr-loader';
 import { CodexProvider } from '../../providers/codex';
 import { recoverDiffForFiles } from '../../utils/diff';
 import { logger } from '../../utils/logger';
+import { emitReviewInvestigationTelemetry } from './review-investigation-telemetry';
 import type {
   FileChange,
   LifecycleTarget,
@@ -97,9 +98,11 @@ import {
 import {
   createProductionReviewInvestigationAgentSelector,
   createProductionReviewInvestigationGatewayFactory,
+  createProductionReviewInvestigationInvocation,
+  formatProductionReviewInvestigationRolloutTelemetry,
   productionReviewInvestigationRecordingMode,
   readProductionReviewInvestigationRolloutFlags,
-  resolveProductionReviewInvestigationRollout,
+  resolveProductionReviewInvestigationRolloutResolution,
   type ConfiguredProductionReviewAgent,
 } from './production-review-investigation-composition';
 import { ReviewActionV2InvestigationContextAttestationAdapter } from './review-action-v2-investigation-context-attestation-adapter';
@@ -199,12 +202,19 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     const codexProviderName = selectCodexProvider(config);
     const model = codexProviderName.slice('codex/'.length);
     const agenticContext = config.codexAgenticContext ?? true;
-    const investigationRollout = resolveProductionReviewInvestigationRollout({
-      flags: readProductionReviewInvestigationRolloutFlags(),
-      agenticContext,
-      authorization,
-      primaryProviderKind: ReviewExecutionProviderKind.Codex,
-    });
+    const investigationRolloutResolution =
+      resolveProductionReviewInvestigationRolloutResolution({
+        flags: readProductionReviewInvestigationRolloutFlags(),
+        agenticContext,
+        authorization,
+        primaryProviderKind: ReviewExecutionProviderKind.Codex,
+      });
+    const investigationRollout = investigationRolloutResolution.rollout;
+    emitReviewInvestigationTelemetry(
+      formatProductionReviewInvestigationRolloutTelemetry(
+        investigationRolloutResolution
+      )
+    );
     const investigationRecordingEnabled = investigationRollout.recordingEnabled;
     const provider = new CodexProvider(model, {
       agenticContext,
@@ -254,17 +264,20 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       contextGateway,
       false
     );
-    const investigationInvocationAdapter = investigationRecordingEnabled
-      ? new CodexReviewInvocationAdapter(
-          provider,
-          new PromptBuilder(config),
-          planned.assignments,
-          Math.max(1_000, config.runTimeoutSeconds * 1_000),
-          agenticContext,
-          contextGateway,
-          true
-        )
-      : undefined;
+    const investigationInvocationAdapter =
+      createProductionReviewInvestigationInvocation({
+        rollout: investigationRollout,
+        create: () =>
+          new CodexReviewInvocationAdapter(
+            provider,
+            new PromptBuilder(config),
+            planned.assignments,
+            Math.max(1_000, config.runTimeoutSeconds * 1_000),
+            agenticContext,
+            contextGateway,
+            true
+          ),
+      });
     const identities = new DeterministicReviewOrchestrationIdentity();
     const investigationProtocol = investigationRecordingEnabled
       ? new ReviewActionV2InvestigationAdapter(reviewActionClient)

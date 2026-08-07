@@ -38,6 +38,7 @@ import {
   canonicalJson,
   sha256,
 } from '../../review-investigation/domain/canonical-json';
+import { emitReviewInvestigationTelemetry } from './review-investigation-telemetry';
 import {
   REVIEW_INVESTIGATION_PROBE_LIMITS,
   REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
@@ -72,6 +73,26 @@ export type ReviewInvestigationPolicy = Readonly<{
   maxFindings: number;
   maxProposalsPerTurn: number;
   maxReceiptsPerTurn: number;
+}>;
+
+export enum ReviewInvestigationRecordingSupportReason {
+  Supported = 'supported',
+  ProviderUnsupported = 'provider_unsupported',
+  ProviderMismatch = 'provider_mismatch',
+  WorkSlotMismatch = 'work_slot_mismatch',
+  ExecutionProfileMismatch = 'execution_profile_mismatch',
+  TaskKindSetUnsupported = 'task_kind_set_unsupported',
+  CoverageWorkSlotMismatch = 'coverage_work_slot_mismatch',
+  SeedEnvelopeMissing = 'seed_envelope_missing',
+  SeedEnvelopeUnbound = 'seed_envelope_unbound',
+  ProbePlanIncomplete = 'probe_plan_incomplete',
+  ProbeLimitsMismatch = 'probe_limits_mismatch',
+  ObligationLimitExceeded = 'obligation_limit_exceeded',
+}
+
+export type ReviewInvestigationRecordingSupportDecision = Readonly<{
+  supported: boolean;
+  reason: ReviewInvestigationRecordingSupportReason;
 }>;
 
 export const REVIEW_INVESTIGATION_PRODUCTION_POLICY: ReviewInvestigationPolicy =
@@ -111,30 +132,23 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
     readonly workSlot: ReviewWorkSlotPlan;
     readonly invocation: PreparedReviewInvocation;
   }): boolean {
-    return (
-      reviewAgentProviderKind(input.workSlot.providerKind) !== null &&
-      input.invocation.manifestFacts.providerKind ===
-        input.workSlot.providerKind &&
-      input.invocation.workSlotId === input.workSlot.workSlotId &&
-      input.invocation.manifestFacts.executionProfile ===
-        'investigation_gateway_v1' &&
-      input.invocation.manifestFacts.taskKindSet.length === 1 &&
-      input.invocation.manifestFacts.taskKindSet[0] ===
-        ReviewTaskKind.FindingDiscovery &&
-      input.invocation.coverageManifest.workSlotId ===
-        input.workSlot.workSlotId &&
-      input.invocation.investigationSeedEnvelope !== undefined &&
-      input.invocation.investigationSeedEnvelope !== null &&
-      input.invocation.investigationSeedEnvelope.hash ===
-        input.invocation.manifestFacts.providerRequestEnvelopeHash &&
-      supportsProbePlan(input.invocation, this.options.policy)
+    const decision = reviewInvestigationRecordingSupportDecision(
+      input,
+      this.options.policy
     );
+    emitReviewInvestigationTelemetry(
+      `Review investigation candidate: supported=${decision.supported} reason=${decision.reason}`
+    );
+    return decision.supported;
   }
 
   async execute(
     input: Parameters<ReviewInvestigationRecordingPort['execute']>[0]
   ) {
-    if (!this.supports(input)) {
+    if (
+      !reviewInvestigationRecordingSupportDecision(input, this.options.policy)
+        .supported
+    ) {
       throw new Error('review_investigation_recording_unsupported');
     }
     if (
@@ -312,18 +326,95 @@ function requireReviewAgentProviderKind(
   return mapped;
 }
 
-function supportsProbePlan(
-  invocation: PreparedReviewInvocation,
+export function reviewInvestigationRecordingSupportDecision(
+  input: {
+    readonly workSlot: ReviewWorkSlotPlan;
+    readonly invocation: PreparedReviewInvocation;
+  },
   policy: ReviewInvestigationPolicy
-): boolean {
-  const plan = invocation.investigationProbePlan;
-  return (
-    plan.status === ReviewInvestigationProbePlanStatus.Complete &&
-    plan.limits.maxProbesPerFile === policy.maxSeedProbesPerFile &&
-    plan.limits.maxProbesOverall === policy.maxSeedProbesOverall &&
-    1 + invocation.coverageManifest.paths.length + plan.probes.length <=
-      policy.maxObligations
-  );
+): ReviewInvestigationRecordingSupportDecision {
+  const unsupported = (reason: ReviewInvestigationRecordingSupportReason) =>
+    Object.freeze({ supported: false, reason });
+  if (reviewAgentProviderKind(input.workSlot.providerKind) === null) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.ProviderUnsupported
+    );
+  }
+  if (
+    input.invocation.manifestFacts.providerKind !== input.workSlot.providerKind
+  ) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.ProviderMismatch
+    );
+  }
+  if (input.invocation.workSlotId !== input.workSlot.workSlotId) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.WorkSlotMismatch
+    );
+  }
+  if (
+    input.invocation.manifestFacts.executionProfile !==
+    'investigation_gateway_v1'
+  ) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.ExecutionProfileMismatch
+    );
+  }
+  if (
+    input.invocation.manifestFacts.taskKindSet.length !== 1 ||
+    input.invocation.manifestFacts.taskKindSet[0] !==
+      ReviewTaskKind.FindingDiscovery
+  ) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.TaskKindSetUnsupported
+    );
+  }
+  if (
+    input.invocation.coverageManifest.workSlotId !== input.workSlot.workSlotId
+  ) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.CoverageWorkSlotMismatch
+    );
+  }
+  if (!input.invocation.investigationSeedEnvelope) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.SeedEnvelopeMissing
+    );
+  }
+  if (
+    input.invocation.investigationSeedEnvelope.hash !==
+    input.invocation.manifestFacts.providerRequestEnvelopeHash
+  ) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.SeedEnvelopeUnbound
+    );
+  }
+  const plan = input.invocation.investigationProbePlan;
+  if (plan.status !== ReviewInvestigationProbePlanStatus.Complete) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.ProbePlanIncomplete
+    );
+  }
+  if (
+    plan.limits.maxProbesPerFile !== policy.maxSeedProbesPerFile ||
+    plan.limits.maxProbesOverall !== policy.maxSeedProbesOverall
+  ) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.ProbeLimitsMismatch
+    );
+  }
+  if (
+    1 + input.invocation.coverageManifest.paths.length + plan.probes.length >
+    policy.maxObligations
+  ) {
+    return unsupported(
+      ReviewInvestigationRecordingSupportReason.ObligationLimitExceeded
+    );
+  }
+  return Object.freeze({
+    supported: true,
+    reason: ReviewInvestigationRecordingSupportReason.Supported,
+  });
 }
 
 function requireSeedEnvelope(

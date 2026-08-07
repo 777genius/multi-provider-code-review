@@ -1040,6 +1040,19 @@ describe('RunT0ReviewOrchestration', () => {
     );
   });
 
+  it('keeps an unsupported investigation candidate side-effect free', async () => {
+    const fixture = createFixture({
+      investigationMode: ReviewInvestigationRecordingMode.RecordOnly,
+      investigationSupported: false,
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.investigationRecording?.execute).not.toHaveBeenCalled();
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
+  });
+
   it('isolates record-only preparation failures and records bounded diagnostics', async () => {
     const fixture = createFixture({
       executionProfile: 'context_gateway_v1',
@@ -1604,6 +1617,7 @@ function createFixture(
     investigationVerifiedCleanEffectsEnabled?: boolean;
     investigationError?: unknown;
     investigationPrepareError?: unknown;
+    investigationSupported?: boolean;
     executionProfile?:
       | 'prompt_only_envelope_v1'
       | 'agentic_unbounded_v1'
@@ -1805,7 +1819,9 @@ function createFixture(
         mode: options.investigationMode,
         verifiedCleanEffectsEnabled:
           options.investigationVerifiedCleanEffectsEnabled ?? false,
-        supports: jest.fn().mockReturnValue(true),
+        supports: jest
+          .fn()
+          .mockReturnValue(options.investigationSupported ?? true),
         execute:
           options.investigationError === undefined
             ? jest.fn().mockResolvedValue(investigationObservationPayload)

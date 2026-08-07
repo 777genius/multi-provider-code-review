@@ -757,20 +757,29 @@ describe('Codex T0 prepared invocation', () => {
     expect(session.dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('derives manifest and provider invocation keys only from generated canonicalizers', async () => {
+  it('derives complete manifest telemetry without ambient GITHUB_SHA identity', async () => {
     const infoSpy = jest
       .spyOn(logger, 'info')
       .mockImplementation(() => undefined);
+    const digestShapedRelease = 'b'.repeat(64);
+    const telemetryAuthorization = {
+      ...authorization,
+      facts: {
+        ...authorization.facts,
+        producerReleaseId: digestShapedRelease,
+      },
+    };
     const adapter = new GeneratedProviderInvocationManifestAssembler(
-      authorization,
+      telemetryAuthorization,
       {} as ReviewConfig,
       hash('compatibility')
     );
+    const digestShapedModel = 'a'.repeat(64);
     const invocation = {
       workSlotId: 'slot-1',
       attemptOrdinal: 1,
       provider: 'codex/gpt-test',
-      requestedModel: 'gpt-test',
+      requestedModel: digestShapedModel,
       reviewPrompt: 'review',
       immutableRequest: Object.freeze({}),
       investigationProbePlan: emptyProbePlan,
@@ -792,13 +801,18 @@ describe('Codex T0 prepared invocation', () => {
         liveLifecycleStateHash: null,
         toolPolicyHash: hash('tool'),
         executionProfile: 'agentic_unbounded_v1' as const,
-        baseTreeHash: null,
+        baseTreeHash: hash('base-tree'),
         environmentContractHash: hash('environment'),
       },
     };
+    const previousGithubSha = process.env.GITHUB_SHA;
 
     try {
+      process.env.GITHUB_SHA = '1'.repeat(40);
       const manifest = await adapter.assemble(invocation);
+      process.env.GITHUB_SHA = '2'.repeat(40);
+      const manifestWithDifferentAmbientSha =
+        await adapter.assemble(invocation);
       const manifestInput = JSON.parse(manifest.manifestCanonicalJson);
       const expectedManifestKey = hashBytes(
         canonicalizeProviderInvocationManifestV1(manifestInput)
@@ -806,21 +820,77 @@ describe('Codex T0 prepared invocation', () => {
       const expectedInvocationKey = hashBytes(
         providerInvocationIdentityPreimageV1(
           expectedManifestKey,
-          authorization.facts.providerVoteLanes[0].providerVoteIdentityHash
+          telemetryAuthorization.facts.providerVoteLanes[0]
+            .providerVoteIdentityHash
         )
       );
 
       expect(manifest.manifestKey).toBe(expectedManifestKey);
       expect(manifest.providerInvocationKey).toBe(expectedInvocationKey);
+      expect(manifestWithDifferentAmbientSha).toEqual(manifest);
       expect(infoSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          `Review invocation manifest: manifest=${expectedManifestKey.slice(
+          `Review invocation manifest: manifestKey=${expectedManifestKey.slice(
             0,
             12
-          )} invocation=${expectedInvocationKey.slice(0, 12)}`
+          )} providerInvocationKey=${expectedInvocationKey.slice(0, 12)}`
         )
       );
+      const telemetry = infoSpy.mock.calls.at(-1)?.[0] ?? '';
+      for (const component of [
+        'providerVoteIdentityHash',
+        'manifestVersion',
+        'scopeHash',
+        'taskKindSet',
+        'providerKind',
+        'providerCapabilityHash',
+        'requestedModel',
+        'providerPolicyVersion',
+        'producerReleaseId',
+        'selectedProtocolVersion',
+        'providerRequestEnvelopeHash',
+        'outputSchemaHash',
+        'reviewConfigHash',
+        'runtimeCompatibilityKey',
+        'filePatchManifestHash',
+        'contextManifestHash',
+        'memoryBundleHash',
+        'codeGraphProjectionHash',
+        'lifecycleTargetSetHash',
+        'liveLifecycleStateHash',
+        'toolPolicyHash',
+        'executionProfile',
+        'baseTreeHash',
+        'environmentContractHash',
+      ]) {
+        expect(telemetry).toContain(`${component}=`);
+      }
+      expect(telemetry).not.toContain('gpt-test');
+      expect(telemetry).not.toContain('release-1');
+      expect(telemetry).toContain(
+        `requestedModel=${hash(canonicalJson(digestShapedModel)).slice(0, 12)}`
+      );
+      expect(telemetry).not.toContain('requestedModel=aaaaaaaaaaaa');
+      expect(telemetry).toContain(
+        `producerReleaseId=${hash(canonicalJson(digestShapedRelease)).slice(0, 12)}`
+      );
+      expect(telemetry).not.toContain('producerReleaseId=bbbbbbbbbbbb');
+      expect(telemetry).toContain(
+        `baseTreeHash=${invocation.manifestFacts.baseTreeHash.slice(0, 12)}`
+      );
+      expect(telemetry).not.toContain(
+        `baseTreeHash=${hash(
+          canonicalJson(invocation.manifestFacts.baseTreeHash)
+        ).slice(0, 12)}`
+      );
+
+      infoSpy.mockImplementation(() => {
+        throw new Error('logger unavailable');
+      });
+      await expect(adapter.assemble(invocation)).resolves.toEqual(manifest);
     } finally {
+      if (previousGithubSha === undefined) delete process.env.GITHUB_SHA;
+      else process.env.GITHUB_SHA = previousGithubSha;
       infoSpy.mockRestore();
     }
   });
