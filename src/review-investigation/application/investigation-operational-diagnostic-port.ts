@@ -14,6 +14,7 @@ export type ReviewInvestigationOperationalDiagnostic = Readonly<{
   phase: ReviewInvestigationOperationalFailurePhase;
   failureClass: ReviewAgentFailureClass;
   code: string;
+  detailCode: string | null;
   retryAfterMs: number | null;
 }>;
 

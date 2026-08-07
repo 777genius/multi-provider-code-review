@@ -236,6 +236,7 @@ export class RunInvestigationTurn {
         phase,
         failureClass: failure.failureClass,
         code: failure.message,
+        detailCode: operationalDetailCode(error),
         retryAfterMs: boundedRetryAfterMs(failure.retryAfterMs),
       });
     } catch {
@@ -387,6 +388,16 @@ function operationalFailure(
       ? code.confinement
       : code.default
   );
+}
+
+function operationalDetailCode(error: unknown): string | null {
+  if (
+    error instanceof ReviewAgentExecutionError &&
+    /^review_agent_[a-z0-9_]{1,160}$/u.test(error.message)
+  ) {
+    return error.message;
+  }
+  return null;
 }
 
 async function cancelPreservingSemanticOutcome(

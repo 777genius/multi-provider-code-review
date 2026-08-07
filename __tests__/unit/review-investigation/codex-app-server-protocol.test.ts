@@ -309,6 +309,7 @@ describe('CodexAppServerProtocolClient', () => {
 
       await expect(fixture.result).rejects.toMatchObject({
         failureClass: ReviewAgentFailureClass.StreamIncomplete,
+        message: 'review_agent_stream_incomplete_unknown_notification',
       });
     }
   );
@@ -464,7 +465,6 @@ describe('CodexAppServerProtocolClient', () => {
   });
 
   it.each([
-    ['a null thread fence', { threadId: null, message: 'fallback' }],
     ['a wrong thread fence', { threadId: 'thread-other', message: 'fallback' }],
     [
       'an extra field',
@@ -479,8 +479,60 @@ describe('CodexAppServerProtocolClient', () => {
 
     await expect(fixture.result).rejects.toMatchObject({
       failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_warning',
     });
   });
+
+  it.each([
+    ['nullable', { threadId: null }],
+    ['omitted', {}],
+  ])(
+    'accepts an unfenced global warning with a %s thread before identity is known',
+    async (_name, warningFence) => {
+      const writes: Array<Record<string, unknown>> = [];
+      const client = new CodexAppServerProtocolClient(
+        protocolRequest(),
+        async (message) => {
+          writes.push({ ...message });
+        }
+      );
+      const result = client.run();
+      await waitForWrite(writes, 'initialize');
+      client.receive({
+        id: 1,
+        result: {
+          userAgent: `Codex Desktop/${CODEX_APP_SERVER_VERSION} test`,
+          codexHome: '/tmp/codex-home',
+          platformFamily: 'unix',
+          platformOs: 'linux',
+        },
+      });
+      await waitForWrite(writes, 'thread/start');
+      client.receive(
+        notification('warning', {
+          message: 'WebSocket unavailable; continuing over HTTPS.',
+          ...warningFence,
+        })
+      );
+      client.receive(notification('thread/started', { thread: thread() }));
+      client.receive({ id: 2, result: threadStartResponse() });
+      await waitForWrite(writes, 'turn/start');
+      client.receive(
+        notification('turn/started', {
+          threadId,
+          turn: turn('inProgress'),
+        })
+      );
+      client.receive({ id: 3, result: { turn: turn('inProgress') } });
+      completeMessage(client, 'final', 'final_answer', '{"ok":true}');
+      completeUsage(client);
+      completeTurn(client);
+
+      await expect(result).resolves.toMatchObject({
+        finalMessage: '{"ok":true}',
+      });
+    }
+  );
 
   it('rejects a warning before the thread identity is known', async () => {
     const writes: Array<Record<string, unknown>> = [];

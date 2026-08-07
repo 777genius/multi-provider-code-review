@@ -235,6 +235,8 @@ export class CodexAppServerProtocolClient {
 
   receive(value: unknown): void {
     if (this.failed) return;
+    let diagnosticStage: CodexProtocolDiagnosticStage =
+      CodexProtocolDiagnosticStage.Envelope;
     try {
       const message = requireRecord(value, 'protocol_message');
       const hasMethod = Object.prototype.hasOwnProperty.call(message, 'method');
@@ -243,16 +245,18 @@ export class CodexAppServerProtocolClient {
         throw confinementFailure();
       }
       if (hasId) {
+        diagnosticStage = CodexProtocolDiagnosticStage.Response;
         this.receiveResponse(message);
         return;
       }
       if (hasMethod) {
+        diagnosticStage = notificationDiagnosticStage(message.method);
         this.receiveNotification(message);
         return;
       }
       throw streamFailure();
     } catch (error) {
-      this.fail(error);
+      this.fail(withStreamDiagnosticStage(error, diagnosticStage));
     }
   }
 
@@ -273,7 +277,7 @@ export class CodexAppServerProtocolClient {
 
   end(): void {
     if (!this.failed && !this.turnCompleted) {
-      this.fail(streamFailure());
+      this.fail(streamFailure(CodexProtocolDiagnosticStage.ProcessEnd));
     }
   }
 
@@ -890,13 +894,15 @@ export class CodexAppServerProtocolClient {
   }
 
   private onWarning(params: Record<string, unknown>): void {
-    if (!hasOnlyKeys(params, ['message', 'threadId'])) {
+    if (!hasRequiredAndOptionalKeys(params, ['message'], ['threadId'])) {
       throw streamFailure();
     }
-    const expectedThreadId = this.threadId ?? this.provisionalThreadId;
-    if (expectedThreadId === null) throw streamFailure();
-    const warningThreadId = requireIdentifier(params.threadId, 'thread_id');
-    if (warningThreadId !== expectedThreadId) throw streamFailure();
+    if (params.threadId !== null && params.threadId !== undefined) {
+      const expectedThreadId = this.threadId ?? this.provisionalThreadId;
+      if (expectedThreadId === null) throw streamFailure();
+      const warningThreadId = requireIdentifier(params.threadId, 'thread_id');
+      if (warningThreadId !== expectedThreadId) throw streamFailure();
+    }
     const message = requireNonEmptyString(params.message, 'warning_message');
     if (Buffer.byteLength(message, 'utf8') > MAX_WARNING_MESSAGE_BYTES) {
       throw streamFailure();
@@ -1397,11 +1403,87 @@ function safeJson(value: unknown): string {
   }
 }
 
-function streamFailure(): ReviewAgentExecutionError {
+enum CodexProtocolDiagnosticStage {
+  Envelope = 'envelope',
+  Error = 'error',
+  IgnoredNotification = 'ignored_notification',
+  ItemCompleted = 'item_completed',
+  ItemStarted = 'item_started',
+  McpServerStatus = 'mcp_server_status',
+  ModelRerouted = 'model_rerouted',
+  ModelSafety = 'model_safety',
+  ModelVerification = 'model_verification',
+  ModerationMetadata = 'moderation_metadata',
+  ProcessEnd = 'process_end',
+  RawResponseCompleted = 'raw_response_completed',
+  Response = 'response',
+  ThreadStarted = 'thread_started',
+  TokenUsageUpdated = 'token_usage_updated',
+  TurnCompleted = 'turn_completed',
+  TurnStarted = 'turn_started',
+  UnknownNotification = 'unknown_notification',
+  Warning = 'warning',
+}
+
+function notificationDiagnosticStage(
+  value: unknown
+): CodexProtocolDiagnosticStage {
+  switch (value) {
+    case 'thread/started':
+      return CodexProtocolDiagnosticStage.ThreadStarted;
+    case 'mcpServer/startupStatus/updated':
+      return CodexProtocolDiagnosticStage.McpServerStatus;
+    case 'turn/started':
+      return CodexProtocolDiagnosticStage.TurnStarted;
+    case 'item/started':
+      return CodexProtocolDiagnosticStage.ItemStarted;
+    case 'item/completed':
+      return CodexProtocolDiagnosticStage.ItemCompleted;
+    case 'rawResponse/completed':
+      return CodexProtocolDiagnosticStage.RawResponseCompleted;
+    case 'thread/tokenUsage/updated':
+      return CodexProtocolDiagnosticStage.TokenUsageUpdated;
+    case 'turn/completed':
+      return CodexProtocolDiagnosticStage.TurnCompleted;
+    case 'model/rerouted':
+      return CodexProtocolDiagnosticStage.ModelRerouted;
+    case 'model/verification':
+      return CodexProtocolDiagnosticStage.ModelVerification;
+    case 'turn/moderationMetadata':
+      return CodexProtocolDiagnosticStage.ModerationMetadata;
+    case 'model/safetyBuffering/updated':
+      return CodexProtocolDiagnosticStage.ModelSafety;
+    case 'warning':
+      return CodexProtocolDiagnosticStage.Warning;
+    case 'error':
+      return CodexProtocolDiagnosticStage.Error;
+    default:
+      return typeof value === 'string' &&
+        IGNORED_NOTIFICATION_METHODS.has(value)
+        ? CodexProtocolDiagnosticStage.IgnoredNotification
+        : CodexProtocolDiagnosticStage.UnknownNotification;
+  }
+}
+
+function withStreamDiagnosticStage(
+  error: unknown,
+  stage: CodexProtocolDiagnosticStage
+): unknown {
+  return error instanceof ReviewAgentExecutionError &&
+    error.failureClass === ReviewAgentFailureClass.StreamIncomplete
+    ? streamFailure(stage)
+    : error;
+}
+
+function streamFailure(
+  stage?: CodexProtocolDiagnosticStage
+): ReviewAgentExecutionError {
   return new ReviewAgentExecutionError(
     ReviewAgentFailureClass.StreamIncomplete,
     null,
-    'review_agent_stream_incomplete'
+    stage
+      ? `review_agent_stream_incomplete_${stage}`
+      : 'review_agent_stream_incomplete'
   );
 }
 
