@@ -50231,7 +50231,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.80",
+  version: "1.0.81",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -106010,10 +106010,13 @@ var CodexAppServerProtocolClient = class {
     this.assertTurnFence(params);
   }
   onWarning(params) {
-    if (!this.turnStarted || this.turnCompleted || !hasOnlyKeys(params, ["message", "threadId"])) {
+    if (!hasOnlyKeys(params, ["message", "threadId"])) {
       throw streamFailure2();
     }
-    this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
+    const expectedThreadId = this.threadId ?? this.provisionalThreadId;
+    if (expectedThreadId === null) throw streamFailure2();
+    const warningThreadId = requireIdentifier2(params.threadId, "thread_id");
+    if (warningThreadId !== expectedThreadId) throw streamFailure2();
     const message = requireNonEmptyString(params.message, "warning_message");
     if (Buffer.byteLength(message, "utf8") > MAX_WARNING_MESSAGE_BYTES) {
       throw streamFailure2();
