@@ -68,6 +68,7 @@ const OPTED_OUT_NOTIFICATIONS = Object.freeze([
   'item/reasoning/summaryPartAdded',
   'item/reasoning/textDelta',
   'item/mcpToolCall/progress',
+  'serverRequest/resolved',
   'account/updated',
   'account/rateLimits/updated',
   'app/list/updated',
@@ -363,6 +364,9 @@ export class CodexAppServerProtocolClient {
         return;
       case 'mcpServer/startupStatus/updated':
         this.onMcpServerStatus(params);
+        return;
+      case 'serverRequest/resolved':
+        this.onServerRequestResolved(params);
         return;
       case 'turn/started':
         this.onTurnStarted(params);
@@ -878,6 +882,17 @@ export class CodexAppServerProtocolClient {
   private assertTurnFence(params: Record<string, unknown>): void {
     this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
     this.assertTurnId(requireIdentifier(params.turnId, 'turn_id'));
+  }
+
+  private onServerRequestResolved(params: Record<string, unknown>): void {
+    if (
+      !this.threadStarted ||
+      !hasOnlyKeys(params, ['requestId', 'threadId'])
+    ) {
+      throw streamFailure();
+    }
+    requireRequestId(params.requestId);
+    this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
   }
 
   private assertActiveTurnMetadata(
@@ -1418,6 +1433,7 @@ enum CodexProtocolDiagnosticStage {
   ProcessEnd = 'process_end',
   RawResponseCompleted = 'raw_response_completed',
   Response = 'response',
+  ServerRequestResolved = 'server_request_resolved',
   ThreadStarted = 'thread_started',
   TokenUsageUpdated = 'token_usage_updated',
   TurnCompleted = 'turn_completed',
@@ -1434,6 +1450,8 @@ function notificationDiagnosticStage(
       return CodexProtocolDiagnosticStage.ThreadStarted;
     case 'mcpServer/startupStatus/updated':
       return CodexProtocolDiagnosticStage.McpServerStatus;
+    case 'serverRequest/resolved':
+      return CodexProtocolDiagnosticStage.ServerRequestResolved;
     case 'turn/started':
       return CodexProtocolDiagnosticStage.TurnStarted;
     case 'item/started':
