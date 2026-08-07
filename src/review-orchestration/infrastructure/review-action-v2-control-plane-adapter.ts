@@ -114,6 +114,72 @@ export class ReviewActionV2ControlPlaneAdapter
     return authorization;
   }
 
+  async renewAuthorization(
+    input: Parameters<ReviewActionV2ControlPlanePort['renewAuthorization']>[0]
+  ): ReturnType<ReviewActionV2ControlPlanePort['renewAuthorization']> {
+    let response;
+    try {
+      response = await this.client.executeWithMetadata(
+        ReviewActionV2OperationId.ReviewRunRenew,
+        {
+          authorizationToken: input.authorization.authorizationToken,
+          idempotencyKey: input.idempotencyKey,
+          authorizationId: input.authorization.authorizationId,
+          renewalRequestId: input.renewalRequestId,
+          oidcToken: input.oidcToken,
+          requestedTtlMs: input.requestedTtlMs,
+        }
+      );
+    } catch (error) {
+      throw controlPlaneFailure(error);
+    }
+    const result = response.result;
+    if (
+      result.status !== ReviewRunAuthorizationResultStatus.Renewed &&
+      result.status !== ReviewRunAuthorizationResultStatus.Restored
+    ) {
+      throw new Error(`review_action_v2_authorization_renew_${result.status}`);
+    }
+    const authorizationId = requireString(
+      result.authorizationId,
+      'renewed_authorization_id'
+    );
+    if (authorizationId !== input.authorization.authorizationId) {
+      throw new Error('review_action_v2_authorization_renew_scope_mismatch');
+    }
+    const mutationEpoch = requireDecimal(
+      result.mutationEpoch,
+      'renewed_mutation_epoch'
+    );
+    if (mutationEpoch !== input.authorization.mutationEpoch) {
+      throw new Error('review_action_v2_authorization_renew_epoch_mismatch');
+    }
+    const expiresAt = requireTimestamp(result.expiresAt, 'renewed_expires_at');
+    const serverTime = requireTimestamp(
+      response.serverTime,
+      'renewed_server_time'
+    );
+    const validForMsAtResponse = Date.parse(expiresAt) - Date.parse(serverTime);
+    if (
+      !Number.isSafeInteger(validForMsAtResponse) ||
+      validForMsAtResponse < 1
+    ) {
+      throw new Error('review_action_v2_authorization_renew_expiry_invalid');
+    }
+    const authorization = Object.freeze({
+      ...input.authorization,
+      authorizationId,
+      authorizationToken: requireString(
+        result.authorizationToken,
+        'renewed_authorization_token'
+      ),
+      mutationEpoch,
+      expiresAt,
+    });
+    this.activeAuthorization = authorization;
+    return Object.freeze({ authorization, validForMsAtResponse });
+  }
+
   async openGatewaySession(
     input: Parameters<ReviewContextAttestationPort['openGatewaySession']>[0]
   ): ReturnType<ReviewContextAttestationPort['openGatewaySession']> {
@@ -870,7 +936,8 @@ export class ReviewActionV2ControlPlaneAdapter
       {
         authorizationToken: input.authorization.authorizationToken,
         publicationAttemptId: input.publicationAttemptId,
-      }
+      },
+      { timeoutMs: input.timeoutMs }
     );
     if (result.status !== ReviewPublicationStatusResultStatus.Terminal) {
       return {

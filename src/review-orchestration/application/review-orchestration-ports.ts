@@ -420,6 +420,16 @@ export interface ReviewActionV2ControlPlanePort {
   authorize(input: {
     readonly oidcToken: string;
   }): Promise<ReviewRunAuthorization>;
+  renewAuthorization(input: {
+    readonly authorization: ReviewRunAuthorization;
+    readonly idempotencyKey: string;
+    readonly renewalRequestId: string;
+    readonly oidcToken: string;
+    readonly requestedTtlMs: number;
+  }): Promise<{
+    readonly authorization: ReviewRunAuthorization;
+    readonly validForMsAtResponse: number;
+  }>;
   restoreSnapshot(input: {
     readonly authorization: ReviewRunAuthorization;
     readonly reviewRevisionHash: string;
@@ -561,6 +571,7 @@ export interface ReviewActionV2ControlPlanePort {
   readPublicationStatus(input: {
     readonly authorization: ReviewRunAuthorization;
     readonly publicationAttemptId: string;
+    readonly timeoutMs: number;
   }): Promise<
     | { readonly terminal: false; readonly pollAfterMs: number }
     | { readonly terminal: true; readonly outcome: ReviewPublicationOutcome }
@@ -652,4 +663,8 @@ export interface ReviewOrchestrationIdentityPort {
 
 export interface ReviewOrchestrationDelayPort {
   sleep(delayMs: number): Promise<void>;
+}
+
+export interface ReviewOrchestrationClockPort {
+  monotonicNowMs(): number;
 }

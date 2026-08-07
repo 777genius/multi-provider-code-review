@@ -69,10 +69,10 @@ on:
         type: boolean
         default: false
       review_timeout_minutes:
-        description: 'Maximum execution time for the review job'
+        description: 'Full review lifecycle budget, including publication reconciliation and cleanup'
         required: false
         type: number
-        default: 60
+        default: 180
       max_changed_lines:
         description: 'Skip review when additions plus deletions exceed this value; zero disables the limit'
         required: false

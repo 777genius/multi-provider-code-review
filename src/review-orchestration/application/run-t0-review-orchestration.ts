@@ -34,6 +34,7 @@ import {
   type ReviewInvestigationRecordingPort,
   type ReviewInvestigationDiagnosticsPort,
   type ReviewOidcTokenPort,
+  type ReviewOrchestrationClockPort,
   type ReviewOrchestrationDelayPort,
   type ReviewOrchestrationIdentityPort,
   type ReviewProtocolLimits,
@@ -66,6 +67,14 @@ export enum ReviewOrchestrationResultStatus {
   PublicationUnavailable = 'publication_unavailable',
   Failed = 'failed',
 }
+
+const MAX_PRE_EXECUTION_AUTHORIZATION_TTL_MS = 6 * 60 * 60_000;
+const MIN_PRE_EXECUTION_AUTHORIZATION_VALIDITY_MS =
+  3 * 60 * 60_000 + 5 * 60_000;
+const PUBLICATION_AUTHORIZATION_RESERVE_MS = 5 * 60_000;
+const PUBLICATION_HORIZON_MULTIPLIER = 2;
+const FINAL_PUBLICATION_STATUS_RESERVE_MS = 30_000;
+const MIN_PUBLICATION_POLL_DELAY_MS = 1_000;
 
 export type RunT0ReviewOrchestrationCommand = {
   readonly executionId: string;
@@ -119,20 +128,20 @@ export type RunT0ReviewOrchestrationDependencies = {
   readonly contextReplay?: ContextDependencyReplayPort;
   readonly contextAttestations?: ReviewContextAttestationPort;
   readonly identities: ReviewOrchestrationIdentityPort;
+  readonly clock: ReviewOrchestrationClockPort;
   readonly delay: ReviewOrchestrationDelayPort;
 };
 
 export class RunT0ReviewOrchestration {
   constructor(
     private readonly dependencies: RunT0ReviewOrchestrationDependencies,
-    private readonly maxPublicationPolls = 30,
+    private readonly maxPublicationPolls: number | null = null,
     private readonly maxBusyPollsPerProviderLane = 24,
     private readonly revisionPollIntervalMs = 5_000
   ) {
     if (
-      !Number.isSafeInteger(maxPublicationPolls) ||
-      maxPublicationPolls < 1 ||
-      maxPublicationPolls > 120
+      maxPublicationPolls !== null &&
+      (!Number.isSafeInteger(maxPublicationPolls) || maxPublicationPolls < 1)
     ) {
       throw new Error('review_orchestration_publication_poll_limit_invalid');
     }
@@ -199,6 +208,22 @@ export class RunT0ReviewOrchestration {
       state = evolveReviewOrchestration(state, {
         type: ReviewOrchestrationEventType.RevisionConfirmed,
       });
+
+      const preExecutionRenewal = await this.renewAuthorization({
+        authorization,
+        command,
+        phase: 'pre-execution',
+        requestedTtlMs: MAX_PRE_EXECUTION_AUTHORIZATION_TTL_MS,
+      });
+      authorization = preExecutionRenewal.authorization;
+      if (
+        preExecutionRenewal.validForMsAtResponse <
+        MIN_PRE_EXECUTION_AUTHORIZATION_VALIDITY_MS
+      ) {
+        throw new Error(
+          'review_orchestration_execution_authorization_window_insufficient'
+        );
+      }
 
       const [, restoredExecution] = await Promise.all([
         this.dependencies.controlPlane.restoreSnapshot({
@@ -383,6 +408,36 @@ export class RunT0ReviewOrchestration {
         };
       }
       await this.assertRevisionCurrent(command);
+      const publicationHorizonMs = safeMultiplyMilliseconds(
+        authorization.limits.maxReconciliationDurationMs,
+        PUBLICATION_HORIZON_MULTIPLIER
+      );
+      const publicationRequiredValidityMs = safeAddMilliseconds(
+        publicationHorizonMs,
+        FINAL_PUBLICATION_STATUS_RESERVE_MS
+      );
+      const publicationRenewal = await this.renewAuthorization({
+        authorization,
+        command,
+        phase: 'pre-publication',
+        discriminator: projection.projectionHash,
+        requestedTtlMs: safeAddMilliseconds(
+          publicationHorizonMs,
+          PUBLICATION_AUTHORIZATION_RESERVE_MS
+        ),
+      });
+      authorization = publicationRenewal.authorization;
+      const publicationRenewalReceivedAtMs = readMonotonicClockMs(
+        this.dependencies.clock
+      );
+      if (
+        publicationRenewal.validForMsAtResponse <
+        publicationRequiredValidityMs
+      ) {
+        throw new Error(
+          'review_orchestration_publication_authorization_window_insufficient'
+        );
+      }
       const latestExecution =
         await this.dependencies.controlPlane.restoreExecution({
           authorization,
@@ -404,6 +459,14 @@ export class RunT0ReviewOrchestration {
         allowPartial: partial,
       });
       await this.assertRevisionCurrent(command);
+      assertPublicationAuthorizationWindow({
+        validForMsAtResponse: publicationRenewal.validForMsAtResponse,
+        elapsedMs: elapsedMonotonicMs(
+          publicationRenewalReceivedAtMs,
+          readMonotonicClockMs(this.dependencies.clock)
+        ),
+        requiredMs: publicationRequiredValidityMs,
+      });
       const publication =
         await this.dependencies.controlPlane.requestPublication({
           authorization,
@@ -475,14 +538,59 @@ export class RunT0ReviewOrchestration {
       });
 
       let pollAfterMs = publication.pollAfterMs;
-      for (let poll = 0; poll < this.maxPublicationPolls; poll += 1) {
-        await this.dependencies.delay.sleep(clampPollDelay(pollAfterMs));
+      const elapsedSinceRenewalMs = elapsedMonotonicMs(
+        publicationRenewalReceivedAtMs,
+        readMonotonicClockMs(this.dependencies.clock)
+      );
+      const reconciliationBudgetMs = Math.min(
+        publicationHorizonMs,
+        publicationRenewal.validForMsAtResponse -
+          elapsedSinceRenewalMs -
+          FINAL_PUBLICATION_STATUS_RESERVE_MS
+      );
+      if (reconciliationBudgetMs <= 0) {
+        throw new Error(
+          'review_orchestration_publication_authorization_window_exhausted'
+        );
+      }
+      const publicationDeadlineMs = safeAddMilliseconds(
+        readMonotonicClockMs(this.dependencies.clock),
+        safeAddMilliseconds(
+          reconciliationBudgetMs,
+          FINAL_PUBLICATION_STATUS_RESERVE_MS
+        )
+      );
+      const publicationPollLimit = calculatePublicationPollLimit({
+        hardLimit: this.maxPublicationPolls,
+        reconciliationDurationMs: reconciliationBudgetMs,
+      });
+      for (let poll = 0; poll < publicationPollLimit; poll += 1) {
+        const remainingMs =
+          publicationDeadlineMs - readMonotonicClockMs(this.dependencies.clock);
+        if (remainingMs <= 0) break;
+        const delayMs = Math.min(
+          clampPollDelay(pollAfterMs),
+          Math.max(0, remainingMs - FINAL_PUBLICATION_STATUS_RESERVE_MS)
+        );
+        if (delayMs > 0) await this.dependencies.delay.sleep(delayMs);
+        const requestBudgetMs = Math.floor(
+          publicationDeadlineMs - readMonotonicClockMs(this.dependencies.clock)
+        );
+        if (requestBudgetMs <= 0) break;
         const status =
           await this.dependencies.controlPlane.readPublicationStatus({
             authorization,
             publicationAttemptId: publication.publicationAttemptId,
+            timeoutMs: requestBudgetMs,
           });
         if (!status.terminal) {
+          if (
+            publicationDeadlineMs -
+              readMonotonicClockMs(this.dependencies.clock) <=
+            FINAL_PUBLICATION_STATUS_RESERVE_MS
+          ) {
+            break;
+          }
           pollAfterMs = clampPollDelay(status.pollAfterMs);
           continue;
         }
@@ -545,6 +653,39 @@ export class RunT0ReviewOrchestration {
         failureCode: safeFailureCode(error),
       };
     }
+  }
+
+  private async renewAuthorization(input: {
+    readonly authorization: ReviewRunAuthorization;
+    readonly command: RunT0ReviewOrchestrationCommand;
+    readonly phase: string;
+    readonly discriminator?: string;
+    readonly requestedTtlMs: number;
+  }) {
+    // T0 renewal is part of the digest-pinned v2 protocol. Downgrading after a
+    // capability error would mix release contracts and can outlive authority.
+    const identityParts = [
+      input.authorization.authorizationId,
+      input.authorization.mutationEpoch,
+      input.command.executionId,
+      input.command.sourceRunId,
+      input.command.sourceRunAttempt,
+      input.command.reviewRevisionHash,
+      input.phase,
+      ...(input.discriminator ? [input.discriminator] : []),
+    ];
+    const renewal = await this.dependencies.controlPlane.renewAuthorization({
+      authorization: input.authorization,
+      idempotencyKey: this.idempotencyKey('authorization-renew', identityParts),
+      renewalRequestId: this.dependencies.identities.deterministicId(
+        'authorization-renewal-request',
+        identityParts
+      ),
+      oidcToken: await this.dependencies.oidc.getToken(),
+      requestedTtlMs: input.requestedTtlMs,
+    });
+    validateAuthorizationScope(input.command, renewal.authorization);
+    return renewal;
   }
 
   private async satisfyWorkSlot(input: {
@@ -1711,8 +1852,79 @@ function validateManifest(manifest: {
 }
 
 function clampPollDelay(value: number): number {
-  if (!Number.isFinite(value) || value < 0) return 1000;
-  return Math.min(Math.max(Math.floor(value), 100), 30_000);
+  if (!Number.isFinite(value) || value < 0) {
+    return MIN_PUBLICATION_POLL_DELAY_MS;
+  }
+  return Math.min(
+    Math.max(Math.floor(value), MIN_PUBLICATION_POLL_DELAY_MS),
+    30_000
+  );
+}
+
+function calculatePublicationPollLimit(input: {
+  readonly hardLimit: number | null;
+  readonly reconciliationDurationMs: number;
+}): number {
+  const durationBound = Math.ceil(
+    input.reconciliationDurationMs / MIN_PUBLICATION_POLL_DELAY_MS
+  );
+  const deadlineBound = Math.max(1, durationBound);
+  return input.hardLimit === null
+    ? deadlineBound
+    : Math.min(input.hardLimit, deadlineBound);
+}
+
+function readMonotonicClockMs(clock: ReviewOrchestrationClockPort): number {
+  const nowMs = clock.monotonicNowMs();
+  if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
+    throw new Error('review_orchestration_monotonic_clock_invalid');
+  }
+  return nowMs;
+}
+
+function safeAddMilliseconds(left: number, right: number): number {
+  if (
+    !Number.isSafeInteger(left) ||
+    left < 0 ||
+    !Number.isSafeInteger(right) ||
+    right < 0 ||
+    left > Number.MAX_SAFE_INTEGER - right
+  ) {
+    throw new Error('review_orchestration_duration_overflow');
+  }
+  return left + right;
+}
+
+function safeMultiplyMilliseconds(value: number, multiplier: number): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    !Number.isSafeInteger(multiplier) ||
+    multiplier < 1 ||
+    value > Math.floor(Number.MAX_SAFE_INTEGER / multiplier)
+  ) {
+    throw new Error('review_orchestration_duration_overflow');
+  }
+  return value * multiplier;
+}
+
+function elapsedMonotonicMs(startMs: number, endMs: number): number {
+  if (endMs < startMs) {
+    throw new Error('review_orchestration_monotonic_clock_regressed');
+  }
+  return endMs - startMs;
+}
+
+function assertPublicationAuthorizationWindow(input: {
+  readonly validForMsAtResponse: number;
+  readonly elapsedMs: number;
+  readonly requiredMs: number;
+}): void {
+  if (input.validForMsAtResponse - input.elapsedMs < input.requiredMs) {
+    throw new Error(
+      'review_orchestration_publication_authorization_window_insufficient'
+    );
+  }
 }
 
 function isCanonicalJson(value: string): boolean {
