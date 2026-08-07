@@ -50231,7 +50231,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.78",
+  version: "1.0.79",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -105335,6 +105335,13 @@ var CODEX_ERROR_INFO_HTTP_VARIANTS = /* @__PURE__ */ new Set([
   "responseStreamDisconnected",
   "responseTooManyFailedAttempts"
 ]);
+var MAX_METADATA_JSON_BYTES = 32768;
+var MAX_METADATA_JSON_DEPTH = 16;
+var MAX_METADATA_JSON_NODES = 2048;
+var MAX_METADATA_COLLECTION_SIZE = 256;
+var MAX_METADATA_STRING_BYTES = 16384;
+var MAX_NOTIFICATION_STRING_ARRAY_SIZE = 64;
+var MAX_NOTIFICATION_STRING_BYTES = 1024;
 var CodexAppServerProtocolClient = class {
   constructor(request, write) {
     this.request = request;
@@ -105554,6 +105561,15 @@ var CodexAppServerProtocolClient = class {
       case "model/rerouted":
         this.assertTurnFence(params);
         throw modelFailure();
+      case "model/verification":
+        this.onModelVerification(params);
+        return;
+      case "turn/moderationMetadata":
+        this.onTurnModerationMetadata(params);
+        return;
+      case "model/safetyBuffering/updated":
+        this.onModelSafetyBufferingUpdated(params);
+        return;
       case "error":
         this.onErrorNotification(params);
         return;
@@ -105781,6 +105797,40 @@ var CodexAppServerProtocolClient = class {
     if (this.retainedTerminalError !== null) throw streamFailure2();
     this.retainedTerminalError = parsed;
   }
+  onModelVerification(params) {
+    this.assertActiveTurnMetadata(params, [
+      "threadId",
+      "turnId",
+      "verifications"
+    ]);
+    if (!Array.isArray(params.verifications) || params.verifications.length > MAX_NOTIFICATION_STRING_ARRAY_SIZE || params.verifications.some(
+      (verification) => verification !== "trustedAccessForCyber"
+    )) {
+      throw streamFailure2();
+    }
+  }
+  onTurnModerationMetadata(params) {
+    this.assertActiveTurnMetadata(params, ["metadata", "threadId", "turnId"]);
+    validateBoundedJson(params.metadata);
+  }
+  onModelSafetyBufferingUpdated(params) {
+    this.assertActiveTurnMetadata(params, [
+      "fasterModel",
+      "model",
+      "reasons",
+      "showBufferingUi",
+      "threadId",
+      "turnId",
+      "useCases"
+    ]);
+    requireModel(params.model);
+    requireBoundedStringArray(params.useCases);
+    requireBoundedStringArray(params.reasons);
+    if (params.showBufferingUi !== true && params.showBufferingUi !== false) {
+      throw streamFailure2();
+    }
+    if (params.fasterModel !== null) requireModel(params.fasterModel);
+  }
   onTurnCompleted(params) {
     this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
     const turn = requireRecord2(params.turn, "turn_completed_turn");
@@ -105861,6 +105911,12 @@ var CodexAppServerProtocolClient = class {
   assertTurnFence(params) {
     this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
     this.assertTurnId(requireIdentifier2(params.turnId, "turn_id"));
+  }
+  assertActiveTurnMetadata(params, keys) {
+    if (!this.turnStarted || this.turnCompleted || !hasOnlyKeys(params, keys)) {
+      throw streamFailure2();
+    }
+    this.assertTurnFence(params);
   }
   assertThreadId(threadId) {
     const expected = this.threadId ?? this.provisionalThreadId;
@@ -106123,6 +106179,71 @@ function requireStringArray2(value, _field) {
     throw streamFailure2();
   }
   return value;
+}
+function requireBoundedStringArray(value) {
+  if (!Array.isArray(value) || value.length > MAX_NOTIFICATION_STRING_ARRAY_SIZE) {
+    throw streamFailure2();
+  }
+  for (const item of value) {
+    if (typeof item !== "string" || Buffer.byteLength(item, "utf8") > MAX_NOTIFICATION_STRING_BYTES || containsControlCharacter(item)) {
+      throw streamFailure2();
+    }
+  }
+  return value;
+}
+function validateBoundedJson(value) {
+  const pending = [
+    { value, depth: 0 }
+  ];
+  let nodeCount = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || ++nodeCount > MAX_METADATA_JSON_NODES) {
+      throw streamFailure2();
+    }
+    const candidate = current.value;
+    if (candidate === null || typeof candidate === "boolean" || typeof candidate === "number" && Number.isFinite(candidate)) {
+      continue;
+    }
+    if (typeof candidate === "string") {
+      if (Buffer.byteLength(candidate, "utf8") > MAX_METADATA_STRING_BYTES) {
+        throw streamFailure2();
+      }
+      continue;
+    }
+    if (current.depth >= MAX_METADATA_JSON_DEPTH) throw streamFailure2();
+    if (Array.isArray(candidate)) {
+      if (candidate.length > MAX_METADATA_COLLECTION_SIZE) {
+        throw streamFailure2();
+      }
+      for (const item of candidate) {
+        pending.push({ value: item, depth: current.depth + 1 });
+      }
+      continue;
+    }
+    if (!isRecord9(candidate)) throw streamFailure2();
+    const prototype = Object.getPrototypeOf(candidate);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw streamFailure2();
+    }
+    const entries = Object.entries(candidate);
+    if (entries.length > MAX_METADATA_COLLECTION_SIZE) throw streamFailure2();
+    for (const [key, item] of entries) {
+      if (Buffer.byteLength(key, "utf8") > MAX_NOTIFICATION_STRING_BYTES) {
+        throw streamFailure2();
+      }
+      pending.push({ value: item, depth: current.depth + 1 });
+    }
+  }
+  let encoded;
+  try {
+    encoded = JSON.stringify(value);
+  } catch {
+    throw streamFailure2();
+  }
+  if (Buffer.byteLength(encoded, "utf8") > MAX_METADATA_JSON_BYTES) {
+    throw streamFailure2();
+  }
 }
 function requireTokenCount(value) {
   if (!Number.isSafeInteger(value) || value < 0) {

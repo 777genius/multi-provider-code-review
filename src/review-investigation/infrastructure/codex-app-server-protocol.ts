@@ -121,6 +121,14 @@ const CODEX_ERROR_INFO_HTTP_VARIANTS = new Set([
   'responseTooManyFailedAttempts',
 ]);
 
+const MAX_METADATA_JSON_BYTES = 32_768;
+const MAX_METADATA_JSON_DEPTH = 16;
+const MAX_METADATA_JSON_NODES = 2_048;
+const MAX_METADATA_COLLECTION_SIZE = 256;
+const MAX_METADATA_STRING_BYTES = 16_384;
+const MAX_NOTIFICATION_STRING_ARRAY_SIZE = 64;
+const MAX_NOTIFICATION_STRING_BYTES = 1_024;
+
 export class CodexAppServerProtocolClient {
   private readonly completion = deferred<CodexAppServerProtocolResult>();
   private readonly threadStartedSignal = deferred<void>();
@@ -371,6 +379,15 @@ export class CodexAppServerProtocolClient {
       case 'model/rerouted':
         this.assertTurnFence(params);
         throw modelFailure();
+      case 'model/verification':
+        this.onModelVerification(params);
+        return;
+      case 'turn/moderationMetadata':
+        this.onTurnModerationMetadata(params);
+        return;
+      case 'model/safetyBuffering/updated':
+        this.onModelSafetyBufferingUpdated(params);
+        return;
       case 'error':
         this.onErrorNotification(params);
         return;
@@ -709,6 +726,47 @@ export class CodexAppServerProtocolClient {
     this.retainedTerminalError = parsed;
   }
 
+  private onModelVerification(params: Record<string, unknown>): void {
+    this.assertActiveTurnMetadata(params, [
+      'threadId',
+      'turnId',
+      'verifications',
+    ]);
+    if (
+      !Array.isArray(params.verifications) ||
+      params.verifications.length > MAX_NOTIFICATION_STRING_ARRAY_SIZE ||
+      params.verifications.some(
+        (verification) => verification !== 'trustedAccessForCyber'
+      )
+    ) {
+      throw streamFailure();
+    }
+  }
+
+  private onTurnModerationMetadata(params: Record<string, unknown>): void {
+    this.assertActiveTurnMetadata(params, ['metadata', 'threadId', 'turnId']);
+    validateBoundedJson(params.metadata);
+  }
+
+  private onModelSafetyBufferingUpdated(params: Record<string, unknown>): void {
+    this.assertActiveTurnMetadata(params, [
+      'fasterModel',
+      'model',
+      'reasons',
+      'showBufferingUi',
+      'threadId',
+      'turnId',
+      'useCases',
+    ]);
+    requireModel(params.model);
+    requireBoundedStringArray(params.useCases);
+    requireBoundedStringArray(params.reasons);
+    if (params.showBufferingUi !== true && params.showBufferingUi !== false) {
+      throw streamFailure();
+    }
+    if (params.fasterModel !== null) requireModel(params.fasterModel);
+  }
+
   private onTurnCompleted(params: Record<string, unknown>): void {
     this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
     const turn = requireRecord(params.turn, 'turn_completed_turn');
@@ -811,6 +869,16 @@ export class CodexAppServerProtocolClient {
   private assertTurnFence(params: Record<string, unknown>): void {
     this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
     this.assertTurnId(requireIdentifier(params.turnId, 'turn_id'));
+  }
+
+  private assertActiveTurnMetadata(
+    params: Record<string, unknown>,
+    keys: readonly string[]
+  ): void {
+    if (!this.turnStarted || this.turnCompleted || !hasOnlyKeys(params, keys)) {
+      throw streamFailure();
+    }
+    this.assertTurnFence(params);
   }
 
   private assertThreadId(threadId: string): void {
@@ -1174,6 +1242,84 @@ function requireStringArray(value: unknown, _field: string): readonly string[] {
     throw streamFailure();
   }
   return value as string[];
+}
+
+function requireBoundedStringArray(value: unknown): readonly string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_NOTIFICATION_STRING_ARRAY_SIZE
+  ) {
+    throw streamFailure();
+  }
+  for (const item of value) {
+    if (
+      typeof item !== 'string' ||
+      Buffer.byteLength(item, 'utf8') > MAX_NOTIFICATION_STRING_BYTES ||
+      containsControlCharacter(item)
+    ) {
+      throw streamFailure();
+    }
+  }
+  return value as string[];
+}
+
+function validateBoundedJson(value: unknown): void {
+  const pending: Array<Readonly<{ value: unknown; depth: number }>> = [
+    { value, depth: 0 },
+  ];
+  let nodeCount = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || ++nodeCount > MAX_METADATA_JSON_NODES) {
+      throw streamFailure();
+    }
+    const candidate = current.value;
+    if (
+      candidate === null ||
+      typeof candidate === 'boolean' ||
+      (typeof candidate === 'number' && Number.isFinite(candidate))
+    ) {
+      continue;
+    }
+    if (typeof candidate === 'string') {
+      if (Buffer.byteLength(candidate, 'utf8') > MAX_METADATA_STRING_BYTES) {
+        throw streamFailure();
+      }
+      continue;
+    }
+    if (current.depth >= MAX_METADATA_JSON_DEPTH) throw streamFailure();
+    if (Array.isArray(candidate)) {
+      if (candidate.length > MAX_METADATA_COLLECTION_SIZE) {
+        throw streamFailure();
+      }
+      for (const item of candidate) {
+        pending.push({ value: item, depth: current.depth + 1 });
+      }
+      continue;
+    }
+    if (!isRecord(candidate)) throw streamFailure();
+    const prototype = Object.getPrototypeOf(candidate);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw streamFailure();
+    }
+    const entries = Object.entries(candidate);
+    if (entries.length > MAX_METADATA_COLLECTION_SIZE) throw streamFailure();
+    for (const [key, item] of entries) {
+      if (Buffer.byteLength(key, 'utf8') > MAX_NOTIFICATION_STRING_BYTES) {
+        throw streamFailure();
+      }
+      pending.push({ value: item, depth: current.depth + 1 });
+    }
+  }
+  let encoded: string;
+  try {
+    encoded = JSON.stringify(value);
+  } catch {
+    throw streamFailure();
+  }
+  if (Buffer.byteLength(encoded, 'utf8') > MAX_METADATA_JSON_BYTES) {
+    throw streamFailure();
+  }
 }
 
 function requireTokenCount(value: unknown): number {

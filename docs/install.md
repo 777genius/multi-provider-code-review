@@ -14,7 +14,7 @@ The generated workflow uses the live main branch by default:
 777genius/review-router@main
 ```
 
-Use `REVIEW_ROUTER_ACTION_REF_MODE=stable` if you want the moving major tag `777genius/review-router@v1`. Use `REVIEW_ROUTER_ACTION_REF_MODE=release` if you want the exact latest release tag pinned at install time, currently `777genius/review-router@v1.0.51`. Use `REVIEW_ROUTER_ACTION_REF=owner/repo@ref` for a custom fork or exact commit SHA.
+Use `REVIEW_ROUTER_ACTION_REF_MODE=stable` if you want the moving major tag `777genius/review-router@v1`. Use `REVIEW_ROUTER_ACTION_REF_MODE=release` if you want the exact latest release tag pinned at install time, currently `777genius/review-router@v1.0.79`. Use `REVIEW_ROUTER_ACTION_REF=owner/repo@ref` for a custom fork or exact commit SHA.
 
 ## Quick start
 

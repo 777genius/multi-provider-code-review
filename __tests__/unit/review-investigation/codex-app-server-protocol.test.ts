@@ -110,6 +110,156 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('accepts bounded 0.145.0 metadata notifications without changing the result', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('model/verification', {
+        threadId,
+        turnId,
+        verifications: ['trustedAccessForCyber'],
+      })
+    );
+    fixture.client.receive(
+      notification('turn/moderationMetadata', {
+        threadId,
+        turnId,
+        metadata: { presentation: 'inline', categories: ['cyber'] },
+      })
+    );
+    fixture.client.receive(
+      notification('model/safetyBuffering/updated', {
+        threadId,
+        turnId,
+        model: 'gpt-5.6-sol',
+        useCases: ['cyber'],
+        reasons: ['user_risk'],
+        showBufferingUi: true,
+        fasterModel: 'gpt-5.6-mini',
+      })
+    );
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toEqual({
+      finalMessage: '{"ok":true}',
+      actualModel: 'openai.gpt-5.6-sol',
+      modelProvider: 'openai',
+      usage: {
+        inputTokens: 100,
+        cachedInputTokens: 20,
+        outputTokens: 10,
+        reasoningOutputTokens: 5,
+        totalTokens: 110,
+      },
+    });
+  });
+
+  it.each([
+    [
+      'unknown verification',
+      'model/verification',
+      { threadId, turnId, verifications: ['futureVerification'] },
+    ],
+    [
+      'non-JSON moderation metadata',
+      'turn/moderationMetadata',
+      { threadId, turnId, metadata: undefined },
+    ],
+    [
+      'oversized moderation metadata',
+      'turn/moderationMetadata',
+      { threadId, turnId, metadata: 'x'.repeat(32_769) },
+    ],
+    [
+      'oversized safety buffering array',
+      'model/safetyBuffering/updated',
+      {
+        threadId,
+        turnId,
+        model: 'gpt-5.6-sol',
+        useCases: Array(65).fill('cyber'),
+        reasons: [],
+        showBufferingUi: false,
+        fasterModel: null,
+      },
+    ],
+    [
+      'extra safety buffering field',
+      'model/safetyBuffering/updated',
+      {
+        threadId,
+        turnId,
+        model: 'gpt-5.6-sol',
+        useCases: [],
+        reasons: [],
+        showBufferingUi: false,
+        fasterModel: null,
+        unexpected: true,
+      },
+    ],
+  ])(
+    'rejects malformed metadata notification: %s',
+    async (_label, method, params) => {
+      const fixture = await activeTurn();
+      fixture.client.receive(notification(method, params));
+
+      await expect(fixture.result).rejects.toMatchObject({
+        failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      });
+    }
+  );
+
+  it.each([
+    ['model/verification', { verifications: ['trustedAccessForCyber'] }],
+    ['turn/moderationMetadata', { metadata: { presentation: 'inline' } }],
+    [
+      'model/safetyBuffering/updated',
+      {
+        model: 'gpt-5.6-sol',
+        useCases: ['cyber'],
+        reasons: ['user_risk'],
+        showBufferingUi: true,
+        fasterModel: null,
+      },
+    ],
+  ])('rejects a wrong turn fence for %s', async (method, params) => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification(method, { ...params, threadId, turnId: 'wrong-turn' })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+    });
+  });
+
+  it('rejects a wrong thread fence for metadata notifications', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('turn/moderationMetadata', {
+        threadId: 'wrong-thread',
+        turnId,
+        metadata: { presentation: 'inline' },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+    });
+  });
+
+  it('continues to reject unknown notification methods', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('model/futureMetadata', { threadId, turnId })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+    });
+  });
+
   it('prefers one explicit final answer over a phase-null compatibility message', async () => {
     const fixture = await activeTurn();
     completeMessage(fixture.client, 'compat', null, '{"compat":true}');
