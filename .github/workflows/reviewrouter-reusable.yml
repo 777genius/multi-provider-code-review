@@ -72,7 +72,7 @@ on:
         description: 'Full review lifecycle budget, including publication reconciliation and cleanup'
         required: false
         type: number
-        default: 180
+        default: 240
       legacy_review_timeout_minutes:
         description: 'Maximum execution time for the legacy review job'
         required: false
