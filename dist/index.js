@@ -105807,6 +105807,7 @@ var CodexAppServerProtocolClient = class {
   lastAggregateUsage = null;
   completionResolved = false;
   postCompletionFailure = null;
+  terminalFailure = null;
   retainedTerminalError = null;
   async run() {
     await withProtocolRunStage(
@@ -105916,6 +105917,7 @@ var CodexAppServerProtocolClient = class {
     if (this.failed) return;
     this.failed = true;
     const failure = normalizeProtocolFailure(error2);
+    this.terminalFailure = failure;
     if (this.completionResolved) {
       this.postCompletionFailure = failure;
     }
@@ -105945,7 +105947,7 @@ var CodexAppServerProtocolClient = class {
     });
   }
   async sendRequest(method, params) {
-    if (this.failed) throw streamFailure2();
+    if (this.failed) throw this.terminalFailure ?? streamFailure2();
     const id = this.nextRequestId++;
     const response = deferred();
     this.pending.set(requestIdKey(id), { deferred: response });
@@ -105957,9 +105959,15 @@ var CodexAppServerProtocolClient = class {
     }
     return response.promise;
   }
-  sendNotification(method) {
-    if (this.failed) throw streamFailure2();
-    return this.write({ method });
+  async sendNotification(method) {
+    if (this.failed) throw this.terminalFailure ?? streamFailure2();
+    try {
+      await this.write({ method });
+    } catch (error2) {
+      if (this.failed) throw this.terminalFailure ?? streamFailure2();
+      throw error2;
+    }
+    if (this.failed) throw this.terminalFailure ?? streamFailure2();
   }
   receiveResponse(message) {
     const hasResult = Object.prototype.hasOwnProperty.call(message, "result");

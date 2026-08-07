@@ -90,6 +90,43 @@ describe('CodexAppServerProtocolClient', () => {
     );
   });
 
+  it('preserves a protocol failure received while initialized is still being written', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    let finishInitializedWrite!: () => void;
+    const initializedWrite = new Promise<void>((resolve) => {
+      finishInitializedWrite = resolve;
+    });
+    const client = new CodexAppServerProtocolClient(
+      protocolRequest(),
+      async (message) => {
+        writes.push({ ...message });
+        if (message.method === 'initialized') await initializedWrite;
+      }
+    );
+    const result = client.run();
+    await waitForWrite(writes, 'initialize');
+    client.receive({
+      id: 1,
+      result: {
+        userAgent: `Codex Desktop/${CODEX_APP_SERVER_VERSION} test`,
+        codexHome: '/tmp/codex-home',
+        platformFamily: 'unix',
+        platformOs: 'linux',
+      },
+    });
+    await waitForWrite(writes, 'initialized');
+    client.receive({ method: 42, params: {}, emittedAtMs: 1 });
+    finishInitializedWrite();
+
+    await expect(result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_unknown_notification',
+    });
+    expect(writes).not.toContainEqual(
+      expect.objectContaining({ method: 'thread/start' })
+    );
+  });
+
   it('reports the turn start response stage for a malformed turn', async () => {
     const fixture = await threadNotificationBeforeStartResponse();
     fixture.client.receive({ id: 2, result: threadStartResponse() });

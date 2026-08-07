@@ -161,6 +161,7 @@ export class CodexAppServerProtocolClient {
   private lastAggregateUsage: RawTokenUsage | null = null;
   private completionResolved = false;
   private postCompletionFailure: ReviewAgentExecutionError | null = null;
+  private terminalFailure: ReviewAgentExecutionError | null = null;
   private retainedTerminalError: ParsedTurnError | null = null;
 
   constructor(
@@ -288,6 +289,7 @@ export class CodexAppServerProtocolClient {
     if (this.failed) return;
     this.failed = true;
     const failure = normalizeProtocolFailure(error);
+    this.terminalFailure = failure;
     if (this.completionResolved) {
       this.postCompletionFailure = failure;
     }
@@ -325,7 +327,7 @@ export class CodexAppServerProtocolClient {
     method: string,
     params: Readonly<Record<string, unknown>>
   ): Promise<unknown> {
-    if (this.failed) throw streamFailure();
+    if (this.failed) throw this.terminalFailure ?? streamFailure();
     const id = this.nextRequestId++;
     const response = deferred<unknown>();
     this.pending.set(requestIdKey(id), { deferred: response });
@@ -338,9 +340,15 @@ export class CodexAppServerProtocolClient {
     return response.promise;
   }
 
-  private sendNotification(method: string): Promise<void> {
-    if (this.failed) throw streamFailure();
-    return this.write({ method });
+  private async sendNotification(method: string): Promise<void> {
+    if (this.failed) throw this.terminalFailure ?? streamFailure();
+    try {
+      await this.write({ method });
+    } catch (error) {
+      if (this.failed) throw this.terminalFailure ?? streamFailure();
+      throw error;
+    }
+    if (this.failed) throw this.terminalFailure ?? streamFailure();
   }
 
   private receiveResponse(message: Record<string, unknown>): void {
