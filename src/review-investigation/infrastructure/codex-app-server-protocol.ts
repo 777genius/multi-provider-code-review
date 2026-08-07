@@ -890,14 +890,13 @@ export class CodexAppServerProtocolClient {
   }
 
   private onWarning(params: Record<string, unknown>): void {
-    if (
-      !this.turnStarted ||
-      this.turnCompleted ||
-      !hasOnlyKeys(params, ['message', 'threadId'])
-    ) {
+    if (!hasOnlyKeys(params, ['message', 'threadId'])) {
       throw streamFailure();
     }
-    this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
+    const expectedThreadId = this.threadId ?? this.provisionalThreadId;
+    if (expectedThreadId === null) throw streamFailure();
+    const warningThreadId = requireIdentifier(params.threadId, 'thread_id');
+    if (warningThreadId !== expectedThreadId) throw streamFailure();
     const message = requireNonEmptyString(params.message, 'warning_message');
     if (Buffer.byteLength(message, 'utf8') > MAX_WARNING_MESSAGE_BYTES) {
       throw streamFailure();

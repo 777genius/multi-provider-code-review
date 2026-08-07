@@ -301,16 +301,17 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
-  it('continues to reject unknown notification methods', async () => {
-    const fixture = await activeTurn();
-    fixture.client.receive(
-      notification('model/futureMetadata', { threadId, turnId })
-    );
+  it.each(['model/futureMetadata', 'guardianWarning'])(
+    'continues to reject unknown notification method %s',
+    async (method) => {
+      const fixture = await activeTurn();
+      fixture.client.receive(notification(method, { threadId, turnId }));
 
-    await expect(fixture.result).rejects.toMatchObject({
-      failureClass: ReviewAgentFailureClass.StreamIncomplete,
-    });
-  });
+      await expect(fixture.result).rejects.toMatchObject({
+        failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      });
+    }
+  );
 
   it('prefers one explicit final answer over a phase-null compatibility message', async () => {
     const fixture = await activeTurn();
@@ -389,6 +390,79 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('accepts a thread warning before the turn request is sent', async () => {
+    const fixture = await threadNotificationBeforeStartResponse();
+    fixture.client.receive(
+      notification('warning', {
+        threadId,
+        message: 'WebSocket unavailable; continuing over HTTPS.',
+      })
+    );
+    fixture.client.receive({ id: 2, result: threadStartResponse() });
+    await waitForWrite(fixture.writes, 'turn/start');
+    fixture.client.receive(
+      notification('turn/started', {
+        threadId,
+        turn: turn('inProgress'),
+      })
+    );
+    fixture.client.receive({ id: 3, result: { turn: turn('inProgress') } });
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it('accepts a warning and metadata after the turn response but before turn/started', async () => {
+    const fixture = await turnResponseBeforeStartedNotification();
+    fixture.client.receive(
+      notification('warning', {
+        threadId,
+        message: 'WebSocket unavailable; continuing over HTTPS.',
+      })
+    );
+    fixture.client.receive(
+      notification('turn/moderationMetadata', {
+        threadId,
+        turnId,
+        metadata: { presentation: 'inline', categories: ['cyber'] },
+      })
+    );
+    fixture.client.receive(
+      notification('turn/started', {
+        threadId,
+        turn: turn('inProgress'),
+      })
+    );
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it('ignores a valid thread warning after a completed turn', async () => {
+    const fixture = await activeTurn();
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+    await expect(fixture.result).resolves.toBeDefined();
+
+    fixture.client.receive(
+      notification('warning', {
+        threadId,
+        message: 'WebSocket unavailable; continuing over HTTPS.',
+      })
+    );
+
+    expect(fixture.client.failureAfterCompletion()).toBeNull();
+  });
+
   it.each([
     ['a null thread fence', { threadId: null, message: 'fallback' }],
     ['a wrong thread fence', { threadId: 'thread-other', message: 'fallback' }],
@@ -397,11 +471,46 @@ describe('CodexAppServerProtocolClient', () => {
       { threadId, message: 'fallback', diagnostic: 'not-retained' },
     ],
     ['an empty message', { threadId, message: '' }],
+    ['a control character', { threadId, message: 'fallback\ncontinued' }],
+    ['an oversized message', { threadId, message: 'x'.repeat(16_385) }],
   ])('rejects a warning with %s', async (_label, params) => {
     const fixture = await activeTurn();
     fixture.client.receive(notification('warning', params));
 
     await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+    });
+  });
+
+  it('rejects a warning before the thread identity is known', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const client = new CodexAppServerProtocolClient(
+      protocolRequest(),
+      async (message) => {
+        writes.push({ ...message });
+      }
+    );
+    const result = client.run();
+    await waitForWrite(writes, 'initialize');
+    client.receive({
+      id: 1,
+      result: {
+        userAgent: `Codex Desktop/${CODEX_APP_SERVER_VERSION} test`,
+        codexHome: '/tmp/codex-home',
+        platformFamily: 'unix',
+        platformOs: 'linux',
+      },
+    });
+    await waitForWrite(writes, 'thread/start');
+
+    client.receive(
+      notification('warning', {
+        threadId,
+        message: 'WebSocket unavailable; continuing over HTTPS.',
+      })
+    );
+
+    await expect(result).rejects.toMatchObject({
       failureClass: ReviewAgentFailureClass.StreamIncomplete,
     });
   });
@@ -820,6 +929,31 @@ async function turnResponseBeforeStartedNotification() {
   client.receive({ id: 2, result: threadStartResponse() });
   await waitForWrite(writes, 'turn/start');
   client.receive({ id: 3, result: { turn: turn('inProgress') } });
+  await Promise.resolve();
+  return { client, result, writes };
+}
+
+async function threadNotificationBeforeStartResponse() {
+  const writes: Array<Record<string, unknown>> = [];
+  const client = new CodexAppServerProtocolClient(
+    protocolRequest(),
+    async (message) => {
+      writes.push({ ...message });
+    }
+  );
+  const result = client.run();
+  await waitForWrite(writes, 'initialize');
+  client.receive({
+    id: 1,
+    result: {
+      userAgent: `Codex Desktop/${CODEX_APP_SERVER_VERSION} test`,
+      codexHome: '/tmp/codex-home',
+      platformFamily: 'unix',
+      platformOs: 'linux',
+    },
+  });
+  await waitForWrite(writes, 'thread/start');
+  client.receive(notification('thread/started', { thread: thread() }));
   await Promise.resolve();
   return { client, result, writes };
 }

@@ -22,6 +22,16 @@
       "expectedFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbb"
     },
     {
+      "name": "lineage v2",
+      "body": "reviewrouter:finding:v2:rrl_0123456789abcdef0123456789abcdef",
+      "expectedFingerprint": "rrl_0123456789abcdef0123456789abcdef"
+    },
+    {
+      "name": "hidden lineage v2",
+      "body": "<!-- reviewrouter:finding:v2:rrl_0123456789abcdef0123456789abcdef -->",
+      "expectedFingerprint": "rrl_0123456789abcdef0123456789abcdef"
+    },
+    {
       "name": "same fingerprint in both dialects",
       "body": "<!-- review-router-finding:cccccccccccccccccccccccc -->\nreviewrouter:finding:v2:cccccccccccccccccccccccc",
       "expectedFingerprint": "cccccccccccccccccccccccc"
@@ -64,6 +74,16 @@
     {
       "name": "v2 hyphen suffix",
       "body": "reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa-suffix",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "uppercase lineage v2 fingerprint",
+      "body": "reviewrouter:finding:v2:rrl_0123456789ABCDEF0123456789ABCDEF",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "lineage v2 suffix",
+      "body": "reviewrouter:finding:v2:rrl_0123456789abcdef0123456789abcdef_suffix",
       "expectedFingerprint": null
     },
     {
