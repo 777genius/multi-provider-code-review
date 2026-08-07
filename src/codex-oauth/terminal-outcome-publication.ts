@@ -25,6 +25,7 @@ export enum CodexOAuthTerminalOutcomeKind {
   Stale = 'stale',
   PublicationStale = 'publication-stale',
   PublicationNotApplied = 'publication-not-applied',
+  PublicationUnavailable = 'publication-unavailable',
   LaneBusy = 'lane-busy',
   ProviderCapacity = 'provider-capacity',
   RevisionUnavailable = 'revision-unavailable',

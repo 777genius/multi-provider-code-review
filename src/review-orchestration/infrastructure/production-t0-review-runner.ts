@@ -37,6 +37,7 @@ import {
   ReviewOrchestrationResultStatus,
   ReviewTaskKind,
   RunT0ReviewOrchestration,
+  type ReviewPublicationUnavailableFact,
   type ReviewRunAuthorization,
 } from '../application';
 import {
@@ -595,6 +596,7 @@ export function mapOrchestrationResultToCodexOutcome(result: {
   readonly status: ReviewOrchestrationResultStatus;
   readonly failureCode?: string;
   readonly mergeGateConclusion?: MergeGateConclusion;
+  readonly unavailablePublicationFacts?: readonly ReviewPublicationUnavailableFact[];
 }): CodexOAuthV2ReviewResult {
   switch (result.status) {
     case ReviewOrchestrationResultStatus.Completed:
@@ -624,6 +626,16 @@ export function mapOrchestrationResultToCodexOutcome(result: {
         blockingFailure:
           result.failureCode ?? 'review_action_v2_publication_stale',
       };
+    case ReviewOrchestrationResultStatus.PublicationUnavailable:
+      return {
+        outcome: CodexOAuthV2ReviewOutcome.PublicationUnavailable,
+        reason: CodexOAuthV2TerminalReason.PublicationFactsUnavailable,
+        unavailableFacts: requireUnavailablePublicationFacts(
+          result.unavailablePublicationFacts
+        ),
+        blockingFailure:
+          result.failureCode ?? 'review_action_v2_publication_unavailable',
+      };
     case ReviewOrchestrationResultStatus.Superseded:
       return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
     case ReviewOrchestrationResultStatus.Failed:
@@ -634,6 +646,15 @@ export function mapOrchestrationResultToCodexOutcome(result: {
           result.failureCode ?? `review_action_v2_${result.status}`,
       };
   }
+}
+
+function requireUnavailablePublicationFacts<T>(
+  facts: readonly T[] | undefined
+): readonly T[] {
+  if (!facts || facts.length === 0) {
+    throw new Error('review_orchestration_publication_facts_missing');
+  }
+  return facts;
 }
 
 function requireMergeGateConclusion(

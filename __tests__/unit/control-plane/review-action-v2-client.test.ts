@@ -133,6 +133,139 @@ describe('ReviewActionV2Client', () => {
     expect(sleep).toHaveBeenCalledWith(750);
   });
 
+  it('retries unavailable publication facts three times with byte-identical requests', async () => {
+    const bodies: string[] = [];
+    const sleep = jest.fn(async () => undefined);
+    const fetchImpl = jest.fn(async (_url, init) => {
+      const body = String(init?.body);
+      bodies.push(body);
+      const request = JSON.parse(body);
+      if (bodies.length < 3) {
+        return protocolErrorResponse(request.requestId, {
+          errorCode: ReviewActionV2ProtocolErrorCode.CapacityLimited,
+          retryClass: ReviewActionV2RetryClass.SameRequest,
+          issues: [
+            'publication_facts_unavailable',
+            'publication_fact_unavailable:lifecycle',
+          ],
+          status: 429,
+        });
+      }
+      return jsonResponse({
+        protocolVersion: reviewActionV2PublishedProtocolVersion,
+        schemaDigest: reviewActionV2PublishedSchemaDigest,
+        requestId: request.requestId,
+        serverTime: '2026-07-22T12:00:00.000Z',
+        result: { status: 'accepted' },
+      });
+    });
+    const client = new ReviewActionV2Client({
+      apiUrl: 'http://127.0.0.1:3000',
+      allowInsecureLocalhost: true,
+      fetchImpl,
+      requestIdFactory: () => 'rr:test-request',
+      sleep,
+      random: () => 0,
+    });
+
+    await expect(
+      client.execute(
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        publicationRequest()
+      )
+    ).resolves.toEqual({ status: 'accepted' });
+    expect(bodies).toHaveLength(3);
+    expect(new Set(bodies).size).toBe(1);
+    expect(sleep).toHaveBeenNthCalledWith(1, 5_000);
+    expect(sleep).toHaveBeenNthCalledWith(2, 10_000);
+  });
+
+  it('stops publication fact retries immediately when the next gate result is stale', async () => {
+    const sleep = jest.fn(async () => undefined);
+    let calls = 0;
+    const fetchImpl = jest.fn(async (_url, init) => {
+      calls += 1;
+      const request = JSON.parse(String(init?.body));
+      return calls === 1
+        ? protocolErrorResponse(request.requestId, {
+            errorCode: ReviewActionV2ProtocolErrorCode.CapacityLimited,
+            retryClass: ReviewActionV2RetryClass.SameRequest,
+            issues: [
+              'publication_facts_unavailable',
+              'publication_fact_unavailable:lifecycle',
+            ],
+            status: 429,
+          })
+        : protocolErrorResponse(request.requestId, {
+            errorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
+            retryClass: ReviewActionV2RetryClass.Never,
+            issues: ['revision_not_current'],
+            status: 412,
+          });
+    });
+    const client = new ReviewActionV2Client({
+      apiUrl: 'http://127.0.0.1:3000',
+      allowInsecureLocalhost: true,
+      fetchImpl,
+      requestIdFactory: () => 'rr:test-request',
+      sleep,
+      random: () => 0,
+    });
+
+    await expect(
+      client.execute(
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        publicationRequest()
+      )
+    ).rejects.toMatchObject({
+      protocolErrorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
+      issues: ['revision_not_current'],
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves only the final unavailable publication facts after retries are exhausted', async () => {
+    let calls = 0;
+    const fetchImpl = jest.fn(async (_url, init) => {
+      calls += 1;
+      const request = JSON.parse(String(init?.body));
+      return protocolErrorResponse(request.requestId, {
+        errorCode: ReviewActionV2ProtocolErrorCode.CapacityLimited,
+        retryClass: ReviewActionV2RetryClass.SameRequest,
+        issues: [
+          'publication_facts_unavailable',
+          calls === 3
+            ? 'publication_fact_unavailable:safety'
+            : 'publication_fact_unavailable:lifecycle',
+        ],
+        status: 429,
+      });
+    });
+    const client = new ReviewActionV2Client({
+      apiUrl: 'http://127.0.0.1:3000',
+      allowInsecureLocalhost: true,
+      fetchImpl,
+      requestIdFactory: () => 'rr:test-request',
+      sleep: async () => undefined,
+      random: () => 0,
+    });
+
+    await expect(
+      client.execute(
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        publicationRequest()
+      )
+    ).rejects.toMatchObject({
+      protocolErrorCode: ReviewActionV2ProtocolErrorCode.CapacityLimited,
+      issues: [
+        'publication_facts_unavailable',
+        'publication_fact_unavailable:safety',
+      ],
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
   it('surfaces typed 426 without converting it to v1 behavior', async () => {
     const fetchImpl = jest.fn(async (_url, init) => {
       const request = JSON.parse(String(init?.body));
@@ -349,4 +482,39 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { 'content-type': 'application/json' },
   });
+}
+
+function publicationRequest() {
+  return {
+    authorizationToken: 'authorization.token',
+    idempotencyKey: 'idem:publication:1',
+    publicationPermit: 'publication.permit',
+    projectionHash: 'f'.repeat(64),
+    operationsCanonicalJson: '[]',
+  };
+}
+
+function protocolErrorResponse(
+  requestId: string,
+  input: {
+    readonly errorCode: ReviewActionV2ProtocolErrorCode;
+    readonly retryClass: ReviewActionV2RetryClass;
+    readonly issues: readonly string[];
+    readonly status: number;
+  }
+): Response {
+  return jsonResponse(
+    {
+      protocolVersion: reviewActionV2PublishedProtocolVersion,
+      schemaDigest: reviewActionV2PublishedSchemaDigest,
+      requestId,
+      serverTime: '2026-07-22T12:00:00.000Z',
+      error: {
+        errorCode: input.errorCode,
+        retryClass: input.retryClass,
+        details: { issues: input.issues },
+      },
+    },
+    input.status
+  );
 }

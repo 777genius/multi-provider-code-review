@@ -155,6 +155,48 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('accepts turn metadata after the turn response and before turn/started', async () => {
+    const fixture = await turnResponseBeforeStartedNotification();
+    fixture.client.receive(
+      notification('model/verification', {
+        threadId,
+        turnId,
+        verifications: ['trustedAccessForCyber'],
+      })
+    );
+    fixture.client.receive(
+      notification('turn/moderationMetadata', {
+        threadId,
+        turnId,
+        metadata: { presentation: 'inline', categories: ['cyber'] },
+      })
+    );
+    fixture.client.receive(
+      notification('model/safetyBuffering/updated', {
+        threadId,
+        turnId,
+        model: 'gpt-5.6-sol',
+        useCases: ['cyber'],
+        reasons: ['user_risk'],
+        showBufferingUi: true,
+        fasterModel: null,
+      })
+    );
+    fixture.client.receive(
+      notification('turn/started', {
+        threadId,
+        turn: turn('inProgress'),
+      })
+    );
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
   it.each([
     [
       'unknown verification',
@@ -317,6 +359,50 @@ describe('CodexAppServerProtocolClient', () => {
 
     await expect(fixture.result).resolves.toMatchObject({
       finalMessage: '{"ok":true}',
+    });
+  });
+
+  it('accepts a fenced transport warning after a retryable error', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('error', {
+        threadId,
+        turnId,
+        willRetry: true,
+        error: turnError('temporary websocket disconnect', {
+          responseStreamDisconnected: { httpStatusCode: null },
+        }),
+      })
+    );
+    fixture.client.receive(
+      notification('warning', {
+        threadId,
+        message: 'WebSocket unavailable; continuing over HTTPS.',
+      })
+    );
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it.each([
+    ['a null thread fence', { threadId: null, message: 'fallback' }],
+    ['a wrong thread fence', { threadId: 'thread-other', message: 'fallback' }],
+    [
+      'an extra field',
+      { threadId, message: 'fallback', diagnostic: 'not-retained' },
+    ],
+    ['an empty message', { threadId, message: '' }],
+  ])('rejects a warning with %s', async (_label, params) => {
+    const fixture = await activeTurn();
+    fixture.client.receive(notification('warning', params));
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
     });
   });
 
@@ -705,6 +791,34 @@ async function activeTurn() {
       turn: turn('inProgress'),
     })
   );
+  client.receive({ id: 3, result: { turn: turn('inProgress') } });
+  await Promise.resolve();
+  return { client, result, writes };
+}
+
+async function turnResponseBeforeStartedNotification() {
+  const writes: Array<Record<string, unknown>> = [];
+  const client = new CodexAppServerProtocolClient(
+    protocolRequest(),
+    async (message) => {
+      writes.push({ ...message });
+    }
+  );
+  const result = client.run();
+  await waitForWrite(writes, 'initialize');
+  client.receive({
+    id: 1,
+    result: {
+      userAgent: `Codex Desktop/${CODEX_APP_SERVER_VERSION} test`,
+      codexHome: '/tmp/codex-home',
+      platformFamily: 'unix',
+      platformOs: 'linux',
+    },
+  });
+  await waitForWrite(writes, 'thread/start');
+  client.receive(notification('thread/started', { thread: thread() }));
+  client.receive({ id: 2, result: threadStartResponse() });
+  await waitForWrite(writes, 'turn/start');
   client.receive({ id: 3, result: { turn: turn('inProgress') } });
   await Promise.resolve();
   return { client, result, writes };

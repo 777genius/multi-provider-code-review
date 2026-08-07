@@ -38,6 +38,7 @@ import {
   ReviewInvocationConfigurationMismatchReason,
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationRequestOutcomeStatus,
+  ReviewPublicationUnavailableFact,
   ReviewPublicationState,
   RestoredReviewExecutionState,
   RestoredReviewWorkSlotState,
@@ -829,6 +830,10 @@ export class ReviewActionV2ControlPlaneAdapter
       if (stale) {
         return stale;
       }
+      const unavailable = publicationFactsUnavailableOutcome(error);
+      if (unavailable) {
+        return unavailable;
+      }
       throw controlPlaneFailure(error);
     }
     if (result.status === ReviewPublicationRequestResultStatus.Conflict) {
@@ -966,6 +971,66 @@ const SAFE_PUBLICATION_REQUEST_STALE_ISSUES = new Set([
   'permit_not_current',
   'revision_not_current',
 ]);
+
+const PUBLICATION_UNAVAILABLE_FACT_BY_ISSUE = new Map<
+  string,
+  ReviewPublicationUnavailableFact
+>([
+  [
+    'publication_fact_unavailable:permit',
+    ReviewPublicationUnavailableFact.Permit,
+  ],
+  [
+    'publication_fact_unavailable:run_control',
+    ReviewPublicationUnavailableFact.RunControl,
+  ],
+  [
+    'publication_fact_unavailable:mutation_authority',
+    ReviewPublicationUnavailableFact.MutationAuthority,
+  ],
+  [
+    'publication_fact_unavailable:revision',
+    ReviewPublicationUnavailableFact.Revision,
+  ],
+  [
+    'publication_fact_unavailable:lifecycle',
+    ReviewPublicationUnavailableFact.Lifecycle,
+  ],
+  [
+    'publication_fact_unavailable:safety',
+    ReviewPublicationUnavailableFact.Safety,
+  ],
+] as const);
+
+function publicationFactsUnavailableOutcome(error: unknown): {
+  readonly status: ReviewPublicationRequestOutcomeStatus.FactsUnavailable;
+  readonly unavailableFacts: readonly ReviewPublicationUnavailableFact[];
+} | null {
+  if (!(error instanceof ReviewActionV2ClientError)) return null;
+  if (
+    error.operationId !== ReviewActionV2OperationId.ReviewPublicationRequest ||
+    error.protocolErrorCode !==
+      ReviewActionV2ProtocolErrorCode.CapacityLimited ||
+    error.retryClass !== ReviewActionV2RetryClass.SameRequest ||
+    !error.issues?.includes('publication_facts_unavailable')
+  ) {
+    return null;
+  }
+  const factIssues = error.issues.filter((issue) =>
+    issue.startsWith('publication_fact_unavailable:')
+  );
+  if (factIssues.length === 0) return null;
+  const unavailableFacts = factIssues.map((issue) =>
+    PUBLICATION_UNAVAILABLE_FACT_BY_ISSUE.get(issue)
+  );
+  if (unavailableFacts.some((fact) => fact === undefined)) return null;
+  return {
+    status: ReviewPublicationRequestOutcomeStatus.FactsUnavailable,
+    unavailableFacts: Object.freeze([
+      ...new Set(unavailableFacts as ReviewPublicationUnavailableFact[]),
+    ]),
+  };
+}
 
 function publicationRequestStaleOutcome(error: unknown): {
   readonly status: ReviewPublicationRequestOutcomeStatus.Stale;
@@ -1579,7 +1644,8 @@ function isDependencyClosed(
 
 function providersAreLaneAuthorized(
   providerKinds: readonly (
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode
   )[],
   providerVoteLanes: readonly Readonly<{
     providerKind: ReviewExecutionProviderKind;

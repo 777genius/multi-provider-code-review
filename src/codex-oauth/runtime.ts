@@ -20,6 +20,7 @@ import {
 import * as path from 'path';
 import type { Review } from '../types';
 import type { MergeGateConclusion } from '../review-projection/domain';
+import type { ReviewPublicationUnavailableFact } from '../review-orchestration/application';
 
 export type CodexOAuthRuntimeInputs = {
   apiUrl: string;
@@ -44,6 +45,7 @@ export enum CodexOAuthV2ReviewOutcome {
   Superseded = 'superseded',
   PublicationNotApplied = 'publication_not_applied',
   PublicationStale = 'publication_stale',
+  PublicationUnavailable = 'publication_unavailable',
   Failed = 'failed',
 }
 
@@ -57,6 +59,7 @@ export enum CodexOAuthV2TerminalReason {
   RevisionGuardFailed = 'revision_guard_failed',
   PublicationConflict = 'publication_conflict',
   PublicationStale = 'publication_stale',
+  PublicationFactsUnavailable = 'publication_facts_unavailable',
   ExecutionFailed = 'execution_failed',
   Unknown = 'unknown',
 }
@@ -100,6 +103,12 @@ export type CodexOAuthV2ReviewResult =
   | {
       readonly outcome: CodexOAuthV2ReviewOutcome.PublicationStale;
       readonly reason: CodexOAuthV2TerminalReason.PublicationStale;
+      readonly blockingFailure: string;
+    }
+  | {
+      readonly outcome: CodexOAuthV2ReviewOutcome.PublicationUnavailable;
+      readonly reason: CodexOAuthV2TerminalReason.PublicationFactsUnavailable;
+      readonly unavailableFacts: readonly ReviewPublicationUnavailableFact[];
       readonly blockingFailure: string;
     }
   | {

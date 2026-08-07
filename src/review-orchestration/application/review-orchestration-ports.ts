@@ -392,6 +392,16 @@ export enum ReviewPublicationRequestOutcomeStatus {
   Requested = 'requested',
   Conflict = 'conflict',
   Stale = 'stale',
+  FactsUnavailable = 'facts_unavailable',
+}
+
+export enum ReviewPublicationUnavailableFact {
+  Permit = 'permit',
+  RunControl = 'run_control',
+  MutationAuthority = 'mutation_authority',
+  Revision = 'revision',
+  Lifecycle = 'lifecycle',
+  Safety = 'safety',
 }
 
 export type ReviewInvocationLeaseAcquireOutcome =
@@ -542,6 +552,10 @@ export interface ReviewActionV2ControlPlanePort {
     | {
         readonly status: ReviewPublicationRequestOutcomeStatus.Stale;
         readonly reason: string;
+      }
+    | {
+        readonly status: ReviewPublicationRequestOutcomeStatus.FactsUnavailable;
+        readonly unavailableFacts: readonly ReviewPublicationUnavailableFact[];
       }
   >;
   readPublicationStatus(input: {
