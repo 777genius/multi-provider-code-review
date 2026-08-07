@@ -60,6 +60,7 @@ type ParsedTurnError = Readonly<{
 const OPTED_OUT_NOTIFICATIONS = Object.freeze([
   'thread/status/changed',
   'thread/settings/updated',
+  'thread/name/updated',
   'turn/plan/updated',
   'rawResponseItem/completed',
   'item/agentMessage/delta',
@@ -237,7 +238,7 @@ export class CodexAppServerProtocolClient {
 
   receive(value: unknown): void {
     if (this.failed) return;
-    let diagnosticStage: CodexProtocolDiagnosticStage =
+    let diagnosticStage: CodexProtocolDiagnosticStageValue =
       CodexProtocolDiagnosticStage.Envelope;
     try {
       const message = requireRecord(value, 'protocol_message');
@@ -361,6 +362,9 @@ export class CodexAppServerProtocolClient {
     switch (method) {
       case 'thread/started':
         this.onThreadStarted(params);
+        return;
+      case 'thread/name/updated':
+        this.onThreadNameUpdated(params);
         return;
       case 'mcpServer/startupStatus/updated':
         this.onMcpServerStatus(params);
@@ -499,6 +503,27 @@ export class CodexAppServerProtocolClient {
     }
     if (params.status === 'failed' || params.status === 'cancelled') {
       throw processFailure();
+    }
+  }
+
+  private onThreadNameUpdated(params: Record<string, unknown>): void {
+    if (
+      !this.threadStarted ||
+      !hasRequiredAndOptionalKeys(params, ['threadId'], ['threadName'])
+    ) {
+      throw streamFailure();
+    }
+    this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
+    if (params.threadName !== null && params.threadName !== undefined) {
+      const threadName = requireNonEmptyString(
+        params.threadName,
+        'thread_name'
+      );
+      if (
+        Buffer.byteLength(threadName, 'utf8') > MAX_NOTIFICATION_STRING_BYTES
+      ) {
+        throw streamFailure();
+      }
     }
   }
 
@@ -1435,6 +1460,7 @@ enum CodexProtocolDiagnosticStage {
   Response = 'response',
   ServerRequestResolved = 'server_request_resolved',
   ThreadStarted = 'thread_started',
+  ThreadNameUpdated = 'thread_name_updated',
   TokenUsageUpdated = 'token_usage_updated',
   TurnCompleted = 'turn_completed',
   TurnStarted = 'turn_started',
@@ -1442,12 +1468,18 @@ enum CodexProtocolDiagnosticStage {
   Warning = 'warning',
 }
 
+type CodexProtocolDiagnosticStageValue =
+  | CodexProtocolDiagnosticStage
+  | `unknown_notification_${string}`;
+
 function notificationDiagnosticStage(
   value: unknown
-): CodexProtocolDiagnosticStage {
+): CodexProtocolDiagnosticStageValue {
   switch (value) {
     case 'thread/started':
       return CodexProtocolDiagnosticStage.ThreadStarted;
+    case 'thread/name/updated':
+      return CodexProtocolDiagnosticStage.ThreadNameUpdated;
     case 'mcpServer/startupStatus/updated':
       return CodexProtocolDiagnosticStage.McpServerStatus;
     case 'serverRequest/resolved':
@@ -1477,16 +1509,24 @@ function notificationDiagnosticStage(
     case 'error':
       return CodexProtocolDiagnosticStage.Error;
     default:
-      return typeof value === 'string' &&
+      if (
+        typeof value === 'string' &&
         IGNORED_NOTIFICATION_METHODS.has(value)
-        ? CodexProtocolDiagnosticStage.IgnoredNotification
+      ) {
+        return CodexProtocolDiagnosticStage.IgnoredNotification;
+      }
+      return typeof value === 'string'
+        ? `unknown_notification_${createHash('sha256')
+            .update(value)
+            .digest('hex')
+            .slice(0, 12)}`
         : CodexProtocolDiagnosticStage.UnknownNotification;
   }
 }
 
 function withStreamDiagnosticStage(
   error: unknown,
-  stage: CodexProtocolDiagnosticStage
+  stage: CodexProtocolDiagnosticStageValue
 ): unknown {
   return error instanceof ReviewAgentExecutionError &&
     error.failureClass === ReviewAgentFailureClass.StreamIncomplete
@@ -1495,7 +1535,7 @@ function withStreamDiagnosticStage(
 }
 
 function streamFailure(
-  stage?: CodexProtocolDiagnosticStage
+  stage?: CodexProtocolDiagnosticStageValue
 ): ReviewAgentExecutionError {
   return new ReviewAgentExecutionError(
     ReviewAgentFailureClass.StreamIncomplete,
