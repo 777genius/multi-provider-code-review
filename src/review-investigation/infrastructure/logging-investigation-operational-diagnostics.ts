@@ -16,6 +16,7 @@ export class LoggingInvestigationOperationalDiagnostics implements ReviewInvesti
   ): Promise<void> {
     this.logger.warn('Review investigation operation failed', {
       code: diagnostic.code,
+      detailCode: diagnostic.detailCode,
       failureClass: diagnostic.failureClass,
       investigationId: diagnostic.investigationId,
       phase: diagnostic.phase,

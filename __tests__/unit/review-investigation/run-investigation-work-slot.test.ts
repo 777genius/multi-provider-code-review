@@ -187,6 +187,7 @@ describe('RunInvestigationWorkSlot', () => {
       phase: ReviewInvestigationOperationalFailurePhase.GatewayCleanup,
       failureClass: ReviewAgentFailureClass.ProcessFailure,
       code: 'review_investigation_gateway_cleanup_failure',
+      detailCode: null,
       retryAfterMs: null,
     });
   });
@@ -696,7 +697,7 @@ describe('RunInvestigationWorkSlot', () => {
       new ReviewAgentExecutionError(
         ReviewAgentFailureClass.AuthenticationUnavailable,
         null,
-        'authentication_unavailable'
+        'review_agent_authentication_unavailable'
       )
     );
     const diagnostics = {
@@ -716,6 +717,7 @@ describe('RunInvestigationWorkSlot', () => {
         phase: ReviewInvestigationOperationalFailurePhase.AgentExecution,
         failureClass: ReviewAgentFailureClass.AuthenticationUnavailable,
         code: 'review_investigation_agent_execution_failure',
+        detailCode: 'review_agent_authentication_unavailable',
       })
     );
   });
@@ -849,6 +851,7 @@ describe('RunInvestigationWorkSlot', () => {
         phase: ReviewInvestigationOperationalFailurePhase.GatewayOpen,
         failureClass: ReviewAgentFailureClass.ConfinementViolation,
         code: 'review_investigation_gateway_open_confinement_failure',
+        detailCode: null,
       })
     );
   });

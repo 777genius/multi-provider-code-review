@@ -550,6 +550,19 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
       });
       await recorder.resume();
       const transcript = recorder.snapshot();
+      if (transcript.events.length === 0) {
+        throw new ReviewContextInspectionFailure(
+          ReviewContextInspectionFailureReason.MissingProviderInspection
+        );
+      }
+      if (
+        transcript.confinementTainted ||
+        transcript.terminalFailureClass !== null
+      ) {
+        throw new ReviewContextInspectionFailure(
+          ReviewContextInspectionFailureReason.IncompleteTranscript
+        );
+      }
       const transcriptCanonicalJson = createV4WireSealPayload(transcript);
       const encryptedReplayMaterialCanonicalJson = await readBoundedText(
         this.replayMaterialPath,

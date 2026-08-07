@@ -17,6 +17,7 @@ import {
 import {
   CONTEXT_GATEWAY_V4_POLICY_VERSION,
   ContextGatewayV4OperationKind,
+  ContextOperationFailureClass,
 } from '../../../src/context-gateway/context-gateway-v4-contract';
 import { ContextGatewayV4Recorder } from '../../../src/context-gateway/context-gateway-v4-recorder';
 import { ContextGatewayV4ReplayMaterialRecorder } from '../../../src/context-gateway/context-gateway-v4-replay-material';
@@ -179,6 +180,132 @@ describe('ContextGatewayInvocationSessionFactory', () => {
           gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
         })
       );
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it('rejects an empty v4 transcript before contacting the control plane', async () => {
+    const fixture = await openSessionFixture(CONTEXT_GATEWAY_V4_POLICY_VERSION);
+    try {
+      const recorder = new ContextGatewayV4Recorder({
+        sessionId: fixture.serverSession.sessionId,
+        transcriptPath:
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH!,
+        secret: fixture.secret,
+        gatewayBinaryHash: fixture.gatewayHash,
+        checkoutTreeOid: fixture.checkoutTreeOid,
+        eventChainSeedHash: fixture.serverSession.eventChainSeedHash,
+      });
+      await recorder.initialize();
+      const replay = new ContextGatewayV4ReplayMaterialRecorder({
+        sessionId: fixture.serverSession.sessionId,
+        replayMaterialPath:
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!,
+        secret: fixture.secret,
+      });
+      await replay.initialize();
+
+      await expect(
+        fixture.session.seal({
+          actualModel: 'gpt-test-actual',
+          terminalOutcomeHash: hash('outcome'),
+        })
+      ).rejects.toMatchObject({
+        reason: ReviewContextInspectionFailureReason.MissingProviderInspection,
+      });
+      expect(fixture.attestations.sealGatewaySession).not.toHaveBeenCalled();
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it('rejects a tainted v4 transcript before contacting the control plane', async () => {
+    const fixture = await openSessionFixture(CONTEXT_GATEWAY_V4_POLICY_VERSION);
+    try {
+      const recorder = new ContextGatewayV4Recorder({
+        sessionId: fixture.serverSession.sessionId,
+        transcriptPath:
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH!,
+        secret: fixture.secret,
+        gatewayBinaryHash: fixture.gatewayHash,
+        checkoutTreeOid: fixture.checkoutTreeOid,
+        eventChainSeedHash: fixture.serverSession.eventChainSeedHash,
+      });
+      await recorder.initialize();
+      await recorder.recordRejected({
+        operation: {
+          kind: ContextGatewayV4OperationKind.UnsupportedTool,
+          requestedToolHash: hash('unsupported-tool'),
+        },
+        failureClass: ContextOperationFailureClass.ConfinementViolation,
+        sanitizedReason: 'unsupported_tool',
+      });
+      const replay = new ContextGatewayV4ReplayMaterialRecorder({
+        sessionId: fixture.serverSession.sessionId,
+        replayMaterialPath:
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!,
+        secret: fixture.secret,
+      });
+      await replay.initialize();
+
+      await expect(
+        fixture.session.seal({
+          actualModel: 'gpt-test-actual',
+          terminalOutcomeHash: hash('outcome'),
+        })
+      ).rejects.toMatchObject({
+        reason: ReviewContextInspectionFailureReason.IncompleteTranscript,
+      });
+      expect(fixture.attestations.sealGatewaySession).not.toHaveBeenCalled();
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it('rejects a terminally failed v4 transcript before contacting the control plane', async () => {
+    const fixture = await openSessionFixture(CONTEXT_GATEWAY_V4_POLICY_VERSION);
+    try {
+      const recorder = new ContextGatewayV4Recorder({
+        sessionId: fixture.serverSession.sessionId,
+        transcriptPath:
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH!,
+        secret: fixture.secret,
+        gatewayBinaryHash: fixture.gatewayHash,
+        checkoutTreeOid: fixture.checkoutTreeOid,
+        eventChainSeedHash: fixture.serverSession.eventChainSeedHash,
+      });
+      await recorder.initialize();
+      await recorder.recordFailed({
+        operation: {
+          kind: ContextGatewayV4OperationKind.UnsupportedTool,
+          requestedToolHash: hash('failed-tool'),
+        },
+        sanitizedReason: 'gateway_infrastructure_failure',
+      });
+      const replay = new ContextGatewayV4ReplayMaterialRecorder({
+        sessionId: fixture.serverSession.sessionId,
+        replayMaterialPath:
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!,
+        secret: fixture.secret,
+      });
+      await replay.initialize();
+
+      await expect(
+        fixture.session.seal({
+          actualModel: 'gpt-test-actual',
+          terminalOutcomeHash: hash('outcome'),
+        })
+      ).rejects.toMatchObject({
+        reason: ReviewContextInspectionFailureReason.IncompleteTranscript,
+      });
+      expect(fixture.attestations.sealGatewaySession).not.toHaveBeenCalled();
     } finally {
       await fixture.dispose();
     }

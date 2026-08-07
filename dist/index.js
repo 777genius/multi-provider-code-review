@@ -94568,6 +94568,7 @@ var RunInvestigationTurn = class {
         phase,
         failureClass: failure.failureClass,
         code: failure.message,
+        detailCode: operationalDetailCode(error2),
         retryAfterMs: boundedRetryAfterMs(failure.retryAfterMs)
       });
     } catch {
@@ -94671,6 +94672,12 @@ function operationalFailure(error2, phase) {
     typed?.retryAfterMs ?? null,
     failureClass === "confinement_violation" /* ConfinementViolation */ ? code.confinement : code.default
   );
+}
+function operationalDetailCode(error2) {
+  if (error2 instanceof ReviewAgentExecutionError && /^review_agent_[a-z0-9_]{1,160}$/u.test(error2.message)) {
+    return error2.message;
+  }
+  return null;
 }
 async function cancelPreservingSemanticOutcome(selection, invocationId, fencingToken, onFailure) {
   try {
@@ -98807,6 +98814,16 @@ var ContextGatewayInvocationSession = class {
       });
       await recorder.resume();
       const transcript = recorder.snapshot();
+      if (transcript.events.length === 0) {
+        throw new ReviewContextInspectionFailure(
+          "missing_provider_inspection" /* MissingProviderInspection */
+        );
+      }
+      if (transcript.confinementTainted || transcript.terminalFailureClass !== null) {
+        throw new ReviewContextInspectionFailure(
+          "incomplete_transcript" /* IncompleteTranscript */
+        );
+      }
       const transcriptCanonicalJson = createV4WireSealPayload(transcript);
       const encryptedReplayMaterialCanonicalJson = await readBoundedText(
         this.replayMaterialPath,
@@ -105526,6 +105543,7 @@ var CodexAppServerProtocolClient = class {
   }
   receive(value) {
     if (this.failed) return;
+    let diagnosticStage = "envelope" /* Envelope */;
     try {
       const message = requireRecord2(value, "protocol_message");
       const hasMethod = Object.prototype.hasOwnProperty.call(message, "method");
@@ -105534,16 +105552,18 @@ var CodexAppServerProtocolClient = class {
         throw confinementFailure();
       }
       if (hasId) {
+        diagnosticStage = "response" /* Response */;
         this.receiveResponse(message);
         return;
       }
       if (hasMethod) {
+        diagnosticStage = notificationDiagnosticStage(message.method);
         this.receiveNotification(message);
         return;
       }
       throw streamFailure2();
     } catch (error2) {
-      this.fail(error2);
+      this.fail(withStreamDiagnosticStage(error2, diagnosticStage));
     }
   }
   fail(error2) {
@@ -105562,7 +105582,7 @@ var CodexAppServerProtocolClient = class {
   }
   end() {
     if (!this.failed && !this.turnCompleted) {
-      this.fail(streamFailure2());
+      this.fail(streamFailure2("process_end" /* ProcessEnd */));
     }
   }
   failureAfterCompletion() {
@@ -106010,13 +106030,15 @@ var CodexAppServerProtocolClient = class {
     this.assertTurnFence(params);
   }
   onWarning(params) {
-    if (!hasOnlyKeys(params, ["message", "threadId"])) {
+    if (!hasRequiredAndOptionalKeys(params, ["message"], ["threadId"])) {
       throw streamFailure2();
     }
-    const expectedThreadId = this.threadId ?? this.provisionalThreadId;
-    if (expectedThreadId === null) throw streamFailure2();
-    const warningThreadId = requireIdentifier2(params.threadId, "thread_id");
-    if (warningThreadId !== expectedThreadId) throw streamFailure2();
+    if (params.threadId !== null && params.threadId !== void 0) {
+      const expectedThreadId = this.threadId ?? this.provisionalThreadId;
+      if (expectedThreadId === null) throw streamFailure2();
+      const warningThreadId = requireIdentifier2(params.threadId, "thread_id");
+      if (warningThreadId !== expectedThreadId) throw streamFailure2();
+    }
     const message = requireNonEmptyString(params.message, "warning_message");
     if (Buffer.byteLength(message, "utf8") > MAX_WARNING_MESSAGE_BYTES) {
       throw streamFailure2();
@@ -106374,11 +106396,48 @@ function safeJson(value) {
     return "";
   }
 }
-function streamFailure2() {
+function notificationDiagnosticStage(value) {
+  switch (value) {
+    case "thread/started":
+      return "thread_started" /* ThreadStarted */;
+    case "mcpServer/startupStatus/updated":
+      return "mcp_server_status" /* McpServerStatus */;
+    case "turn/started":
+      return "turn_started" /* TurnStarted */;
+    case "item/started":
+      return "item_started" /* ItemStarted */;
+    case "item/completed":
+      return "item_completed" /* ItemCompleted */;
+    case "rawResponse/completed":
+      return "raw_response_completed" /* RawResponseCompleted */;
+    case "thread/tokenUsage/updated":
+      return "token_usage_updated" /* TokenUsageUpdated */;
+    case "turn/completed":
+      return "turn_completed" /* TurnCompleted */;
+    case "model/rerouted":
+      return "model_rerouted" /* ModelRerouted */;
+    case "model/verification":
+      return "model_verification" /* ModelVerification */;
+    case "turn/moderationMetadata":
+      return "moderation_metadata" /* ModerationMetadata */;
+    case "model/safetyBuffering/updated":
+      return "model_safety" /* ModelSafety */;
+    case "warning":
+      return "warning" /* Warning */;
+    case "error":
+      return "error" /* Error */;
+    default:
+      return typeof value === "string" && IGNORED_NOTIFICATION_METHODS.has(value) ? "ignored_notification" /* IgnoredNotification */ : "unknown_notification" /* UnknownNotification */;
+  }
+}
+function withStreamDiagnosticStage(error2, stage) {
+  return error2 instanceof ReviewAgentExecutionError && error2.failureClass === "stream_incomplete" /* StreamIncomplete */ ? streamFailure2(stage) : error2;
+}
+function streamFailure2(stage) {
   return new ReviewAgentExecutionError(
     "stream_incomplete" /* StreamIncomplete */,
     null,
-    "review_agent_stream_incomplete"
+    stage ? `review_agent_stream_incomplete_${stage}` : "review_agent_stream_incomplete"
   );
 }
 function schemaFailure2() {
@@ -108547,6 +108606,7 @@ var LoggingInvestigationOperationalDiagnostics = class {
   async record(diagnostic) {
     this.logger.warn("Review investigation operation failed", {
       code: diagnostic.code,
+      detailCode: diagnostic.detailCode,
       failureClass: diagnostic.failureClass,
       investigationId: diagnostic.investigationId,
       phase: diagnostic.phase,
