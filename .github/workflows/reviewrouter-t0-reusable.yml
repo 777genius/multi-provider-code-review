@@ -47,7 +47,7 @@ on:
         description: 'Full review lifecycle budget, including publication reconciliation and cleanup'
         required: false
         type: number
-        default: 180
+        default: 240
       max_changed_lines:
         description: 'Skip review above this changed-line count; zero disables the limit'
         required: false

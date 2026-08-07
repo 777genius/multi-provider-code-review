@@ -28,7 +28,7 @@ inputs:
   review-timeout-minutes:
     description: Full review lifecycle budget, including agent execution, publication reconciliation, and cleanup.
     required: false
-    default: "180"
+    default: "240"
   auth-json:
     description: Codex OAuth auth JSON.
     required: false
