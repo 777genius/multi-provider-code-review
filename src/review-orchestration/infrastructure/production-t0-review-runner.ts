@@ -70,6 +70,7 @@ import {
 } from './github-review-state-adapter';
 import { createProductionReviewProjectionBuilder } from './production-review-projection';
 import { ReviewActionV2ControlPlaneAdapter } from './review-action-v2-control-plane-adapter';
+import { SystemReviewOrchestrationClock } from './system-review-orchestration-clock';
 import {
   CodexReviewAgentAdapter,
   ContextGatewayV4InvestigationAdapter,
@@ -371,9 +372,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       controlPlane,
       revisionGuard,
       oidc: {
-        getToken: async () => {
-          throw new Error('review_action_v2_duplicate_authorization_forbidden');
-        },
+        getToken: () => oidc.requestToken(input.audience),
       },
       invocationManifestAssembler:
         new GeneratedProviderInvocationManifestAssembler(
@@ -415,6 +414,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
           }
         : {}),
       identities,
+      clock: new SystemReviewOrchestrationClock(),
       delay: new SystemReviewOrchestrationDelay(),
     });
     const result = await useCase.executeAuthorized(

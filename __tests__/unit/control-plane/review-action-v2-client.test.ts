@@ -48,6 +48,37 @@ describe('ReviewActionV2Client', () => {
     });
   });
 
+  it('preserves validated server time for deadline normalization', async () => {
+    const fetchImpl = jest.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      return jsonResponse({
+        protocolVersion: reviewActionV2PublishedProtocolVersion,
+        schemaDigest: reviewActionV2PublishedSchemaDigest,
+        requestId: request.requestId,
+        serverTime: '2026-07-22T12:00:00.000Z',
+        result: { status: ReviewRunAuthorizationResultStatus.Authorized },
+      });
+    });
+
+    await expect(
+      createClient(fetchImpl).executeWithMetadata(
+        ReviewActionV2OperationId.ReviewRunAuthorize,
+        {
+          oidcToken: 'header.payload.signature',
+          supportedProtocols: [
+            {
+              protocolVersion: reviewActionV2PublishedProtocolVersion,
+              schemaDigest: reviewActionV2PublishedSchemaDigest,
+            },
+          ],
+        }
+      )
+    ).resolves.toEqual({
+      result: { status: ReviewRunAuthorizationResultStatus.Authorized },
+      serverTime: '2026-07-22T12:00:00.000Z',
+    });
+  });
+
   it('retries a mutable command with byte-identical framing', async () => {
     const bodies: string[] = [];
     const fetchImpl = jest.fn(async (_url, init) => {
@@ -131,6 +162,94 @@ describe('ReviewActionV2Client', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledTimes(1);
     expect(sleep).toHaveBeenCalledWith(750);
+  });
+
+  it('does not start a retry after the caller deadline is exhausted', async () => {
+    let nowMs = 0;
+    const sleep = jest.fn(async (delayMs: number) => {
+      nowMs += delayMs + 200;
+    });
+    const fetchImpl = jest.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      return protocolErrorResponse(request.requestId, {
+        errorCode: ReviewActionV2ProtocolErrorCode.CapacityLimited,
+        retryClass: ReviewActionV2RetryClass.SameRequest,
+        issues: ['capacity_limited'],
+        status: 429,
+      });
+    });
+    const client = new ReviewActionV2Client({
+      apiUrl: 'http://127.0.0.1:3000',
+      allowInsecureLocalhost: true,
+      fetchImpl,
+      requestIdFactory: () => 'rr:test-request',
+      sleep,
+      random: () => 0,
+      monotonicNow: () => nowMs,
+      maxAttempts: 3,
+    });
+
+    await expect(
+      client.execute(
+        ReviewActionV2OperationId.ReviewRunAuthorize,
+        {
+          oidcToken: 'header.payload.signature',
+          supportedProtocols: [
+            {
+              protocolVersion: reviewActionV2PublishedProtocolVersion,
+              schemaDigest: reviewActionV2PublishedSchemaDigest,
+            },
+          ],
+        },
+        { timeoutMs: 600 }
+      )
+    ).rejects.toMatchObject({
+      code: ReviewActionV2ClientFailureCode.RequestTimedOut,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledWith(500);
+  });
+
+  it('keeps the deadline active while consuming the response body', async () => {
+    const fetchImpl = jest.fn(async (_url, init) => {
+      const signal = init?.signal;
+      if (!signal) throw new Error('missing_abort_signal');
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          signal.addEventListener(
+            'abort',
+            () => controller.error(new Error('aborted')),
+            { once: true }
+          );
+        },
+      });
+      return new Response(stream);
+    });
+    const client = new ReviewActionV2Client({
+      apiUrl: 'http://127.0.0.1:3000',
+      allowInsecureLocalhost: true,
+      fetchImpl,
+      requestIdFactory: () => 'rr:test-request',
+      maxAttempts: 1,
+    });
+
+    await expect(
+      client.execute(
+        ReviewActionV2OperationId.ReviewRunAuthorize,
+        {
+          oidcToken: 'header.payload.signature',
+          supportedProtocols: [
+            {
+              protocolVersion: reviewActionV2PublishedProtocolVersion,
+              schemaDigest: reviewActionV2PublishedSchemaDigest,
+            },
+          ],
+        },
+        { timeoutMs: 5 }
+      )
+    ).rejects.toMatchObject({
+      code: ReviewActionV2ClientFailureCode.RequestTimedOut,
+    });
   });
 
   it('retries unavailable publication facts three times with byte-identical requests', async () => {

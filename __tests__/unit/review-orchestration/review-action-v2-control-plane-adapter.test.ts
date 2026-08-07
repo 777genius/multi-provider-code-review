@@ -98,6 +98,103 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     );
   });
 
+  it('renews authorization without changing its immutable scope', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewRunAuthorizationResultStatus.Renewed,
+      authorizationId: authorization.authorizationId,
+      authorizationToken: 'authorization.renewed-token',
+      mutationEpoch: authorization.mutationEpoch,
+      expiresAt: '2026-07-22T14:00:00.000Z',
+    });
+    const adapter = createAdapter(execute);
+
+    await expect(
+      adapter.renewAuthorization({
+        authorization,
+        idempotencyKey: 'idem:renew:1',
+        renewalRequestId: 'renewal-1',
+        oidcToken: 'oidc.token',
+        requestedTtlMs: 3_900_000,
+      })
+    ).resolves.toEqual({
+      authorization: {
+        ...authorization,
+        authorizationToken: 'authorization.renewed-token',
+        expiresAt: '2026-07-22T14:00:00.000Z',
+      },
+      validForMsAtResponse: 7_200_000,
+    });
+    expect(execute).toHaveBeenCalledWith(
+      ReviewActionV2OperationId.ReviewRunRenew,
+      {
+        authorizationToken: authorization.authorizationToken,
+        idempotencyKey: 'idem:renew:1',
+        authorizationId: authorization.authorizationId,
+        renewalRequestId: 'renewal-1',
+        oidcToken: 'oidc.token',
+        requestedTtlMs: 3_900_000,
+      }
+    );
+  });
+
+  it('rejects mutation epoch drift during authorization renewal', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewRunAuthorizationResultStatus.Renewed,
+      authorizationId: authorization.authorizationId,
+      authorizationToken: 'authorization.renewed-token',
+      mutationEpoch: '2',
+      expiresAt: '2026-07-22T14:00:00.000Z',
+    });
+
+    await expect(
+      createAdapter(execute).renewAuthorization({
+        authorization,
+        idempotencyKey: 'idem:renew:1',
+        renewalRequestId: 'renewal-1',
+        oidcToken: 'oidc.token',
+        requestedTtlMs: 3_900_000,
+      })
+    ).rejects.toThrow('review_action_v2_authorization_renew_epoch_mismatch');
+  });
+
+  it('rejects authorization scope drift during renewal', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewRunAuthorizationResultStatus.Renewed,
+      authorizationId: 'authorization-other',
+      authorizationToken: 'authorization.renewed-token',
+      mutationEpoch: authorization.mutationEpoch,
+      expiresAt: '2026-07-22T14:00:00.000Z',
+    });
+
+    await expect(
+      createAdapter(execute).renewAuthorization(renewalInput())
+    ).rejects.toThrow('review_action_v2_authorization_renew_scope_mismatch');
+  });
+
+  it('rejects a non-renewed authorization response', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewRunAuthorizationResultStatus.Denied,
+    });
+
+    await expect(
+      createAdapter(execute).renewAuthorization(renewalInput())
+    ).rejects.toThrow('review_action_v2_authorization_renew_denied');
+  });
+
+  it('rejects renewal without positive server-relative validity', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewRunAuthorizationResultStatus.Renewed,
+      authorizationId: authorization.authorizationId,
+      authorizationToken: 'authorization.renewed-token',
+      mutationEpoch: authorization.mutationEpoch,
+      expiresAt: '2026-07-22T12:00:00.000Z',
+    });
+
+    await expect(
+      createAdapter(execute).renewAuthorization(renewalInput())
+    ).rejects.toThrow('review_action_v2_authorization_renew_expiry_invalid');
+  });
+
   it('accepts old authorization facts that omit investigation capability', async () => {
     const execute = jest.fn().mockResolvedValue(authorizationResponse());
 
@@ -425,6 +522,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         createAdapter(execute).readPublicationStatus({
           authorization,
           publicationAttemptId: 'publication-1',
+          timeoutMs: 1_000,
         })
       ).resolves.toEqual({
         terminal: true,
@@ -446,6 +544,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
       createAdapter(execute).readPublicationStatus({
         authorization,
         publicationAttemptId: 'publication-1',
+        timeoutMs: 1_000,
       })
     ).rejects.toThrow('review_action_v2_publication_outcome_unknown');
   });
@@ -1690,7 +1789,21 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
 function createAdapter(execute: jest.Mock) {
   return new ReviewActionV2ControlPlaneAdapter({
     execute,
+    executeWithMetadata: async (...args: unknown[]) => ({
+      result: await execute(...args),
+      serverTime: '2026-07-22T12:00:00.000Z',
+    }),
   } as unknown as ReviewActionV2Client);
+}
+
+function renewalInput() {
+  return {
+    authorization,
+    idempotencyKey: 'idem:renew:1',
+    renewalRequestId: 'renewal-1',
+    oidcToken: 'oidc.token',
+    requestedTtlMs: 3_900_000,
+  };
 }
 
 function authorizationResponse() {

@@ -69,7 +69,12 @@ on:
         type: boolean
         default: false
       review_timeout_minutes:
-        description: 'Maximum execution time for the review job'
+        description: 'Full review lifecycle budget, including publication reconciliation and cleanup'
+        required: false
+        type: number
+        default: 180
+      legacy_review_timeout_minutes:
+        description: 'Maximum execution time for the legacy review job'
         required: false
         type: number
         default: 60
@@ -193,7 +198,7 @@ jobs:
       review_app_repository: ${{ inputs.review_app_repository }}
       provider_instance_id: ''
       workflow_schema_version: ${{ inputs.workflow_schema_version }}
-      review_timeout_minutes: ${{ inputs.review_timeout_minutes }}
+      review_timeout_minutes: ${{ inputs.legacy_review_timeout_minutes }}
       max_changed_lines: ${{ inputs.max_changed_lines }}
     secrets:
       REVIEW_ROUTER_LEDGER_KEY: ${{ secrets.REVIEW_ROUTER_LEDGER_KEY }}

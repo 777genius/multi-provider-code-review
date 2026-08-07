@@ -50231,7 +50231,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.83",
+  version: "1.0.84",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -93414,6 +93414,7 @@ var ReviewActionV2Client = class {
   requestIdFactory;
   sleep;
   random;
+  monotonicNow;
   maxAttempts;
   publicationFactsUnavailableMaxAttempts;
   maxResponseBytes;
@@ -93424,6 +93425,7 @@ var ReviewActionV2Client = class {
     this.requestIdFactory = options.requestIdFactory ?? (() => `rr:${(0, import_crypto22.randomUUID)()}`);
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve5) => setTimeout(resolve5, delayMs)));
     this.random = options.random ?? Math.random;
+    this.monotonicNow = options.monotonicNow ?? (() => performance.now());
     this.maxAttempts = clampInteger(options.maxAttempts ?? 2, 1, 3);
     this.publicationFactsUnavailableMaxAttempts = clampInteger(
       options.publicationFactsUnavailableMaxAttempts ?? 3,
@@ -93438,12 +93440,19 @@ var ReviewActionV2Client = class {
     this.validators = compileResponseValidators();
     assertGeneratedManifestMatchesRuntime();
   }
-  async execute(operationId, payload) {
+  async execute(operationId, payload, options = {}) {
+    return (await this.executeWithMetadata(operationId, payload, options)).result;
+  }
+  async executeWithMetadata(operationId, payload, options = {}) {
     const descriptor = requireOperationDescriptor(operationId);
     const manifest = requireOperationManifest(operationId);
     const request = this.frameRequest(operationId, payload);
     const serializedRequest = JSON.stringify(request);
     let capacityRetriesConsumed = 0;
+    const deadlineMs = options.timeoutMs === void 0 ? null : createDeadlineMs(
+      this.monotonicNow(),
+      requirePositiveTimeout(options.timeoutMs)
+    );
     if (Buffer.byteLength(serializedRequest, "utf8") > descriptor.bodyLimitBytes) {
       throw new ReviewActionV2ClientError(
         "invalid_request" /* InvalidRequest */,
@@ -93456,11 +93465,18 @@ var ReviewActionV2Client = class {
     ) : this.maxAttempts;
     for (let attempt = 1; attempt <= loopAttemptLimit; attempt += 1) {
       try {
+        const attemptTimeoutMs = remainingTimeoutMs(
+          deadlineMs,
+          this.monotonicNow,
+          manifest.defaultTimeoutMs,
+          operationId
+        );
         return await this.sendOnce(
           operationId,
           manifest,
           request.requestId,
-          serializedRequest
+          serializedRequest,
+          attemptTimeoutMs
         );
       } catch (error2) {
         const normalized = normalizeClientError(error2, operationId);
@@ -93471,7 +93487,14 @@ var ReviewActionV2Client = class {
           throw normalized;
         }
         if (isCapacityLimited(normalized)) capacityRetriesConsumed += 1;
-        await this.sleep(retryDelayMs(normalized, attempt, this.random));
+        const retryDelay = retryDelayMs(normalized, attempt, this.random);
+        const remainingMs = remainingTimeoutMs(
+          deadlineMs,
+          this.monotonicNow,
+          retryDelay,
+          operationId
+        );
+        await this.sleep(Math.min(retryDelay, remainingMs));
       }
     }
     throw new ReviewActionV2ClientError(
@@ -93505,9 +93528,9 @@ var ReviewActionV2Client = class {
     }
     return parsed.value;
   }
-  async sendOnce(operationId, manifest, requestId, serializedRequest) {
+  async sendOnce(operationId, manifest, requestId, serializedRequest, timeoutMs) {
     const abort = new AbortController();
-    const timeout = setTimeout(() => abort.abort(), manifest.defaultTimeoutMs);
+    const timeout = setTimeout(() => abort.abort(), timeoutMs);
     let response;
     try {
       response = await this.fetchImpl(
@@ -93520,6 +93543,60 @@ var ReviewActionV2Client = class {
           signal: abort.signal
         }
       );
+      const body = await readBoundedJson(
+        response,
+        this.maxResponseBytes,
+        operationId
+      );
+      const validator = this.validators[operationId];
+      if (!validator(body) || !isResponseEnvelope(body)) {
+        throw new ReviewActionV2ClientError(
+          "invalid_response" /* InvalidResponse */,
+          operationId,
+          { httpStatus: response.status }
+        );
+      }
+      if (body.protocolVersion !== reviewActionV2PublishedProtocolVersion || body.schemaDigest !== reviewActionV2PublishedSchemaDigest || body.requestId !== requestId) {
+        throw new ReviewActionV2ClientError(
+          "invalid_response" /* InvalidResponse */,
+          operationId,
+          { httpStatus: response.status }
+        );
+      }
+      if ("error" in body) {
+        const statusMapping = manifest.statusMapping.find(
+          (item) => item.errorCode === body.error.errorCode
+        );
+        if (!statusMapping || statusMapping.httpStatus !== response.status || statusMapping.retryClass !== body.error.retryClass) {
+          throw new ReviewActionV2ClientError(
+            "invalid_response" /* InvalidResponse */,
+            operationId,
+            { httpStatus: response.status }
+          );
+        }
+        throw new ReviewActionV2ClientError(
+          "protocol_error" /* ProtocolError */,
+          operationId,
+          {
+            httpStatus: response.status,
+            protocolErrorCode: body.error.errorCode,
+            retryClass: body.error.retryClass,
+            retryAfterMs: readRetryAfterMs(response),
+            issues: body.error.details.issues
+          }
+        );
+      }
+      if (!manifest.successStatuses.includes(response.status)) {
+        throw new ReviewActionV2ClientError(
+          "invalid_response" /* InvalidResponse */,
+          operationId,
+          { httpStatus: response.status }
+        );
+      }
+      return Object.freeze({
+        result: body.result,
+        serverTime: body.serverTime
+      });
     } catch (error2) {
       if (abort.signal.aborted) {
         throw new ReviewActionV2ClientError(
@@ -93528,65 +93605,22 @@ var ReviewActionV2Client = class {
           { cause: error2 }
         );
       }
+      if (response === void 0) {
+        throw new ReviewActionV2ClientError(
+          "network_failure" /* NetworkFailure */,
+          operationId,
+          { cause: error2 }
+        );
+      }
+      if (error2 instanceof ReviewActionV2ClientError) throw error2;
       throw new ReviewActionV2ClientError(
-        "network_failure" /* NetworkFailure */,
+        "invalid_response" /* InvalidResponse */,
         operationId,
-        { cause: error2 }
+        { httpStatus: response.status, cause: error2 }
       );
     } finally {
       clearTimeout(timeout);
     }
-    const body = await readBoundedJson(
-      response,
-      this.maxResponseBytes,
-      operationId
-    );
-    const validator = this.validators[operationId];
-    if (!validator(body) || !isResponseEnvelope(body)) {
-      throw new ReviewActionV2ClientError(
-        "invalid_response" /* InvalidResponse */,
-        operationId,
-        { httpStatus: response.status }
-      );
-    }
-    if (body.protocolVersion !== reviewActionV2PublishedProtocolVersion || body.schemaDigest !== reviewActionV2PublishedSchemaDigest || body.requestId !== requestId) {
-      throw new ReviewActionV2ClientError(
-        "invalid_response" /* InvalidResponse */,
-        operationId,
-        { httpStatus: response.status }
-      );
-    }
-    if ("error" in body) {
-      const statusMapping = manifest.statusMapping.find(
-        (item) => item.errorCode === body.error.errorCode
-      );
-      if (!statusMapping || statusMapping.httpStatus !== response.status || statusMapping.retryClass !== body.error.retryClass) {
-        throw new ReviewActionV2ClientError(
-          "invalid_response" /* InvalidResponse */,
-          operationId,
-          { httpStatus: response.status }
-        );
-      }
-      throw new ReviewActionV2ClientError(
-        "protocol_error" /* ProtocolError */,
-        operationId,
-        {
-          httpStatus: response.status,
-          protocolErrorCode: body.error.errorCode,
-          retryClass: body.error.retryClass,
-          retryAfterMs: readRetryAfterMs(response),
-          issues: body.error.details.issues
-        }
-      );
-    }
-    if (!manifest.successStatuses.includes(response.status)) {
-      throw new ReviewActionV2ClientError(
-        "invalid_response" /* InvalidResponse */,
-        operationId,
-        { httpStatus: response.status }
-      );
-    }
-    return body.result;
   }
 };
 function compileResponseValidators() {
@@ -93731,6 +93765,36 @@ function retryDelayMs(error2, attempt, random) {
   const boundedSample = Number.isFinite(sample) && sample >= 0 && sample < 1 ? sample : 0;
   const jitteredDelayMs = baseDelayMs + Math.floor(baseDelayMs * boundedSample);
   return Math.min(Math.max(error2.retryAfterMs ?? 0, jitteredDelayMs), 3e4);
+}
+function requirePositiveTimeout(value) {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error("review_action_v2_client_timeout_invalid");
+  }
+  return value;
+}
+function createDeadlineMs(monotonicNowMs, timeoutMs) {
+  if (!Number.isFinite(monotonicNowMs) || monotonicNowMs < 0 || monotonicNowMs > Number.MAX_SAFE_INTEGER - timeoutMs) {
+    throw new Error("review_action_v2_client_clock_invalid");
+  }
+  return monotonicNowMs + timeoutMs;
+}
+function remainingTimeoutMs(deadlineMs, monotonicNow, preferredMs, operationId) {
+  if (deadlineMs === null) return preferredMs;
+  const nowMs = monotonicNow();
+  if (!Number.isFinite(nowMs) || nowMs < 0) {
+    throw new ReviewActionV2ClientError(
+      "invalid_configuration" /* InvalidConfiguration */,
+      operationId
+    );
+  }
+  const remainingMs = Math.floor(deadlineMs - nowMs);
+  if (remainingMs <= 0) {
+    throw new ReviewActionV2ClientError(
+      "request_timed_out" /* RequestTimedOut */,
+      operationId
+    );
+  }
+  return Math.min(preferredMs, remainingMs);
 }
 function readRetryAfterMs(response) {
   const value = response.headers.get("retry-after");
@@ -95063,13 +95127,19 @@ function isSuperseded(snapshot) {
 }
 
 // src/review-orchestration/application/run-t0-review-orchestration.ts
+var MAX_PRE_EXECUTION_AUTHORIZATION_TTL_MS = 6 * 60 * 6e4;
+var MIN_PRE_EXECUTION_AUTHORIZATION_VALIDITY_MS = 3 * 60 * 6e4 + 5 * 6e4;
+var PUBLICATION_AUTHORIZATION_RESERVE_MS = 5 * 6e4;
+var PUBLICATION_HORIZON_MULTIPLIER = 2;
+var FINAL_PUBLICATION_STATUS_RESERVE_MS = 3e4;
+var MIN_PUBLICATION_POLL_DELAY_MS = 1e3;
 var RunT0ReviewOrchestration = class {
-  constructor(dependencies, maxPublicationPolls = 30, maxBusyPollsPerProviderLane = 24, revisionPollIntervalMs = 5e3) {
+  constructor(dependencies, maxPublicationPolls = null, maxBusyPollsPerProviderLane = 24, revisionPollIntervalMs = 5e3) {
     this.dependencies = dependencies;
     this.maxPublicationPolls = maxPublicationPolls;
     this.maxBusyPollsPerProviderLane = maxBusyPollsPerProviderLane;
     this.revisionPollIntervalMs = revisionPollIntervalMs;
-    if (!Number.isSafeInteger(maxPublicationPolls) || maxPublicationPolls < 1 || maxPublicationPolls > 120) {
+    if (maxPublicationPolls !== null && (!Number.isSafeInteger(maxPublicationPolls) || maxPublicationPolls < 1)) {
       throw new Error("review_orchestration_publication_poll_limit_invalid");
     }
     if (!Number.isSafeInteger(maxBusyPollsPerProviderLane) || maxBusyPollsPerProviderLane < 1 || maxBusyPollsPerProviderLane > 120) {
@@ -95111,6 +95181,18 @@ var RunT0ReviewOrchestration = class {
       state = evolveReviewOrchestration(state, {
         type: "revision_confirmed" /* RevisionConfirmed */
       });
+      const preExecutionRenewal = await this.renewAuthorization({
+        authorization,
+        command,
+        phase: "pre-execution",
+        requestedTtlMs: MAX_PRE_EXECUTION_AUTHORIZATION_TTL_MS
+      });
+      authorization = preExecutionRenewal.authorization;
+      if (preExecutionRenewal.validForMsAtResponse < MIN_PRE_EXECUTION_AUTHORIZATION_VALIDITY_MS) {
+        throw new Error(
+          "review_orchestration_execution_authorization_window_insufficient"
+        );
+      }
       const [, restoredExecution] = await Promise.all([
         this.dependencies.controlPlane.restoreSnapshot({
           authorization,
@@ -95275,6 +95357,33 @@ var RunT0ReviewOrchestration = class {
         };
       }
       await this.assertRevisionCurrent(command);
+      const publicationHorizonMs = safeMultiplyMilliseconds(
+        authorization.limits.maxReconciliationDurationMs,
+        PUBLICATION_HORIZON_MULTIPLIER
+      );
+      const publicationRequiredValidityMs = safeAddMilliseconds(
+        publicationHorizonMs,
+        FINAL_PUBLICATION_STATUS_RESERVE_MS
+      );
+      const publicationRenewal = await this.renewAuthorization({
+        authorization,
+        command,
+        phase: "pre-publication",
+        discriminator: projection.projectionHash,
+        requestedTtlMs: safeAddMilliseconds(
+          publicationHorizonMs,
+          PUBLICATION_AUTHORIZATION_RESERVE_MS
+        )
+      });
+      authorization = publicationRenewal.authorization;
+      const publicationRenewalReceivedAtMs = readMonotonicClockMs(
+        this.dependencies.clock
+      );
+      if (publicationRenewal.validForMsAtResponse < publicationRequiredValidityMs) {
+        throw new Error(
+          "review_orchestration_publication_authorization_window_insufficient"
+        );
+      }
       const latestExecution = await this.dependencies.controlPlane.restoreExecution({
         authorization,
         reviewRevisionHash: command.reviewRevisionHash
@@ -95295,6 +95404,14 @@ var RunT0ReviewOrchestration = class {
         allowPartial: partial
       });
       await this.assertRevisionCurrent(command);
+      assertPublicationAuthorizationWindow({
+        validForMsAtResponse: publicationRenewal.validForMsAtResponse,
+        elapsedMs: elapsedMonotonicMs(
+          publicationRenewalReceivedAtMs,
+          readMonotonicClockMs(this.dependencies.clock)
+        ),
+        requiredMs: publicationRequiredValidityMs
+      });
       const publication = await this.dependencies.controlPlane.requestPublication({
         authorization,
         idempotencyKey: this.idempotencyKey("publication", [
@@ -95359,13 +95476,51 @@ var RunT0ReviewOrchestration = class {
         partial
       });
       let pollAfterMs = publication.pollAfterMs;
-      for (let poll = 0; poll < this.maxPublicationPolls; poll += 1) {
-        await this.dependencies.delay.sleep(clampPollDelay(pollAfterMs));
+      const elapsedSinceRenewalMs = elapsedMonotonicMs(
+        publicationRenewalReceivedAtMs,
+        readMonotonicClockMs(this.dependencies.clock)
+      );
+      const reconciliationBudgetMs = Math.min(
+        publicationHorizonMs,
+        publicationRenewal.validForMsAtResponse - elapsedSinceRenewalMs - FINAL_PUBLICATION_STATUS_RESERVE_MS
+      );
+      if (reconciliationBudgetMs <= 0) {
+        throw new Error(
+          "review_orchestration_publication_authorization_window_exhausted"
+        );
+      }
+      const publicationDeadlineMs = safeAddMilliseconds(
+        readMonotonicClockMs(this.dependencies.clock),
+        safeAddMilliseconds(
+          reconciliationBudgetMs,
+          FINAL_PUBLICATION_STATUS_RESERVE_MS
+        )
+      );
+      const publicationPollLimit = calculatePublicationPollLimit({
+        hardLimit: this.maxPublicationPolls,
+        reconciliationDurationMs: reconciliationBudgetMs
+      });
+      for (let poll = 0; poll < publicationPollLimit; poll += 1) {
+        const remainingMs = publicationDeadlineMs - readMonotonicClockMs(this.dependencies.clock);
+        if (remainingMs <= 0) break;
+        const delayMs = Math.min(
+          clampPollDelay(pollAfterMs),
+          Math.max(0, remainingMs - FINAL_PUBLICATION_STATUS_RESERVE_MS)
+        );
+        if (delayMs > 0) await this.dependencies.delay.sleep(delayMs);
+        const requestBudgetMs = Math.floor(
+          publicationDeadlineMs - readMonotonicClockMs(this.dependencies.clock)
+        );
+        if (requestBudgetMs <= 0) break;
         const status = await this.dependencies.controlPlane.readPublicationStatus({
           authorization,
-          publicationAttemptId: publication.publicationAttemptId
+          publicationAttemptId: publication.publicationAttemptId,
+          timeoutMs: requestBudgetMs
         });
         if (!status.terminal) {
+          if (publicationDeadlineMs - readMonotonicClockMs(this.dependencies.clock) <= FINAL_PUBLICATION_STATUS_RESERVE_MS) {
+            break;
+          }
           pollAfterMs = clampPollDelay(status.pollAfterMs);
           continue;
         }
@@ -95427,6 +95582,30 @@ var RunT0ReviewOrchestration = class {
         failureCode: safeFailureCode(error2)
       };
     }
+  }
+  async renewAuthorization(input) {
+    const identityParts = [
+      input.authorization.authorizationId,
+      input.authorization.mutationEpoch,
+      input.command.executionId,
+      input.command.sourceRunId,
+      input.command.sourceRunAttempt,
+      input.command.reviewRevisionHash,
+      input.phase,
+      ...input.discriminator ? [input.discriminator] : []
+    ];
+    const renewal = await this.dependencies.controlPlane.renewAuthorization({
+      authorization: input.authorization,
+      idempotencyKey: this.idempotencyKey("authorization-renew", identityParts),
+      renewalRequestId: this.dependencies.identities.deterministicId(
+        "authorization-renewal-request",
+        identityParts
+      ),
+      oidcToken: await this.dependencies.oidc.getToken(),
+      requestedTtlMs: input.requestedTtlMs
+    });
+    validateAuthorizationScope(input.command, renewal.authorization);
+    return renewal;
   }
   async satisfyWorkSlot(input) {
     let streamVersion = input.execution.streamVersion;
@@ -96216,8 +96395,52 @@ function validateManifest(manifest) {
   }
 }
 function clampPollDelay(value) {
-  if (!Number.isFinite(value) || value < 0) return 1e3;
-  return Math.min(Math.max(Math.floor(value), 100), 3e4);
+  if (!Number.isFinite(value) || value < 0) {
+    return MIN_PUBLICATION_POLL_DELAY_MS;
+  }
+  return Math.min(
+    Math.max(Math.floor(value), MIN_PUBLICATION_POLL_DELAY_MS),
+    3e4
+  );
+}
+function calculatePublicationPollLimit(input) {
+  const durationBound = Math.ceil(
+    input.reconciliationDurationMs / MIN_PUBLICATION_POLL_DELAY_MS
+  );
+  const deadlineBound = Math.max(1, durationBound);
+  return input.hardLimit === null ? deadlineBound : Math.min(input.hardLimit, deadlineBound);
+}
+function readMonotonicClockMs(clock) {
+  const nowMs = clock.monotonicNowMs();
+  if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
+    throw new Error("review_orchestration_monotonic_clock_invalid");
+  }
+  return nowMs;
+}
+function safeAddMilliseconds(left, right) {
+  if (!Number.isSafeInteger(left) || left < 0 || !Number.isSafeInteger(right) || right < 0 || left > Number.MAX_SAFE_INTEGER - right) {
+    throw new Error("review_orchestration_duration_overflow");
+  }
+  return left + right;
+}
+function safeMultiplyMilliseconds(value, multiplier) {
+  if (!Number.isSafeInteger(value) || value < 0 || !Number.isSafeInteger(multiplier) || multiplier < 1 || value > Math.floor(Number.MAX_SAFE_INTEGER / multiplier)) {
+    throw new Error("review_orchestration_duration_overflow");
+  }
+  return value * multiplier;
+}
+function elapsedMonotonicMs(startMs, endMs) {
+  if (endMs < startMs) {
+    throw new Error("review_orchestration_monotonic_clock_regressed");
+  }
+  return endMs - startMs;
+}
+function assertPublicationAuthorizationWindow(input) {
+  if (input.validForMsAtResponse - input.elapsedMs < input.requiredMs) {
+    throw new Error(
+      "review_orchestration_publication_authorization_window_insufficient"
+    );
+  }
 }
 function isCanonicalJson2(value) {
   try {
@@ -103370,6 +103593,63 @@ var ReviewActionV2ControlPlaneAdapter = class {
     this.activeAuthorization = authorization;
     return authorization;
   }
+  async renewAuthorization(input) {
+    let response;
+    try {
+      response = await this.client.executeWithMetadata(
+        "review_run_renew" /* ReviewRunRenew */,
+        {
+          authorizationToken: input.authorization.authorizationToken,
+          idempotencyKey: input.idempotencyKey,
+          authorizationId: input.authorization.authorizationId,
+          renewalRequestId: input.renewalRequestId,
+          oidcToken: input.oidcToken,
+          requestedTtlMs: input.requestedTtlMs
+        }
+      );
+    } catch (error2) {
+      throw controlPlaneFailure(error2);
+    }
+    const result2 = response.result;
+    if (result2.status !== "renewed" /* Renewed */ && result2.status !== "restored" /* Restored */) {
+      throw new Error(`review_action_v2_authorization_renew_${result2.status}`);
+    }
+    const authorizationId = requireString3(
+      result2.authorizationId,
+      "renewed_authorization_id"
+    );
+    if (authorizationId !== input.authorization.authorizationId) {
+      throw new Error("review_action_v2_authorization_renew_scope_mismatch");
+    }
+    const mutationEpoch = requireDecimal(
+      result2.mutationEpoch,
+      "renewed_mutation_epoch"
+    );
+    if (mutationEpoch !== input.authorization.mutationEpoch) {
+      throw new Error("review_action_v2_authorization_renew_epoch_mismatch");
+    }
+    const expiresAt = requireTimestamp2(result2.expiresAt, "renewed_expires_at");
+    const serverTime = requireTimestamp2(
+      response.serverTime,
+      "renewed_server_time"
+    );
+    const validForMsAtResponse = Date.parse(expiresAt) - Date.parse(serverTime);
+    if (!Number.isSafeInteger(validForMsAtResponse) || validForMsAtResponse < 1) {
+      throw new Error("review_action_v2_authorization_renew_expiry_invalid");
+    }
+    const authorization = Object.freeze({
+      ...input.authorization,
+      authorizationId,
+      authorizationToken: requireString3(
+        result2.authorizationToken,
+        "renewed_authorization_token"
+      ),
+      mutationEpoch,
+      expiresAt
+    });
+    this.activeAuthorization = authorization;
+    return Object.freeze({ authorization, validForMsAtResponse });
+  }
   async openGatewaySession(input) {
     const authorization = this.requireActiveAuthorization();
     let result2;
@@ -103970,7 +104250,8 @@ var ReviewActionV2ControlPlaneAdapter = class {
       {
         authorizationToken: input.authorization.authorizationToken,
         publicationAttemptId: input.publicationAttemptId
-      }
+      },
+      { timeoutMs: input.timeoutMs }
     );
     if (result2.status !== "terminal" /* Terminal */) {
       return {
@@ -104808,6 +105089,13 @@ function deterministicIdempotencyKey(purpose, parts) {
     })
   )}`;
 }
+
+// src/review-orchestration/infrastructure/system-review-orchestration-clock.ts
+var SystemReviewOrchestrationClock = class {
+  monotonicNowMs() {
+    return Math.floor(performance.now());
+  }
+};
 
 // src/review-investigation/application/replay-investigation-on-revision.ts
 var ReplayInvestigationOnRevision = class {
@@ -109466,9 +109754,7 @@ var ProductionT0ReviewRunner = class {
       controlPlane,
       revisionGuard,
       oidc: {
-        getToken: async () => {
-          throw new Error("review_action_v2_duplicate_authorization_forbidden");
-        }
+        getToken: () => oidc.requestToken(input.audience)
       },
       invocationManifestAssembler: new GeneratedProviderInvocationManifestAssembler(
         authorization,
@@ -109505,6 +109791,7 @@ var ProductionT0ReviewRunner = class {
         contextAttestations: controlPlane
       } : {},
       identities,
+      clock: new SystemReviewOrchestrationClock(),
       delay: new SystemReviewOrchestrationDelay()
     });
     const result2 = await useCase.executeAuthorized(

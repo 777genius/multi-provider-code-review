@@ -120,10 +120,22 @@ export interface ReviewActionV2ClientOptions {
   readonly requestIdFactory?: () => string;
   readonly sleep?: (delayMs: number) => Promise<void>;
   readonly random?: () => number;
+  readonly monotonicNow?: () => number;
   readonly maxAttempts?: number;
   readonly publicationFactsUnavailableMaxAttempts?: number;
   readonly maxResponseBytes?: number;
   readonly allowInsecureLocalhost?: boolean;
+}
+
+export interface ReviewActionV2ClientExecutionOptions {
+  readonly timeoutMs?: number;
+}
+
+export interface ReviewActionV2ClientResponse<
+  Operation extends ReviewActionV2OperationId,
+> {
+  readonly result: ReviewActionV2ResultMap[Operation];
+  readonly serverTime: string;
 }
 
 type GeneratedOperationManifest = (typeof generatedManifest.operations)[number];
@@ -215,6 +227,7 @@ export class ReviewActionV2Client {
   private readonly requestIdFactory: () => string;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly random: () => number;
+  private readonly monotonicNow: () => number;
   private readonly maxAttempts: number;
   private readonly publicationFactsUnavailableMaxAttempts: number;
   private readonly maxResponseBytes: number;
@@ -232,6 +245,7 @@ export class ReviewActionV2Client {
       options.sleep ??
       ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.random = options.random ?? Math.random;
+    this.monotonicNow = options.monotonicNow ?? (() => performance.now());
     this.maxAttempts = clampInteger(options.maxAttempts ?? 2, 1, 3);
     this.publicationFactsUnavailableMaxAttempts = clampInteger(
       options.publicationFactsUnavailableMaxAttempts ?? 3,
@@ -249,13 +263,30 @@ export class ReviewActionV2Client {
 
   async execute<Operation extends ReviewActionV2OperationId>(
     operationId: Operation,
-    payload: ReviewActionV2ClientRequest<Operation>
+    payload: ReviewActionV2ClientRequest<Operation>,
+    options: ReviewActionV2ClientExecutionOptions = {}
   ): Promise<ReviewActionV2ResultMap[Operation]> {
+    return (await this.executeWithMetadata(operationId, payload, options))
+      .result;
+  }
+
+  async executeWithMetadata<Operation extends ReviewActionV2OperationId>(
+    operationId: Operation,
+    payload: ReviewActionV2ClientRequest<Operation>,
+    options: ReviewActionV2ClientExecutionOptions = {}
+  ): Promise<ReviewActionV2ClientResponse<Operation>> {
     const descriptor = requireOperationDescriptor(operationId);
     const manifest = requireOperationManifest(operationId);
     const request = this.frameRequest(operationId, payload);
     const serializedRequest = JSON.stringify(request);
     let capacityRetriesConsumed = 0;
+    const deadlineMs =
+      options.timeoutMs === undefined
+        ? null
+        : createDeadlineMs(
+            this.monotonicNow(),
+            requirePositiveTimeout(options.timeoutMs)
+          );
 
     if (
       Buffer.byteLength(serializedRequest, 'utf8') > descriptor.bodyLimitBytes
@@ -275,11 +306,18 @@ export class ReviewActionV2Client {
         : this.maxAttempts;
     for (let attempt = 1; attempt <= loopAttemptLimit; attempt += 1) {
       try {
+        const attemptTimeoutMs = remainingTimeoutMs(
+          deadlineMs,
+          this.monotonicNow,
+          manifest.defaultTimeoutMs,
+          operationId
+        );
         return await this.sendOnce(
           operationId,
           manifest,
           request.requestId,
-          serializedRequest
+          serializedRequest,
+          attemptTimeoutMs
         );
       } catch (error) {
         const normalized = normalizeClientError(error, operationId);
@@ -298,7 +336,14 @@ export class ReviewActionV2Client {
           throw normalized;
         }
         if (isCapacityLimited(normalized)) capacityRetriesConsumed += 1;
-        await this.sleep(retryDelayMs(normalized, attempt, this.random));
+        const retryDelay = retryDelayMs(normalized, attempt, this.random);
+        const remainingMs = remainingTimeoutMs(
+          deadlineMs,
+          this.monotonicNow,
+          retryDelay,
+          operationId
+        );
+        await this.sleep(Math.min(retryDelay, remainingMs));
       }
     }
 
@@ -347,11 +392,12 @@ export class ReviewActionV2Client {
     operationId: Operation,
     manifest: GeneratedOperationManifest,
     requestId: string,
-    serializedRequest: string
-  ): Promise<ReviewActionV2ResultMap[Operation]> {
+    serializedRequest: string,
+    timeoutMs: number
+  ): Promise<ReviewActionV2ClientResponse<Operation>> {
     const abort = new AbortController();
-    const timeout = setTimeout(() => abort.abort(), manifest.defaultTimeoutMs);
-    let response: Response;
+    const timeout = setTimeout(() => abort.abort(), timeoutMs);
+    let response: Response | undefined;
     try {
       response = await this.fetchImpl(
         new URL(manifest.path, this.apiUrl).toString(),
@@ -363,6 +409,70 @@ export class ReviewActionV2Client {
           signal: abort.signal,
         }
       );
+      const body = await readBoundedJson(
+        response,
+        this.maxResponseBytes,
+        operationId
+      );
+      const validator = this.validators[operationId];
+      if (!validator(body) || !isResponseEnvelope(body)) {
+        throw new ReviewActionV2ClientError(
+          ReviewActionV2ClientFailureCode.InvalidResponse,
+          operationId,
+          { httpStatus: response.status }
+        );
+      }
+      if (
+        body.protocolVersion !== reviewActionV2PublishedProtocolVersion ||
+        body.schemaDigest !== reviewActionV2PublishedSchemaDigest ||
+        body.requestId !== requestId
+      ) {
+        throw new ReviewActionV2ClientError(
+          ReviewActionV2ClientFailureCode.InvalidResponse,
+          operationId,
+          { httpStatus: response.status }
+        );
+      }
+
+      if ('error' in body) {
+        const statusMapping = manifest.statusMapping.find(
+          (item) => item.errorCode === body.error.errorCode
+        );
+        if (
+          !statusMapping ||
+          statusMapping.httpStatus !== response.status ||
+          statusMapping.retryClass !== body.error.retryClass
+        ) {
+          throw new ReviewActionV2ClientError(
+            ReviewActionV2ClientFailureCode.InvalidResponse,
+            operationId,
+            { httpStatus: response.status }
+          );
+        }
+        throw new ReviewActionV2ClientError(
+          ReviewActionV2ClientFailureCode.ProtocolError,
+          operationId,
+          {
+            httpStatus: response.status,
+            protocolErrorCode: body.error.errorCode,
+            retryClass: body.error.retryClass,
+            retryAfterMs: readRetryAfterMs(response),
+            issues: body.error.details.issues,
+          }
+        );
+      }
+
+      if (!manifest.successStatuses.includes(response.status)) {
+        throw new ReviewActionV2ClientError(
+          ReviewActionV2ClientFailureCode.InvalidResponse,
+          operationId,
+          { httpStatus: response.status }
+        );
+      }
+      return Object.freeze({
+        result: body.result as ReviewActionV2ResultMap[Operation],
+        serverTime: body.serverTime,
+      });
     } catch (error) {
       if (abort.signal.aborted) {
         throw new ReviewActionV2ClientError(
@@ -371,76 +481,22 @@ export class ReviewActionV2Client {
           { cause: error }
         );
       }
+      if (response === undefined) {
+        throw new ReviewActionV2ClientError(
+          ReviewActionV2ClientFailureCode.NetworkFailure,
+          operationId,
+          { cause: error }
+        );
+      }
+      if (error instanceof ReviewActionV2ClientError) throw error;
       throw new ReviewActionV2ClientError(
-        ReviewActionV2ClientFailureCode.NetworkFailure,
+        ReviewActionV2ClientFailureCode.InvalidResponse,
         operationId,
-        { cause: error }
+        { httpStatus: response.status, cause: error }
       );
     } finally {
       clearTimeout(timeout);
     }
-
-    const body = await readBoundedJson(
-      response,
-      this.maxResponseBytes,
-      operationId
-    );
-    const validator = this.validators[operationId];
-    if (!validator(body) || !isResponseEnvelope(body)) {
-      throw new ReviewActionV2ClientError(
-        ReviewActionV2ClientFailureCode.InvalidResponse,
-        operationId,
-        { httpStatus: response.status }
-      );
-    }
-    if (
-      body.protocolVersion !== reviewActionV2PublishedProtocolVersion ||
-      body.schemaDigest !== reviewActionV2PublishedSchemaDigest ||
-      body.requestId !== requestId
-    ) {
-      throw new ReviewActionV2ClientError(
-        ReviewActionV2ClientFailureCode.InvalidResponse,
-        operationId,
-        { httpStatus: response.status }
-      );
-    }
-
-    if ('error' in body) {
-      const statusMapping = manifest.statusMapping.find(
-        (item) => item.errorCode === body.error.errorCode
-      );
-      if (
-        !statusMapping ||
-        statusMapping.httpStatus !== response.status ||
-        statusMapping.retryClass !== body.error.retryClass
-      ) {
-        throw new ReviewActionV2ClientError(
-          ReviewActionV2ClientFailureCode.InvalidResponse,
-          operationId,
-          { httpStatus: response.status }
-        );
-      }
-      throw new ReviewActionV2ClientError(
-        ReviewActionV2ClientFailureCode.ProtocolError,
-        operationId,
-        {
-          httpStatus: response.status,
-          protocolErrorCode: body.error.errorCode,
-          retryClass: body.error.retryClass,
-          retryAfterMs: readRetryAfterMs(response),
-          issues: body.error.details.issues,
-        }
-      );
-    }
-
-    if (!manifest.successStatuses.includes(response.status)) {
-      throw new ReviewActionV2ClientError(
-        ReviewActionV2ClientFailureCode.InvalidResponse,
-        operationId,
-        { httpStatus: response.status }
-      );
-    }
-    return body.result as ReviewActionV2ResultMap[Operation];
   }
 }
 
@@ -654,6 +710,48 @@ function retryDelayMs(
     Number.isFinite(sample) && sample >= 0 && sample < 1 ? sample : 0;
   const jitteredDelayMs = baseDelayMs + Math.floor(baseDelayMs * boundedSample);
   return Math.min(Math.max(error.retryAfterMs ?? 0, jitteredDelayMs), 30_000);
+}
+
+function requirePositiveTimeout(value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error('review_action_v2_client_timeout_invalid');
+  }
+  return value;
+}
+
+function createDeadlineMs(monotonicNowMs: number, timeoutMs: number): number {
+  if (
+    !Number.isFinite(monotonicNowMs) ||
+    monotonicNowMs < 0 ||
+    monotonicNowMs > Number.MAX_SAFE_INTEGER - timeoutMs
+  ) {
+    throw new Error('review_action_v2_client_clock_invalid');
+  }
+  return monotonicNowMs + timeoutMs;
+}
+
+function remainingTimeoutMs(
+  deadlineMs: number | null,
+  monotonicNow: () => number,
+  preferredMs: number,
+  operationId: ReviewActionV2OperationId
+): number {
+  if (deadlineMs === null) return preferredMs;
+  const nowMs = monotonicNow();
+  if (!Number.isFinite(nowMs) || nowMs < 0) {
+    throw new ReviewActionV2ClientError(
+      ReviewActionV2ClientFailureCode.InvalidConfiguration,
+      operationId
+    );
+  }
+  const remainingMs = Math.floor(deadlineMs - nowMs);
+  if (remainingMs <= 0) {
+    throw new ReviewActionV2ClientError(
+      ReviewActionV2ClientFailureCode.RequestTimedOut,
+      operationId
+    );
+  }
+  return Math.min(preferredMs, remainingMs);
 }
 
 function readRetryAfterMs(response: Response): number | undefined {

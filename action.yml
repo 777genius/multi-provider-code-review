@@ -26,9 +26,9 @@ inputs:
     required: false
     default: "0"
   review-timeout-minutes:
-    description: Full review job timeout. The runtime reserves five minutes for cleanup.
+    description: Full review lifecycle budget, including agent execution, publication reconciliation, and cleanup.
     required: false
-    default: "60"
+    default: "180"
   auth-json:
     description: Codex OAuth auth JSON.
     required: false

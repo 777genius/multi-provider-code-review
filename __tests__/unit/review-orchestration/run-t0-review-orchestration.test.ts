@@ -83,6 +83,258 @@ describe('RunT0ReviewOrchestration', () => {
     ]);
   });
 
+  it('waits beyond the legacy 20-minute poll cap', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.authorize.mockResolvedValue({
+      ...authorization,
+      limits: {
+        ...authorization.limits,
+        maxReconciliationDurationMs: 1_300_000,
+      },
+    });
+    jest
+      .mocked(fixture.dependencies.projectionBuilder.build)
+      .mockResolvedValue({
+        ...projection,
+        publicationOperationCount: 4,
+      });
+    let poll = 0;
+    fixture.controlPlane.readPublicationStatus.mockImplementation(async () => {
+      poll += 1;
+      return poll <= 1_200
+        ? { terminal: false, pollAfterMs: 1_000 }
+        : {
+            terminal: true,
+            outcome: {
+              state: ReviewPublicationState.Succeeded,
+              canonicalReceiptSetHash: hash('receipt'),
+            },
+          };
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.controlPlane.readPublicationStatus).toHaveBeenCalledTimes(
+      1_201
+    );
+  });
+
+  it('supports the complete publication and reconciliation horizon', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.authorize.mockResolvedValue({
+      ...authorization,
+      limits: {
+        ...authorization.limits,
+        maxReconciliationDurationMs: 1_800_000,
+      },
+    });
+    let poll = 0;
+    fixture.controlPlane.readPublicationStatus.mockImplementation(async () => {
+      poll += 1;
+      return poll < 3_599
+        ? { terminal: false, pollAfterMs: 1_000 }
+        : {
+            terminal: true,
+            outcome: {
+              state: ReviewPublicationState.Succeeded,
+              canonicalReceiptSetHash: hash('receipt'),
+            },
+          };
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.controlPlane.readPublicationStatus).toHaveBeenCalledTimes(
+      3_599
+    );
+  });
+
+  it('does not truncate a server horizon beyond two hours', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.authorize.mockResolvedValue({
+      ...authorization,
+      limits: {
+        ...authorization.limits,
+        maxReconciliationDurationMs: 3_700_000,
+      },
+    });
+    let poll = 0;
+    fixture.controlPlane.readPublicationStatus.mockImplementation(async () => {
+      poll += 1;
+      return poll < 7_201
+        ? { terminal: false, pollAfterMs: 1_000 }
+        : {
+            terminal: true,
+            outcome: {
+              state: ReviewPublicationState.Succeeded,
+              canonicalReceiptSetHash: hash('receipt'),
+            },
+          };
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.controlPlane.readPublicationStatus).toHaveBeenCalledTimes(
+      7_201
+    );
+  });
+
+  it('stops polling at the server-issued reconciliation deadline', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.authorize.mockResolvedValue({
+      ...authorization,
+      limits: {
+        ...authorization.limits,
+        maxReconciliationDurationMs: 2_000,
+      },
+    });
+    fixture.controlPlane.readPublicationStatus.mockResolvedValue({
+      terminal: false,
+      pollAfterMs: 1_000,
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'publication_poll_exhausted',
+    });
+    expect(fixture.controlPlane.readPublicationStatus).toHaveBeenCalledTimes(4);
+    expect(
+      jest.mocked(fixture.dependencies.delay.sleep).mock.calls.slice(-4)
+    ).toEqual([[1_000], [1_000], [1_000], [1_000]]);
+  });
+
+  it('uses the final status reserve after an overshooting sleep', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.authorize.mockResolvedValue({
+      ...authorization,
+      limits: {
+        ...authorization.limits,
+        maxReconciliationDurationMs: 60_000,
+      },
+    });
+    let nowMs = 0;
+    jest
+      .mocked(fixture.dependencies.clock.monotonicNowMs)
+      .mockImplementation(() => nowMs);
+    jest
+      .mocked(fixture.dependencies.delay.sleep)
+      .mockImplementation(async (delayMs: number) => {
+        nowMs += delayMs + 120_000;
+      });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.controlPlane.readPublicationStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ timeoutMs: 29_000 })
+    );
+  });
+
+  it('renews authorization before finalization and uses the renewed token', async () => {
+    const fixture = createFixture();
+
+    await fixture.useCase.execute(fixture.command);
+
+    expect(fixture.controlPlane.renewAuthorization).toHaveBeenCalledTimes(2);
+    expect(fixture.controlPlane.renewAuthorization).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        authorization,
+        oidcToken: 'oidc.token',
+        requestedTtlMs: 21_600_000,
+      })
+    );
+    expect(fixture.controlPlane.renewAuthorization).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        oidcToken: 'oidc.token',
+        requestedTtlMs: 420_000,
+      })
+    );
+    expect(
+      fixture.controlPlane.renewAuthorization.mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      fixture.controlPlane.restoreSnapshot.mock.invocationCallOrder[0]
+    );
+    expect(fixture.dependencies.oidc.getToken).toHaveBeenCalledTimes(3);
+    expect(fixture.controlPlane.restoreExecution).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        authorization: expect.objectContaining({
+          authorizationToken: 'authorization.renewed-token',
+          mutationEpoch: '1',
+        }),
+      })
+    );
+    expect(fixture.controlPlane.finalizeExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorization: expect.objectContaining({
+          authorizationToken: 'authorization.renewed-token',
+        }),
+      })
+    );
+    expect(fixture.controlPlane.readPublicationStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorization: expect.objectContaining({
+          authorizationToken: 'authorization.renewed-token',
+        }),
+        timeoutMs: 149_000,
+      })
+    );
+  });
+
+  it('fails closed before finalization when renewal cannot provide a safe window', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.renewAuthorization.mockImplementation(async (input) =>
+      input.requestedTtlMs > 1_000_000
+        ? renewedAuthorization(input.authorization, input.requestedTtlMs)
+        : renewedAuthorization(input.authorization, 149_999)
+    );
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode:
+        'review_orchestration_publication_authorization_window_insufficient',
+    });
+    expect(fixture.controlPlane.finalizeExecution).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.requestPublication).not.toHaveBeenCalled();
+  });
+
+  it('accepts an idempotently restored renewal with the required window intact', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.renewAuthorization.mockImplementation(async (input) =>
+      renewedAuthorization(input.authorization, input.requestedTtlMs - 1_000)
+    );
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.controlPlane.requestPublication).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed before execution when the paired control plane cannot renew', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.renewAuthorization.mockRejectedValue(
+      new Error('review_action_v2_capability_disabled')
+    );
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'review_action_v2_capability_disabled',
+    });
+    expect(fixture.controlPlane.restoreSnapshot).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.startExecution).not.toHaveBeenCalled();
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+  });
+
   it('completes publication while preserving a full-coverage blocking merge gate', async () => {
     const fixture = createFixture();
     jest
@@ -1361,6 +1613,11 @@ function createFixture(
 ) {
   const controlPlane = {
     authorize: jest.fn().mockResolvedValue(authorization),
+    renewAuthorization: jest
+      .fn()
+      .mockImplementation(async (input) =>
+        renewedAuthorization(input.authorization, input.requestedTtlMs)
+      ),
     restoreSnapshot: jest.fn().mockResolvedValue(undefined),
     restoreExecution: jest.fn().mockResolvedValue(null),
     startExecution: jest.fn().mockImplementation(async (input) => ({
@@ -1458,6 +1715,7 @@ function createFixture(
       version: '2',
       streamVersion: '2',
     });
+  let monotonicNowMs = 0;
   const dependencies = {
     controlPlane,
     revisionGuard: {
@@ -1533,8 +1791,13 @@ function createFixture(
           `rr:${namespace}:${hash(parts.join('|')).slice(0, 32)}`
       ),
     } satisfies ReviewOrchestrationIdentityPort,
+    clock: {
+      monotonicNowMs: jest.fn(() => monotonicNowMs),
+    },
     delay: {
-      sleep: jest.fn().mockResolvedValue(undefined),
+      sleep: jest.fn().mockImplementation(async (delayMs: number) => {
+        monotonicNowMs += delayMs;
+      }),
     } satisfies ReviewOrchestrationDelayPort,
   } as unknown as jest.Mocked<RunT0ReviewOrchestrationDependencies>;
   const investigationRecording = options.investigationMode
@@ -1632,6 +1895,22 @@ const authorization: ReviewRunAuthorization = {
     ],
   },
 };
+
+function renewedAuthorization(
+  current: ReviewRunAuthorization,
+  validForMsAtResponse: number
+) {
+  return {
+    authorization: {
+      ...current,
+      authorizationToken: 'authorization.renewed-token',
+      expiresAt: new Date(
+        Date.parse('2026-07-22T12:00:00.000Z') + validForMsAtResponse
+      ).toISOString(),
+    },
+    validForMsAtResponse,
+  };
+}
 
 const lease = {
   leaseId: 'lease-1',
