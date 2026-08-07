@@ -43,6 +43,15 @@ import {
   RestoredReviewWorkSlotState,
 } from '../../../src/review-orchestration/application';
 import { ReviewActionV2ControlPlaneAdapter } from '../../../src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter';
+import {
+  readProductionReviewInvestigationRolloutFlags,
+  resolveProductionReviewInvestigationRolloutResolution,
+  ProductionReviewInvestigationRolloutReason,
+} from '../../../src/review-orchestration/infrastructure/production-review-investigation-composition';
+import {
+  reviewInvestigationCoverageProfileHash,
+  reviewInvestigationPolicyHash,
+} from '../../../src/review-orchestration/infrastructure/review-investigation-recording-adapter';
 
 const investigationExtensionDescriptor = Object.freeze({
   extensionId: reviewInvestigationExtensionV1.extensionId,
@@ -241,6 +250,56 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     });
   });
 
+  it('enables rollout from the canonical runtime flags and authorization wire payload', async () => {
+    const descriptor = reviewInvestigationDescriptor({
+      coverageProfileHash: reviewInvestigationCoverageProfileHash(),
+      policyHash: reviewInvestigationPolicyHash(),
+      providerCapabilities: [
+        {
+          providerKind: ReviewExecutionProviderKind.Codex,
+          capabilities: [
+            ReviewInvestigationRolloutCapability.ContextCritic,
+            ReviewInvestigationRolloutCapability.CrossRevisionReplay,
+            ReviewInvestigationRolloutCapability.Recording,
+            ReviewInvestigationRolloutCapability.Shadow,
+          ],
+        },
+      ],
+    });
+    const execute = jest.fn().mockResolvedValue({
+      ...authorizationResponse(),
+      authorizationFactsCanonicalJson: canonicalJson({
+        ...authorizationFacts,
+        reviewInvestigation: descriptor,
+      }),
+    });
+    const parsedAuthorization = await createAdapter(execute).authorize({
+      oidcToken: 'oidc.token',
+    });
+
+    const resolution = resolveProductionReviewInvestigationRolloutResolution({
+      flags: readProductionReviewInvestigationRolloutFlags({
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: '1',
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: '1',
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_CONTEXT_CRITIC_ENABLED: '1',
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_CROSS_REVISION_REPLAY_ENABLED: '1',
+      }),
+      agenticContext: true,
+      authorization: parsedAuthorization,
+      primaryProviderKind: ReviewExecutionProviderKind.Codex,
+    });
+
+    expect(resolution).toMatchObject({
+      reason: ProductionReviewInvestigationRolloutReason.Enabled,
+      rollout: {
+        recordingEnabled: true,
+        shadowEnabled: true,
+        contextCriticEnabled: true,
+        crossRevisionReplayEnabled: true,
+      },
+    });
+  });
+
   it('ignores a versionless V1 provider allowlist and stays on legacy review', async () => {
     const reviewInvestigation = {
       capability: ReviewCapabilityKind.ReviewInvestigationV1,
@@ -263,6 +322,29 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         reviewInvestigation: expect.anything(),
       }),
     });
+  });
+
+  it('preserves base authorization when descriptor telemetry is unavailable', async () => {
+    const info = jest.spyOn(logger, 'info').mockImplementation(() => {
+      throw new Error('logger unavailable');
+    });
+    const execute = jest.fn().mockResolvedValue({
+      ...authorizationResponse(),
+      authorizationFactsCanonicalJson: canonicalJson({
+        ...authorizationFacts,
+        reviewInvestigation: { capability: 'invalid' },
+      }),
+    });
+
+    try {
+      const result = await createAdapter(execute).authorize({
+        oidcToken: 'oidc.token',
+      });
+      expect(result.facts).toMatchObject(authorizationFacts);
+      expect(result.facts.reviewInvestigation).toBeUndefined();
+    } finally {
+      info.mockRestore();
+    }
   });
 
   it.each([

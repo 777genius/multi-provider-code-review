@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { PromptBuilder } from '../../analysis/llm/prompt-builder';
 import {
   canonicalizeProviderInvocationManifestV1,
+  providerInvocationManifestV1CanonicalizerDescriptor,
   providerInvocationIdentityPreimageV1,
   serializeProviderInvocationManifestV1CanonicalWireJson,
 } from '../../control-plane/generated/review-action-v2/provider-invocation-manifest-v1';
@@ -12,6 +13,7 @@ import {
 } from '../../providers/prepared-invocation';
 import type { LifecycleTarget, PRContext, ReviewConfig } from '../../types';
 import { logger } from '../../utils/logger';
+import { emitReviewInvestigationTelemetry } from './review-investigation-telemetry';
 import {
   ReviewContextInspectionFailure,
   ReviewExecutionProviderKind,
@@ -553,16 +555,21 @@ export class GeneratedProviderInvocationManifestAssembler implements ProviderInv
         lane.providerVoteIdentityHash
       )
     );
-    logger.info(
+    emitReviewInvestigationTelemetry(
       [
         'Review invocation manifest:',
-        `manifest=${digestPrefix(manifestKey)}`,
-        `invocation=${digestPrefix(providerInvocationKey)}`,
-        `request=${digestPrefix(facts.providerRequestEnvelopeHash)}`,
-        `patch=${digestPrefix(facts.filePatchManifestHash)}`,
-        `context=${digestPrefix(facts.contextManifestHash)}`,
-        `baseTree=${digestPrefix(facts.baseTreeHash)}`,
-        `environment=${digestPrefix(facts.environmentContractHash)}`,
+        `manifestKey=${digestPrefix(manifestKey)}`,
+        `providerInvocationKey=${digestPrefix(providerInvocationKey)}`,
+        `providerVoteIdentityHash=${digestPrefix(
+          lane.providerVoteIdentityHash
+        )}`,
+        ...Object.entries(manifestInput).map(
+          ([component, value]) =>
+            `${component}=${manifestIdentityComponentDigestPrefix(
+              component,
+              value
+            )}`
+        ),
       ].join(' ')
     );
     return Object.freeze({
@@ -577,6 +584,31 @@ export class GeneratedProviderInvocationManifestAssembler implements ProviderInv
 
 function digestPrefix(value: string | null): string {
   return value && /^[a-f0-9]{64}$/u.test(value) ? value.slice(0, 12) : 'none';
+}
+
+const manifestIdentityComponentKind = new Map(
+  providerInvocationManifestV1CanonicalizerDescriptor.fields.map((field) => [
+    field.name,
+    field.kind,
+  ])
+);
+
+function manifestIdentityComponentDigestPrefix(
+  component: string,
+  value: unknown
+): string {
+  if (value === null) return 'none';
+  const componentKind = manifestIdentityComponentKind.get(
+    component as (typeof providerInvocationManifestV1CanonicalizerDescriptor.fields)[number]['name']
+  );
+  if (
+    (componentKind === 'hash' || componentKind === 'nullable_hash') &&
+    typeof value === 'string' &&
+    /^[a-f0-9]{64}$/u.test(value)
+  ) {
+    return digestPrefix(value);
+  }
+  return digestPrefix(sha256(canonicalJson(value)));
 }
 
 export class DeterministicReviewOrchestrationIdentity implements ReviewOrchestrationIdentityPort {

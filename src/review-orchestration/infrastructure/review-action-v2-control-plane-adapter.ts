@@ -55,6 +55,7 @@ import {
 } from '../application';
 import { ReviewActionV2RetryClass } from '../../control-plane/generated/review-action-v2/review-action-v2-negotiation';
 import { logger } from '../../utils/logger';
+import { emitReviewInvestigationTelemetry } from './review-investigation-telemetry';
 
 export class ReviewActionV2ControlPlaneAdapter
   implements ReviewActionV2ControlPlanePort, ReviewContextAttestationPort
@@ -1539,9 +1540,21 @@ function parseOptionalReviewInvestigationCapability(
 ): ReviewInvestigationCapabilityDescriptor | undefined {
   try {
     return parseReviewInvestigationCapability(value, providerVoteLanes);
-  } catch {
+  } catch (error) {
+    emitReviewInvestigationTelemetry(
+      `Review investigation authorization descriptor: accepted=false reason=${safeInvestigationDescriptorRejectionReason(
+        error
+      )}`
+    );
     return undefined;
   }
+}
+
+function safeInvestigationDescriptorRejectionReason(error: unknown): string {
+  const reason = error instanceof Error ? error.message : '';
+  return /^review_action_v2_review_investigation_[a-z_]+$/u.test(reason)
+    ? reason
+    : 'review_action_v2_review_investigation_invalid';
 }
 
 function parseReviewInvestigationCapability(

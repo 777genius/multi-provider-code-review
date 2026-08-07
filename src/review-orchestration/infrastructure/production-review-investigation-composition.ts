@@ -43,6 +43,29 @@ export type ProductionReviewInvestigationRolloutFlags = Readonly<{
 export type ProductionReviewInvestigationRollout =
   ProductionReviewInvestigationRolloutFlags;
 
+export enum ProductionReviewInvestigationRolloutReason {
+  Enabled = 'enabled',
+  RecordingFlagDisabled = 'recording_flag_disabled',
+  AgenticContextDisabled = 'agentic_context_disabled',
+  AuthorizationDescriptorMissing = 'authorization_descriptor_missing',
+  AuthorizationDescriptorVersionMismatch = 'authorization_descriptor_version_mismatch',
+  CapabilityMismatch = 'capability_mismatch',
+  ExtensionIdMismatch = 'extension_id_mismatch',
+  ExtensionSchemaDigestMismatch = 'extension_schema_digest_mismatch',
+  ExtensionCanonicalizerDigestMismatch = 'extension_canonicalizer_digest_mismatch',
+  CoverageProfileHashMismatch = 'coverage_profile_hash_mismatch',
+  PolicyHashMismatch = 'policy_hash_mismatch',
+  ProviderVoteLaneMissing = 'provider_vote_lane_missing',
+  ProviderCapabilitiesMissing = 'provider_capabilities_missing',
+  ProviderGrantMissing = 'provider_grant_missing',
+  RecordingGrantMissing = 'recording_grant_missing',
+}
+
+export type ProductionReviewInvestigationRolloutResolution = Readonly<{
+  rollout: ProductionReviewInvestigationRollout;
+  reason: ProductionReviewInvestigationRolloutReason;
+}>;
+
 export type ConfiguredProductionReviewAgent = Readonly<{
   providerKind: ReviewAgentProviderKind;
   requestedModel: string;
@@ -124,17 +147,25 @@ export function resolveProductionReviewInvestigationRollout(input: {
   readonly primaryProviderKind:
     ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
 }): ProductionReviewInvestigationRollout {
-  assertCanonicalRolloutDependencies(input.flags);
-  const recordingEnabled =
-    input.flags.recordingEnabled &&
-    input.agenticContext &&
-    matchesReviewInvestigationCapability({
-      facts: input.authorization.facts,
-      providerKind: input.primaryProviderKind,
-      capability: ReviewInvestigationRolloutCapability.Recording,
-    });
+  return resolveProductionReviewInvestigationRolloutResolution(input).rollout;
+}
 
-  return Object.freeze({
+export function resolveProductionReviewInvestigationRolloutResolution(input: {
+  readonly flags: ProductionReviewInvestigationRolloutFlags;
+  readonly agenticContext: boolean;
+  readonly authorization: ReviewRunAuthorization;
+  readonly primaryProviderKind:
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+}): ProductionReviewInvestigationRolloutResolution {
+  assertCanonicalRolloutDependencies(input.flags);
+  const recordingDecision = resolveRecordingCapability({
+    ...input,
+    capability: ReviewInvestigationRolloutCapability.Recording,
+  });
+  const recordingEnabled =
+    recordingDecision === ProductionReviewInvestigationRolloutReason.Enabled;
+
+  const rollout = Object.freeze({
     recordingEnabled,
     shadowEnabled:
       recordingEnabled &&
@@ -177,6 +208,132 @@ export function resolveProductionReviewInvestigationRollout(input: {
         capability: ReviewInvestigationRolloutCapability.ProductionEffects,
       }),
   });
+  return Object.freeze({ rollout, reason: recordingDecision });
+}
+
+export function createProductionReviewInvestigationInvocation<T>(input: {
+  readonly rollout: ProductionReviewInvestigationRollout;
+  readonly create: () => T;
+}): T | undefined {
+  return input.rollout.recordingEnabled ? input.create() : undefined;
+}
+
+function resolveRecordingCapability(input: {
+  readonly flags: ProductionReviewInvestigationRolloutFlags;
+  readonly agenticContext: boolean;
+  readonly authorization: ReviewRunAuthorization;
+  readonly primaryProviderKind:
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+  readonly capability: ReviewInvestigationRolloutCapability.Recording;
+}): ProductionReviewInvestigationRolloutReason {
+  if (!input.flags.recordingEnabled) {
+    return ProductionReviewInvestigationRolloutReason.RecordingFlagDisabled;
+  }
+  if (!input.agenticContext) {
+    return ProductionReviewInvestigationRolloutReason.AgenticContextDisabled;
+  }
+  return (
+    reviewInvestigationCapabilityMismatchReason({
+      facts: input.authorization.facts,
+      providerKind: input.primaryProviderKind,
+      capability: input.capability,
+    }) ?? ProductionReviewInvestigationRolloutReason.Enabled
+  );
+}
+
+function reviewInvestigationCapabilityMismatchReason(input: {
+  readonly facts: ReviewRunAuthorization['facts'];
+  readonly providerKind:
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+  readonly capability: ReviewInvestigationRolloutCapability;
+}): ProductionReviewInvestigationRolloutReason | null {
+  const descriptor = input.facts.reviewInvestigation;
+  if (!descriptor) {
+    return ProductionReviewInvestigationRolloutReason.AuthorizationDescriptorMissing;
+  }
+  if (
+    descriptor.authorizationDescriptorVersion !==
+    reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion
+  ) {
+    return ProductionReviewInvestigationRolloutReason.AuthorizationDescriptorVersionMismatch;
+  }
+  if (
+    descriptor.capability !== ReviewCapabilityKind.ReviewInvestigationV1 ||
+    descriptor.capability !==
+      reviewInvestigationRolloutAuthorizationV3Contract.capability
+  ) {
+    return ProductionReviewInvestigationRolloutReason.CapabilityMismatch;
+  }
+  if (descriptor.extensionId !== reviewInvestigationExtensionV1.extensionId) {
+    return ProductionReviewInvestigationRolloutReason.ExtensionIdMismatch;
+  }
+  if (
+    descriptor.extensionSchemaDigest !==
+    reviewInvestigationExtensionV1.schemaDigest
+  ) {
+    return ProductionReviewInvestigationRolloutReason.ExtensionSchemaDigestMismatch;
+  }
+  if (
+    descriptor.extensionCanonicalizerDigest !==
+    reviewInvestigationExtensionV1.canonicalizerDigest
+  ) {
+    return ProductionReviewInvestigationRolloutReason.ExtensionCanonicalizerDigestMismatch;
+  }
+  if (
+    descriptor.coverageProfileHash !== reviewInvestigationCoverageProfileHash()
+  ) {
+    return ProductionReviewInvestigationRolloutReason.CoverageProfileHashMismatch;
+  }
+  if (descriptor.policyHash !== reviewInvestigationPolicyHash()) {
+    return ProductionReviewInvestigationRolloutReason.PolicyHashMismatch;
+  }
+  if (
+    !input.facts.providerVoteLanes.some(
+      (lane) => lane.providerKind === input.providerKind
+    )
+  ) {
+    return ProductionReviewInvestigationRolloutReason.ProviderVoteLaneMissing;
+  }
+  if (!Array.isArray(descriptor.providerCapabilities)) {
+    return ProductionReviewInvestigationRolloutReason.ProviderCapabilitiesMissing;
+  }
+  const providerGrant = descriptor.providerCapabilities.find(
+    (row) => row?.providerKind === input.providerKind
+  );
+  if (!providerGrant || !Array.isArray(providerGrant.capabilities)) {
+    return ProductionReviewInvestigationRolloutReason.ProviderGrantMissing;
+  }
+  if (!providerGrant.capabilities.includes(input.capability)) {
+    return input.capability === ReviewInvestigationRolloutCapability.Recording
+      ? ProductionReviewInvestigationRolloutReason.RecordingGrantMissing
+      : ProductionReviewInvestigationRolloutReason.ProviderGrantMissing;
+  }
+  return null;
+}
+
+export function formatProductionReviewInvestigationRolloutTelemetry(
+  resolution: ProductionReviewInvestigationRolloutResolution
+): string {
+  const rollout = resolution.rollout;
+  return [
+    'Review investigation rollout:',
+    `recording=${rollout.recordingEnabled}`,
+    `reason=${resolution.reason}`,
+    `shadow=${rollout.shadowEnabled}`,
+    `contextCritic=${rollout.contextCriticEnabled}`,
+    `verifiedClean=${rollout.verifiedCleanEnabled}`,
+    `crossRevisionReplay=${rollout.crossRevisionReplayEnabled}`,
+    `productionEffects=${rollout.productionEffectsEnabled}`,
+  ].join(' ');
+}
+
+function matchesReviewInvestigationCapability(input: {
+  readonly facts: ReviewRunAuthorization['facts'];
+  readonly providerKind:
+    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+  readonly capability: ReviewInvestigationRolloutCapability;
+}): boolean {
+  return reviewInvestigationCapabilityMismatchReason(input) === null;
 }
 
 export function productionReviewInvestigationRecordingMode(
@@ -343,44 +500,6 @@ function assertCanonicalRolloutDependencies(
       );
     }
   }
-}
-
-function matchesReviewInvestigationCapability(input: {
-  readonly facts: ReviewRunAuthorization['facts'];
-  readonly providerKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
-  readonly capability: ReviewInvestigationRolloutCapability;
-}): boolean {
-  const descriptor = input.facts.reviewInvestigation;
-  if (
-    descriptor?.authorizationDescriptorVersion !==
-      reviewInvestigationRolloutAuthorizationV3Contract.authorizationDescriptorVersion ||
-    descriptor.capability !== ReviewCapabilityKind.ReviewInvestigationV1 ||
-    descriptor.capability !==
-      reviewInvestigationRolloutAuthorizationV3Contract.capability ||
-    descriptor.extensionId !== reviewInvestigationExtensionV1.extensionId ||
-    descriptor.extensionSchemaDigest !==
-      reviewInvestigationExtensionV1.schemaDigest ||
-    descriptor.extensionCanonicalizerDigest !==
-      reviewInvestigationExtensionV1.canonicalizerDigest ||
-    descriptor.coverageProfileHash !==
-      reviewInvestigationCoverageProfileHash() ||
-    descriptor.policyHash !== reviewInvestigationPolicyHash() ||
-    !input.facts.providerVoteLanes.some(
-      (lane) => lane.providerKind === input.providerKind
-    ) ||
-    !Array.isArray(descriptor.providerCapabilities)
-  ) {
-    return false;
-  }
-  const providerGrant = descriptor.providerCapabilities.find(
-    (row) => row?.providerKind === input.providerKind
-  );
-  return (
-    providerGrant !== undefined &&
-    Array.isArray(providerGrant.capabilities) &&
-    providerGrant.capabilities.includes(input.capability)
-  );
 }
 
 const rolloutFlagByCapability = Object.freeze({

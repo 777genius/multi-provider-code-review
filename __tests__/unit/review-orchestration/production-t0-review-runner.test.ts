@@ -48,9 +48,13 @@ import {
 import {
   createProductionReviewInvestigationAgentSelector,
   createProductionReviewInvestigationGatewayFactory,
+  createProductionReviewInvestigationInvocation,
+  formatProductionReviewInvestigationRolloutTelemetry,
   productionReviewInvestigationRecordingMode,
+  ProductionReviewInvestigationRolloutReason,
   readProductionReviewInvestigationRolloutFlags,
   resolveProductionReviewInvestigationRollout,
+  resolveProductionReviewInvestigationRolloutResolution,
   type ProductionReviewInvestigationRolloutFlags,
 } from '../../../src/review-orchestration/infrastructure/production-review-investigation-composition';
 
@@ -307,6 +311,74 @@ describe('ProductionT0ReviewRunner policy', () => {
     );
   });
 
+  it('creates the investigation invocation dependency for accepted config and authorization', async () => {
+    const resolution = resolveProductionReviewInvestigationRolloutResolution({
+      flags: readProductionReviewInvestigationRolloutFlags({
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_RECORDING_ENABLED: '1',
+        REVIEW_ROUTER_REVIEW_INVESTIGATION_SHADOW_ENABLED: '1',
+      }),
+      agenticContext: true,
+      authorization: authorizationWithInvestigation(),
+      primaryProviderKind: ReviewExecutionProviderKind.Codex,
+    });
+    const prepare = jest.fn().mockResolvedValue('prepared-investigation');
+    const create = jest.fn(() => ({ prepare }));
+
+    const invocation = createProductionReviewInvestigationInvocation({
+      rollout: resolution.rollout,
+      create,
+    });
+
+    await expect(invocation?.prepare()).resolves.toBe('prepared-investigation');
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(resolution.reason).toBe(
+      ProductionReviewInvestigationRolloutReason.Enabled
+    );
+    expect(
+      formatProductionReviewInvestigationRolloutTelemetry(resolution)
+    ).toBe(
+      'Review investigation rollout: recording=true reason=enabled shadow=true contextCritic=false verifiedClean=false crossRevisionReplay=false productionEffects=false'
+    );
+  });
+
+  it.each([
+    {
+      name: 'disabled config',
+      recordingEnabled: false,
+      descriptorAccepted: true,
+      reason: ProductionReviewInvestigationRolloutReason.RecordingFlagDisabled,
+    },
+    {
+      name: 'fail-closed authorization',
+      recordingEnabled: true,
+      descriptorAccepted: false,
+      reason:
+        ProductionReviewInvestigationRolloutReason.AuthorizationDescriptorMissing,
+    },
+  ])(
+    'does not create investigation dependencies for $name',
+    ({ recordingEnabled, descriptorAccepted, reason }) => {
+      const resolution = resolveProductionReviewInvestigationRolloutResolution({
+        flags: rolloutFlags({ recordingEnabled }),
+        agenticContext: true,
+        authorization: descriptorAccepted
+          ? authorizationWithInvestigation()
+          : authorization(1),
+        primaryProviderKind: ReviewExecutionProviderKind.Codex,
+      });
+      const create = jest.fn(() => ({ prepare: jest.fn() }));
+
+      expect(
+        createProductionReviewInvestigationInvocation({
+          rollout: resolution.rollout,
+          create,
+        })
+      ).toBeUndefined();
+      expect(create).not.toHaveBeenCalled();
+      expect(resolution.reason).toBe(reason);
+    }
+  );
+
   it.each([
     {
       capability: ReviewInvestigationRolloutCapability.Recording,
@@ -558,6 +630,18 @@ describe('ProductionT0ReviewRunner policy', () => {
     expect(
       enabled(withDescriptor({ coverageProfileHash: 'e'.repeat(64) }))
     ).toBe(false);
+    expect(
+      resolveProductionReviewInvestigationRolloutResolution({
+        flags: rolloutFlags({ recordingEnabled: true }),
+        agenticContext: true,
+        authorization: withDescriptor({
+          coverageProfileHash: 'e'.repeat(64),
+        }),
+        primaryProviderKind: ReviewExecutionProviderKind.Codex,
+      }).reason
+    ).toBe(
+      ProductionReviewInvestigationRolloutReason.CoverageProfileHashMismatch
+    );
     expect(enabled(withDescriptor({ policyHash: 'f'.repeat(64) }))).toBe(false);
     for (const [field, value] of [
       ['extensionId', 'review-investigation-shadow.future'],
@@ -578,6 +662,318 @@ describe('ProductionT0ReviewRunner policy', () => {
         })
       )
     ).toBe(false);
+  });
+
+  it('reports every rollout reason with deterministic fail-closed precedence', () => {
+    const negotiated = authorizationWithInvestigation();
+    const descriptor = negotiated.facts.reviewInvestigation as unknown as
+      | Readonly<Record<string, unknown>>
+      | undefined;
+    if (!descriptor) throw new Error('expected V3 investigation descriptor');
+    const withDescriptor = (
+      overrides: Readonly<Record<string, unknown>>
+    ): ReviewRunAuthorization =>
+      ({
+        ...negotiated,
+        facts: {
+          ...negotiated.facts,
+          reviewInvestigation: { ...descriptor, ...overrides },
+        },
+      }) as unknown as ReviewRunAuthorization;
+    const withFacts = (
+      overrides: Readonly<Record<string, unknown>>
+    ): ReviewRunAuthorization =>
+      ({
+        ...negotiated,
+        facts: { ...negotiated.facts, ...overrides },
+      }) as unknown as ReviewRunAuthorization;
+    const enabledFlags = rolloutFlags({ recordingEnabled: true });
+    const cases = [
+      {
+        reason: ProductionReviewInvestigationRolloutReason.Enabled,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: negotiated,
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.RecordingFlagDisabled,
+        flags: rolloutFlags(),
+        agenticContext: true,
+        authorization: negotiated,
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.AgenticContextDisabled,
+        flags: enabledFlags,
+        agenticContext: false,
+        authorization: negotiated,
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.AuthorizationDescriptorMissing,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: authorization(1),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.AuthorizationDescriptorVersionMismatch,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({ authorizationDescriptorVersion: 2 }),
+      },
+      {
+        reason: ProductionReviewInvestigationRolloutReason.CapabilityMismatch,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({ capability: 'future_capability' }),
+      },
+      {
+        reason: ProductionReviewInvestigationRolloutReason.ExtensionIdMismatch,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({ extensionId: 'future-extension' }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.ExtensionSchemaDigestMismatch,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({
+          extensionSchemaDigest: '0'.repeat(64),
+        }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.ExtensionCanonicalizerDigestMismatch,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({
+          extensionCanonicalizerDigest: '0'.repeat(64),
+        }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.CoverageProfileHashMismatch,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({ coverageProfileHash: '0'.repeat(64) }),
+      },
+      {
+        reason: ProductionReviewInvestigationRolloutReason.PolicyHashMismatch,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({ policyHash: '0'.repeat(64) }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.ProviderVoteLaneMissing,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withFacts({ providerVoteLanes: [] }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.ProviderCapabilitiesMissing,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({ providerCapabilities: undefined }),
+      },
+      {
+        reason: ProductionReviewInvestigationRolloutReason.ProviderGrantMissing,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({
+          providerCapabilities: [
+            {
+              providerKind: ReviewExecutionProviderKind.ClaudeCode,
+              capabilities: [ReviewInvestigationRolloutCapability.Recording],
+            },
+          ],
+        }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.RecordingGrantMissing,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: withDescriptor({
+          providerCapabilities: [
+            {
+              providerKind: ReviewExecutionProviderKind.Codex,
+              capabilities: [],
+            },
+          ],
+        }),
+      },
+    ] as const;
+
+    expect(new Set(cases.map(({ reason }) => reason))).toEqual(
+      new Set(Object.values(ProductionReviewInvestigationRolloutReason))
+    );
+    for (const testCase of cases) {
+      expect(
+        resolveProductionReviewInvestigationRolloutResolution({
+          flags: testCase.flags,
+          agenticContext: testCase.agenticContext,
+          authorization: testCase.authorization,
+          primaryProviderKind: ReviewExecutionProviderKind.Codex,
+        }).reason
+      ).toBe(testCase.reason);
+    }
+
+    type RolloutState = Readonly<{
+      flags: ProductionReviewInvestigationRolloutFlags;
+      agenticContext: boolean;
+      authorization: ReviewRunAuthorization;
+    }>;
+    const replaceDescriptor = (
+      state: RolloutState,
+      overrides: Readonly<Record<string, unknown>>
+    ): RolloutState => {
+      const current =
+        (state.authorization.facts.reviewInvestigation as unknown as
+          | Readonly<Record<string, unknown>>
+          | undefined) ?? descriptor;
+      return {
+        ...state,
+        authorization: {
+          ...state.authorization,
+          facts: {
+            ...state.authorization.facts,
+            reviewInvestigation: { ...current, ...overrides },
+          },
+        } as unknown as ReviewRunAuthorization,
+      };
+    };
+    const replaceFacts = (
+      state: RolloutState,
+      overrides: Readonly<Record<string, unknown>>
+    ): RolloutState => ({
+      ...state,
+      authorization: {
+        ...state.authorization,
+        facts: { ...state.authorization.facts, ...overrides },
+      } as unknown as ReviewRunAuthorization,
+    });
+    const faults: readonly Readonly<{
+      reason: Exclude<
+        ProductionReviewInvestigationRolloutReason,
+        ProductionReviewInvestigationRolloutReason.Enabled
+      >;
+      apply: (state: RolloutState) => RolloutState;
+    }>[] = [
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.RecordingFlagDisabled,
+        apply: (state) => ({ ...state, flags: rolloutFlags() }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.AgenticContextDisabled,
+        apply: (state) => ({ ...state, agenticContext: false }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.AuthorizationDescriptorMissing,
+        apply: (state) =>
+          replaceFacts(state, { reviewInvestigation: undefined }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.AuthorizationDescriptorVersionMismatch,
+        apply: (state) =>
+          replaceDescriptor(state, { authorizationDescriptorVersion: 2 }),
+      },
+      {
+        reason: ProductionReviewInvestigationRolloutReason.CapabilityMismatch,
+        apply: (state) =>
+          replaceDescriptor(state, { capability: 'future_capability' }),
+      },
+      {
+        reason: ProductionReviewInvestigationRolloutReason.ExtensionIdMismatch,
+        apply: (state) =>
+          replaceDescriptor(state, { extensionId: 'future-extension' }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.ExtensionSchemaDigestMismatch,
+        apply: (state) =>
+          replaceDescriptor(state, { extensionSchemaDigest: '0'.repeat(64) }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.ExtensionCanonicalizerDigestMismatch,
+        apply: (state) =>
+          replaceDescriptor(state, {
+            extensionCanonicalizerDigest: '0'.repeat(64),
+          }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.CoverageProfileHashMismatch,
+        apply: (state) =>
+          replaceDescriptor(state, { coverageProfileHash: '0'.repeat(64) }),
+      },
+      {
+        reason: ProductionReviewInvestigationRolloutReason.PolicyHashMismatch,
+        apply: (state) =>
+          replaceDescriptor(state, { policyHash: '0'.repeat(64) }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.ProviderVoteLaneMissing,
+        apply: (state) => replaceFacts(state, { providerVoteLanes: [] }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.ProviderCapabilitiesMissing,
+        apply: (state) =>
+          replaceDescriptor(state, { providerCapabilities: undefined }),
+      },
+      {
+        reason: ProductionReviewInvestigationRolloutReason.ProviderGrantMissing,
+        apply: (state) =>
+          replaceDescriptor(state, {
+            providerCapabilities: [
+              {
+                providerKind: ReviewExecutionProviderKind.ClaudeCode,
+                capabilities: [ReviewInvestigationRolloutCapability.Recording],
+              },
+            ],
+          }),
+      },
+      {
+        reason:
+          ProductionReviewInvestigationRolloutReason.RecordingGrantMissing,
+        apply: (state) =>
+          replaceDescriptor(state, {
+            providerCapabilities: [
+              {
+                providerKind: ReviewExecutionProviderKind.Codex,
+                capabilities: [],
+              },
+            ],
+          }),
+      },
+    ];
+    for (const [index, fault] of faults.entries()) {
+      let state: RolloutState = {
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: negotiated,
+      };
+      for (let later = faults.length - 1; later >= index; later -= 1) {
+        state = faults[later].apply(state);
+      }
+      expect(
+        resolveProductionReviewInvestigationRolloutResolution({
+          ...state,
+          primaryProviderKind: ReviewExecutionProviderKind.Codex,
+        }).reason
+      ).toBe(fault.reason);
+    }
   });
 
   it('selects a configured and authorized Claude critic', () => {
