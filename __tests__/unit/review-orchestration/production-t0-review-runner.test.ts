@@ -17,6 +17,7 @@ import {
   ReviewInvestigationRecordingMode,
   ReviewInvestigationRolloutCapability,
   ReviewOrchestrationResultStatus,
+  ReviewPublicationUnavailableFact,
   type ReviewRunAuthorization,
 } from '../../../src/review-orchestration/application';
 import {
@@ -179,6 +180,23 @@ describe('ProductionT0ReviewRunner policy', () => {
       });
     }
   );
+
+  it('maps unavailable publication facts without collapsing them into execution failure', () => {
+    expect(
+      mapOrchestrationResultToCodexOutcome({
+        status: ReviewOrchestrationResultStatus.PublicationUnavailable,
+        failureCode: 'publication_facts_unavailable',
+        unavailablePublicationFacts: [
+          ReviewPublicationUnavailableFact.Lifecycle,
+        ],
+      })
+    ).toEqual({
+      outcome: CodexOAuthV2ReviewOutcome.PublicationUnavailable,
+      reason: CodexOAuthV2TerminalReason.PublicationFactsUnavailable,
+      unavailableFacts: [ReviewPublicationUnavailableFact.Lifecycle],
+      blockingFailure: 'publication_facts_unavailable',
+    });
+  });
 
   it.each([
     [

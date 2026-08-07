@@ -50231,7 +50231,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.79",
+  version: "1.0.80",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -93415,6 +93415,7 @@ var ReviewActionV2Client = class {
   sleep;
   random;
   maxAttempts;
+  publicationFactsUnavailableMaxAttempts;
   maxResponseBytes;
   validators;
   constructor(options) {
@@ -93424,6 +93425,11 @@ var ReviewActionV2Client = class {
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve5) => setTimeout(resolve5, delayMs)));
     this.random = options.random ?? Math.random;
     this.maxAttempts = clampInteger(options.maxAttempts ?? 2, 1, 3);
+    this.publicationFactsUnavailableMaxAttempts = clampInteger(
+      options.publicationFactsUnavailableMaxAttempts ?? 3,
+      1,
+      3
+    );
     this.maxResponseBytes = clampInteger(
       options.maxResponseBytes ?? 2097152,
       1024,
@@ -93437,14 +93443,18 @@ var ReviewActionV2Client = class {
     const manifest = requireOperationManifest(operationId);
     const request = this.frameRequest(operationId, payload);
     const serializedRequest = JSON.stringify(request);
-    let capacityRetryConsumed = false;
+    let capacityRetriesConsumed = 0;
     if (Buffer.byteLength(serializedRequest, "utf8") > descriptor.bodyLimitBytes) {
       throw new ReviewActionV2ClientError(
         "invalid_request" /* InvalidRequest */,
         operationId
       );
     }
-    for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
+    const loopAttemptLimit = operationId === "review_publication_request" /* ReviewPublicationRequest */ ? Math.max(
+      this.maxAttempts,
+      this.publicationFactsUnavailableMaxAttempts
+    ) : this.maxAttempts;
+    for (let attempt = 1; attempt <= loopAttemptLimit; attempt += 1) {
       try {
         return await this.sendOnce(
           operationId,
@@ -93454,10 +93464,13 @@ var ReviewActionV2Client = class {
         );
       } catch (error2) {
         const normalized = normalizeClientError(error2, operationId);
-        if (attempt >= this.maxAttempts || !isRetryAllowed(descriptor.semanticRetryClass, normalized) || isCapacityLimited(normalized) && capacityRetryConsumed) {
+        const publicationFactsUnavailable = isPublicationFactsUnavailable(normalized);
+        const attemptLimit = publicationFactsUnavailable ? this.publicationFactsUnavailableMaxAttempts : this.maxAttempts;
+        const capacityRetryLimit = publicationFactsUnavailable ? 2 : 1;
+        if (attempt >= attemptLimit || !isRetryAllowed(descriptor.semanticRetryClass, normalized) || isCapacityLimited(normalized) && capacityRetriesConsumed >= capacityRetryLimit) {
           throw normalized;
         }
-        if (isCapacityLimited(normalized)) capacityRetryConsumed = true;
+        if (isCapacityLimited(normalized)) capacityRetriesConsumed += 1;
         await this.sleep(retryDelayMs(normalized, attempt, this.random));
       }
     }
@@ -93699,9 +93712,21 @@ function isRetryAllowed(semanticRetryClass, error2) {
 function isCapacityLimited(error2) {
   return error2.code === "protocol_error" /* ProtocolError */ && error2.protocolErrorCode === "capacity_limited" /* CapacityLimited */;
 }
+var PUBLICATION_FACTS_UNAVAILABLE_ISSUE = "publication_facts_unavailable";
+var PUBLICATION_FACT_UNAVAILABLE_ISSUES = /* @__PURE__ */ new Set([
+  "publication_fact_unavailable:permit",
+  "publication_fact_unavailable:run_control",
+  "publication_fact_unavailable:mutation_authority",
+  "publication_fact_unavailable:revision",
+  "publication_fact_unavailable:lifecycle",
+  "publication_fact_unavailable:safety"
+]);
+function isPublicationFactsUnavailable(error2) {
+  return error2.operationId === "review_publication_request" /* ReviewPublicationRequest */ && isCapacityLimited(error2) && error2.retryClass === "same_request" /* SameRequest */ && error2.issues?.includes(PUBLICATION_FACTS_UNAVAILABLE_ISSUE) === true && error2.issues.some((issue) => PUBLICATION_FACT_UNAVAILABLE_ISSUES.has(issue));
+}
 function retryDelayMs(error2, attempt, random) {
   if (!isCapacityLimited(error2)) return error2.retryAfterMs ?? 0;
-  const baseDelayMs = Math.min(500 * 2 ** Math.max(0, attempt - 1), 5e3);
+  const baseDelayMs = isPublicationFactsUnavailable(error2) ? Math.min(5e3 * 2 ** Math.max(0, attempt - 1), 1e4) : Math.min(500 * 2 ** Math.max(0, attempt - 1), 5e3);
   const sample = random();
   const boundedSample = Number.isFinite(sample) && sample >= 0 && sample < 1 ? sample : 0;
   const jitteredDelayMs = baseDelayMs + Math.floor(baseDelayMs * boundedSample);
@@ -95272,6 +95297,18 @@ var RunT0ReviewOrchestration = class {
         publicationPermit: finalized.publicationPermit,
         projection
       });
+      if (publication.status === "facts_unavailable" /* FactsUnavailable */) {
+        state = evolveReviewOrchestration(state, {
+          type: "failed" /* Failed */
+        });
+        return {
+          status: "publication_unavailable" /* PublicationUnavailable */,
+          state,
+          executionId: execution.executionId,
+          failureCode: "publication_facts_unavailable",
+          unavailablePublicationFacts: publication.unavailableFacts
+        };
+      }
       if (publication.status === "conflict" /* Conflict */) {
         const publicationRequestedState = evolveReviewOrchestration(state, {
           type: "publication_requested" /* PublicationRequested */,
@@ -103884,6 +103921,10 @@ var ReviewActionV2ControlPlaneAdapter = class {
       if (stale) {
         return stale;
       }
+      const unavailable = publicationFactsUnavailableOutcome(error2);
+      if (unavailable) {
+        return unavailable;
+      }
       throw controlPlaneFailure(error2);
     }
     if (result2.status === "conflict" /* Conflict */) {
@@ -104002,6 +104043,52 @@ var SAFE_PUBLICATION_REQUEST_STALE_ISSUES = /* @__PURE__ */ new Set([
   "permit_not_current",
   "revision_not_current"
 ]);
+var PUBLICATION_UNAVAILABLE_FACT_BY_ISSUE = /* @__PURE__ */ new Map([
+  [
+    "publication_fact_unavailable:permit",
+    "permit" /* Permit */
+  ],
+  [
+    "publication_fact_unavailable:run_control",
+    "run_control" /* RunControl */
+  ],
+  [
+    "publication_fact_unavailable:mutation_authority",
+    "mutation_authority" /* MutationAuthority */
+  ],
+  [
+    "publication_fact_unavailable:revision",
+    "revision" /* Revision */
+  ],
+  [
+    "publication_fact_unavailable:lifecycle",
+    "lifecycle" /* Lifecycle */
+  ],
+  [
+    "publication_fact_unavailable:safety",
+    "safety" /* Safety */
+  ]
+]);
+function publicationFactsUnavailableOutcome(error2) {
+  if (!(error2 instanceof ReviewActionV2ClientError)) return null;
+  if (error2.operationId !== "review_publication_request" /* ReviewPublicationRequest */ || error2.protocolErrorCode !== "capacity_limited" /* CapacityLimited */ || error2.retryClass !== "same_request" /* SameRequest */ || !error2.issues?.includes("publication_facts_unavailable")) {
+    return null;
+  }
+  const factIssues = error2.issues.filter(
+    (issue) => issue.startsWith("publication_fact_unavailable:")
+  );
+  if (factIssues.length === 0) return null;
+  const unavailableFacts = factIssues.map(
+    (issue) => PUBLICATION_UNAVAILABLE_FACT_BY_ISSUE.get(issue)
+  );
+  if (unavailableFacts.some((fact) => fact === void 0)) return null;
+  return {
+    status: "facts_unavailable" /* FactsUnavailable */,
+    unavailableFacts: Object.freeze([
+      ...new Set(unavailableFacts)
+    ])
+  };
+}
 function publicationRequestStaleOutcome(error2) {
   if (!(error2 instanceof ReviewActionV2ClientError)) return null;
   if (error2.operationId !== "review_publication_request" /* ReviewPublicationRequest */ || error2.protocolErrorCode !== "stale_precondition" /* StalePrecondition */) {
@@ -105342,6 +105429,7 @@ var MAX_METADATA_COLLECTION_SIZE = 256;
 var MAX_METADATA_STRING_BYTES = 16384;
 var MAX_NOTIFICATION_STRING_ARRAY_SIZE = 64;
 var MAX_NOTIFICATION_STRING_BYTES = 1024;
+var MAX_WARNING_MESSAGE_BYTES = 16384;
 var CodexAppServerProtocolClient = class {
   constructor(request, write) {
     this.request = request;
@@ -105569,6 +105657,9 @@ var CodexAppServerProtocolClient = class {
         return;
       case "model/safetyBuffering/updated":
         this.onModelSafetyBufferingUpdated(params);
+        return;
+      case "warning":
+        this.onWarning(params);
         return;
       case "error":
         this.onErrorNotification(params);
@@ -105913,10 +106004,20 @@ var CodexAppServerProtocolClient = class {
     this.assertTurnId(requireIdentifier2(params.turnId, "turn_id"));
   }
   assertActiveTurnMetadata(params, keys) {
-    if (!this.turnStarted || this.turnCompleted || !hasOnlyKeys(params, keys)) {
+    if (!this.threadStarted || this.turnCompleted || !hasOnlyKeys(params, keys)) {
       throw streamFailure2();
     }
     this.assertTurnFence(params);
+  }
+  onWarning(params) {
+    if (!this.turnStarted || this.turnCompleted || !hasOnlyKeys(params, ["message", "threadId"])) {
+      throw streamFailure2();
+    }
+    this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
+    const message = requireNonEmptyString(params.message, "warning_message");
+    if (Buffer.byteLength(message, "utf8") > MAX_WARNING_MESSAGE_BYTES) {
+      throw streamFailure2();
+    }
   }
   assertThreadId(threadId) {
     const expected = this.threadId ?? this.provisionalThreadId;
@@ -109481,6 +109582,15 @@ function mapOrchestrationResultToCodexOutcome(result2) {
         reason: "publication_stale" /* PublicationStale */,
         blockingFailure: result2.failureCode ?? "review_action_v2_publication_stale"
       };
+    case "publication_unavailable" /* PublicationUnavailable */:
+      return {
+        outcome: "publication_unavailable" /* PublicationUnavailable */,
+        reason: "publication_facts_unavailable" /* PublicationFactsUnavailable */,
+        unavailableFacts: requireUnavailablePublicationFacts(
+          result2.unavailablePublicationFacts
+        ),
+        blockingFailure: result2.failureCode ?? "review_action_v2_publication_unavailable"
+      };
     case "superseded" /* Superseded */:
       return { outcome: "superseded" /* Superseded */ };
     case "failed" /* Failed */:
@@ -109490,6 +109600,12 @@ function mapOrchestrationResultToCodexOutcome(result2) {
         blockingFailure: result2.failureCode ?? `review_action_v2_${result2.status}`
       };
   }
+}
+function requireUnavailablePublicationFacts(facts) {
+  if (!facts || facts.length === 0) {
+    throw new Error("review_orchestration_publication_facts_missing");
+  }
+  return facts;
 }
 function requireMergeGateConclusion(conclusion) {
   if (conclusion === void 0) {
@@ -110085,6 +110201,24 @@ function buildV2TerminalOutcomeReport(inputs, review) {
       statusDescription: "Review not published: publication conflict."
     });
   }
+  if (review.outcome === "publication_unavailable" /* PublicationUnavailable */) {
+    return terminalOutcomeReport({
+      inputs,
+      kind: "publication-unavailable" /* PublicationUnavailable */,
+      title: "Review publication delayed \u26A0\uFE0F",
+      summary: "ReviewRouter completed review computation but could not safely publish while current publication facts were temporarily unavailable.",
+      rows: [
+        [
+          "Unavailable publication fact",
+          formatUnavailablePublicationFacts(review.unavailableFacts)
+        ],
+        ["Published findings", "0"]
+      ],
+      note: "Bounded retries were exhausted. Review evidence was preserved, no findings or approval were published, and all revision, lifecycle, and safety gates remained enforced.",
+      statusState: "failure",
+      statusDescription: "Review publication delayed: current facts unavailable."
+    });
+  }
   const laneBusy = review.outcome === "partial_completed" /* PartialCompleted */ && review.reason === "required_provider_lane_busy" /* RequiredProviderLaneBusy */;
   const revisionUnavailable = review.outcome === "failed" /* Failed */ && review.reason === "revision_guard_unavailable" /* RevisionGuardUnavailable */;
   const revisionFailed = review.outcome === "failed" /* Failed */ && review.reason === "revision_guard_failed" /* RevisionGuardFailed */;
@@ -110121,9 +110255,28 @@ function v2TerminalFailureCode(review) {
       return review.blockingFailure ?? "required_review_coverage_incomplete";
     case "publication_not_applied" /* PublicationNotApplied */:
     case "publication_stale" /* PublicationStale */:
+    case "publication_unavailable" /* PublicationUnavailable */:
     case "failed" /* Failed */:
       return review.blockingFailure;
   }
+}
+function formatUnavailablePublicationFacts(facts) {
+  return facts.map((fact) => {
+    switch (fact) {
+      case "permit" /* Permit */:
+        return "permit";
+      case "run_control" /* RunControl */:
+        return "run control";
+      case "mutation_authority" /* MutationAuthority */:
+        return "mutation authority";
+      case "revision" /* Revision */:
+        return "revision";
+      case "lifecycle" /* Lifecycle */:
+        return "lifecycle";
+      case "safety" /* Safety */:
+        return "safety";
+    }
+  }).join(", ");
 }
 function terminalOutcomeReport(input) {
   const marker = input.marker ?? `<!-- reviewrouter:codex-oauth:terminal:${input.inputs.headSha}:${input.kind} -->`;

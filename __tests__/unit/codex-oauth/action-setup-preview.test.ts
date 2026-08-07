@@ -16,6 +16,7 @@ import {
   type CodexOAuthV2ReviewRunnerPort,
 } from '../../../src/codex-oauth/runtime';
 import { MergeGateConclusion } from '../../../src/review-projection/domain';
+import { ReviewPublicationUnavailableFact } from '../../../src/review-orchestration/application';
 import {
   ReviewActionV2RuntimeMode,
   type ReviewActionV2Activation,
@@ -576,6 +577,16 @@ describe('Codex OAuth rotating setup PR preview', () => {
       'publication-not-applied',
       'Review not published',
     ],
+    [
+      {
+        outcome: CodexOAuthV2ReviewOutcome.PublicationUnavailable,
+        reason: CodexOAuthV2TerminalReason.PublicationFactsUnavailable,
+        unavailableFacts: [ReviewPublicationUnavailableFact.Lifecycle],
+        blockingFailure: 'publication_facts_unavailable',
+      } satisfies CodexOAuthV2ReviewResult,
+      'publication-unavailable',
+      'Review publication delayed',
+    ],
   ] as const)(
     'never clears warnings or publishes success for %s',
     async (v2Review, markerKind, expectedTitle) => {
@@ -609,6 +620,21 @@ describe('Codex OAuth rotating setup PR preview', () => {
           commitStatus: expect.objectContaining({ state: 'failure' }),
         })
       );
+      if (
+        v2Review.outcome === CodexOAuthV2ReviewOutcome.PublicationUnavailable
+      ) {
+        expect(terminalOutcomeReporter.post).toHaveBeenCalledWith(
+          expect.objectContaining({
+            body: expect.stringContaining(
+              '| Unavailable publication fact | lifecycle |'
+            ),
+            commitStatus: expect.objectContaining({
+              description:
+                'Review publication delayed: current facts unavailable.',
+            }),
+          })
+        );
+      }
     }
   );
 

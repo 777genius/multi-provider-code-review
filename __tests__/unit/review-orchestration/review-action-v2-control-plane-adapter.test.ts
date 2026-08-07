@@ -36,6 +36,7 @@ import {
   ReviewInvocationConfigurationMismatchReason,
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationRequestOutcomeStatus,
+  ReviewPublicationUnavailableFact,
   ReviewPublicationState,
   ReviewTaskKind,
   RestoredReviewExecutionState,
@@ -1481,6 +1482,70 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     ).rejects.toThrow('review_action_v2:review_publication_request:forbidden');
   });
 
+  it('maps known unavailable publication facts to a typed outcome', async () => {
+    const execute = jest.fn().mockRejectedValue(
+      new ReviewActionV2ClientError(
+        ReviewActionV2ClientFailureCode.ProtocolError,
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        {
+          httpStatus: 429,
+          protocolErrorCode: ReviewActionV2ProtocolErrorCode.CapacityLimited,
+          retryClass: ReviewActionV2RetryClass.SameRequest,
+          issues: [
+            'publication_facts_unavailable',
+            'publication_fact_unavailable:lifecycle',
+            'publication_fact_unavailable:safety',
+            'publication_fact_unavailable:lifecycle',
+          ],
+        }
+      )
+    );
+
+    await expect(
+      createAdapter(execute).requestPublication({
+        authorization,
+        idempotencyKey: 'idem:publication:facts-unavailable',
+        publicationPermit: 'publication-permit',
+        projection: publicationProjection(),
+      })
+    ).resolves.toEqual({
+      status: ReviewPublicationRequestOutcomeStatus.FactsUnavailable,
+      unavailableFacts: [
+        ReviewPublicationUnavailableFact.Lifecycle,
+        ReviewPublicationUnavailableFact.Safety,
+      ],
+    });
+  });
+
+  it('withholds unknown unavailable publication facts from typed output', async () => {
+    const execute = jest.fn().mockRejectedValue(
+      new ReviewActionV2ClientError(
+        ReviewActionV2ClientFailureCode.ProtocolError,
+        ReviewActionV2OperationId.ReviewPublicationRequest,
+        {
+          httpStatus: 429,
+          protocolErrorCode: ReviewActionV2ProtocolErrorCode.CapacityLimited,
+          retryClass: ReviewActionV2RetryClass.SameRequest,
+          issues: [
+            'publication_facts_unavailable',
+            'publication_fact_unavailable:future_credential_fact',
+          ],
+        }
+      )
+    );
+
+    await expect(
+      createAdapter(execute).requestPublication({
+        authorization,
+        idempotencyKey: 'idem:publication:unknown-fact',
+        publicationPermit: 'publication-permit',
+        projection: publicationProjection(),
+      })
+    ).rejects.toThrow(
+      'review_action_v2:review_publication_request:capacity_limited'
+    );
+  });
+
   it('maps safe publication stale gate reasons to a typed stale outcome', async () => {
     const execute = jest.fn().mockRejectedValue(
       new ReviewActionV2ClientError(
@@ -1791,6 +1856,24 @@ function acceptedObservation() {
     providerKind: ReviewExecutionProviderKind.Codex,
     providerInvocationKey: providerManifest.providerInvocationKey,
     providerVoteIdentityHash: providerManifest.providerVoteIdentityHash,
+  };
+}
+
+function publicationProjection() {
+  return {
+    artifactId: 'artifact-1',
+    artifactHash: hash('artifact'),
+    projectionEnvelopeVersion: 1,
+    projectionEnvelopeCanonicalJson: '{"findings":[]}',
+    projectionHash: hash('projection'),
+    lifecycleStateHash: hash('lifecycle'),
+    commandLedgerWatermark: '0',
+    operationsCanonicalJson: '[]',
+    findingCount: 0,
+    publicationOperationCount: 0,
+    publicationChunkCount: 0,
+    coverageComplete: true,
+    mergeGateConclusion: MergeGateConclusion.Pass,
   };
 }
 

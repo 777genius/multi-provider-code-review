@@ -62,6 +62,7 @@ import {
   type ReviewActionV2Activation,
 } from '../control-plane/review-action-v2-contract';
 import { createProductionT0ReviewRunner } from '../review-orchestration/infrastructure/production-t0-review-runner';
+import { ReviewPublicationUnavailableFact } from '../review-orchestration/application';
 
 export const CODEX_OAUTH_ROTATING_MODE = 'codex-oauth-rotating';
 const SETUP_PULL_REQUEST_BRANCH = 'reviewrouter/setup';
@@ -401,6 +402,27 @@ function buildV2TerminalOutcomeReport(
     });
   }
 
+  if (review.outcome === CodexOAuthV2ReviewOutcome.PublicationUnavailable) {
+    return terminalOutcomeReport({
+      inputs,
+      kind: CodexOAuthTerminalOutcomeKind.PublicationUnavailable,
+      title: 'Review publication delayed ⚠️',
+      summary:
+        'ReviewRouter completed review computation but could not safely publish while current publication facts were temporarily unavailable.',
+      rows: [
+        [
+          'Unavailable publication fact',
+          formatUnavailablePublicationFacts(review.unavailableFacts),
+        ],
+        ['Published findings', '0'],
+      ],
+      note: 'Bounded retries were exhausted. Review evidence was preserved, no findings or approval were published, and all revision, lifecycle, and safety gates remained enforced.',
+      statusState: 'failure',
+      statusDescription:
+        'Review publication delayed: current facts unavailable.',
+    });
+  }
+
   const laneBusy =
     review.outcome === CodexOAuthV2ReviewOutcome.PartialCompleted &&
     review.reason === CodexOAuthV2TerminalReason.RequiredProviderLaneBusy;
@@ -514,9 +536,33 @@ function v2TerminalFailureCode(
       return review.blockingFailure ?? 'required_review_coverage_incomplete';
     case CodexOAuthV2ReviewOutcome.PublicationNotApplied:
     case CodexOAuthV2ReviewOutcome.PublicationStale:
+    case CodexOAuthV2ReviewOutcome.PublicationUnavailable:
     case CodexOAuthV2ReviewOutcome.Failed:
       return review.blockingFailure;
   }
+}
+
+function formatUnavailablePublicationFacts(
+  facts: readonly ReviewPublicationUnavailableFact[]
+): string {
+  return facts
+    .map((fact) => {
+      switch (fact) {
+        case ReviewPublicationUnavailableFact.Permit:
+          return 'permit';
+        case ReviewPublicationUnavailableFact.RunControl:
+          return 'run control';
+        case ReviewPublicationUnavailableFact.MutationAuthority:
+          return 'mutation authority';
+        case ReviewPublicationUnavailableFact.Revision:
+          return 'revision';
+        case ReviewPublicationUnavailableFact.Lifecycle:
+          return 'lifecycle';
+        case ReviewPublicationUnavailableFact.Safety:
+          return 'safety';
+      }
+    })
+    .join(', ');
 }
 
 function terminalOutcomeReport(input: {

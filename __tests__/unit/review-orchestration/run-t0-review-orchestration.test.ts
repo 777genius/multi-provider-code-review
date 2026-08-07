@@ -11,6 +11,7 @@ import {
   ReviewInvestigationRecordingMode,
   ReviewOrchestrationResultStatus,
   ReviewPublicationRequestOutcomeStatus,
+  ReviewPublicationUnavailableFact,
   ReviewPublicationState,
   RestoredReviewExecutionState,
   RestoredReviewWorkSlotState,
@@ -244,6 +245,25 @@ describe('RunT0ReviewOrchestration', () => {
       failureCode: 'publication_request_conflict',
     });
     expect(result.state.phase).toBe(ReviewOrchestrationPhase.Completed);
+    expect(fixture.controlPlane.readPublicationStatus).not.toHaveBeenCalled();
+  });
+
+  it('returns typed unavailable publication facts without polling or publication events', async () => {
+    const fixture = createFixture();
+    fixture.controlPlane.requestPublication.mockResolvedValue({
+      status: ReviewPublicationRequestOutcomeStatus.FactsUnavailable,
+      unavailableFacts: [ReviewPublicationUnavailableFact.Lifecycle],
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.PublicationUnavailable,
+      executionId: 'execution-1',
+      failureCode: 'publication_facts_unavailable',
+      unavailablePublicationFacts: [ReviewPublicationUnavailableFact.Lifecycle],
+    });
+    expect(result.state.phase).toBe(ReviewOrchestrationPhase.Failed);
     expect(fixture.controlPlane.readPublicationStatus).not.toHaveBeenCalled();
   });
 

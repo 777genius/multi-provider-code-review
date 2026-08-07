@@ -11,6 +11,7 @@ import {
   ReviewInvocationFailureClass,
   ReviewInvocationLeaseAcquireOutcomeStatus,
   ReviewPublicationRequestOutcomeStatus,
+  ReviewPublicationUnavailableFact,
   ReviewPublicationState,
   ReviewInvestigationRecordingMode,
   ReviewInvestigationDiagnosticOutcome,
@@ -62,6 +63,7 @@ export enum ReviewOrchestrationResultStatus {
   Superseded = 'superseded',
   PublicationNotApplied = 'publication_not_applied',
   PublicationStale = 'publication_stale',
+  PublicationUnavailable = 'publication_unavailable',
   Failed = 'failed',
 }
 
@@ -88,6 +90,7 @@ export type ReviewOrchestrationResult = {
   readonly publicationAttemptId?: string;
   readonly canonicalReceiptSetHash?: string;
   readonly failureCode?: string;
+  readonly unavailablePublicationFacts?: readonly ReviewPublicationUnavailableFact[];
   readonly mergeGateConclusion?: MergeGateConclusion;
 };
 
@@ -411,6 +414,21 @@ export class RunT0ReviewOrchestration {
           publicationPermit: finalized.publicationPermit,
           projection,
         });
+      if (
+        publication.status ===
+        ReviewPublicationRequestOutcomeStatus.FactsUnavailable
+      ) {
+        state = evolveReviewOrchestration(state, {
+          type: ReviewOrchestrationEventType.Failed,
+        });
+        return {
+          status: ReviewOrchestrationResultStatus.PublicationUnavailable,
+          state,
+          executionId: execution.executionId,
+          failureCode: 'publication_facts_unavailable',
+          unavailablePublicationFacts: publication.unavailableFacts,
+        };
+      }
       if (
         publication.status === ReviewPublicationRequestOutcomeStatus.Conflict
       ) {

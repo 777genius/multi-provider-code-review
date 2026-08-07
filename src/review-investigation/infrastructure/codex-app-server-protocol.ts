@@ -128,6 +128,7 @@ const MAX_METADATA_COLLECTION_SIZE = 256;
 const MAX_METADATA_STRING_BYTES = 16_384;
 const MAX_NOTIFICATION_STRING_ARRAY_SIZE = 64;
 const MAX_NOTIFICATION_STRING_BYTES = 1_024;
+const MAX_WARNING_MESSAGE_BYTES = 16_384;
 
 export class CodexAppServerProtocolClient {
   private readonly completion = deferred<CodexAppServerProtocolResult>();
@@ -387,6 +388,9 @@ export class CodexAppServerProtocolClient {
         return;
       case 'model/safetyBuffering/updated':
         this.onModelSafetyBufferingUpdated(params);
+        return;
+      case 'warning':
+        this.onWarning(params);
         return;
       case 'error':
         this.onErrorNotification(params);
@@ -875,10 +879,29 @@ export class CodexAppServerProtocolClient {
     params: Record<string, unknown>,
     keys: readonly string[]
   ): void {
-    if (!this.turnStarted || this.turnCompleted || !hasOnlyKeys(params, keys)) {
+    if (
+      !this.threadStarted ||
+      this.turnCompleted ||
+      !hasOnlyKeys(params, keys)
+    ) {
       throw streamFailure();
     }
     this.assertTurnFence(params);
+  }
+
+  private onWarning(params: Record<string, unknown>): void {
+    if (
+      !this.turnStarted ||
+      this.turnCompleted ||
+      !hasOnlyKeys(params, ['message', 'threadId'])
+    ) {
+      throw streamFailure();
+    }
+    this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
+    const message = requireNonEmptyString(params.message, 'warning_message');
+    if (Buffer.byteLength(message, 'utf8') > MAX_WARNING_MESSAGE_BYTES) {
+      throw streamFailure();
+    }
   }
 
   private assertThreadId(threadId: string): void {

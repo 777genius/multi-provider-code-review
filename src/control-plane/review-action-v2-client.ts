@@ -121,6 +121,7 @@ export interface ReviewActionV2ClientOptions {
   readonly sleep?: (delayMs: number) => Promise<void>;
   readonly random?: () => number;
   readonly maxAttempts?: number;
+  readonly publicationFactsUnavailableMaxAttempts?: number;
   readonly maxResponseBytes?: number;
   readonly allowInsecureLocalhost?: boolean;
 }
@@ -215,6 +216,7 @@ export class ReviewActionV2Client {
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly random: () => number;
   private readonly maxAttempts: number;
+  private readonly publicationFactsUnavailableMaxAttempts: number;
   private readonly maxResponseBytes: number;
   private readonly validators: Record<
     ReviewActionV2OperationId,
@@ -231,6 +233,11 @@ export class ReviewActionV2Client {
       ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
     this.random = options.random ?? Math.random;
     this.maxAttempts = clampInteger(options.maxAttempts ?? 2, 1, 3);
+    this.publicationFactsUnavailableMaxAttempts = clampInteger(
+      options.publicationFactsUnavailableMaxAttempts ?? 3,
+      1,
+      3
+    );
     this.maxResponseBytes = clampInteger(
       options.maxResponseBytes ?? 2_097_152,
       1024,
@@ -248,7 +255,7 @@ export class ReviewActionV2Client {
     const manifest = requireOperationManifest(operationId);
     const request = this.frameRequest(operationId, payload);
     const serializedRequest = JSON.stringify(request);
-    let capacityRetryConsumed = false;
+    let capacityRetriesConsumed = 0;
 
     if (
       Buffer.byteLength(serializedRequest, 'utf8') > descriptor.bodyLimitBytes
@@ -259,7 +266,14 @@ export class ReviewActionV2Client {
       );
     }
 
-    for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
+    const loopAttemptLimit =
+      operationId === ReviewActionV2OperationId.ReviewPublicationRequest
+        ? Math.max(
+            this.maxAttempts,
+            this.publicationFactsUnavailableMaxAttempts
+          )
+        : this.maxAttempts;
+    for (let attempt = 1; attempt <= loopAttemptLimit; attempt += 1) {
       try {
         return await this.sendOnce(
           operationId,
@@ -269,14 +283,21 @@ export class ReviewActionV2Client {
         );
       } catch (error) {
         const normalized = normalizeClientError(error, operationId);
+        const publicationFactsUnavailable =
+          isPublicationFactsUnavailable(normalized);
+        const attemptLimit = publicationFactsUnavailable
+          ? this.publicationFactsUnavailableMaxAttempts
+          : this.maxAttempts;
+        const capacityRetryLimit = publicationFactsUnavailable ? 2 : 1;
         if (
-          attempt >= this.maxAttempts ||
+          attempt >= attemptLimit ||
           !isRetryAllowed(descriptor.semanticRetryClass, normalized) ||
-          (isCapacityLimited(normalized) && capacityRetryConsumed)
+          (isCapacityLimited(normalized) &&
+            capacityRetriesConsumed >= capacityRetryLimit)
         ) {
           throw normalized;
         }
-        if (isCapacityLimited(normalized)) capacityRetryConsumed = true;
+        if (isCapacityLimited(normalized)) capacityRetriesConsumed += 1;
         await this.sleep(retryDelayMs(normalized, attempt, this.random));
       }
     }
@@ -499,7 +520,8 @@ function parseApiUrl(value: string, allowInsecureLocalhost = false): URL {
 function isResponseEnvelope(
   value: unknown
 ): value is
-  ReviewActionV2ResultEnvelope<unknown> | ReviewActionV2ErrorResponse {
+  | ReviewActionV2ResultEnvelope<unknown>
+  | ReviewActionV2ErrorResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
   const hasResult = Object.prototype.hasOwnProperty.call(body, 'result');
@@ -596,13 +618,37 @@ function isCapacityLimited(error: ReviewActionV2ClientError): boolean {
   );
 }
 
+const PUBLICATION_FACTS_UNAVAILABLE_ISSUE = 'publication_facts_unavailable';
+const PUBLICATION_FACT_UNAVAILABLE_ISSUES = new Set([
+  'publication_fact_unavailable:permit',
+  'publication_fact_unavailable:run_control',
+  'publication_fact_unavailable:mutation_authority',
+  'publication_fact_unavailable:revision',
+  'publication_fact_unavailable:lifecycle',
+  'publication_fact_unavailable:safety',
+]);
+
+function isPublicationFactsUnavailable(
+  error: ReviewActionV2ClientError
+): boolean {
+  return (
+    error.operationId === ReviewActionV2OperationId.ReviewPublicationRequest &&
+    isCapacityLimited(error) &&
+    error.retryClass === ReviewActionV2RetryClass.SameRequest &&
+    error.issues?.includes(PUBLICATION_FACTS_UNAVAILABLE_ISSUE) === true &&
+    error.issues.some((issue) => PUBLICATION_FACT_UNAVAILABLE_ISSUES.has(issue))
+  );
+}
+
 function retryDelayMs(
   error: ReviewActionV2ClientError,
   attempt: number,
   random: () => number
 ): number {
   if (!isCapacityLimited(error)) return error.retryAfterMs ?? 0;
-  const baseDelayMs = Math.min(500 * 2 ** Math.max(0, attempt - 1), 5_000);
+  const baseDelayMs = isPublicationFactsUnavailable(error)
+    ? Math.min(5_000 * 2 ** Math.max(0, attempt - 1), 10_000)
+    : Math.min(500 * 2 ** Math.max(0, attempt - 1), 5_000);
   const sample = random();
   const boundedSample =
     Number.isFinite(sample) && sample >= 0 && sample < 1 ? sample : 0;
