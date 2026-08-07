@@ -50231,7 +50231,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.82",
+  version: "1.0.83",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -105384,6 +105384,7 @@ var CODEX_APP_SERVER_MCP_NAME = "reviewrouter";
 var OPTED_OUT_NOTIFICATIONS = Object.freeze([
   "thread/status/changed",
   "thread/settings/updated",
+  "turn/plan/updated",
   "rawResponseItem/completed",
   "item/agentMessage/delta",
   "item/plan/delta",
