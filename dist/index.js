@@ -105709,6 +105709,7 @@ var CODEX_APP_SERVER_MCP_NAME = "reviewrouter";
 var OPTED_OUT_NOTIFICATIONS = Object.freeze([
   "thread/status/changed",
   "thread/settings/updated",
+  "thread/name/updated",
   "turn/plan/updated",
   "rawResponseItem/completed",
   "item/agentMessage/delta",
@@ -105972,6 +105973,9 @@ var CodexAppServerProtocolClient = class {
       case "thread/started":
         this.onThreadStarted(params);
         return;
+      case "thread/name/updated":
+        this.onThreadNameUpdated(params);
+        return;
       case "mcpServer/startupStatus/updated":
         this.onMcpServerStatus(params);
         return;
@@ -106068,6 +106072,21 @@ var CodexAppServerProtocolClient = class {
     }
     if (params.status === "failed" || params.status === "cancelled") {
       throw processFailure();
+    }
+  }
+  onThreadNameUpdated(params) {
+    if (!this.threadStarted || !hasRequiredAndOptionalKeys(params, ["threadId"], ["threadName"])) {
+      throw streamFailure2();
+    }
+    this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
+    if (params.threadName !== null && params.threadName !== void 0) {
+      const threadName = requireNonEmptyString(
+        params.threadName,
+        "thread_name"
+      );
+      if (Buffer.byteLength(threadName, "utf8") > MAX_NOTIFICATION_STRING_BYTES) {
+        throw streamFailure2();
+      }
     }
   }
   onTurnStarted(params) {
@@ -106737,6 +106756,8 @@ function notificationDiagnosticStage(value) {
   switch (value) {
     case "thread/started":
       return "thread_started" /* ThreadStarted */;
+    case "thread/name/updated":
+      return "thread_name_updated" /* ThreadNameUpdated */;
     case "mcpServer/startupStatus/updated":
       return "mcp_server_status" /* McpServerStatus */;
     case "serverRequest/resolved":
@@ -106766,7 +106787,10 @@ function notificationDiagnosticStage(value) {
     case "error":
       return "error" /* Error */;
     default:
-      return typeof value === "string" && IGNORED_NOTIFICATION_METHODS.has(value) ? "ignored_notification" /* IgnoredNotification */ : "unknown_notification" /* UnknownNotification */;
+      if (typeof value === "string" && IGNORED_NOTIFICATION_METHODS.has(value)) {
+        return "ignored_notification" /* IgnoredNotification */;
+      }
+      return typeof value === "string" ? `unknown_notification_${(0, import_crypto37.createHash)("sha256").update(value).digest("hex").slice(0, 12)}` : "unknown_notification" /* UnknownNotification */;
   }
 }
 function withStreamDiagnosticStage(error2, stage) {

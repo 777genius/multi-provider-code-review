@@ -82,6 +82,79 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('opts out of and tolerates a fenced thread name update', async () => {
+    const fixture = await activeTurn();
+    const initialize = fixture.writes.find(
+      (message) => message.method === 'initialize'
+    );
+
+    expect(initialize).toMatchObject({
+      params: {
+        capabilities: {
+          optOutNotificationMethods: expect.arrayContaining([
+            'thread/name/updated',
+          ]),
+        },
+      },
+    });
+
+    fixture.client.receive(
+      notification('thread/name/updated', {
+        threadId,
+        threadName: 'Review access policy',
+      })
+    );
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it.each([
+    ['an omitted name', { threadId }],
+    ['a null name', { threadId, threadName: null }],
+    [
+      'a name at the UTF-8 byte limit',
+      { threadId, threadName: 'é'.repeat(512) },
+    ],
+  ])(
+    'tolerates a fenced thread name update with %s',
+    async (_label, params) => {
+      const fixture = await activeTurn();
+      fixture.client.receive(notification('thread/name/updated', params));
+      completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+      completeUsage(fixture.client);
+      completeTurn(fixture.client);
+
+      await expect(fixture.result).resolves.toMatchObject({
+        finalMessage: '{"ok":true}',
+      });
+    }
+  );
+
+  it.each([
+    [
+      'a wrong thread fence',
+      { threadId: 'wrong-thread', threadName: 'Review' },
+    ],
+    ['a missing thread fence', { threadName: 'Review' }],
+    ['an empty name', { threadId, threadName: '' }],
+    ['an oversized name', { threadId, threadName: 'x'.repeat(1_025) }],
+    ['an oversized multibyte name', { threadId, threadName: 'é'.repeat(513) }],
+    ['an extra field', { threadId, threadName: 'Review', extra: true }],
+  ])('rejects a thread name update with %s', async (_label, params) => {
+    const fixture = await activeTurn();
+    fixture.client.receive(notification('thread/name/updated', params));
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_thread_name_updated',
+    });
+  });
+
   it('opts out of and safely tolerates a fenced resolved server request', async () => {
     const fixture = await activeTurn();
     const initialize = fixture.writes.find(
@@ -423,18 +496,71 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
-  it.each(['model/futureMetadata', 'guardianWarning'])(
+  it.each([
+    ['model/futureMetadata', '5be8702e6e78'],
+    ['guardianWarning', '2eebd1810129'],
+    ['item/commandExecution/outputDelta', '8fbb8a5a4928'],
+  ])(
     'continues to reject unknown notification method %s',
-    async (method) => {
+    async (method, digest) => {
       const fixture = await activeTurn();
       fixture.client.receive(notification(method, { threadId, turnId }));
 
       await expect(fixture.result).rejects.toMatchObject({
         failureClass: ReviewAgentFailureClass.StreamIncomplete,
-        message: 'review_agent_stream_incomplete_unknown_notification',
+        message: `review_agent_stream_incomplete_unknown_notification_${digest}`,
       });
     }
   );
+
+  it('keeps unknown notification diagnostics independent of payloads', async () => {
+    const first = await activeTurn();
+    const second = await activeTurn();
+    const method = 'model/futureMetadata';
+
+    first.client.receive(
+      notification(method, {
+        threadId,
+        turnId,
+        secret: 'first-sensitive-value',
+      })
+    );
+    second.client.receive(
+      notification(method, {
+        threadId,
+        turnId,
+        nested: { secret: 'second-sensitive-value' },
+      })
+    );
+
+    const [firstFailure, secondFailure] = await Promise.all([
+      first.result.catch((error: unknown) => error),
+      second.result.catch((error: unknown) => error),
+    ]);
+    if (!(firstFailure instanceof Error) || !(secondFailure instanceof Error)) {
+      throw new Error('expected both protocol calls to fail');
+    }
+
+    expect(firstFailure.message).toBe(secondFailure.message);
+    expect(firstFailure.message).toBe(
+      'review_agent_stream_incomplete_unknown_notification_5be8702e6e78'
+    );
+    expect(firstFailure.message).not.toContain('sensitive');
+  });
+
+  it('fails closed on a malformed notification method', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive({
+      method: 42,
+      params: { threadId },
+      emittedAtMs: 1,
+    });
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_unknown_notification',
+    });
+  });
 
   it('prefers one explicit final answer over a phase-null compatibility message', async () => {
     const fixture = await activeTurn();
