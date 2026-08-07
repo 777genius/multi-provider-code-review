@@ -49,6 +49,39 @@ const supportedCodexErrorInfo = [
 ];
 
 describe('CodexAppServerProtocolClient', () => {
+  it('opts out of and tolerates turn plan updates', async () => {
+    const fixture = await activeTurn();
+    const initialize = fixture.writes.find(
+      (message) => message.method === 'initialize'
+    );
+
+    expect(initialize).toMatchObject({
+      params: {
+        capabilities: {
+          optOutNotificationMethods: expect.arrayContaining([
+            'turn/plan/updated',
+          ]),
+        },
+      },
+    });
+
+    fixture.client.receive(
+      notification('turn/plan/updated', {
+        threadId,
+        turnId,
+        explanation: 'Inspect related access checks.',
+        plan: [{ step: 'Read callers', status: 'inProgress' }],
+      })
+    );
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
   it('uses the observed model and exact total without double-counting reasoning', async () => {
     const fixture = await activeTurn();
     fixture.client.receive({

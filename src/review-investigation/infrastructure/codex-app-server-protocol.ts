@@ -60,6 +60,7 @@ type ParsedTurnError = Readonly<{
 const OPTED_OUT_NOTIFICATIONS = Object.freeze([
   'thread/status/changed',
   'thread/settings/updated',
+  'turn/plan/updated',
   'rawResponseItem/completed',
   'item/agentMessage/delta',
   'item/plan/delta',
