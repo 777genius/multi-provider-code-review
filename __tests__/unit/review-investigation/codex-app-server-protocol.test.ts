@@ -82,6 +82,95 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('opts out of and safely tolerates a fenced resolved server request', async () => {
+    const fixture = await activeTurn();
+    const initialize = fixture.writes.find(
+      (message) => message.method === 'initialize'
+    );
+
+    expect(initialize).toMatchObject({
+      params: {
+        capabilities: {
+          optOutNotificationMethods: expect.arrayContaining([
+            'serverRequest/resolved',
+          ]),
+        },
+      },
+    });
+
+    fixture.client.receive(
+      notification('serverRequest/resolved', {
+        requestId: 7,
+        threadId,
+      })
+    );
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it('tolerates a fenced resolved server request before the turn starts', async () => {
+    const fixture = await threadNotificationBeforeStartResponse();
+    fixture.client.receive(
+      notification('serverRequest/resolved', {
+        requestId: 'request-before-turn',
+        threadId,
+      })
+    );
+    fixture.client.receive({ id: 2, result: threadStartResponse() });
+    await waitForWrite(fixture.writes, 'turn/start');
+    fixture.client.receive(
+      notification('turn/started', {
+        threadId,
+        turn: turn('inProgress'),
+      })
+    );
+    fixture.client.receive({ id: 3, result: { turn: turn('inProgress') } });
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it('tolerates a fenced resolved server request after turn completion', async () => {
+    const fixture = await activeTurn();
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+    await expect(fixture.result).resolves.toBeDefined();
+
+    fixture.client.receive(
+      notification('serverRequest/resolved', {
+        requestId: 'request-after-turn',
+        threadId,
+      })
+    );
+
+    expect(fixture.client.failureAfterCompletion()).toBeNull();
+  });
+
+  it.each([
+    ['a wrong thread fence', { requestId: 7, threadId: 'wrong-thread' }],
+    ['a missing request id', { threadId }],
+    ['an invalid request id', { requestId: {}, threadId }],
+    ['an extra field', { requestId: 'request-7', threadId, extra: true }],
+  ])('rejects a resolved server request with %s', async (_label, params) => {
+    const fixture = await activeTurn();
+    fixture.client.receive(notification('serverRequest/resolved', params));
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_server_request_resolved',
+    });
+  });
+
   it('uses the observed model and exact total without double-counting reasoning', async () => {
     const fixture = await activeTurn();
     fixture.client.receive({

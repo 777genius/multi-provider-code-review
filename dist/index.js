@@ -105717,6 +105717,7 @@ var OPTED_OUT_NOTIFICATIONS = Object.freeze([
   "item/reasoning/summaryPartAdded",
   "item/reasoning/textDelta",
   "item/mcpToolCall/progress",
+  "serverRequest/resolved",
   "account/updated",
   "account/rateLimits/updated",
   "app/list/updated",
@@ -105973,6 +105974,9 @@ var CodexAppServerProtocolClient = class {
         return;
       case "mcpServer/startupStatus/updated":
         this.onMcpServerStatus(params);
+        return;
+      case "serverRequest/resolved":
+        this.onServerRequestResolved(params);
         return;
       case "turn/started":
         this.onTurnStarted(params);
@@ -106348,6 +106352,13 @@ var CodexAppServerProtocolClient = class {
   assertTurnFence(params) {
     this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
     this.assertTurnId(requireIdentifier2(params.turnId, "turn_id"));
+  }
+  onServerRequestResolved(params) {
+    if (!this.threadStarted || !hasOnlyKeys(params, ["requestId", "threadId"])) {
+      throw streamFailure2();
+    }
+    requireRequestId(params.requestId);
+    this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
   }
   assertActiveTurnMetadata(params, keys) {
     if (!this.threadStarted || this.turnCompleted || !hasOnlyKeys(params, keys)) {
@@ -106728,6 +106739,8 @@ function notificationDiagnosticStage(value) {
       return "thread_started" /* ThreadStarted */;
     case "mcpServer/startupStatus/updated":
       return "mcp_server_status" /* McpServerStatus */;
+    case "serverRequest/resolved":
+      return "server_request_resolved" /* ServerRequestResolved */;
     case "turn/started":
       return "turn_started" /* TurnStarted */;
     case "item/started":
