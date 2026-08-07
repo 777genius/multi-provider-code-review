@@ -354,7 +354,9 @@ class CodexAppServerChildTurn {
     try {
       line = `${JSON.stringify(message)}\n`;
     } catch {
-      return Promise.reject(streamFailure());
+      return Promise.reject(
+        streamFailure(CodexTurnRunnerDiagnosticStage.WriteJson)
+      );
     }
     return new Promise<void>((resolve, reject) => {
       this.input.child.stdin.write(line, 'utf8', (error) => {
@@ -413,13 +415,13 @@ class CodexAppServerChildTurn {
         ignoreBOM: true,
       }).decode(line);
     } catch {
-      throw streamFailure();
+      throw streamFailure(CodexTurnRunnerDiagnosticStage.StdoutUtf8);
     }
     let message: unknown;
     try {
       message = JSON.parse(decoded);
     } catch {
-      throw streamFailure();
+      throw streamFailure(CodexTurnRunnerDiagnosticStage.StdoutJson);
     }
     this.protocol.receive(message);
     const postCompletionFailure = this.protocol.failureAfterCompletion();
@@ -429,7 +431,9 @@ class CodexAppServerChildTurn {
   private onProtocolFailure(error: unknown): void {
     if (this.closed || this.settled || this.forcedTermination !== null) return;
     this.terminalError =
-      error instanceof ReviewAgentExecutionError ? error : streamFailure();
+      error instanceof ReviewAgentExecutionError
+        ? error
+        : streamFailure(CodexTurnRunnerDiagnosticStage.ProtocolFailure);
     this.killProcessGroup();
   }
 
@@ -488,7 +492,9 @@ class CodexAppServerChildTurn {
       }
     } catch (error) {
       this.terminalError =
-        error instanceof ReviewAgentExecutionError ? error : streamFailure();
+        error instanceof ReviewAgentExecutionError
+          ? error
+          : streamFailure(CodexTurnRunnerDiagnosticStage.TrailingStdout);
     }
     this.stdoutBuffer = Buffer.alloc(0);
     this.protocol.end();
@@ -541,7 +547,9 @@ class CodexAppServerChildTurn {
       return;
     }
     if (!protocolResult) {
-      this.settleFailure(streamFailure());
+      this.settleFailure(
+        streamFailure(CodexTurnRunnerDiagnosticStage.MissingProtocolResult)
+      );
       return;
     }
     this.settled = true;
@@ -630,11 +638,24 @@ function cancelledFailure(): ReviewAgentExecutionError {
   );
 }
 
-function streamFailure(): ReviewAgentExecutionError {
+enum CodexTurnRunnerDiagnosticStage {
+  MissingProtocolResult = 'missing_protocol_result',
+  ProtocolFailure = 'protocol_failure',
+  StdoutJson = 'stdout_json',
+  StdoutUtf8 = 'stdout_utf8',
+  TrailingStdout = 'trailing_stdout',
+  WriteJson = 'write_json',
+}
+
+function streamFailure(
+  stage?: CodexTurnRunnerDiagnosticStage
+): ReviewAgentExecutionError {
   return new ReviewAgentExecutionError(
     ReviewAgentFailureClass.StreamIncomplete,
     null,
-    'review_agent_stream_incomplete'
+    stage
+      ? `review_agent_stream_incomplete_${stage}`
+      : 'review_agent_stream_incomplete'
   );
 }
 

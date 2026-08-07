@@ -105807,67 +105807,86 @@ var CodexAppServerProtocolClient = class {
   lastAggregateUsage = null;
   completionResolved = false;
   postCompletionFailure = null;
+  terminalFailure = null;
   retainedTerminalError = null;
   async run() {
-    const initializeResult = await this.sendRequest("initialize", {
-      clientInfo: {
-        name: "review_router_action",
-        title: "ReviewRouter Action",
-        version: "1"
-      },
-      capabilities: {
-        experimentalApi: true,
-        requestAttestation: false,
-        mcpServerOpenaiFormElicitation: false,
-        optOutNotificationMethods: OPTED_OUT_NOTIFICATIONS
-      }
-    });
-    validateInitializeResponse(initializeResult);
-    this.initialized = true;
-    await this.sendNotification("initialized");
-    const threadStartResult = await this.sendRequest("thread/start", {
-      model: this.request.requestedModel,
-      allowProviderModelFallback: false,
-      cwd: this.request.cwd,
-      runtimeWorkspaceRoots: [],
-      approvalPolicy: "never",
-      approvalsReviewer: "user",
-      sandbox: "read-only",
-      config: {
-        model_reasoning_effort: this.request.reasoningEffort
-      },
-      ephemeral: true,
-      environments: [],
-      dynamicTools: [],
-      selectedCapabilityRoots: [],
-      experimentalRawEvents: true
-    });
-    this.bindThread(threadStartResult);
-    await this.threadStartedSignal.promise;
-    const turnStartResult = await this.sendRequest("turn/start", {
-      threadId: this.threadId,
-      clientUserMessageId: this.request.clientTurnId,
-      input: [
-        {
-          type: "text",
-          text: this.request.prompt,
-          text_elements: []
+    await withProtocolRunStage(
+      "initialize_response" /* InitializeResponse */,
+      () => this.sendRequest("initialize", {
+        clientInfo: {
+          name: "review_router_action",
+          title: "ReviewRouter Action",
+          version: "1"
+        },
+        capabilities: {
+          experimentalApi: true,
+          requestAttestation: false,
+          mcpServerOpenaiFormElicitation: false,
+          optOutNotificationMethods: OPTED_OUT_NOTIFICATIONS
         }
-      ],
-      environments: [],
-      runtimeWorkspaceRoots: [],
-      approvalPolicy: "never",
-      approvalsReviewer: "user",
-      sandboxPolicy: {
-        type: "readOnly",
-        networkAccess: false
-      },
-      effort: this.request.reasoningEffort,
-      outputSchema: this.request.outputSchema
-    });
-    this.bindTurn(turnStartResult);
+      }).then((value) => {
+        validateInitializeResponse(value);
+        return value;
+      })
+    );
+    this.initialized = true;
+    await withProtocolRunStage(
+      "initialized_notification" /* InitializedNotification */,
+      () => this.sendNotification("initialized")
+    );
+    await withProtocolRunStage(
+      "thread_start_response" /* ThreadStartResponse */,
+      () => this.sendRequest("thread/start", {
+        model: this.request.requestedModel,
+        allowProviderModelFallback: false,
+        cwd: this.request.cwd,
+        runtimeWorkspaceRoots: [],
+        approvalPolicy: "never",
+        approvalsReviewer: "user",
+        sandbox: "read-only",
+        config: {
+          model_reasoning_effort: this.request.reasoningEffort
+        },
+        ephemeral: true,
+        environments: [],
+        dynamicTools: [],
+        selectedCapabilityRoots: [],
+        experimentalRawEvents: true
+      }).then((value) => this.bindThread(value))
+    );
+    await withProtocolRunStage(
+      "thread_started_wait" /* ThreadStartedWait */,
+      () => this.threadStartedSignal.promise
+    );
+    await withProtocolRunStage(
+      "turn_start_response" /* TurnStartResponse */,
+      () => this.sendRequest("turn/start", {
+        threadId: this.threadId,
+        clientUserMessageId: this.request.clientTurnId,
+        input: [
+          {
+            type: "text",
+            text: this.request.prompt,
+            text_elements: []
+          }
+        ],
+        environments: [],
+        runtimeWorkspaceRoots: [],
+        approvalPolicy: "never",
+        approvalsReviewer: "user",
+        sandboxPolicy: {
+          type: "readOnly",
+          networkAccess: false
+        },
+        effort: this.request.reasoningEffort,
+        outputSchema: this.request.outputSchema
+      }).then((value) => this.bindTurn(value))
+    );
     this.maybeComplete();
-    return this.completion.promise;
+    return withProtocolRunStage(
+      "completion" /* Completion */,
+      () => this.completion.promise
+    );
   }
   receive(value) {
     if (this.failed) return;
@@ -105898,6 +105917,7 @@ var CodexAppServerProtocolClient = class {
     if (this.failed) return;
     this.failed = true;
     const failure = normalizeProtocolFailure(error2);
+    this.terminalFailure = failure;
     if (this.completionResolved) {
       this.postCompletionFailure = failure;
     }
@@ -105927,7 +105947,7 @@ var CodexAppServerProtocolClient = class {
     });
   }
   async sendRequest(method, params) {
-    if (this.failed) throw streamFailure2();
+    if (this.failed) throw this.terminalFailure ?? streamFailure2();
     const id = this.nextRequestId++;
     const response = deferred();
     this.pending.set(requestIdKey(id), { deferred: response });
@@ -105939,9 +105959,15 @@ var CodexAppServerProtocolClient = class {
     }
     return response.promise;
   }
-  sendNotification(method) {
-    if (this.failed) throw streamFailure2();
-    return this.write({ method });
+  async sendNotification(method) {
+    if (this.failed) throw this.terminalFailure ?? streamFailure2();
+    try {
+      await this.write({ method });
+    } catch (error2) {
+      if (this.failed) throw this.terminalFailure ?? streamFailure2();
+      throw error2;
+    }
+    if (this.failed) throw this.terminalFailure ?? streamFailure2();
   }
   receiveResponse(message) {
     const hasResult = Object.prototype.hasOwnProperty.call(message, "result");
@@ -106043,7 +106069,7 @@ var CodexAppServerProtocolClient = class {
     const response = requireRecord2(value, "turn_start_response");
     const turn = requireRecord2(response.turn, "turn");
     const turnId = requireIdentifier2(turn.id, "turn_id");
-    if (turn.status !== "inProgress" || turn.error !== null || !Array.isArray(turn.items) || turn.items.length !== 0 || this.provisionalTurnId !== null && this.provisionalTurnId !== turnId) {
+    if (turn.status !== "inProgress" || !hasAbsentOrNullProperty(turn, "error") || !Array.isArray(turn.items) || turn.items.length !== 0 || this.provisionalTurnId !== null && this.provisionalTurnId !== turnId) {
       throw streamFailure2();
     }
     this.turnId = turnId;
@@ -106094,7 +106120,7 @@ var CodexAppServerProtocolClient = class {
     this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
     const turn = requireRecord2(params.turn, "turn_started_turn");
     const turnId = requireIdentifier2(turn.id, "turn_id");
-    if (this.provisionalTurnId !== null && this.provisionalTurnId !== turnId || turn.status !== "inProgress" || turn.error !== null || !Array.isArray(turn.items) || turn.items.length !== 0) {
+    if (this.provisionalTurnId !== null && this.provisionalTurnId !== turnId || turn.status !== "inProgress" || !hasAbsentOrNullProperty(turn, "error") || !Array.isArray(turn.items) || turn.items.length !== 0) {
       throw streamFailure2();
     }
     this.provisionalTurnId = turnId;
@@ -106742,6 +106768,9 @@ function hasRequiredAndOptionalKeys(value, required, optional) {
   const allowed = /* @__PURE__ */ new Set([...required, ...optional]);
   return required.every((key) => Object.prototype.hasOwnProperty.call(value, key)) && Object.keys(value).every((key) => allowed.has(key));
 }
+function hasAbsentOrNullProperty(value, key) {
+  return !Object.prototype.hasOwnProperty.call(value, key) || value[key] === null;
+}
 function isReadOnlySandbox(value) {
   return isRecord9(value) && value.type === "readOnly" && value.networkAccess === false;
 }
@@ -106794,7 +106823,14 @@ function notificationDiagnosticStage(value) {
   }
 }
 function withStreamDiagnosticStage(error2, stage) {
-  return error2 instanceof ReviewAgentExecutionError && error2.failureClass === "stream_incomplete" /* StreamIncomplete */ ? streamFailure2(stage) : error2;
+  return error2 instanceof ReviewAgentExecutionError && error2.failureClass === "stream_incomplete" /* StreamIncomplete */ && error2.message === "review_agent_stream_incomplete" ? streamFailure2(stage) : error2;
+}
+async function withProtocolRunStage(stage, operation) {
+  try {
+    return await operation();
+  } catch (error2) {
+    throw withStreamDiagnosticStage(error2, stage);
+  }
 }
 function streamFailure2(stage) {
   return new ReviewAgentExecutionError(
@@ -107141,7 +107177,9 @@ var CodexAppServerChildTurn = class {
       line = `${JSON.stringify(message)}
 `;
     } catch {
-      return Promise.reject(streamFailure3());
+      return Promise.reject(
+        streamFailure3("write_json" /* WriteJson */)
+      );
     }
     return new Promise((resolve5, reject) => {
       this.input.child.stdin.write(line, "utf8", (error2) => {
@@ -107196,13 +107234,13 @@ var CodexAppServerChildTurn = class {
         ignoreBOM: true
       }).decode(line);
     } catch {
-      throw streamFailure3();
+      throw streamFailure3("stdout_utf8" /* StdoutUtf8 */);
     }
     let message;
     try {
       message = JSON.parse(decoded);
     } catch {
-      throw streamFailure3();
+      throw streamFailure3("stdout_json" /* StdoutJson */);
     }
     this.protocol.receive(message);
     const postCompletionFailure = this.protocol.failureAfterCompletion();
@@ -107210,7 +107248,7 @@ var CodexAppServerChildTurn = class {
   }
   onProtocolFailure(error2) {
     if (this.closed || this.settled || this.forcedTermination !== null) return;
-    this.terminalError = error2 instanceof ReviewAgentExecutionError ? error2 : streamFailure3();
+    this.terminalError = error2 instanceof ReviewAgentExecutionError ? error2 : streamFailure3("protocol_failure" /* ProtocolFailure */);
     this.killProcessGroup();
   }
   requestTermination(termination) {
@@ -107259,7 +107297,7 @@ var CodexAppServerChildTurn = class {
         this.receiveLine(line);
       }
     } catch (error2) {
-      this.terminalError = error2 instanceof ReviewAgentExecutionError ? error2 : streamFailure3();
+      this.terminalError = error2 instanceof ReviewAgentExecutionError ? error2 : streamFailure3("trailing_stdout" /* TrailingStdout */);
     }
     this.stdoutBuffer = Buffer.alloc(0);
     this.protocol.end();
@@ -107301,7 +107339,9 @@ var CodexAppServerChildTurn = class {
       return;
     }
     if (!protocolResult) {
-      this.settleFailure(streamFailure3());
+      this.settleFailure(
+        streamFailure3("missing_protocol_result" /* MissingProtocolResult */)
+      );
       return;
     }
     this.settled = true;
@@ -107363,11 +107403,11 @@ function cancelledFailure2() {
     "review_agent_process_cancelled"
   );
 }
-function streamFailure3() {
+function streamFailure3(stage) {
   return new ReviewAgentExecutionError(
     "stream_incomplete" /* StreamIncomplete */,
     null,
-    "review_agent_stream_incomplete"
+    stage ? `review_agent_stream_incomplete_${stage}` : "review_agent_stream_incomplete"
   );
 }
 function deferred2() {
