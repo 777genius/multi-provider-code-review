@@ -172,6 +172,16 @@ describe('CodexAppServerProtocolClient', () => {
       { threadId, turnId, metadata: 'x'.repeat(32_769) },
     ],
     [
+      'control character in moderation metadata value',
+      'turn/moderationMetadata',
+      { threadId, turnId, metadata: { note: 'line\nbreak' } },
+    ],
+    [
+      'control character in moderation metadata key',
+      'turn/moderationMetadata',
+      { threadId, turnId, metadata: { ['bad\nkey']: 'value' } },
+    ],
+    [
       'oversized safety buffering array',
       'model/safetyBuffering/updated',
       {

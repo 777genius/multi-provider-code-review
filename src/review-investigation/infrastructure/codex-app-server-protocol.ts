@@ -1282,7 +1282,10 @@ function validateBoundedJson(value: unknown): void {
       continue;
     }
     if (typeof candidate === 'string') {
-      if (Buffer.byteLength(candidate, 'utf8') > MAX_METADATA_STRING_BYTES) {
+      if (
+        Buffer.byteLength(candidate, 'utf8') > MAX_METADATA_STRING_BYTES ||
+        containsControlCharacter(candidate)
+      ) {
         throw streamFailure();
       }
       continue;
@@ -1305,7 +1308,10 @@ function validateBoundedJson(value: unknown): void {
     const entries = Object.entries(candidate);
     if (entries.length > MAX_METADATA_COLLECTION_SIZE) throw streamFailure();
     for (const [key, item] of entries) {
-      if (Buffer.byteLength(key, 'utf8') > MAX_NOTIFICATION_STRING_BYTES) {
+      if (
+        Buffer.byteLength(key, 'utf8') > MAX_NOTIFICATION_STRING_BYTES ||
+        containsControlCharacter(key)
+      ) {
         throw streamFailure();
       }
       pending.push({ value: item, depth: current.depth + 1 });

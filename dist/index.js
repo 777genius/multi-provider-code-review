@@ -106206,7 +106206,7 @@ function validateBoundedJson(value) {
       continue;
     }
     if (typeof candidate === "string") {
-      if (Buffer.byteLength(candidate, "utf8") > MAX_METADATA_STRING_BYTES) {
+      if (Buffer.byteLength(candidate, "utf8") > MAX_METADATA_STRING_BYTES || containsControlCharacter(candidate)) {
         throw streamFailure2();
       }
       continue;
@@ -106229,7 +106229,7 @@ function validateBoundedJson(value) {
     const entries = Object.entries(candidate);
     if (entries.length > MAX_METADATA_COLLECTION_SIZE) throw streamFailure2();
     for (const [key, item] of entries) {
-      if (Buffer.byteLength(key, "utf8") > MAX_NOTIFICATION_STRING_BYTES) {
+      if (Buffer.byteLength(key, "utf8") > MAX_NOTIFICATION_STRING_BYTES || containsControlCharacter(key)) {
         throw streamFailure2();
       }
       pending.push({ value: item, depth: current.depth + 1 });

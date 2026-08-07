@@ -9,13 +9,14 @@ describe('release workflow', () => {
       path.join(repoRoot, '.github/workflows/release.yml'),
       'utf8'
     );
+    const publishStep = workflow.match(
+      /- name: Publish exact and stable tags[\s\S]*?(?=\n\s+- name: Create GitHub Release)/
+    )?.[0];
 
-    expect(workflow).toContain('git push --atomic origin');
-    expect(workflow).toContain('"refs/tags/$VERSION"');
-    expect(workflow).toContain('"+refs/tags/$MAJOR_TAG"');
-    expect(workflow).not.toContain('git push origin "refs/tags/$VERSION"\n');
-    expect(workflow).not.toContain(
-      'git push --force origin "refs/tags/$MAJOR_TAG"'
+    expect(publishStep).toBeDefined();
+    expect(publishStep?.match(/\bgit push\b/g)).toHaveLength(1);
+    expect(publishStep).toMatch(
+      /git push --atomic origin \\\n\s+"refs\/tags\/\$VERSION" \\\n\s+"\+refs\/tags\/\$MAJOR_TAG"/
     );
   });
 });
