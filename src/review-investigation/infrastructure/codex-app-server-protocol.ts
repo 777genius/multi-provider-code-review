@@ -173,67 +173,88 @@ export class CodexAppServerProtocolClient {
   }
 
   async run(): Promise<CodexAppServerProtocolResult> {
-    const initializeResult = await this.sendRequest('initialize', {
-      clientInfo: {
-        name: 'review_router_action',
-        title: 'ReviewRouter Action',
-        version: '1',
-      },
-      capabilities: {
-        experimentalApi: true,
-        requestAttestation: false,
-        mcpServerOpenaiFormElicitation: false,
-        optOutNotificationMethods: OPTED_OUT_NOTIFICATIONS,
-      },
-    });
-    validateInitializeResponse(initializeResult);
+    await withProtocolRunStage(
+      CodexProtocolDiagnosticStage.InitializeResponse,
+      () =>
+        this.sendRequest('initialize', {
+          clientInfo: {
+            name: 'review_router_action',
+            title: 'ReviewRouter Action',
+            version: '1',
+          },
+          capabilities: {
+            experimentalApi: true,
+            requestAttestation: false,
+            mcpServerOpenaiFormElicitation: false,
+            optOutNotificationMethods: OPTED_OUT_NOTIFICATIONS,
+          },
+        }).then((value) => {
+          validateInitializeResponse(value);
+          return value;
+        })
+    );
     this.initialized = true;
-    await this.sendNotification('initialized');
+    await withProtocolRunStage(
+      CodexProtocolDiagnosticStage.InitializedNotification,
+      () => this.sendNotification('initialized')
+    );
 
-    const threadStartResult = await this.sendRequest('thread/start', {
-      model: this.request.requestedModel,
-      allowProviderModelFallback: false,
-      cwd: this.request.cwd,
-      runtimeWorkspaceRoots: [],
-      approvalPolicy: 'never',
-      approvalsReviewer: 'user',
-      sandbox: 'read-only',
-      config: {
-        model_reasoning_effort: this.request.reasoningEffort,
-      },
-      ephemeral: true,
-      environments: [],
-      dynamicTools: [],
-      selectedCapabilityRoots: [],
-      experimentalRawEvents: true,
-    });
-    this.bindThread(threadStartResult);
-    await this.threadStartedSignal.promise;
+    await withProtocolRunStage(
+      CodexProtocolDiagnosticStage.ThreadStartResponse,
+      () =>
+        this.sendRequest('thread/start', {
+          model: this.request.requestedModel,
+          allowProviderModelFallback: false,
+          cwd: this.request.cwd,
+          runtimeWorkspaceRoots: [],
+          approvalPolicy: 'never',
+          approvalsReviewer: 'user',
+          sandbox: 'read-only',
+          config: {
+            model_reasoning_effort: this.request.reasoningEffort,
+          },
+          ephemeral: true,
+          environments: [],
+          dynamicTools: [],
+          selectedCapabilityRoots: [],
+          experimentalRawEvents: true,
+        }).then((value) => this.bindThread(value))
+    );
+    await withProtocolRunStage(
+      CodexProtocolDiagnosticStage.ThreadStartedWait,
+      () => this.threadStartedSignal.promise
+    );
 
-    const turnStartResult = await this.sendRequest('turn/start', {
-      threadId: this.threadId,
-      clientUserMessageId: this.request.clientTurnId,
-      input: [
-        {
-          type: 'text',
-          text: this.request.prompt,
-          text_elements: [],
-        },
-      ],
-      environments: [],
-      runtimeWorkspaceRoots: [],
-      approvalPolicy: 'never',
-      approvalsReviewer: 'user',
-      sandboxPolicy: {
-        type: 'readOnly',
-        networkAccess: false,
-      },
-      effort: this.request.reasoningEffort,
-      outputSchema: this.request.outputSchema,
-    });
-    this.bindTurn(turnStartResult);
+    await withProtocolRunStage(
+      CodexProtocolDiagnosticStage.TurnStartResponse,
+      () =>
+        this.sendRequest('turn/start', {
+          threadId: this.threadId,
+          clientUserMessageId: this.request.clientTurnId,
+          input: [
+            {
+              type: 'text',
+              text: this.request.prompt,
+              text_elements: [],
+            },
+          ],
+          environments: [],
+          runtimeWorkspaceRoots: [],
+          approvalPolicy: 'never',
+          approvalsReviewer: 'user',
+          sandboxPolicy: {
+            type: 'readOnly',
+            networkAccess: false,
+          },
+          effort: this.request.reasoningEffort,
+          outputSchema: this.request.outputSchema,
+        }).then((value) => this.bindTurn(value))
+    );
     this.maybeComplete();
-    return this.completion.promise;
+    return withProtocolRunStage(
+      CodexProtocolDiagnosticStage.Completion,
+      () => this.completion.promise
+    );
   }
 
   receive(value: unknown): void {
@@ -454,7 +475,7 @@ export class CodexAppServerProtocolClient {
     const turnId = requireIdentifier(turn.id, 'turn_id');
     if (
       turn.status !== 'inProgress' ||
-      turn.error !== null ||
+      !hasAbsentOrNullProperty(turn, 'error') ||
       !Array.isArray(turn.items) ||
       turn.items.length !== 0 ||
       (this.provisionalTurnId !== null && this.provisionalTurnId !== turnId)
@@ -535,7 +556,7 @@ export class CodexAppServerProtocolClient {
     if (
       (this.provisionalTurnId !== null && this.provisionalTurnId !== turnId) ||
       turn.status !== 'inProgress' ||
-      turn.error !== null ||
+      !hasAbsentOrNullProperty(turn, 'error') ||
       !Array.isArray(turn.items) ||
       turn.items.length !== 0
     ) {
@@ -1428,6 +1449,15 @@ function hasRequiredAndOptionalKeys(
   );
 }
 
+function hasAbsentOrNullProperty(
+  value: Record<string, unknown>,
+  key: string
+): boolean {
+  return (
+    !Object.prototype.hasOwnProperty.call(value, key) || value[key] === null
+  );
+}
+
 function isReadOnlySandbox(value: unknown): boolean {
   return (
     isRecord(value) &&
@@ -1445,9 +1475,12 @@ function safeJson(value: unknown): string {
 }
 
 enum CodexProtocolDiagnosticStage {
+  Completion = 'completion',
   Envelope = 'envelope',
   Error = 'error',
   IgnoredNotification = 'ignored_notification',
+  InitializedNotification = 'initialized_notification',
+  InitializeResponse = 'initialize_response',
   ItemCompleted = 'item_completed',
   ItemStarted = 'item_started',
   McpServerStatus = 'mcp_server_status',
@@ -1461,8 +1494,11 @@ enum CodexProtocolDiagnosticStage {
   ServerRequestResolved = 'server_request_resolved',
   ThreadStarted = 'thread_started',
   ThreadNameUpdated = 'thread_name_updated',
+  ThreadStartedWait = 'thread_started_wait',
+  ThreadStartResponse = 'thread_start_response',
   TokenUsageUpdated = 'token_usage_updated',
   TurnCompleted = 'turn_completed',
+  TurnStartResponse = 'turn_start_response',
   TurnStarted = 'turn_started',
   UnknownNotification = 'unknown_notification',
   Warning = 'warning',
@@ -1529,9 +1565,21 @@ function withStreamDiagnosticStage(
   stage: CodexProtocolDiagnosticStageValue
 ): unknown {
   return error instanceof ReviewAgentExecutionError &&
-    error.failureClass === ReviewAgentFailureClass.StreamIncomplete
+    error.failureClass === ReviewAgentFailureClass.StreamIncomplete &&
+    error.message === 'review_agent_stream_incomplete'
     ? streamFailure(stage)
     : error;
+}
+
+async function withProtocolRunStage<T>(
+  stage: CodexProtocolDiagnosticStageValue,
+  operation: () => T | Promise<T>
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw withStreamDiagnosticStage(error, stage);
+  }
 }
 
 function streamFailure(

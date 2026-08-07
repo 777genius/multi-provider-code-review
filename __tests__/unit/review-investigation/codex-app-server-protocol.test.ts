@@ -49,6 +49,95 @@ const supportedCodexErrorInfo = [
 ];
 
 describe('CodexAppServerProtocolClient', () => {
+  it.each([
+    ['turn/start response', { omitTurnResponseError: true }],
+    ['turn/started notification', { omitTurnNotificationError: true }],
+  ])(
+    'accepts schema-optional error omitted from the %s',
+    async (_name, options) => {
+      const fixture = await activeTurn(options);
+      completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+      completeUsage(fixture.client);
+      completeTurn(fixture.client);
+
+      await expect(fixture.result).resolves.toMatchObject({
+        finalMessage: '{"ok":true}',
+      });
+    }
+  );
+
+  it('reports the initialize response stage without exposing the response', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const client = new CodexAppServerProtocolClient(
+      protocolRequest(),
+      async (message) => {
+        writes.push({ ...message });
+      }
+    );
+    const result = client.run();
+    await waitForWrite(writes, 'initialize');
+    client.receive({ id: 1, result: { sensitive: 'must-not-leak' } });
+
+    await expect(result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_initialize_response',
+    });
+    await expect(
+      result.catch((error: unknown) => error)
+    ).resolves.not.toHaveProperty(
+      'message',
+      expect.stringContaining('sensitive')
+    );
+  });
+
+  it('reports the turn start response stage for a malformed turn', async () => {
+    const fixture = await threadNotificationBeforeStartResponse();
+    fixture.client.receive({ id: 2, result: threadStartResponse() });
+    await waitForWrite(fixture.writes, 'turn/start');
+    fixture.client.receive(
+      notification('turn/started', {
+        threadId,
+        turn: turn('inProgress'),
+      })
+    );
+    fixture.client.receive({
+      id: 3,
+      result: { turn: { id: turnId, status: 'inProgress', items: null } },
+    });
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_turn_start_response',
+    });
+  });
+
+  it('reports the thread start response stage for a malformed thread', async () => {
+    const fixture = await threadNotificationBeforeStartResponse();
+    fixture.client.receive({ id: 2, result: {} });
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_thread_start_response',
+    });
+  });
+
+  it('rejects an explicitly undefined in-progress turn error', async () => {
+    const fixture = await threadNotificationBeforeStartResponse();
+    fixture.client.receive({ id: 2, result: threadStartResponse() });
+    await waitForWrite(fixture.writes, 'turn/start');
+    fixture.client.receive(
+      notification('turn/started', {
+        threadId,
+        turn: { id: turnId, status: 'inProgress', error: undefined, items: [] },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_turn_started',
+    });
+  });
+
   it('opts out of and tolerates turn plan updates', async () => {
     const fixture = await activeTurn();
     const initialize = fixture.writes.find(
@@ -1171,7 +1260,12 @@ describe('CodexAppServerProtocolClient', () => {
   });
 });
 
-async function activeTurn() {
+async function activeTurn(
+  options: Readonly<{
+    omitTurnNotificationError?: boolean;
+    omitTurnResponseError?: boolean;
+  }> = {}
+) {
   const writes: Array<Record<string, unknown>> = [];
   const client = new CodexAppServerProtocolClient(
     protocolRequest(),
@@ -1194,13 +1288,19 @@ async function activeTurn() {
   client.receive(notification('thread/started', { thread: thread() }));
   client.receive({ id: 2, result: threadStartResponse() });
   await waitForWrite(writes, 'turn/start');
+  const notificationTurn = options.omitTurnNotificationError
+    ? { id: turnId, status: 'inProgress', items: [] }
+    : turn('inProgress');
+  const responseTurn = options.omitTurnResponseError
+    ? { id: turnId, status: 'inProgress', items: [] }
+    : turn('inProgress');
   client.receive(
     notification('turn/started', {
       threadId,
-      turn: turn('inProgress'),
+      turn: notificationTurn,
     })
   );
-  client.receive({ id: 3, result: { turn: turn('inProgress') } });
+  client.receive({ id: 3, result: { turn: responseTurn } });
   await Promise.resolve();
   return { client, result, writes };
 }

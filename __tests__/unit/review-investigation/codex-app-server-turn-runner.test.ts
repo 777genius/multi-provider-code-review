@@ -50,6 +50,27 @@ describe('NodeCodexAppServerTurnRunner', () => {
       runner.executeTurn(request(root, server))
     ).rejects.toMatchObject({
       failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_stdout_json',
+    });
+  }, 15_000);
+
+  it('reports invalid UTF-8 stdout without exposing output bytes', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'rr-app-server-test-'));
+    const server = path.join(root, 'invalid-utf8-app-server.cjs');
+    await writeFile(
+      server,
+      "process.stdin.once('data',()=>{process.stdout.write(Buffer.from([0xff,0x0a]));});setTimeout(()=>{},10000);",
+      'utf8'
+    );
+    const runner = new NodeCodexAppServerTurnRunner({
+      versionProbe: { assertSupported: async () => undefined },
+    });
+
+    await expect(
+      runner.executeTurn(request(root, server))
+    ).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_stdout_utf8',
     });
   }, 15_000);
 
