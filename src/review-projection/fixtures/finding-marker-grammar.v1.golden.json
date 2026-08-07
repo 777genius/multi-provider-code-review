@@ -87,6 +87,16 @@
       "expectedFingerprint": null
     },
     {
+      "name": "embedded URL marker",
+      "body": "https://example/reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectedFingerprint": null
+    },
+    {
+      "name": "valid plus malformed reserved marker",
+      "body": "reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaaa\nreviewrouter:finding:v2:bad",
+      "expectedFingerprint": null
+    },
+    {
       "name": "too short",
       "body": "reviewrouter:finding:v2:aaaaaaaaaaaaaaaaaaaaaaa",
       "expectedFingerprint": null
