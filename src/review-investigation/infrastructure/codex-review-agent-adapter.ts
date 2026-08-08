@@ -87,7 +87,9 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
         clientTurnId: request.turnId,
         requestedModel: request.requestedModel,
         reasoningEffort,
-        outputSchema: buildReviewAgentTurnOutputSchema(),
+        outputSchema: buildReviewAgentTurnOutputSchema(
+          request.allowedObligationIds
+        ),
         allowedTools: execution.gateway.enabledTools,
         maxOutputBytes: this.profile.maxOutputBytes,
       },

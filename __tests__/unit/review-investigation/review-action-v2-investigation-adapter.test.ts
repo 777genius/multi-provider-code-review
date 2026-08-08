@@ -639,6 +639,11 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
       ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid,
     ],
     [
+      'provider turn obligation claim',
+      ['turn_obligation_claim_invalid'],
+      ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid,
+    ],
+    [
       'an unrelated server invariant',
       ['investigation_internal_state_invalid'],
       ReviewInvestigationControlPlaneFailureClass.Rejected,

@@ -1247,6 +1247,7 @@ function transportError(
 }
 
 const providerOutputInvariantViolations = new Set([
+  'turn_obligation_claim_invalid',
   'investigation_operation_backed_discovery_invalid',
   'investigation_operation_backed_discovery_limit_exceeded',
 ]);

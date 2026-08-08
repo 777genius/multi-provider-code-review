@@ -150,6 +150,42 @@ describe.each([
     }
   });
 
+  it('wires authenticated obligation ids into the provider schema', async () => {
+    const { adapter, runner, request } = fixture(providerKind);
+
+    await adapter.executeTurn(request);
+
+    const schema =
+      providerKind === ReviewAgentProviderKind.Codex
+        ? runner.requests[0].outputSchema
+        : JSON.parse(argumentAfter(runner.requests[0].args, '--json-schema'));
+    expect(schema).toMatchObject({
+      properties: {
+        closureClaims: {
+          items: {
+            properties: {
+              obligationId: { enum: [digest('b')] },
+            },
+          },
+        },
+        unresolvableClaims: {
+          items: {
+            properties: {
+              obligationId: { enum: [digest('b')] },
+            },
+          },
+        },
+        operationBackedDiscoveryClaims: {
+          items: {
+            properties: {
+              sourceObligationId: { pattern: '^[a-f0-9]{64}$' },
+            },
+          },
+        },
+      },
+    });
+  });
+
   it('delegates cancellation with the exact fencing token', async () => {
     const { adapter, runner } = fixture(providerKind);
     await adapter.cancel('invocation-1', 'fence-7');
@@ -263,16 +299,88 @@ describe.each([
     critic.runner.output = {
       ...turnOutput,
       obligationProposals: Object.freeze([]),
+      closureClaims: Object.freeze([]),
       criticDecision: ReviewTurnCriticDecision.Accept,
     };
     await expect(
       critic.adapter.executeTurn({
         ...critic.request,
         purpose: ReviewTurnPurpose.Critic,
+        allowedObligationIds: Object.freeze([]),
       })
     ).resolves.toMatchObject({
       purpose: ReviewTurnPurpose.Critic,
       criticDecision: ReviewTurnCriticDecision.Accept,
+    });
+  });
+
+  it.each([
+    [
+      'an out-of-scope closure',
+      {
+        closureClaims: [
+          { ...turnOutput.closureClaims[0], obligationId: digest('f') },
+        ],
+      },
+    ],
+    [
+      'duplicate closures',
+      {
+        closureClaims: [
+          turnOutput.closureClaims[0],
+          turnOutput.closureClaims[0],
+        ],
+      },
+    ],
+    [
+      'duplicate unresolvable claims',
+      {
+        unresolvableClaims: [
+          {
+            obligationId: digest('b'),
+            reason: 'Unavailable in the authenticated repository context.',
+            evidenceOperationReceiptIds: [],
+          },
+          {
+            obligationId: digest('b'),
+            reason: 'Unavailable in the authenticated repository context.',
+            evidenceOperationReceiptIds: [],
+          },
+        ],
+      },
+    ],
+    [
+      'an out-of-scope unresolvable claim',
+      {
+        closureClaims: [],
+        unresolvableClaims: [
+          {
+            obligationId: digest('f'),
+            reason: 'Unavailable in the authenticated repository context.',
+            evidenceOperationReceiptIds: [],
+          },
+        ],
+      },
+    ],
+    [
+      'a closure and unresolvable claim for the same obligation',
+      {
+        unresolvableClaims: [
+          {
+            obligationId: digest('b'),
+            reason: 'Unavailable in the authenticated repository context.',
+            evidenceOperationReceiptIds: [],
+          },
+        ],
+      },
+    ],
+  ])('fails closed for %s', async (_name, override) => {
+    const { adapter, runner, request } = fixture(providerKind);
+    runner.output = { ...turnOutput, ...override };
+
+    await expect(adapter.executeTurn(request)).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.SchemaInvalidOutput,
+      message: 'review_agent_turn_obligation_claim_invalid',
     });
   });
 
@@ -509,6 +617,7 @@ class FakeRunner implements ReviewAgentProcessRunnerPort {
     readonly args: readonly string[];
     readonly stdin: string;
     readonly environment: Readonly<NodeJS.ProcessEnv>;
+    readonly outputSchema?: Readonly<Record<string, unknown>>;
   }> = [];
   readonly cancellations: Array<{
     invocationId: string;
@@ -611,6 +720,7 @@ class FakeRunner implements ReviewAgentProcessRunnerPort {
       args: request.args,
       stdin: request.protocol.prompt,
       environment: request.environment,
+      outputSchema: request.protocol.outputSchema,
     });
     if (this.forcedResult) {
       if (this.forcedResult.exitCode !== 0) {
@@ -751,6 +861,7 @@ function fixture(
       dossierVersion: 3,
       dossierDigest: digest('d'),
       purpose: ReviewTurnPurpose.Discovery,
+      allowedObligationIds: Object.freeze([digest('b')]),
       prompt: 'Inspect the durable dossier using only ReviewRouter tools.',
       workspaceRoot: process.cwd(),
       requestedModel:

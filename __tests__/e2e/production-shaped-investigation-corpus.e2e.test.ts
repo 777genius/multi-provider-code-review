@@ -409,6 +409,10 @@ describe('production-shaped disposable investigation corpus', () => {
           }
           return {
             ...scenarioFromBrief(snapshot),
+            closureKinds: [
+              ReviewTurnObligationKind.InventoryWitness,
+              ReviewTurnObligationKind.ChangedContent,
+            ],
             unresolvableKinds: [ReviewTurnObligationKind.BinaryArtifact],
           };
         },

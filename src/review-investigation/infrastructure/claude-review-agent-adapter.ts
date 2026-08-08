@@ -186,7 +186,9 @@ export class ClaudeReviewAgentAdapter extends StrictCliReviewAgent {
       '--output-format',
       'json',
       '--json-schema',
-      JSON.stringify(buildReviewAgentTurnOutputSchema()),
+      JSON.stringify(
+        buildReviewAgentTurnOutputSchema(request.allowedObligationIds)
+      ),
       '--no-session-persistence',
       '--max-turns',
       String(request.maxTurns),
