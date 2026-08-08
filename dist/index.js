@@ -95840,7 +95840,7 @@ var RunT0ReviewOrchestration = class {
           await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
           throw error2;
         }
-        if (error2 instanceof RetryableReviewContextInspectionFailure && attemptOrdinal === input.workSlot.attemptBudget) {
+        if (error2 instanceof RetryableReviewContextInspectionFailure && attemptOrdinal === input.workSlot.attemptBudget && invocation.manifestFacts.executionProfile !== "context_gateway_v1") {
           observationPayload = error2.currentRevisionObservation;
         } else {
           await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
@@ -95871,6 +95871,10 @@ var RunT0ReviewOrchestration = class {
         }
       }
       try {
+        assertRequiredContextAttestation(
+          invocation.manifestFacts.executionProfile,
+          observationPayload
+        );
         validateObservationAgainstLimits(
           observationPayload,
           input.authorization.limits
@@ -96405,6 +96409,12 @@ function validatePlanAgainstLimits(workSlots, limits) {
     if (!Number.isSafeInteger(slot.attemptBudget) || slot.attemptBudget < 1 || slot.attemptBudget > limits.maxAttemptsPerSlot) {
       throw new Error("review_orchestration_attempt_limit_exceeded");
     }
+  }
+}
+function assertRequiredContextAttestation(executionProfile, observation) {
+  if (executionProfile !== "context_gateway_v1") return;
+  if (!observation.contextDependencyAttestationId || !observation.contextDependencyAttestationHash) {
+    throw new Error("review_context_gateway_attestation_required");
   }
 }
 function validateObservationAgainstLimits(observation, limits) {
@@ -97787,7 +97797,47 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
       const actualModel = result2.actualModel;
       if (!actualModel) {
         logger.warn(
-          "Codex actual model unavailable; preserving fresh review as non-reusable"
+          "Codex actual model unavailable; retrying because context attestation cannot be bound"
+        );
+        throw new RetryableReviewContextInspectionFailure(
+          "gateway_output_unavailable" /* GatewayOutputUnavailable */,
+          normalizeReviewObservation({
+            workSlotId: input.invocation.workSlotId,
+            attemptOrdinal: input.invocation.attemptOrdinal,
+            providerName: input.invocation.provider,
+            requestedModel: input.invocation.requestedModel,
+            result: result2,
+            qualityFlags: [
+              "provider_warning",
+              "context_attestation_unavailable",
+              "cross_revision_reuse_disabled"
+            ]
+          })
+        );
+      }
+      try {
+        const attestation = await session.seal({
+          actualModel,
+          terminalOutcomeHash: initial.payloadHash
+        });
+        if (!attestation) {
+          throw new RetryableReviewContextInspectionFailure(
+            "gateway_output_unavailable" /* GatewayOutputUnavailable */,
+            normalizeReviewObservation({
+              workSlotId: input.invocation.workSlotId,
+              attemptOrdinal: input.invocation.attemptOrdinal,
+              providerName: input.invocation.provider,
+              requestedModel: input.invocation.requestedModel,
+              result: result2,
+              qualityFlags: [
+                "context_attestation_unavailable",
+                "cross_revision_reuse_disabled"
+              ]
+            })
+          );
+        }
+        logger.info(
+          "Context attestation sealed; fresh evidence is cross-revision reusable"
         );
         return normalizeReviewObservation({
           workSlotId: input.invocation.workSlotId,
@@ -97795,36 +97845,13 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result: result2,
-          qualityFlags: [
-            "provider_warning",
-            "context_attestation_unavailable",
-            "cross_revision_reuse_disabled"
-          ]
-        });
-      }
-      try {
-        const attestation = await session.seal({
-          actualModel,
-          terminalOutcomeHash: initial.payloadHash
-        });
-        if (attestation) {
-          logger.info(
-            "Context attestation sealed; fresh evidence is cross-revision reusable"
-          );
-        }
-        return normalizeReviewObservation({
-          workSlotId: input.invocation.workSlotId,
-          attemptOrdinal: input.invocation.attemptOrdinal,
-          providerName: input.invocation.provider,
-          requestedModel: input.invocation.requestedModel,
-          result: result2,
-          qualityFlags: attestation ? [] : [
-            "context_attestation_unavailable",
-            "cross_revision_reuse_disabled"
-          ],
-          ...attestation ? { contextDependencyAttestation: attestation } : {}
+          qualityFlags: [],
+          contextDependencyAttestation: attestation
         });
       } catch (error2) {
+        if (error2 instanceof RetryableReviewContextInspectionFailure) {
+          throw error2;
+        }
         if (error2 instanceof ReviewContextInspectionFailure) {
           const currentRevisionObservation = normalizeReviewObservation({
             workSlotId: input.invocation.workSlotId,
@@ -97846,19 +97873,22 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
           );
         }
         logger.warn(
-          `Context attestation sealing failed${safeFailureDiagnostic(error2)}; preserving fresh review as non-reusable`
+          `Context attestation sealing failed${safeFailureDiagnostic(error2)}; retrying without committing unattested evidence`
         );
-        return normalizeReviewObservation({
-          workSlotId: input.invocation.workSlotId,
-          attemptOrdinal: input.invocation.attemptOrdinal,
-          providerName: input.invocation.provider,
-          requestedModel: input.invocation.requestedModel,
-          result: result2,
-          qualityFlags: [
-            "context_attestation_unavailable",
-            "cross_revision_reuse_disabled"
-          ]
-        });
+        throw new RetryableReviewContextInspectionFailure(
+          "gateway_output_unavailable" /* GatewayOutputUnavailable */,
+          normalizeReviewObservation({
+            workSlotId: input.invocation.workSlotId,
+            attemptOrdinal: input.invocation.attemptOrdinal,
+            providerName: input.invocation.provider,
+            requestedModel: input.invocation.requestedModel,
+            result: result2,
+            qualityFlags: [
+              "context_attestation_unavailable",
+              "cross_revision_reuse_disabled"
+            ]
+          })
+        );
       }
     } finally {
       await session.dispose();
@@ -108511,6 +108541,7 @@ function transportError(error2, operationId, mutation) {
 }
 var providerOutputInvariantViolations = /* @__PURE__ */ new Set([
   "turn_obligation_claim_invalid",
+  "investigation_obligation_evidence_mismatch",
   "investigation_operation_backed_discovery_invalid",
   "investigation_operation_backed_discovery_limit_exceeded"
 ]);
@@ -108657,7 +108688,8 @@ var ReviewActionV2InvestigationLeaseAdapter = class {
       input.turnId,
       input.providerStrategyId,
       input.providerManifestHash,
-      input.ownerIdHash
+      input.ownerIdHash,
+      this.requestId()
     ]);
     let result2;
     try {
@@ -109384,6 +109416,7 @@ function investigationPrompt(reviewPrompt, snapshot) {
     "Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.",
     'For typed search requirements, execute the exact literal query with paths=["."], revision="head", caseSensitive=true, and pageSize=500, then follow every cursor to completion.',
     "For a typed complete_page_chain obligation, put its complete receipt chain in closureClaims only. The control plane derives its discovery evidence; do not duplicate that chain in operationBackedDiscoveryClaims.",
+    "For a typed complete_relation_context obligation, rerun its hydrated query and include the complete matching text_search receipt chain plus complete file_read receipts for exactly every requiredPathHashes entry. Never include unrelated search or directory receipts.",
     "During discovery turns, use operationBackedDiscoveryClaims only for additional exploratory text-search chains. Bind each chain to the coverage_contract changed_content obligation that directly motivated the search, copy the exact query passed to the tool, and include every operationReceiptId from the chain.",
     "Never bind an exploratory search to a deterministic_expansion obligation. If no changed_content source directly motivated it, omit the advisory discovery claim and leave related obligations open.",
     "When inspected evidence reveals additional review scope, add a provider-neutral obligationProposals entry instead of silently broadening an existing obligation.",

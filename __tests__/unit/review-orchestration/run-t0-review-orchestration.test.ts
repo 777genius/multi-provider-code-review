@@ -377,6 +377,21 @@ describe('RunT0ReviewOrchestration', () => {
     );
   });
 
+  it('refuses unattested evidence at the context-gateway commit boundary', async () => {
+    const fixture = createFixture({ executionProfile: 'context_gateway_v1' });
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockResolvedValue(observationPayload);
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'review_context_gateway_attestation_required',
+    });
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
+  });
+
   it('uses certificate-backed investigation evidence only in authoritative mode', async () => {
     const fixture = createFixture({
       executionProfile: 'context_gateway_v1',
@@ -873,7 +888,7 @@ describe('RunT0ReviewOrchestration', () => {
           fallback
         )
       )
-      .mockResolvedValueOnce(observationPayload);
+      .mockResolvedValueOnce(attestedObservationPayload);
 
     const result = await fixture.useCase.execute(fixture.command);
 
@@ -883,19 +898,14 @@ describe('RunT0ReviewOrchestration', () => {
       fixture.dependencies.invocationFailureClassifier.classify
     ).toHaveBeenCalledTimes(1);
     expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
-      expect.objectContaining({ observation: observationPayload })
+      expect.objectContaining({ observation: attestedObservationPayload })
     );
   });
 
-  it('preserves exhausted context inspection as current-revision-only evidence', async () => {
+  it('does not commit exhausted context inspection without an accepted attestation', async () => {
     const fixture = createFixture({
       executionProfile: 'context_gateway_v1',
       maxAttempts: 2,
-    });
-    fixture.controlPlane.commitEvidence.mockResolvedValue({
-      observationId: 'observation-current-only',
-      historicalOnly: true,
-      eligibilityPolicyVersion: 't0-v1',
     });
     const fallback = {
       ...observationPayload,
@@ -915,40 +925,16 @@ describe('RunT0ReviewOrchestration', () => {
 
     const result = await fixture.useCase.execute(fixture.command);
 
-    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'required_work_exhausted',
+    });
     expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(2);
-    expect(fixture.controlPlane.commitEvidence).toHaveBeenCalledWith(
-      expect.objectContaining({
-        observation: expect.objectContaining({
-          qualityFlags: [
-            'context_inspection_incomplete',
-            'cross_revision_reuse_disabled',
-          ],
-        }),
-      })
-    );
-    const committedObservation =
-      fixture.controlPlane.commitEvidence.mock.calls[0][0].observation;
-    expect(committedObservation).not.toHaveProperty(
-      'contextDependencyAttestationId'
-    );
-    expect(committedObservation).not.toHaveProperty(
-      'contextDependencyAttestationHash'
-    );
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
     expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
       2
     );
-    expect(fixture.controlPlane.attachObservation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        observation: expect.objectContaining({
-          observationId: 'observation-current-only',
-          qualityFlags: [
-            'context_inspection_incomplete',
-            'cross_revision_reuse_disabled',
-          ],
-        }),
-      })
-    );
+    expect(fixture.controlPlane.attachObservation).not.toHaveBeenCalled();
   });
 
   it('fails fast across the review when provider capacity is unavailable', async () => {
@@ -1222,7 +1208,7 @@ describe('RunT0ReviewOrchestration', () => {
         observedSignal = signal;
         providerStarted();
         await providerMayFinish;
-        return observationPayload;
+        return attestedObservationPayload;
       });
 
     const resultPromise = fixture.useCase.execute(fixture.command);
@@ -1776,7 +1762,13 @@ function createFixture(
             environmentContractHash: hash('environment'),
           }),
         })),
-      execute: jest.fn().mockResolvedValue(observationPayload),
+      execute: jest
+        .fn()
+        .mockResolvedValue(
+          options.executionProfile === 'context_gateway_v1'
+            ? attestedObservationPayload
+            : observationPayload
+        ),
     },
     invocationFailureClassifier: {
       classify: jest
@@ -1955,6 +1947,12 @@ const observationPayload = {
   transportAttemptCount: 1,
   schemaValidated: true,
   fullyConsumed: true,
+};
+
+const attestedObservationPayload = {
+  ...observationPayload,
+  contextDependencyAttestationId: 'attestation-1',
+  contextDependencyAttestationHash: hash('attestation-1'),
 };
 
 const investigationObservationPayload = {

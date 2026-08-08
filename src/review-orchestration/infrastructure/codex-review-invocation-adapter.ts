@@ -16,6 +16,7 @@ import { logger } from '../../utils/logger';
 import { emitReviewInvestigationTelemetry } from './review-investigation-telemetry';
 import {
   ReviewContextInspectionFailure,
+  ReviewContextInspectionFailureReason,
   ReviewExecutionProviderKind,
   ReviewTaskKind,
   RetryableReviewContextInspectionFailure,
@@ -413,20 +414,23 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
       const actualModel = result.actualModel;
       if (!actualModel) {
         logger.warn(
-          'Codex actual model unavailable; preserving fresh review as non-reusable'
+          'Codex actual model unavailable; retrying because context attestation cannot be bound'
         );
-        return normalizeReviewObservation({
-          workSlotId: input.invocation.workSlotId,
-          attemptOrdinal: input.invocation.attemptOrdinal,
-          providerName: input.invocation.provider,
-          requestedModel: input.invocation.requestedModel,
-          result,
-          qualityFlags: [
-            'provider_warning',
-            'context_attestation_unavailable',
-            'cross_revision_reuse_disabled',
-          ],
-        });
+        throw new RetryableReviewContextInspectionFailure(
+          ReviewContextInspectionFailureReason.GatewayOutputUnavailable,
+          normalizeReviewObservation({
+            workSlotId: input.invocation.workSlotId,
+            attemptOrdinal: input.invocation.attemptOrdinal,
+            providerName: input.invocation.provider,
+            requestedModel: input.invocation.requestedModel,
+            result,
+            qualityFlags: [
+              'provider_warning',
+              'context_attestation_unavailable',
+              'cross_revision_reuse_disabled',
+            ],
+          })
+        );
       }
 
       try {
@@ -434,26 +438,38 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           actualModel,
           terminalOutcomeHash: initial.payloadHash,
         });
-        if (attestation) {
-          logger.info(
-            'Context attestation sealed; fresh evidence is cross-revision reusable'
+        if (!attestation) {
+          throw new RetryableReviewContextInspectionFailure(
+            ReviewContextInspectionFailureReason.GatewayOutputUnavailable,
+            normalizeReviewObservation({
+              workSlotId: input.invocation.workSlotId,
+              attemptOrdinal: input.invocation.attemptOrdinal,
+              providerName: input.invocation.provider,
+              requestedModel: input.invocation.requestedModel,
+              result,
+              qualityFlags: [
+                'context_attestation_unavailable',
+                'cross_revision_reuse_disabled',
+              ],
+            })
           );
         }
+        logger.info(
+          'Context attestation sealed; fresh evidence is cross-revision reusable'
+        );
         return normalizeReviewObservation({
           workSlotId: input.invocation.workSlotId,
           attemptOrdinal: input.invocation.attemptOrdinal,
           providerName: input.invocation.provider,
           requestedModel: input.invocation.requestedModel,
           result,
-          qualityFlags: attestation
-            ? []
-            : [
-                'context_attestation_unavailable',
-                'cross_revision_reuse_disabled',
-              ],
-          ...(attestation ? { contextDependencyAttestation: attestation } : {}),
+          qualityFlags: [],
+          contextDependencyAttestation: attestation,
         });
       } catch (error) {
+        if (error instanceof RetryableReviewContextInspectionFailure) {
+          throw error;
+        }
         if (error instanceof ReviewContextInspectionFailure) {
           const currentRevisionObservation = normalizeReviewObservation({
             workSlotId: input.invocation.workSlotId,
@@ -475,19 +491,22 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           );
         }
         logger.warn(
-          `Context attestation sealing failed${safeFailureDiagnostic(error)}; preserving fresh review as non-reusable`
+          `Context attestation sealing failed${safeFailureDiagnostic(error)}; retrying without committing unattested evidence`
         );
-        return normalizeReviewObservation({
-          workSlotId: input.invocation.workSlotId,
-          attemptOrdinal: input.invocation.attemptOrdinal,
-          providerName: input.invocation.provider,
-          requestedModel: input.invocation.requestedModel,
-          result,
-          qualityFlags: [
-            'context_attestation_unavailable',
-            'cross_revision_reuse_disabled',
-          ],
-        });
+        throw new RetryableReviewContextInspectionFailure(
+          ReviewContextInspectionFailureReason.GatewayOutputUnavailable,
+          normalizeReviewObservation({
+            workSlotId: input.invocation.workSlotId,
+            attemptOrdinal: input.invocation.attemptOrdinal,
+            providerName: input.invocation.provider,
+            requestedModel: input.invocation.requestedModel,
+            result,
+            qualityFlags: [
+              'context_attestation_unavailable',
+              'cross_revision_reuse_disabled',
+            ],
+          })
+        );
       }
     } finally {
       await session.dispose();

@@ -41,6 +41,7 @@ export class ReviewActionV2InvestigationLeaseAdapter implements ReviewInvestigat
       input.providerStrategyId,
       input.providerManifestHash,
       input.ownerIdHash,
+      this.requestId(),
     ]);
     let result;
     try {

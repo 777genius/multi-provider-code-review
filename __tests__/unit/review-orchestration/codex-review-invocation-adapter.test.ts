@@ -417,7 +417,7 @@ describe('Codex T0 prepared invocation', () => {
       expectedSealedModel: 'gpt-test-actual',
     },
   ])(
-    'uses protocol-safe quality flags when $name',
+    'returns retryable unattested evidence when $name',
     async ({
       actualModel,
       expectedQualityFlags,
@@ -476,15 +476,28 @@ describe('Codex T0 prepared invocation', () => {
         workSlot: assignment.workSlot,
         attemptOrdinal: 1,
       });
-      const observation = await adapter.execute({
-        invocation,
-        manifest: manifestFixture,
-        lease: leaseFixture,
-        sourceExecutionId: 'execution-1',
-        sourceReviewRevisionHash: hash('revision'),
-        signal: new AbortController().signal,
-      });
+      let failure: unknown;
+      try {
+        await adapter.execute({
+          invocation,
+          manifest: manifestFixture,
+          lease: leaseFixture,
+          sourceExecutionId: 'execution-1',
+          sourceReviewRevisionHash: hash('revision'),
+          signal: new AbortController().signal,
+        });
+      } catch (error) {
+        failure = error;
+      }
 
+      expect(failure).toBeInstanceOf(RetryableReviewContextInspectionFailure);
+      if (!(failure instanceof RetryableReviewContextInspectionFailure)) {
+        throw failure;
+      }
+      const observation = failure.currentRevisionObservation;
+      expect(failure.reason).toBe(
+        ReviewContextInspectionFailureReason.GatewayOutputUnavailable
+      );
       expect(observation.qualityFlags).toEqual(expectedQualityFlags);
       expect(observation.contextDependencyAttestationId).toBeUndefined();
       expect(observation.contextDependencyAttestationHash).toBeUndefined();
@@ -499,7 +512,7 @@ describe('Codex T0 prepared invocation', () => {
     }
   );
 
-  it('logs protocol-safe local seal parse failures before falling back to non-reusable evidence', async () => {
+  it('returns a retryable failure for a protocol-invalid local seal', async () => {
     const planningPrepared = preparedInvocation('planning prompt');
     const runtimePrepared = preparedInvocation('runtime prompt');
     const provider = {
@@ -562,16 +575,24 @@ describe('Codex T0 prepared invocation', () => {
         workSlot: assignment.workSlot,
         attemptOrdinal: 1,
       });
-      const observation = await adapter.execute({
-        invocation,
-        manifest: manifestFixture,
-        lease: leaseFixture,
-        sourceExecutionId: 'execution-1',
-        sourceReviewRevisionHash: hash('revision'),
-        signal: new AbortController().signal,
-      });
-
-      expect(observation.qualityFlags).toEqual([
+      let failure: unknown;
+      try {
+        await adapter.execute({
+          invocation,
+          manifest: manifestFixture,
+          lease: leaseFixture,
+          sourceExecutionId: 'execution-1',
+          sourceReviewRevisionHash: hash('revision'),
+          signal: new AbortController().signal,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(RetryableReviewContextInspectionFailure);
+      if (!(failure instanceof RetryableReviewContextInspectionFailure)) {
+        throw failure;
+      }
+      expect(failure.currentRevisionObservation.qualityFlags).toEqual([
         'context_attestation_unavailable',
         'cross_revision_reuse_disabled',
       ]);
@@ -585,7 +606,7 @@ describe('Codex T0 prepared invocation', () => {
     }
   });
 
-  it('logs protocol-safe context gateway seal failures before falling back to non-reusable evidence', async () => {
+  it('returns a retryable failure when context gateway sealing fails', async () => {
     const planningPrepared = preparedInvocation('planning prompt');
     const runtimePrepared = preparedInvocation('runtime prompt');
     const provider = {
@@ -646,16 +667,24 @@ describe('Codex T0 prepared invocation', () => {
         workSlot: assignment.workSlot,
         attemptOrdinal: 1,
       });
-      const observation = await adapter.execute({
-        invocation,
-        manifest: manifestFixture,
-        lease: leaseFixture,
-        sourceExecutionId: 'execution-1',
-        sourceReviewRevisionHash: hash('revision'),
-        signal: new AbortController().signal,
-      });
-
-      expect(observation.qualityFlags).toEqual([
+      let failure: unknown;
+      try {
+        await adapter.execute({
+          invocation,
+          manifest: manifestFixture,
+          lease: leaseFixture,
+          sourceExecutionId: 'execution-1',
+          sourceReviewRevisionHash: hash('revision'),
+          signal: new AbortController().signal,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(RetryableReviewContextInspectionFailure);
+      if (!(failure instanceof RetryableReviewContextInspectionFailure)) {
+        throw failure;
+      }
+      expect(failure.currentRevisionObservation.qualityFlags).toEqual([
         'context_attestation_unavailable',
         'cross_revision_reuse_disabled',
       ]);

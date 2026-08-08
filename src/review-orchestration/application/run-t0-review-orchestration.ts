@@ -431,8 +431,7 @@ export class RunT0ReviewOrchestration {
         this.dependencies.clock
       );
       if (
-        publicationRenewal.validForMsAtResponse <
-        publicationRequiredValidityMs
+        publicationRenewal.validForMsAtResponse < publicationRequiredValidityMs
       ) {
         throw new Error(
           'review_orchestration_publication_authorization_window_insufficient'
@@ -961,7 +960,8 @@ export class RunT0ReviewOrchestration {
         }
         if (
           error instanceof RetryableReviewContextInspectionFailure &&
-          attemptOrdinal === input.workSlot.attemptBudget
+          attemptOrdinal === input.workSlot.attemptBudget &&
+          invocation.manifestFacts.executionProfile !== 'context_gateway_v1'
         ) {
           observationPayload = error.currentRevisionObservation;
         } else {
@@ -1004,6 +1004,10 @@ export class RunT0ReviewOrchestration {
         }
       }
       try {
+        assertRequiredContextAttestation(
+          invocation.manifestFacts.executionProfile,
+          observationPayload
+        );
         validateObservationAgainstLimits(
           observationPayload,
           input.authorization.limits
@@ -1782,6 +1786,19 @@ function validatePlanAgainstLimits(
     ) {
       throw new Error('review_orchestration_attempt_limit_exceeded');
     }
+  }
+}
+
+function assertRequiredContextAttestation(
+  executionProfile: PreparedReviewInvocation['manifestFacts']['executionProfile'],
+  observation: ReviewObservationPayload
+): void {
+  if (executionProfile !== 'context_gateway_v1') return;
+  if (
+    !observation.contextDependencyAttestationId ||
+    !observation.contextDependencyAttestationHash
+  ) {
+    throw new Error('review_context_gateway_attestation_required');
   }
 }
 
