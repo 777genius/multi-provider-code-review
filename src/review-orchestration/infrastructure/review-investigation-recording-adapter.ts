@@ -113,7 +113,7 @@ export const REVIEW_INVESTIGATION_PRODUCTION_POLICY: ReviewInvestigationPolicy =
 export const REVIEW_INVESTIGATION_COVERAGE_PROFILE = Object.freeze({
   coverageContractVersion: 'review-investigation-coverage.v1',
   criticPolicyVersion: REVIEW_INVESTIGATION_CRITIC_POLICY_V1,
-  expansionRulesVersion: 'review-investigation-expansion.v2',
+  expansionRulesVersion: 'review-investigation-expansion.v3',
   gatewayPolicyVersion: 'context-gateway-v4',
   probePolicyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
   runtimeProfileVersion: 'gateway-attested-agent.v1',
