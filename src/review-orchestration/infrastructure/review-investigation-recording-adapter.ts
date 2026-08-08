@@ -454,6 +454,7 @@ function investigationPrompt(
     'Each obligation proposal must contain exactly kind, canonicalSubject, canonicalRequirement, and riskPriority. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.',
     'Obligation proposals are non-authoritative and remain open until the control plane validates and independently closes them with accepted evidence.',
     'Do not close an obligation without complete operation receipt evidence.',
+    'Set criticDecision to null during discovery turns. During critic turns, set it to exactly accept, veto, or abstain.',
     `REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:${encodedBrief}`,
   ].join('\n');
 }

@@ -205,6 +205,9 @@ describe('ReviewInvestigationRecordingAdapter', () => {
         'exactly kind, canonicalSubject, canonicalRequirement, and riskPriority'
       );
       expect(prompt).toContain('never provide an obligation ID');
+      expect(prompt).toContain(
+        'Set criticDecision to null during discovery turns'
+      );
       return {
         status: ReviewInvestigationRunStatus.Completed,
         snapshot: terminalSnapshot(terminalJson),
