@@ -220,6 +220,7 @@ export enum ReviewInvestigationControlPlaneFailureClass {
   Conflict = 'conflict',
   StalePrecondition = 'stale_precondition',
   CapabilityDisabled = 'capability_disabled',
+  ProviderOutputInvalid = 'provider_output_invalid',
   Rejected = 'rejected',
   Unavailable = 'unavailable',
   InvalidResponse = 'invalid_response',

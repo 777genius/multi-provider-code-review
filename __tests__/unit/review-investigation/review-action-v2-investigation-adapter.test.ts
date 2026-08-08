@@ -1,5 +1,6 @@
 import {
   ReviewActionV2OperationId,
+  ReviewActionV2ProtocolErrorCode,
   ReviewContextReceiptReplayCommitResultStatus,
   ReviewInvestigationMutationResultStatus,
   ReviewInvestigationNextAction,
@@ -9,6 +10,14 @@ import {
   ReviewInvestigationRestoreResultStatus,
   ReviewInvestigationReplayPrepareResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
+import {
+  ReviewActionV2ClientError,
+  ReviewActionV2ClientFailureCode,
+} from '../../../src/control-plane/review-action-v2-client';
+import {
+  ReviewInvestigationControlPlaneError,
+  ReviewInvestigationControlPlaneFailureClass,
+} from '../../../src/review-investigation/application/investigation-control-plane-port';
 import { ReviewActionV2InvestigationAdapter } from '../../../src/review-investigation/infrastructure/review-action-v2-investigation-adapter';
 import {
   canonicalJson,
@@ -447,6 +456,107 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
       ],
     });
   });
+
+  it.each([
+    [
+      'provider discovery evidence',
+      ['investigation_operation_backed_discovery_invalid'],
+      ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid,
+    ],
+    [
+      'provider discovery evidence limit',
+      ['investigation_operation_backed_discovery_limit_exceeded'],
+      ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid,
+    ],
+    [
+      'an unrelated server invariant',
+      ['investigation_internal_state_invalid'],
+      ReviewInvestigationControlPlaneFailureClass.Rejected,
+    ],
+    [
+      'mixed provider and server invariants',
+      [
+        'investigation_operation_backed_discovery_invalid',
+        'investigation_internal_state_invalid',
+      ],
+      ReviewInvestigationControlPlaneFailureClass.Rejected,
+    ],
+  ])(
+    'classifies %s without weakening other invariant failures',
+    async (_, issues, expectedFailureClass) => {
+      const brief = canonicalJson({
+        briefVersion: 1,
+        investigationId: 'investigation-1',
+        investigationVersion: 2,
+        dossierDigest: digest('d'),
+        turnId: 'turn-1',
+        purpose: ReviewTurnPurpose.Discovery,
+        maximumSemanticRiskPriority: 100,
+        obligations: [
+          {
+            obligationId: digest('b'),
+            kind: ReviewTurnObligationKind.ChangedContent,
+            canonicalSubject: 'src/review.ts',
+            canonicalRequirement: 'inspect complete changed content',
+            riskPriority: 100,
+            origin: 'coverage_contract',
+          },
+        ],
+      });
+      const client = {
+        execute: jest
+          .fn()
+          .mockResolvedValueOnce(
+            planResult({
+              turnBriefCanonicalJson: brief,
+              turnBriefHash: sha256(brief),
+            })
+          )
+          .mockRejectedValueOnce(
+            new ReviewActionV2ClientError(
+              ReviewActionV2ClientFailureCode.ProtocolError,
+              ReviewActionV2OperationId.ReviewInvestigationTurnCommit,
+              {
+                httpStatus: 422,
+                protocolErrorCode:
+                  ReviewActionV2ProtocolErrorCode.InvariantViolation,
+                issues,
+              }
+            )
+          ),
+      };
+      const adapter = new ReviewActionV2InvestigationAdapter(client as never);
+      const planned = await adapter.planTurn({
+        authorizationToken: 'authorization-token',
+        snapshot: unplannedSnapshot(),
+        leaseDurationMs: 60_000,
+        maxObligationsForTurn: 4,
+        turnBudget: { maxTokens: 10_000 },
+      });
+
+      const committed = adapter.commitTurn({
+        authorizationToken: 'authorization-token',
+        snapshot: planned,
+        lease: {
+          leaseId: 'lease-1',
+          attemptId: 'attempt-1',
+          leaseCapability: 'lease.capability.value',
+          fencingToken: '1',
+          expiresAt: '2026-08-02T10:10:00.000Z',
+          resultReportUntil: '2026-08-02T10:20:00.000Z',
+        },
+        attestationId: 'attestation-1',
+        attestationHash: digest('e'),
+        observation: {} as never,
+      });
+
+      await expect(committed).rejects.toEqual(
+        expect.objectContaining<Partial<ReviewInvestigationControlPlaneError>>({
+          failureClass: expectedFailureClass,
+        })
+      );
+    }
+  );
 
   it('rejects a turn brief whose hash does not match', async () => {
     const brief = canonicalJson(null);

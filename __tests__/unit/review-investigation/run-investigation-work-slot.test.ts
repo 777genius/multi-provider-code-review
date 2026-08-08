@@ -517,6 +517,80 @@ describe('RunInvestigationWorkSlot', () => {
     expect(controlPlane.restore).toHaveBeenCalledTimes(1);
   });
 
+  it('aborts provider-invalid semantic output once without rerunning the provider', async () => {
+    const planned = plannedSnapshot();
+    const aborted = Object.freeze({
+      ...planned,
+      version: 3,
+      state: ReviewInvestigationState.AwaitingTurn,
+      turn: null,
+    });
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.commitTurn.mockRejectedValue(
+      new ReviewInvestigationControlPlaneError(
+        ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid,
+        'investigation_operation_backed_discovery_invalid'
+      )
+    );
+    controlPlane.abortTurn.mockImplementation(async (input) => {
+      expect(input.reason).toBe(
+        ReviewInvestigationAbortReason.SchemaInvalidOutput
+      );
+      controlPlane.current = aborted;
+      return aborted;
+    });
+    const agent = agentFixture(observation());
+
+    const result = await runnerFixture(controlPlane, agent).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.RecoveryRequired,
+      snapshot: aborted,
+    });
+    expect(agent.executeTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.commitTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.restore).not.toHaveBeenCalled();
+    expect(controlPlane.planTurn).not.toHaveBeenCalled();
+  });
+
+  it('preserves provider-invalid recovery when the abort response is lost', async () => {
+    const planned = plannedSnapshot();
+    const aborted = Object.freeze({
+      ...planned,
+      version: 3,
+      state: ReviewInvestigationState.AwaitingTurn,
+      turn: null,
+    });
+    const controlPlane = controlPlaneFixture(planned);
+    controlPlane.commitTurn.mockRejectedValue(
+      new ReviewInvestigationControlPlaneError(
+        ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid,
+        'investigation_operation_backed_discovery_invalid'
+      )
+    );
+    controlPlane.abortTurn.mockImplementation(async () => {
+      controlPlane.current = aborted;
+      throw new ReviewInvestigationControlPlaneError(
+        ReviewInvestigationControlPlaneFailureClass.AmbiguousOutcome,
+        'connection_closed_after_abort'
+      );
+    });
+    const agent = agentFixture(observation());
+
+    const result = await runnerFixture(controlPlane, agent).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.RecoveryRequired,
+      snapshot: aborted,
+    });
+    expect(agent.executeTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.commitTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.restore).toHaveBeenCalledTimes(1);
+    expect(controlPlane.planTurn).not.toHaveBeenCalled();
+  });
+
   it('fails closed on a commit conflict without attempting legacy recovery', async () => {
     const planned = plannedSnapshot();
     const controlPlane = controlPlaneFixture(planned);
