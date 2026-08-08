@@ -25,6 +25,7 @@ import { ContextGatewayLeaseAuthorityKind } from '../../../src/context-gateway/c
 import {
   ReviewContextInspectionFailureReason,
   type ReviewContextAttestationPort,
+  type ReviewInvocationLease,
 } from '../../../src/review-orchestration/application';
 import {
   ContextGatewayInvocationSessionFactory,
@@ -304,6 +305,33 @@ describe('ContextGatewayInvocationSessionFactory', () => {
       invocationLease: fixture.invocationLease,
       session: fixture.serverSession,
     });
+  });
+
+  it('abandons with the current invocation lease after capability renewal', async () => {
+    const currentLease: ReviewInvocationLease = Object.freeze({
+      leaseId: 'lease-1',
+      attemptId: 'attempt-1',
+      leaseCapability: 'renewed-lease-capability',
+      fencingToken: '4',
+      expiresAt: '2026-07-24T19:05:00.000Z',
+      resultReportUntil: '2026-07-24T19:10:00.000Z',
+      renewalCeilingReached: false,
+    });
+    const fixture = await openSessionFixture(
+      CONTEXT_GATEWAY_V4_POLICY_VERSION,
+      ContextGatewayLeaseAuthorityKind.StandardExecution,
+      () => currentLease
+    );
+
+    try {
+      await fixture.session.dispose();
+      expect(fixture.attestations.abandonGatewaySession).toHaveBeenCalledWith({
+        invocationLease: currentLease,
+        session: fixture.serverSession,
+      });
+    } finally {
+      await fixture.dispose();
+    }
   });
 
   it('rejects a tainted v4 transcript before contacting the control plane', async () => {
@@ -740,7 +768,8 @@ type SessionFixture = Awaited<ReturnType<typeof openSessionFixture>>;
 
 async function openSessionFixture(
   policyVersion: ContextGatewayPolicyVersion = CONTEXT_GATEWAY_POLICY_VERSION,
-  leaseAuthorityKind: ContextGatewayLeaseAuthorityKind = ContextGatewayLeaseAuthorityKind.StandardExecution
+  leaseAuthorityKind: ContextGatewayLeaseAuthorityKind = ContextGatewayLeaseAuthorityKind.StandardExecution,
+  currentInvocationLease?: () => ReviewInvocationLease
 ) {
   const checkoutRoot = await mkdtemp(
     path.join(os.tmpdir(), 'reviewrouter-gateway-session-test-')
@@ -798,6 +827,7 @@ async function openSessionFixture(
   };
   const session = await factory.open({
     invocationLease,
+    currentInvocationLease,
     leaseAuthorityKind,
     sourceExecutionId: 'execution-1',
     sourceWorkSlotId: 'slot-1',

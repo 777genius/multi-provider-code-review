@@ -99020,7 +99020,6 @@ var ContextGatewayInvocationSessionFactory = class {
     }
     return new ContextGatewayInvocationSession(
       this.attestations,
-      input.invocationLease,
       input.currentInvocationLease ?? (() => input.invocationLease),
       serverSession,
       providerConfig,
@@ -99101,9 +99100,8 @@ var ContextGatewayInvocationSessionFactory = class {
   }
 };
 var ContextGatewayInvocationSession = class {
-  constructor(attestations, openingInvocationLease, currentInvocationLease, serverSession, providerConfig, secret, transcriptPath, replayMaterialPath, directory) {
+  constructor(attestations, currentInvocationLease, serverSession, providerConfig, secret, transcriptPath, replayMaterialPath, directory) {
     this.attestations = attestations;
-    this.openingInvocationLease = openingInvocationLease;
     this.currentInvocationLease = currentInvocationLease;
     this.serverSession = serverSession;
     this.providerConfig = providerConfig;
@@ -99265,7 +99263,7 @@ var ContextGatewayInvocationSession = class {
     if (!this.serverTerminal) {
       try {
         await this.attestations.abandonGatewaySession({
-          invocationLease: this.openingInvocationLease,
+          invocationLease: this.currentInvocationLease(),
           session: this.serverSession
         });
         this.serverTerminal = true;

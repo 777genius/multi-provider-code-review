@@ -321,7 +321,6 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     }
     return new ContextGatewayInvocationSession(
       this.attestations,
-      input.invocationLease,
       input.currentInvocationLease ?? (() => input.invocationLease),
       serverSession,
       providerConfig,
@@ -432,7 +431,6 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
 
   constructor(
     private readonly attestations: ContextGatewayAttestationPort,
-    private readonly openingInvocationLease: ReviewInvocationLease,
     private readonly currentInvocationLease: () => ReviewInvocationLease,
     private readonly serverSession: Awaited<
       ReturnType<ContextGatewayAttestationPort['openGatewaySession']>
@@ -622,7 +620,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     if (!this.serverTerminal) {
       try {
         await this.attestations.abandonGatewaySession({
-          invocationLease: this.openingInvocationLease,
+          invocationLease: this.currentInvocationLease(),
           session: this.serverSession,
         });
         this.serverTerminal = true;
