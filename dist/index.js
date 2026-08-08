@@ -94619,6 +94619,14 @@ var RunInvestigationTurn = class {
         });
         return { status: "committed" /* Committed */, snapshot };
       } catch (error2) {
+        if (error2 instanceof ReviewInvestigationControlPlaneError && error2.failureClass === "provider_output_invalid" /* ProviderOutputInvalid */) {
+          return this.abort(
+            input,
+            "schema_invalid_output" /* SchemaInvalidOutput */,
+            null,
+            "recovery_required" /* RecoveryRequired */
+          );
+        }
         return this.reconcileAmbiguous(input, error2);
       }
     } finally {
@@ -94690,10 +94698,10 @@ var RunInvestigationTurn = class {
       });
       return { status, snapshot };
     } catch (error2) {
-      return this.reconcileAmbiguous(input, error2);
+      return this.reconcileAmbiguous(input, error2, status);
     }
   }
-  async reconcileAmbiguous(input, error2) {
+  async reconcileAmbiguous(input, error2, acceptedStatus = "committed" /* Committed */) {
     if (!(error2 instanceof ReviewInvestigationControlPlaneError)) {
       throw error2;
     }
@@ -94709,7 +94717,7 @@ var RunInvestigationTurn = class {
     if (restored === null) throw error2;
     const accepted = restored.version > input.snapshot.version && restored.turn?.turnId !== input.snapshot.turn?.turnId;
     return {
-      status: accepted ? "committed" /* Committed */ : "recovery_required" /* RecoveryRequired */,
+      status: accepted ? acceptedStatus : "recovery_required" /* RecoveryRequired */,
       snapshot: restored
     };
   }
@@ -108453,12 +108461,22 @@ function transportError(error2, operationId, mutation) {
       error2.message
     );
   }
+  if (operationId === "review_investigation_turn_commit" /* ReviewInvestigationTurnCommit */ && error2.protocolErrorCode === "invariant_violation" /* InvariantViolation */ && error2.issues !== void 0 && error2.issues.length > 0 && error2.issues.every((issue) => providerOutputInvariantViolations.has(issue))) {
+    return new ReviewInvestigationControlPlaneError(
+      "provider_output_invalid" /* ProviderOutputInvalid */,
+      error2.message
+    );
+  }
   const ambiguous = mutation && (error2.protocolErrorCode === "ambiguous_outcome" /* AmbiguousOutcome */ || error2.code === "network_failure" /* NetworkFailure */ || error2.code === "request_timed_out" /* RequestTimedOut */ || error2.code === "invalid_response" /* InvalidResponse */);
   return new ReviewInvestigationControlPlaneError(
     ambiguous ? "ambiguous_outcome" /* AmbiguousOutcome */ : "rejected" /* Rejected */,
     error2.message
   );
 }
+var providerOutputInvariantViolations = /* @__PURE__ */ new Set([
+  "investigation_operation_backed_discovery_invalid",
+  "investigation_operation_backed_discovery_limit_exceeded"
+]);
 function statusError(status) {
   return new ReviewInvestigationControlPlaneError(
     status === "conflict" ? "conflict" /* Conflict */ : "rejected" /* Rejected */,
@@ -109319,7 +109337,9 @@ function investigationPrompt(reviewPrompt, snapshot) {
     "REVIEW INVESTIGATION TURN CONTRACT:",
     "Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.",
     'For typed search requirements, execute the exact literal query with paths=["."], revision="head", caseSensitive=true, and pageSize=500, then follow every cursor to completion.',
-    "During discovery turns, attach every complete typed search chain, plus every additional complete exploratory text-search chain, to operationBackedDiscoveryClaims with its sourceObligationId, exact query, and every operationReceiptId from the chain.",
+    "For a typed complete_page_chain obligation, put its complete receipt chain in closureClaims only. The control plane derives its discovery evidence; do not duplicate that chain in operationBackedDiscoveryClaims.",
+    "During discovery turns, use operationBackedDiscoveryClaims only for additional exploratory text-search chains. Bind each chain to the coverage_contract changed_content obligation that directly motivated the search, copy the exact query passed to the tool, and include every operationReceiptId from the chain.",
+    "Never bind an exploratory search to a deterministic_expansion obligation. If no changed_content source directly motivated it, omit the advisory discovery claim and leave related obligations open.",
     "When inspected evidence reveals additional review scope, add a provider-neutral obligationProposals entry instead of silently broadening an existing obligation.",
     "Each obligation proposal must contain exactly kind, canonicalSubject, canonicalRequirement, and riskPriority. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.",
     "Obligation proposals are non-authoritative and remain open until the control plane validates and independently closes them with accepted evidence.",

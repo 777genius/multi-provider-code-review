@@ -1215,6 +1215,19 @@ function transportError(
       error.message
     );
   }
+  if (
+    operationId === ReviewActionV2OperationId.ReviewInvestigationTurnCommit &&
+    error.protocolErrorCode ===
+      ReviewActionV2ProtocolErrorCode.InvariantViolation &&
+    error.issues !== undefined &&
+    error.issues.length > 0 &&
+    error.issues.every((issue) => providerOutputInvariantViolations.has(issue))
+  ) {
+    return new ReviewInvestigationControlPlaneError(
+      ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid,
+      error.message
+    );
+  }
   const ambiguous =
     mutation &&
     (error.protocolErrorCode ===
@@ -1229,6 +1242,11 @@ function transportError(
     error.message
   );
 }
+
+const providerOutputInvariantViolations = new Set([
+  'investigation_operation_backed_discovery_invalid',
+  'investigation_operation_backed_discovery_limit_exceeded',
+]);
 
 function statusError(status: string): ReviewInvestigationControlPlaneError {
   return new ReviewInvestigationControlPlaneError(

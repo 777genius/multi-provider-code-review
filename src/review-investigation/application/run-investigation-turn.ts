@@ -210,6 +210,18 @@ export class RunInvestigationTurn {
         });
         return { status: RunInvestigationTurnStatus.Committed, snapshot };
       } catch (error) {
+        if (
+          error instanceof ReviewInvestigationControlPlaneError &&
+          error.failureClass ===
+            ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid
+        ) {
+          return this.abort(
+            input,
+            ReviewInvestigationAbortReason.SchemaInvalidOutput,
+            null,
+            RunInvestigationTurnStatus.RecoveryRequired
+          );
+        }
         return this.reconcileAmbiguous(input, error);
       }
     } finally {
@@ -312,13 +324,14 @@ export class RunInvestigationTurn {
       });
       return { status, snapshot };
     } catch (error) {
-      return this.reconcileAmbiguous(input, error);
+      return this.reconcileAmbiguous(input, error, status);
     }
   }
 
   private async reconcileAmbiguous(
     input: Parameters<RunInvestigationTurn['execute']>[0],
-    error: unknown
+    error: unknown,
+    acceptedStatus = RunInvestigationTurnStatus.Committed
   ): Promise<RunInvestigationTurnResult> {
     if (!(error instanceof ReviewInvestigationControlPlaneError)) {
       throw error;
@@ -343,7 +356,7 @@ export class RunInvestigationTurn {
       restored.turn?.turnId !== input.snapshot.turn?.turnId;
     return {
       status: accepted
-        ? RunInvestigationTurnStatus.Committed
+        ? acceptedStatus
         : RunInvestigationTurnStatus.RecoveryRequired,
       snapshot: restored,
     };

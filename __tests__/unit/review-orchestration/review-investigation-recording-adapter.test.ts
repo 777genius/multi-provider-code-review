@@ -195,6 +195,11 @@ describe('ReviewInvestigationRecordingAdapter', () => {
         'REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:'
       );
       expect(prompt).toContain('operationBackedDiscoveryClaims');
+      expect(prompt).toContain('closureClaims only');
+      expect(prompt).toContain('coverage_contract changed_content obligation');
+      expect(prompt).toContain(
+        'Never bind an exploratory search to a deterministic_expansion obligation'
+      );
       expect(prompt).toContain('provider-neutral obligationProposals entry');
       expect(prompt).toContain(
         'exactly kind, canonicalSubject, canonicalRequirement, and riskPriority'
