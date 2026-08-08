@@ -58,6 +58,7 @@ type ParsedTurnError = Readonly<{
 }>;
 
 const OPTED_OUT_NOTIFICATIONS = Object.freeze([
+  'configWarning',
   'thread/status/changed',
   'thread/settings/updated',
   'thread/name/updated',
@@ -430,6 +431,9 @@ export class CodexAppServerProtocolClient {
         return;
       case 'model/safetyBuffering/updated':
         this.onModelSafetyBufferingUpdated(params);
+        return;
+      case 'configWarning':
+        this.onConfigWarning(params);
         return;
       case 'warning':
         this.onWarning(params);
@@ -979,6 +983,24 @@ export class CodexAppServerProtocolClient {
     }
   }
 
+  private onConfigWarning(params: Record<string, unknown>): void {
+    if (
+      !hasRequiredAndOptionalKeys(
+        params,
+        ['summary'],
+        ['details', 'path', 'range']
+      )
+    ) {
+      throw streamFailure();
+    }
+    requireBoundedMetadataString(params.summary, false);
+    requireNullableBoundedMetadataString(params.details);
+    requireNullableBoundedMetadataString(params.path);
+    if (params.range !== undefined && params.range !== null) {
+      validateConfigWarningRange(params.range);
+    }
+  }
+
   private assertThreadId(threadId: string): void {
     const expected = this.threadId ?? this.provisionalThreadId;
     if (expected !== null && expected !== threadId) throw streamFailure();
@@ -1303,6 +1325,49 @@ function requireNonEmptyString(value: unknown, _field: string): string {
   return value;
 }
 
+function requireBoundedMetadataString(
+  value: unknown,
+  allowEmpty: boolean
+): string {
+  if (
+    typeof value !== 'string' ||
+    (!allowEmpty && value.length === 0) ||
+    Buffer.byteLength(value, 'utf8') > MAX_METADATA_STRING_BYTES
+  ) {
+    throw streamFailure();
+  }
+  return value;
+}
+
+function requireNullableBoundedMetadataString(value: unknown): void {
+  if (value === undefined || value === null) return;
+  requireBoundedMetadataString(value, true);
+}
+
+function validateConfigWarningRange(value: unknown): void {
+  const range = requireRecord(value, 'config_warning_range');
+  if (!hasOnlyKeys(range, ['end', 'start'])) throw streamFailure();
+  for (const key of ['start', 'end'] as const) {
+    const position = requireRecord(range[key], 'config_warning_position');
+    if (
+      !hasOnlyKeys(position, ['column', 'line']) ||
+      !isUnsignedInteger(position.line) ||
+      !isUnsignedInteger(position.column)
+    ) {
+      throw streamFailure();
+    }
+  }
+}
+
+function isUnsignedInteger(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 0xffff_ffff
+  );
+}
+
 function containsControlCharacter(value: string): boolean {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
@@ -1484,6 +1549,7 @@ function safeJson(value: unknown): string {
 
 enum CodexProtocolDiagnosticStage {
   Completion = 'completion',
+  ConfigWarning = 'config_warning',
   Envelope = 'envelope',
   Error = 'error',
   IgnoredNotification = 'ignored_notification',
@@ -1548,6 +1614,8 @@ function notificationDiagnosticStage(
       return CodexProtocolDiagnosticStage.ModerationMetadata;
     case 'model/safetyBuffering/updated':
       return CodexProtocolDiagnosticStage.ModelSafety;
+    case 'configWarning':
+      return CodexProtocolDiagnosticStage.ConfigWarning;
     case 'warning':
       return CodexProtocolDiagnosticStage.Warning;
     case 'error':

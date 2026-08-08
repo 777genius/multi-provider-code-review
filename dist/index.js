@@ -105707,6 +105707,7 @@ var import_path5 = __toESM(require("path"));
 var CODEX_APP_SERVER_VERSION = "0.145.0";
 var CODEX_APP_SERVER_MCP_NAME = "reviewrouter";
 var OPTED_OUT_NOTIFICATIONS = Object.freeze([
+  "configWarning",
   "thread/status/changed",
   "thread/settings/updated",
   "thread/name/updated",
@@ -106037,6 +106038,9 @@ var CodexAppServerProtocolClient = class {
         return;
       case "model/safetyBuffering/updated":
         this.onModelSafetyBufferingUpdated(params);
+        return;
+      case "configWarning":
+        this.onConfigWarning(params);
         return;
       case "warning":
         this.onWarning(params);
@@ -106426,6 +106430,21 @@ var CodexAppServerProtocolClient = class {
       throw streamFailure2();
     }
   }
+  onConfigWarning(params) {
+    if (!hasRequiredAndOptionalKeys(
+      params,
+      ["summary"],
+      ["details", "path", "range"]
+    )) {
+      throw streamFailure2();
+    }
+    requireBoundedMetadataString(params.summary, false);
+    requireNullableBoundedMetadataString(params.details);
+    requireNullableBoundedMetadataString(params.path);
+    if (params.range !== void 0 && params.range !== null) {
+      validateConfigWarningRange(params.range);
+    }
+  }
   assertThreadId(threadId) {
     const expected = this.threadId ?? this.provisionalThreadId;
     if (expected !== null && expected !== threadId) throw streamFailure2();
@@ -106654,6 +106673,29 @@ function requireNonEmptyString(value, _field) {
   }
   return value;
 }
+function requireBoundedMetadataString(value, allowEmpty) {
+  if (typeof value !== "string" || !allowEmpty && value.length === 0 || Buffer.byteLength(value, "utf8") > MAX_METADATA_STRING_BYTES) {
+    throw streamFailure2();
+  }
+  return value;
+}
+function requireNullableBoundedMetadataString(value) {
+  if (value === void 0 || value === null) return;
+  requireBoundedMetadataString(value, true);
+}
+function validateConfigWarningRange(value) {
+  const range2 = requireRecord2(value, "config_warning_range");
+  if (!hasOnlyKeys(range2, ["end", "start"])) throw streamFailure2();
+  for (const key of ["start", "end"]) {
+    const position = requireRecord2(range2[key], "config_warning_position");
+    if (!hasOnlyKeys(position, ["column", "line"]) || !isUnsignedInteger(position.line) || !isUnsignedInteger(position.column)) {
+      throw streamFailure2();
+    }
+  }
+}
+function isUnsignedInteger(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 4294967295;
+}
 function containsControlCharacter(value) {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
@@ -106811,6 +106853,8 @@ function notificationDiagnosticStage(value) {
       return "moderation_metadata" /* ModerationMetadata */;
     case "model/safetyBuffering/updated":
       return "model_safety" /* ModelSafety */;
+    case "configWarning":
+      return "config_warning" /* ConfigWarning */;
     case "warning":
       return "warning" /* Warning */;
     case "error":
