@@ -101,6 +101,7 @@ const SAFE_AGENT_ERROR_CODES = new Set([
   'review_agent_runtime_environment_invalid',
   'review_agent_startup_failure',
   'review_agent_turn_request_invalid',
+  'review_agent_turn_obligation_claim_invalid',
   'review_agent_usage_attribution_missing',
   'review_agent_workspace_authority_mismatch',
 ]);
@@ -184,7 +185,8 @@ export abstract class StrictCliReviewAgent implements ReviewAgentPort {
       request.timeoutMs < 1 ||
       !Number.isSafeInteger(request.maxTurns) ||
       request.maxTurns < 1 ||
-      request.maxTurns > this.profile.maxTurns
+      request.maxTurns > this.profile.maxTurns ||
+      !validAllowedObligationIds(request.allowedObligationIds)
     ) {
       throw new ReviewAgentExecutionError(
         ReviewAgentFailureClass.CapabilityUnavailable,
@@ -275,6 +277,7 @@ export abstract class StrictCliReviewAgent implements ReviewAgentPort {
     parsed: ParsedProviderTurn,
     durationMs: number
   ): ReviewTurnObservation {
+    assertTurnObligationClaimsAllowed(request, parsed.output);
     if (
       (request.purpose === ReviewTurnPurpose.Discovery &&
         parsed.output.criticDecision !== null) ||
@@ -303,6 +306,39 @@ export abstract class StrictCliReviewAgent implements ReviewAgentPort {
       contextAttestationReference: null,
       ...parsed.output,
     });
+  }
+}
+
+function validAllowedObligationIds(ids: readonly string[]): boolean {
+  return (
+    Array.isArray(ids) &&
+    ids.length <= 256 &&
+    new Set(ids).size === ids.length &&
+    ids.every((id) => /^[a-f0-9]{64}$/u.test(id))
+  );
+}
+
+function assertTurnObligationClaimsAllowed(
+  request: ReviewTurnRequest,
+  output: ReviewAgentTurnOutput
+): void {
+  const allowed = new Set(request.allowedObligationIds);
+  const closureIds = output.closureClaims.map((claim) => claim.obligationId);
+  const unresolvableIds = output.unresolvableClaims.map(
+    (claim) => claim.obligationId
+  );
+  const invalid =
+    closureIds.some((id) => !allowed.has(id)) ||
+    unresolvableIds.some((id) => !allowed.has(id)) ||
+    new Set(closureIds).size !== closureIds.length ||
+    new Set(unresolvableIds).size !== unresolvableIds.length ||
+    closureIds.some((id) => unresolvableIds.includes(id));
+  if (invalid) {
+    throw new ReviewAgentExecutionError(
+      ReviewAgentFailureClass.SchemaInvalidOutput,
+      null,
+      'review_agent_turn_obligation_claim_invalid'
+    );
   }
 }
 

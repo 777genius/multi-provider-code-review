@@ -138,14 +138,22 @@ export type ReviewTurnObservation = ReviewAgentTurnOutput &
     contextAttestationReference: string | null;
   }>;
 
-export function buildReviewAgentTurnOutputSchema(): Readonly<
-  Record<string, unknown>
-> {
+export function buildReviewAgentTurnOutputSchema(
+  allowedObligationIds?: readonly string[]
+): Readonly<Record<string, unknown>> {
   const receiptIds = {
     type: 'array',
     maxItems: MAX_COLLECTION_ITEMS,
     items: { type: 'string', pattern: '^[a-f0-9]{64}$' },
   };
+  const obligationClaimId =
+    allowedObligationIds === undefined || allowedObligationIds.length === 0
+      ? { type: 'string', pattern: '^[a-f0-9]{64}$' }
+      : { type: 'string', enum: [...allowedObligationIds] };
+  const obligationClaimMaxItems =
+    allowedObligationIds === undefined
+      ? MAX_COLLECTION_ITEMS
+      : Math.min(MAX_COLLECTION_ITEMS, allowedObligationIds.length);
   return Object.freeze({
     type: 'object',
     additionalProperties: false,
@@ -233,13 +241,13 @@ export function buildReviewAgentTurnOutputSchema(): Readonly<
       },
       closureClaims: {
         type: 'array',
-        maxItems: MAX_COLLECTION_ITEMS,
+        maxItems: obligationClaimMaxItems,
         items: {
           type: 'object',
           additionalProperties: false,
           required: ['obligationId', 'operationReceiptIds'],
           properties: {
-            obligationId: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+            obligationId: obligationClaimId,
             operationReceiptIds: { ...receiptIds, minItems: 1 },
           },
         },
@@ -263,13 +271,13 @@ export function buildReviewAgentTurnOutputSchema(): Readonly<
       },
       unresolvableClaims: {
         type: 'array',
-        maxItems: MAX_COLLECTION_ITEMS,
+        maxItems: obligationClaimMaxItems,
         items: {
           type: 'object',
           additionalProperties: false,
           required: ['obligationId', 'reason', 'evidenceOperationReceiptIds'],
           properties: {
-            obligationId: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+            obligationId: obligationClaimId,
             reason: { type: 'string', minLength: 1, maxLength: 2_000 },
             evidenceOperationReceiptIds: receiptIds,
           },

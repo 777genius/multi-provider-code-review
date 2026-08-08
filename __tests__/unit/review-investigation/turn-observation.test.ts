@@ -76,6 +76,62 @@ describe('review agent turn observation v2', () => {
     });
   });
 
+  it('restricts turn obligation claims to authenticated active-turn ids', () => {
+    const allowed = [digest('a'), digest('b')];
+    const schema = buildReviewAgentTurnOutputSchema(allowed) as {
+      properties: Record<
+        string,
+        {
+          maxItems?: number;
+          items?: {
+            properties?: Record<string, { enum?: readonly string[] }>;
+          };
+        }
+      >;
+    };
+
+    for (const claim of ['closureClaims', 'unresolvableClaims']) {
+      expect(schema.properties[claim]).toMatchObject({
+        maxItems: 2,
+        items: {
+          properties: {
+            obligationId: { type: 'string', enum: allowed },
+          },
+        },
+      });
+    }
+    expect(schema.properties.operationBackedDiscoveryClaims).toMatchObject({
+      maxItems: 256,
+      items: {
+        properties: {
+          sourceObligationId: {
+            type: 'string',
+            pattern: '^[a-f0-9]{64}$',
+          },
+        },
+      },
+    });
+  });
+
+  it('requires empty claim arrays for a critic turn without obligations', () => {
+    const schema = buildReviewAgentTurnOutputSchema([]) as {
+      properties: Record<
+        string,
+        {
+          maxItems?: number;
+          items?: { properties?: Record<string, Record<string, unknown>> };
+        }
+      >;
+    };
+
+    for (const claim of ['closureClaims', 'unresolvableClaims']) {
+      expect(schema.properties[claim].maxItems).toBe(0);
+      expect(
+        schema.properties[claim].items?.properties?.obligationId
+      ).not.toHaveProperty('enum');
+    }
+  });
+
   it('types every const and enum node for strict provider compatibility', () => {
     const schema = buildReviewAgentTurnOutputSchema();
     const typedValueNodes: Array<{

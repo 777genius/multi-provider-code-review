@@ -214,13 +214,19 @@ describe('RunInvestigationWorkSlot', () => {
       renew: jest.fn(async ({ lease: current }) => current),
       release: jest.fn(async () => undefined),
     };
-    const runner = runnerFixture(controlPlane, agentFixture(observation()), {
+    const agent = agentFixture(observation());
+    const runner = runnerFixture(controlPlane, agent, {
       leases,
     });
 
     const result = await runner.execute(runInput());
 
     expect(result.status).toBe(ReviewInvestigationRunStatus.Completed);
+    expect(agent.executeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowedObligationIds: Object.freeze(['d'.repeat(64)]),
+      })
+    );
     expect(leases.acquire).toHaveBeenCalledWith(
       expect.objectContaining({
         authorizationToken: 'authorization.token.value',
@@ -748,6 +754,40 @@ describe('RunInvestigationWorkSlot', () => {
     expect(controlPlane.planTurn).not.toHaveBeenCalled();
   });
 
+  it('parks a missing turn brief without starting the provider', async () => {
+    const planned = plannedSnapshot();
+    const missingBrief = Object.freeze({
+      ...planned,
+      turn: Object.freeze({ ...planned.turn!, brief: null }),
+    });
+    const parked = Object.freeze({
+      ...missingBrief,
+      version: 3,
+      state: ReviewInvestigationState.AwaitingTurn,
+      nextAction: ReviewInvestigationNextAction.AwaitCapacity,
+      nextEligibleAt: '2026-08-02T10:01:00.000Z',
+      turn: null,
+    });
+    const controlPlane = controlPlaneFixture(missingBrief);
+    controlPlane.abortTurn.mockImplementation(async (input) => {
+      expect(input.reason).toBe(
+        ReviewInvestigationAbortReason.RetryableInfrastructureFailure
+      );
+      expect(input.nextEligibleAt).toBe('2026-08-02T10:01:00.000Z');
+      controlPlane.current = parked;
+      return parked;
+    });
+    const agent = agentFixture(observation());
+
+    const result = await runnerFixture(controlPlane, agent).execute(runInput());
+
+    expect(result.status).toBe(ReviewInvestigationRunStatus.Parked);
+    expect(agent.negotiate).not.toHaveBeenCalled();
+    expect(agent.executeTurn).not.toHaveBeenCalled();
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.planTurn).not.toHaveBeenCalled();
+  });
+
   it('parks authentication failures for the minimum capacity parking window', async () => {
     const planned = plannedSnapshot();
     const parked = Object.freeze({
@@ -1084,6 +1124,7 @@ describe('RunInvestigationWorkSlot', () => {
     });
     expect(claude.executeTurn).toHaveBeenCalledWith(
       expect.objectContaining({
+        allowedObligationIds: Object.freeze([]),
         requestedModel: 'claude-critic',
         executionSession: gateway.session.agentSession,
       })

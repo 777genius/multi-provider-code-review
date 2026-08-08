@@ -82,14 +82,16 @@ export class RunInvestigationTurn {
     readonly signal?: AbortSignal;
   }): Promise<RunInvestigationTurnResult> {
     const turn = requireActiveTurn(input.snapshot);
+    let brief: ReviewInvestigationTurnBrief;
     let selection: ReviewAgentSelection;
     try {
+      brief = requireTurnBrief(turn.brief);
       selection = this.dependencies.agents.resolve({
         primaryProviderKind: input.providerKind,
         primaryRequestedModel: input.requestedModel,
         executionAuthority: this.dependencies.gateway.executionAuthority,
         purpose: turn.purpose,
-        maximumSemanticRiskPriority: maximumSemanticRiskPriority(turn.brief),
+        maximumSemanticRiskPriority: brief.maximumSemanticRiskPriority,
       });
       requireAuthorizedSelection(
         selection,
@@ -145,6 +147,9 @@ export class RunInvestigationTurn {
           dossierVersion: input.snapshot.version,
           dossierDigest: input.snapshot.dossierDigest,
           purpose: turn.purpose,
+          allowedObligationIds: Object.freeze(
+            brief.obligations.map((obligation) => obligation.obligationId)
+          ),
           prompt: input.prompt,
           workspaceRoot: input.workingDirectory,
           requestedModel: selection.requestedModel,
@@ -439,9 +444,9 @@ async function disposePreservingSemanticOutcome(
   }
 }
 
-function maximumSemanticRiskPriority(
+function requireTurnBrief(
   brief: ReviewInvestigationTurnBrief | null
-): number {
+): ReviewInvestigationTurnBrief {
   if (brief === null) {
     throw new ReviewAgentExecutionError(
       ReviewAgentFailureClass.CapabilityUnavailable,
@@ -449,7 +454,7 @@ function maximumSemanticRiskPriority(
       'review_investigation_turn_brief_missing'
     );
   }
-  return brief.maximumSemanticRiskPriority;
+  return brief;
 }
 
 function requireAuthorizedSelection(

@@ -25955,12 +25955,14 @@ var ReviewTurnCriticDecision = /* @__PURE__ */ ((ReviewTurnCriticDecision2) => {
   ReviewTurnCriticDecision2["Abstain"] = "abstain";
   return ReviewTurnCriticDecision2;
 })(ReviewTurnCriticDecision || {});
-function buildReviewAgentTurnOutputSchema() {
+function buildReviewAgentTurnOutputSchema(allowedObligationIds) {
   const receiptIds = {
     type: "array",
     maxItems: MAX_COLLECTION_ITEMS,
     items: { type: "string", pattern: "^[a-f0-9]{64}$" }
   };
+  const obligationClaimId = allowedObligationIds === void 0 || allowedObligationIds.length === 0 ? { type: "string", pattern: "^[a-f0-9]{64}$" } : { type: "string", enum: [...allowedObligationIds] };
+  const obligationClaimMaxItems = allowedObligationIds === void 0 ? MAX_COLLECTION_ITEMS : Math.min(MAX_COLLECTION_ITEMS, allowedObligationIds.length);
   return Object.freeze({
     type: "object",
     additionalProperties: false,
@@ -26045,13 +26047,13 @@ function buildReviewAgentTurnOutputSchema() {
       },
       closureClaims: {
         type: "array",
-        maxItems: MAX_COLLECTION_ITEMS,
+        maxItems: obligationClaimMaxItems,
         items: {
           type: "object",
           additionalProperties: false,
           required: ["obligationId", "operationReceiptIds"],
           properties: {
-            obligationId: { type: "string", pattern: "^[a-f0-9]{64}$" },
+            obligationId: obligationClaimId,
             operationReceiptIds: { ...receiptIds, minItems: 1 }
           }
         }
@@ -26075,13 +26077,13 @@ function buildReviewAgentTurnOutputSchema() {
       },
       unresolvableClaims: {
         type: "array",
-        maxItems: MAX_COLLECTION_ITEMS,
+        maxItems: obligationClaimMaxItems,
         items: {
           type: "object",
           additionalProperties: false,
           required: ["obligationId", "reason", "evidenceOperationReceiptIds"],
           properties: {
-            obligationId: { type: "string", pattern: "^[a-f0-9]{64}$" },
+            obligationId: obligationClaimId,
             reason: { type: "string", minLength: 1, maxLength: 2e3 },
             evidenceOperationReceiptIds: receiptIds
           }
@@ -94506,14 +94508,16 @@ var RunInvestigationTurn = class {
   }
   async execute(input) {
     const turn = requireActiveTurn(input.snapshot);
+    let brief;
     let selection;
     try {
+      brief = requireTurnBrief(turn.brief);
       selection = this.dependencies.agents.resolve({
         primaryProviderKind: input.providerKind,
         primaryRequestedModel: input.requestedModel,
         executionAuthority: this.dependencies.gateway.executionAuthority,
         purpose: turn.purpose,
-        maximumSemanticRiskPriority: maximumSemanticRiskPriority(turn.brief)
+        maximumSemanticRiskPriority: brief.maximumSemanticRiskPriority
       });
       requireAuthorizedSelection(
         selection,
@@ -94568,6 +94572,9 @@ var RunInvestigationTurn = class {
           dossierVersion: input.snapshot.version,
           dossierDigest: input.snapshot.dossierDigest,
           purpose: turn.purpose,
+          allowedObligationIds: Object.freeze(
+            brief.obligations.map((obligation) => obligation.obligationId)
+          ),
           prompt: input.prompt,
           workspaceRoot: input.workingDirectory,
           requestedModel: selection.requestedModel,
@@ -94782,7 +94789,7 @@ async function disposePreservingSemanticOutcome(session, onFailure) {
     await onFailure(error2);
   }
 }
-function maximumSemanticRiskPriority(brief) {
+function requireTurnBrief(brief) {
   if (brief === null) {
     throw new ReviewAgentExecutionError(
       "capability_unavailable" /* CapabilityUnavailable */,
@@ -94790,7 +94797,7 @@ function maximumSemanticRiskPriority(brief) {
       "review_investigation_turn_brief_missing"
     );
   }
-  return brief.maximumSemanticRiskPriority;
+  return brief;
 }
 function requireAuthorizedSelection(selection, authority, purpose) {
   if (selection.providerKind === authority.providerKind && selection.requestedModel === authority.requestedModel) {
@@ -105426,6 +105433,7 @@ var SAFE_AGENT_ERROR_CODES = /* @__PURE__ */ new Set([
   "review_agent_runtime_environment_invalid",
   "review_agent_startup_failure",
   "review_agent_turn_request_invalid",
+  "review_agent_turn_obligation_claim_invalid",
   "review_agent_usage_attribution_missing",
   "review_agent_workspace_authority_mismatch"
 ]);
@@ -105475,7 +105483,7 @@ var StrictCliReviewAgent = class {
     }
   }
   validateRequest(request) {
-    if (!request.invocationId || !request.fencingToken || !request.turnId || !Number.isSafeInteger(request.dossierVersion) || request.dossierVersion < 0 || !/^[a-f0-9]{64}$/u.test(request.dossierDigest) || !request.prompt || Buffer.byteLength(request.prompt, "utf8") > this.profile.maxPromptBytes || !request.workspaceRoot || request.requestedModel.length < 1 || request.requestedModel.length > 200 || !Number.isSafeInteger(request.timeoutMs) || request.timeoutMs < 1 || !Number.isSafeInteger(request.maxTurns) || request.maxTurns < 1 || request.maxTurns > this.profile.maxTurns) {
+    if (!request.invocationId || !request.fencingToken || !request.turnId || !Number.isSafeInteger(request.dossierVersion) || request.dossierVersion < 0 || !/^[a-f0-9]{64}$/u.test(request.dossierDigest) || !request.prompt || Buffer.byteLength(request.prompt, "utf8") > this.profile.maxPromptBytes || !request.workspaceRoot || request.requestedModel.length < 1 || request.requestedModel.length > 200 || !Number.isSafeInteger(request.timeoutMs) || request.timeoutMs < 1 || !Number.isSafeInteger(request.maxTurns) || request.maxTurns < 1 || request.maxTurns > this.profile.maxTurns || !validAllowedObligationIds(request.allowedObligationIds)) {
       throw new ReviewAgentExecutionError(
         "capability_unavailable" /* CapabilityUnavailable */,
         null,
@@ -105542,6 +105550,7 @@ var StrictCliReviewAgent = class {
     return result2;
   }
   observation(request, parsed, durationMs) {
+    assertTurnObligationClaimsAllowed(request, parsed.output);
     if (request.purpose === "discovery" /* Discovery */ && parsed.output.criticDecision !== null || request.purpose === "critic" /* Critic */ && parsed.output.criticDecision === null) {
       throw new ReviewAgentExecutionError(
         "schema_invalid_output" /* SchemaInvalidOutput */,
@@ -105567,6 +105576,24 @@ var StrictCliReviewAgent = class {
     });
   }
 };
+function validAllowedObligationIds(ids) {
+  return Array.isArray(ids) && ids.length <= 256 && new Set(ids).size === ids.length && ids.every((id) => /^[a-f0-9]{64}$/u.test(id));
+}
+function assertTurnObligationClaimsAllowed(request, output) {
+  const allowed = new Set(request.allowedObligationIds);
+  const closureIds = output.closureClaims.map((claim) => claim.obligationId);
+  const unresolvableIds = output.unresolvableClaims.map(
+    (claim) => claim.obligationId
+  );
+  const invalid = closureIds.some((id) => !allowed.has(id)) || unresolvableIds.some((id) => !allowed.has(id)) || new Set(closureIds).size !== closureIds.length || new Set(unresolvableIds).size !== unresolvableIds.length || closureIds.some((id) => unresolvableIds.includes(id));
+  if (invalid) {
+    throw new ReviewAgentExecutionError(
+      "schema_invalid_output" /* SchemaInvalidOutput */,
+      null,
+      "review_agent_turn_obligation_claim_invalid"
+    );
+  }
+}
 function schemaFailure(error2) {
   return safeAgentError(
     error2,
@@ -107520,7 +107547,9 @@ var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
         clientTurnId: request.turnId,
         requestedModel: request.requestedModel,
         reasoningEffort,
-        outputSchema: buildReviewAgentTurnOutputSchema(),
+        outputSchema: buildReviewAgentTurnOutputSchema(
+          request.allowedObligationIds
+        ),
         allowedTools: execution.gateway.enabledTools,
         maxOutputBytes: this.profile.maxOutputBytes
       }
@@ -108481,6 +108510,7 @@ function transportError(error2, operationId, mutation) {
   );
 }
 var providerOutputInvariantViolations = /* @__PURE__ */ new Set([
+  "turn_obligation_claim_invalid",
   "investigation_operation_backed_discovery_invalid",
   "investigation_operation_backed_discovery_limit_exceeded"
 ]);

@@ -31,6 +31,7 @@ export type ReviewTurnRequest = Readonly<{
   dossierVersion: number;
   dossierDigest: string;
   purpose: ReviewTurnPurpose;
+  allowedObligationIds: readonly string[];
   prompt: string;
   workspaceRoot: string;
   requestedModel: string;
