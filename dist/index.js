@@ -55788,14 +55788,14 @@ var import_path2 = __toESM(require("path"));
 var manifest_default = {
   contractSourceVersion: 1,
   protocolVersion: "2",
-  schemaDigest: "5a5fddbdffe09960c0cdffb8157fde578c83cdcf38a41ef88831810e7dacf95d",
-  goldenFixtureDigest: "f52efd023a6f80a792bbf25e7d38a63eb61c8a3d5c1082a23fc0630bd97a62cd",
-  canonicalizerDigest: "8e682a9f20e128b1819f169f986ac59b8619011ae86d690e78ddbbfb2d60e27a",
+  schemaDigest: "996f7192c860f290a1db8f8c6133ab1d6a36bf946d825077e10f0b7c36daba27",
+  goldenFixtureDigest: "d3f9cbcc2598908070e87cd3e6b2ed8e15cc23e74ccfaf893ecfdac40b7f6f37",
+  canonicalizerDigest: "865b2cd347d1e5bade8aa921c3384b0c7cd388d275f535919ffb403286d66271",
   extensions: [
     {
       extensionId: "review-investigation-shadow.v1",
-      schemaDigest: "d0ef034badbb94584e017b29d4df44b4a264cf4a988649f9aa5dd6690ac12f34",
-      canonicalizerDigest: "271aa9428fd068efefda9797d259b96aa992b58e7a54064350ab7b204666331a",
+      schemaDigest: "8e33c5eb6c9b39a409f53df7910f00c4b025b13a4f718009c4b9e8c277be29f7",
+      canonicalizerDigest: "68e42878f54d20358ff9ce3806877a20bf9201b79e661e9e5cb53c4566d2e442",
       operationIds: [
         "review_investigation_open_v2",
         "review_investigation_lease_acquire",
@@ -57899,87 +57899,6 @@ var manifest_default = {
       ]
     },
     {
-      operationId: "review_context_gateway_abandon",
-      boundedContext: "review_context_attestation",
-      method: "POST",
-      path: "/api/action/v2/review-context/gateway/abandon",
-      callerAuthority: "lease_capability",
-      mutability: "command",
-      naturalIdempotencyPreimage: [
-        "session_id",
-        "attempt_id",
-        "source_lease_id",
-        "fencing_token"
-      ],
-      semanticRetryClass: "same_request",
-      transportAudience: "review_action_v2",
-      defaultTimeoutMs: 1e4,
-      bodyLimitBytes: 32768,
-      successStatuses: [200],
-      statusMapping: [
-        {
-          errorCode: "invalid_request",
-          retryClass: "never",
-          httpStatus: 400
-        },
-        {
-          errorCode: "invalid_authentication",
-          retryClass: "never",
-          httpStatus: 401
-        },
-        {
-          errorCode: "forbidden",
-          retryClass: "never",
-          httpStatus: 403
-        },
-        {
-          errorCode: "capability_disabled",
-          retryClass: "never",
-          httpStatus: 403
-        },
-        {
-          errorCode: "not_found",
-          retryClass: "never",
-          httpStatus: 404
-        },
-        {
-          errorCode: "idempotency_conflict",
-          retryClass: "never",
-          httpStatus: 409
-        },
-        {
-          errorCode: "resource_gone",
-          retryClass: "never",
-          httpStatus: 410
-        },
-        {
-          errorCode: "stale_precondition",
-          retryClass: "never",
-          httpStatus: 412
-        },
-        {
-          errorCode: "limit_exceeded",
-          retryClass: "never",
-          httpStatus: 413
-        },
-        {
-          errorCode: "invariant_violation",
-          retryClass: "never",
-          httpStatus: 422
-        },
-        {
-          errorCode: "capacity_limited",
-          retryClass: "same_request",
-          httpStatus: 429
-        },
-        {
-          errorCode: "ambiguous_outcome",
-          retryClass: "same_request",
-          httpStatus: 500
-        }
-      ]
-    },
-    {
       operationId: "review_investigation_context_gateway_open",
       boundedContext: "review_context_attestation",
       method: "POST",
@@ -58137,87 +58056,6 @@ var manifest_default = {
           errorCode: "invariant_violation",
           retryClass: "never",
           httpStatus: 422
-        },
-        {
-          errorCode: "ambiguous_outcome",
-          retryClass: "same_request",
-          httpStatus: 500
-        }
-      ]
-    },
-    {
-      operationId: "review_investigation_context_gateway_abandon",
-      boundedContext: "review_context_attestation",
-      method: "POST",
-      path: "/api/action/v2/review-investigations/context-gateway/abandon",
-      callerAuthority: "lease_capability",
-      mutability: "command",
-      naturalIdempotencyPreimage: [
-        "session_id",
-        "attempt_id",
-        "source_lease_id",
-        "fencing_token"
-      ],
-      semanticRetryClass: "same_request",
-      transportAudience: "review_action_v2",
-      defaultTimeoutMs: 1e4,
-      bodyLimitBytes: 32768,
-      successStatuses: [200],
-      statusMapping: [
-        {
-          errorCode: "invalid_request",
-          retryClass: "never",
-          httpStatus: 400
-        },
-        {
-          errorCode: "invalid_authentication",
-          retryClass: "never",
-          httpStatus: 401
-        },
-        {
-          errorCode: "forbidden",
-          retryClass: "never",
-          httpStatus: 403
-        },
-        {
-          errorCode: "capability_disabled",
-          retryClass: "never",
-          httpStatus: 403
-        },
-        {
-          errorCode: "not_found",
-          retryClass: "never",
-          httpStatus: 404
-        },
-        {
-          errorCode: "idempotency_conflict",
-          retryClass: "never",
-          httpStatus: 409
-        },
-        {
-          errorCode: "resource_gone",
-          retryClass: "never",
-          httpStatus: 410
-        },
-        {
-          errorCode: "stale_precondition",
-          retryClass: "never",
-          httpStatus: 412
-        },
-        {
-          errorCode: "limit_exceeded",
-          retryClass: "never",
-          httpStatus: 413
-        },
-        {
-          errorCode: "invariant_violation",
-          retryClass: "never",
-          httpStatus: 422
-        },
-        {
-          errorCode: "capacity_limited",
-          retryClass: "same_request",
-          httpStatus: 429
         },
         {
           errorCode: "ambiguous_outcome",
@@ -58772,12 +58610,12 @@ var manifest_default = {
 
 // src/control-plane/generated/review-action-v2/review-action-v2.ts
 var reviewActionV2PublishedProtocolVersion = "2";
-var reviewActionV2PublishedSchemaDigest = "5a5fddbdffe09960c0cdffb8157fde578c83cdcf38a41ef88831810e7dacf95d";
-var reviewActionV2CanonicalizerDigest = "8e682a9f20e128b1819f169f986ac59b8619011ae86d690e78ddbbfb2d60e27a";
+var reviewActionV2PublishedSchemaDigest = "996f7192c860f290a1db8f8c6133ab1d6a36bf946d825077e10f0b7c36daba27";
+var reviewActionV2CanonicalizerDigest = "865b2cd347d1e5bade8aa921c3384b0c7cd388d275f535919ffb403286d66271";
 var reviewInvestigationExtensionV1 = {
   extensionId: "review-investigation-shadow.v1",
-  schemaDigest: "d0ef034badbb94584e017b29d4df44b4a264cf4a988649f9aa5dd6690ac12f34",
-  canonicalizerDigest: "271aa9428fd068efefda9797d259b96aa992b58e7a54064350ab7b204666331a",
+  schemaDigest: "8e33c5eb6c9b39a409f53df7910f00c4b025b13a4f718009c4b9e8c277be29f7",
+  canonicalizerDigest: "68e42878f54d20358ff9ce3806877a20bf9201b79e661e9e5cb53c4566d2e442",
   operationIds: [
     "review_investigation_open_v2",
     "review_investigation_lease_acquire",
@@ -58785,8 +58623,7 @@ var reviewInvestigationExtensionV1 = {
     "review_investigation_lease_release",
     "review_investigation_replay_v2",
     "review_investigation_context_gateway_open",
-    "review_investigation_context_gateway_seal",
-    "review_investigation_context_gateway_abandon"
+    "review_investigation_context_gateway_seal"
   ]
 };
 var ReviewActionV2OperationId = /* @__PURE__ */ ((ReviewActionV2OperationId2) => {
@@ -58816,10 +58653,8 @@ var ReviewActionV2OperationId = /* @__PURE__ */ ((ReviewActionV2OperationId2) =>
   ReviewActionV2OperationId2["ReviewInvocationLeaseRelease"] = "review_invocation_lease_release";
   ReviewActionV2OperationId2["ReviewContextGatewayOpen"] = "review_context_gateway_open";
   ReviewActionV2OperationId2["ReviewContextGatewaySeal"] = "review_context_gateway_seal";
-  ReviewActionV2OperationId2["ReviewContextGatewayAbandon"] = "review_context_gateway_abandon";
   ReviewActionV2OperationId2["ReviewInvestigationContextGatewayOpen"] = "review_investigation_context_gateway_open";
   ReviewActionV2OperationId2["ReviewInvestigationContextGatewaySeal"] = "review_investigation_context_gateway_seal";
-  ReviewActionV2OperationId2["ReviewInvestigationContextGatewayAbandon"] = "review_investigation_context_gateway_abandon";
   ReviewActionV2OperationId2["ReviewEvidenceLookup"] = "review_evidence_lookup";
   ReviewActionV2OperationId2["ReviewContextReceiptReplayCommit"] = "review_context_receipt_replay_commit";
   ReviewActionV2OperationId2["ReviewContextReplayCommit"] = "review_context_replay_commit";
@@ -60942,66 +60777,6 @@ var reviewActionV2Operations = [
     resultStatuses: ["accepted", "idempotent", "denied", "conflict"]
   },
   {
-    operationId: "review_context_gateway_abandon",
-    boundedContext: "review_context_attestation",
-    method: "POST",
-    path: "/api/action/v2/review-context/gateway/abandon",
-    callerAuthority: "lease_capability" /* LeaseCapability */,
-    mutability: "command",
-    naturalIdempotencyPreimage: [
-      "session_id",
-      "attempt_id",
-      "source_lease_id",
-      "fencing_token"
-    ],
-    semanticRetryClass: "same_request",
-    transportAudience: "review_action_v2",
-    defaultTimeoutMs: 1e4,
-    bodyLimitBytes: 32768,
-    successStatuses: [200],
-    errorCodes: [
-      "invalid_request",
-      "invalid_authentication",
-      "forbidden",
-      "capability_disabled",
-      "not_found",
-      "idempotency_conflict",
-      "resource_gone",
-      "stale_precondition",
-      "limit_exceeded",
-      "invariant_violation",
-      "capacity_limited",
-      "ambiguous_outcome"
-    ],
-    requestFields: [
-      {
-        name: "sessionId",
-        type: "identifier"
-      },
-      {
-        name: "attemptId",
-        type: "identifier"
-      },
-      {
-        name: "sourceLeaseId",
-        type: "identifier"
-      },
-      {
-        name: "fencingToken",
-        type: "decimal"
-      }
-    ],
-    allOrNoneRequestFieldGroups: [],
-    resultStatuses: [
-      "abandoned",
-      "idempotent",
-      "already_terminal",
-      "expired",
-      "denied",
-      "conflict"
-    ]
-  },
-  {
     operationId: "review_investigation_context_gateway_open",
     boundedContext: "review_context_attestation",
     method: "POST",
@@ -61178,66 +60953,6 @@ var reviewActionV2Operations = [
     ],
     allOrNoneRequestFieldGroups: [],
     resultStatuses: ["accepted", "idempotent", "denied", "conflict"]
-  },
-  {
-    operationId: "review_investigation_context_gateway_abandon",
-    boundedContext: "review_context_attestation",
-    method: "POST",
-    path: "/api/action/v2/review-investigations/context-gateway/abandon",
-    callerAuthority: "lease_capability" /* LeaseCapability */,
-    mutability: "command",
-    naturalIdempotencyPreimage: [
-      "session_id",
-      "attempt_id",
-      "source_lease_id",
-      "fencing_token"
-    ],
-    semanticRetryClass: "same_request",
-    transportAudience: "review_action_v2",
-    defaultTimeoutMs: 1e4,
-    bodyLimitBytes: 32768,
-    successStatuses: [200],
-    errorCodes: [
-      "invalid_request",
-      "invalid_authentication",
-      "forbidden",
-      "capability_disabled",
-      "not_found",
-      "idempotency_conflict",
-      "resource_gone",
-      "stale_precondition",
-      "limit_exceeded",
-      "invariant_violation",
-      "capacity_limited",
-      "ambiguous_outcome"
-    ],
-    requestFields: [
-      {
-        name: "sessionId",
-        type: "identifier"
-      },
-      {
-        name: "attemptId",
-        type: "identifier"
-      },
-      {
-        name: "sourceLeaseId",
-        type: "identifier"
-      },
-      {
-        name: "fencingToken",
-        type: "decimal"
-      }
-    ],
-    allOrNoneRequestFieldGroups: [],
-    resultStatuses: [
-      "abandoned",
-      "idempotent",
-      "already_terminal",
-      "expired",
-      "denied",
-      "conflict"
-    ]
   },
   {
     operationId: "review_evidence_lookup",
@@ -62018,7 +61733,7 @@ function isRecord3(value) {
 }
 
 // src/review-orchestration/infrastructure/production-t0-review-runner.ts
-var import_crypto40 = require("crypto");
+var import_crypto41 = require("crypto");
 var import_child_process19 = require("child_process");
 var path26 = __toESM(require("path"));
 var import_util13 = require("util");
@@ -62280,830 +61995,6 @@ var review_context_gateway_open_schema_default = {
                     {
                       type: "null"
                     }
-                  ]
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "invalid_request"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "invalid_authentication"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "forbidden"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "capability_disabled"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "not_found"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "idempotency_conflict"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "resource_gone"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "stale_precondition"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "limit_exceeded"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "invariant_violation"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "capacity_limited"
-                },
-                retryClass: {
-                  const: "same_request"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "ambiguous_outcome"
-                },
-                retryClass: {
-                  const: "same_request"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      ]
-    }
-  ]
-};
-
-// src/control-plane/generated/review-action-v2/schemas/review_context_gateway_abandon.schema.json
-var review_context_gateway_abandon_schema_default = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_context_gateway_abandon",
-  title: "review_context_gateway_abandon request and response",
-  oneOf: [
-    {
-      type: "object",
-      additionalProperties: false,
-      required: [
-        "protocolVersion",
-        "schemaDigest",
-        "requestId",
-        "leaseCapability",
-        "idempotencyKey",
-        "requestBodyHash",
-        "sessionId",
-        "attemptId",
-        "sourceLeaseId",
-        "fencingToken"
-      ],
-      properties: {
-        protocolVersion: {
-          const: "2"
-        },
-        schemaDigest: {
-          type: "string",
-          pattern: "^[a-f0-9]{64}$"
-        },
-        requestId: {
-          type: "string",
-          minLength: 1,
-          maxLength: 128,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
-        },
-        leaseCapability: {
-          type: "string",
-          minLength: 1,
-          maxLength: 32768,
-          pattern: "^\\S+$"
-        },
-        idempotencyKey: {
-          type: "string",
-          minLength: 1,
-          maxLength: 256,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-        },
-        requestBodyHash: {
-          type: "string",
-          pattern: "^[a-f0-9]{64}$"
-        },
-        sessionId: {
-          type: "string",
-          minLength: 1,
-          maxLength: 256,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-        },
-        attemptId: {
-          type: "string",
-          minLength: 1,
-          maxLength: 256,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-        },
-        sourceLeaseId: {
-          type: "string",
-          minLength: 1,
-          maxLength: 256,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-        },
-        fencingToken: {
-          type: "string",
-          pattern: "^(0|[1-9][0-9]*)$"
-        }
-      }
-    },
-    {
-      oneOf: [
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "result"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            result: {
-              type: "object",
-              additionalProperties: false,
-              required: ["status"],
-              properties: {
-                status: {
-                  enum: [
-                    "abandoned",
-                    "idempotent",
-                    "already_terminal",
-                    "expired",
-                    "denied",
-                    "conflict"
                   ]
                 }
               }
@@ -74700,830 +73591,6 @@ var review_investigation_context_gateway_open_schema_default = {
                     {
                       type: "null"
                     }
-                  ]
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "invalid_request"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "invalid_authentication"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "forbidden"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "capability_disabled"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "not_found"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "idempotency_conflict"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "resource_gone"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "stale_precondition"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "limit_exceeded"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "invariant_violation"
-                },
-                retryClass: {
-                  const: "never"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "capacity_limited"
-                },
-                retryClass: {
-                  const: "same_request"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "error"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            error: {
-              type: "object",
-              additionalProperties: false,
-              required: ["errorCode", "retryClass", "details"],
-              properties: {
-                errorCode: {
-                  const: "ambiguous_outcome"
-                },
-                retryClass: {
-                  const: "same_request"
-                },
-                details: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["issues"],
-                  properties: {
-                    issues: {
-                      type: "array",
-                      maxItems: 8,
-                      items: {
-                        type: "string",
-                        minLength: 1,
-                        maxLength: 160
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      ]
-    }
-  ]
-};
-
-// src/control-plane/generated/review-action-v2/schemas/review_investigation_context_gateway_abandon.schema.json
-var review_investigation_context_gateway_abandon_schema_default = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_investigation_context_gateway_abandon",
-  title: "review_investigation_context_gateway_abandon request and response",
-  oneOf: [
-    {
-      type: "object",
-      additionalProperties: false,
-      required: [
-        "protocolVersion",
-        "schemaDigest",
-        "requestId",
-        "leaseCapability",
-        "idempotencyKey",
-        "requestBodyHash",
-        "sessionId",
-        "attemptId",
-        "sourceLeaseId",
-        "fencingToken"
-      ],
-      properties: {
-        protocolVersion: {
-          const: "2"
-        },
-        schemaDigest: {
-          type: "string",
-          pattern: "^[a-f0-9]{64}$"
-        },
-        requestId: {
-          type: "string",
-          minLength: 1,
-          maxLength: 128,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
-        },
-        leaseCapability: {
-          type: "string",
-          minLength: 1,
-          maxLength: 32768,
-          pattern: "^\\S+$"
-        },
-        idempotencyKey: {
-          type: "string",
-          minLength: 1,
-          maxLength: 256,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-        },
-        requestBodyHash: {
-          type: "string",
-          pattern: "^[a-f0-9]{64}$"
-        },
-        sessionId: {
-          type: "string",
-          minLength: 1,
-          maxLength: 256,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-        },
-        attemptId: {
-          type: "string",
-          minLength: 1,
-          maxLength: 256,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-        },
-        sourceLeaseId: {
-          type: "string",
-          minLength: 1,
-          maxLength: 256,
-          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
-        },
-        fencingToken: {
-          type: "string",
-          pattern: "^(0|[1-9][0-9]*)$"
-        }
-      }
-    },
-    {
-      oneOf: [
-        {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "protocolVersion",
-            "schemaDigest",
-            "requestId",
-            "serverTime",
-            "result"
-          ],
-          properties: {
-            protocolVersion: {
-              const: "2"
-            },
-            schemaDigest: {
-              type: "string",
-              pattern: "^[a-f0-9]{64}$"
-            },
-            requestId: {
-              type: "string",
-              minLength: 1,
-              maxLength: 128
-            },
-            serverTime: {
-              type: "string",
-              format: "date-time"
-            },
-            result: {
-              type: "object",
-              additionalProperties: false,
-              required: ["status"],
-              properties: {
-                status: {
-                  enum: [
-                    "abandoned",
-                    "idempotent",
-                    "already_terminal",
-                    "expired",
-                    "denied",
-                    "conflict"
                   ]
                 }
               }
@@ -95371,10 +93438,8 @@ var responseSchemas = {
   ["review_invocation_lease_renew" /* ReviewInvocationLeaseRenew */]: review_invocation_lease_renew_schema_default,
   ["review_invocation_lease_release" /* ReviewInvocationLeaseRelease */]: review_invocation_lease_release_schema_default,
   ["review_context_gateway_open" /* ReviewContextGatewayOpen */]: review_context_gateway_open_schema_default,
-  ["review_context_gateway_abandon" /* ReviewContextGatewayAbandon */]: review_context_gateway_abandon_schema_default,
   ["review_context_gateway_seal" /* ReviewContextGatewaySeal */]: review_context_gateway_seal_schema_default,
   ["review_investigation_context_gateway_open" /* ReviewInvestigationContextGatewayOpen */]: review_investigation_context_gateway_open_schema_default,
-  ["review_investigation_context_gateway_abandon" /* ReviewInvestigationContextGatewayAbandon */]: review_investigation_context_gateway_abandon_schema_default,
   ["review_investigation_context_gateway_seal" /* ReviewInvestigationContextGatewaySeal */]: review_investigation_context_gateway_seal_schema_default,
   ["review_evidence_lookup" /* ReviewEvidenceLookup */]: review_evidence_lookup_schema_default,
   ["review_context_receipt_replay_commit" /* ReviewContextReceiptReplayCommit */]: review_context_receipt_replay_commit_schema_default,
@@ -98258,13 +96323,13 @@ function validateCommand(command) {
       throw new Error("review_orchestration_commit_sha_invalid");
     }
   }
-  for (const digest2 of [
+  for (const digest3 of [
     command.reviewRevisionHash,
     command.compatibilityKey,
     command.planHash,
     command.ownerIdHash
   ]) {
-    if (!/^[a-f0-9]{64}$/.test(digest2)) {
+    if (!/^[a-f0-9]{64}$/.test(digest3)) {
       throw new Error("review_orchestration_digest_invalid");
     }
   }
@@ -98377,7 +96442,7 @@ function validateManifest(manifest) {
     manifest.manifestKey,
     manifest.providerInvocationKey,
     manifest.providerVoteIdentityHash
-  ].every((digest2) => /^[a-f0-9]{64}$/.test(digest2))) {
+  ].every((digest3) => /^[a-f0-9]{64}$/.test(digest3))) {
     throw new Error("review_orchestration_manifest_invalid");
   }
 }
@@ -105700,7 +103765,38 @@ function sha25616(value) {
 }
 
 // src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter.ts
+var import_crypto37 = require("crypto");
+
+// src/review-orchestration/infrastructure/context-gateway-failed-seal.ts
 var import_crypto36 = require("crypto");
+var emptyCanonicalJson = "{}";
+var emptyCanonicalJsonHash = digest(emptyCanonicalJson);
+var failedTerminalOutcomeHash = digest(
+  "reviewrouter:context-gateway-provider-failed:v1"
+);
+function createFailedContextGatewaySealPayload(input) {
+  return Object.freeze({
+    sessionId: input.session.sessionId,
+    sealCapability: input.session.sealCapability,
+    attemptId: input.invocationLease.attemptId,
+    sourceLeaseId: input.invocationLease.leaseId,
+    fencingToken: input.invocationLease.fencingToken,
+    providerSucceeded: false,
+    schemaValidated: false,
+    fullyConsumed: false,
+    actualModel: "provider-invocation-failed",
+    terminalOutcomeHash: failedTerminalOutcomeHash,
+    transcriptCanonicalJson: emptyCanonicalJson,
+    transcriptHash: emptyCanonicalJsonHash,
+    replayMaterialCanonicalJson: emptyCanonicalJson,
+    replayMaterialHash: emptyCanonicalJsonHash
+  });
+}
+function digest(value) {
+  return (0, import_crypto36.createHash)("sha256").update(value, "utf8").digest("hex");
+}
+
+// src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter.ts
 var ReviewActionV2ControlPlaneAdapter = class {
   constructor(client) {
     this.client = client;
@@ -105922,12 +104018,14 @@ var ReviewActionV2ControlPlaneAdapter = class {
   async abandonGatewaySession(input) {
     let result2;
     try {
+      const authorization = this.requireActiveAuthorization();
       result2 = await this.client.execute(
-        "review_context_gateway_abandon" /* ReviewContextGatewayAbandon */,
+        "review_context_gateway_seal" /* ReviewContextGatewaySeal */,
         {
-          leaseCapability: input.session.sealCapability,
+          authorizationToken: authorization.authorizationToken,
+          leaseCapability: input.invocationLease.leaseCapability,
           idempotencyKey: deterministicIdempotencyKey(
-            "context-gateway-abandon",
+            "context-gateway-failed-seal",
             [
               input.session.sessionId,
               input.invocationLease.attemptId,
@@ -105935,18 +104033,15 @@ var ReviewActionV2ControlPlaneAdapter = class {
               input.invocationLease.fencingToken
             ]
           ),
-          sessionId: input.session.sessionId,
-          attemptId: input.invocationLease.attemptId,
-          sourceLeaseId: input.invocationLease.leaseId,
-          fencingToken: input.invocationLease.fencingToken
+          ...createFailedContextGatewaySealPayload(input)
         }
       );
     } catch (error2) {
       throw controlPlaneFailure(error2);
     }
-    if (result2.status !== "abandoned" /* Abandoned */ && result2.status !== "idempotent" /* Idempotent */ && result2.status !== "already_terminal" /* AlreadyTerminal */ && result2.status !== "expired" /* Expired */) {
+    if (result2.status !== "accepted" /* Accepted */ && result2.status !== "idempotent" /* Idempotent */) {
       throw new Error(
-        `review_action_v2_context_gateway_abandon_${result2.status}`
+        `review_action_v2_context_gateway_failed_seal_${result2.status}`
       );
     }
   }
@@ -106113,7 +104208,7 @@ var ReviewActionV2ControlPlaneAdapter = class {
         result2.contextReplayPlanHash,
         "context_replay_plan_hash"
       );
-      if (digest(replayPlanCanonicalJson) !== replayPlanHash || observation.contextDependencyAttestationId !== attestationId || observation.contextDependencyAttestationHash !== attestationHash) {
+      if (digest2(replayPlanCanonicalJson) !== replayPlanHash || observation.contextDependencyAttestationId !== attestationId || observation.contextDependencyAttestationHash !== attestationHash) {
         throw new Error("review_action_v2_context_replay_identity_mismatch");
       }
       return {
@@ -106620,7 +104715,7 @@ function parseLookupObservation(result2, input) {
   );
   const payloadHash = requireDigest4(result2.payloadHash, "payload_hash");
   const byteCount = requireNonNegativeInteger3(result2.byteCount, "byte_count");
-  if (payloadHash !== digest(payloadCanonicalJson) || byteCount !== Buffer.byteLength(payloadCanonicalJson, "utf8")) {
+  if (payloadHash !== digest2(payloadCanonicalJson) || byteCount !== Buffer.byteLength(payloadCanonicalJson, "utf8")) {
     throw new Error("review_action_v2_lookup_payload_identity_mismatch");
   }
   const contextAttestationId = result2.contextDependencyAttestationId ?? null;
@@ -107276,11 +105371,11 @@ function requireNonNegativeInteger3(value, field) {
 function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function digest(value) {
-  return (0, import_crypto36.createHash)("sha256").update(value).digest("hex");
+function digest2(value) {
+  return (0, import_crypto37.createHash)("sha256").update(value).digest("hex");
 }
 function deterministicIdempotencyKey(purpose, parts) {
-  return `rr:${purpose}:${digest(
+  return `rr:${purpose}:${digest2(
     JSON.stringify({
       parts,
       purpose
@@ -107883,7 +105978,7 @@ var CLAUDE_NATIVE_TOOLS = Object.freeze([
 ]);
 
 // src/review-investigation/infrastructure/codex-app-server-protocol.ts
-var import_crypto37 = require("crypto");
+var import_crypto38 = require("crypto");
 var import_path5 = __toESM(require("path"));
 var CODEX_APP_SERVER_VERSION = "0.145.0";
 var CODEX_APP_SERVER_MCP_NAME = "reviewrouter";
@@ -108783,7 +106878,7 @@ function parseTurnError(value) {
   ].join(" ").slice(0, 16384);
   return Object.freeze({
     failure: classifyCodexAppServerDiagnostic(diagnostic),
-    fingerprint: (0, import_crypto37.createHash)("sha256").update(canonical).digest("hex")
+    fingerprint: (0, import_crypto38.createHash)("sha256").update(canonical).digest("hex")
   });
 }
 function hasCodexErrorClassification(value) {
@@ -109044,7 +107139,7 @@ function notificationDiagnosticStage(value) {
       if (typeof value === "string" && IGNORED_NOTIFICATION_METHODS.has(value)) {
         return "ignored_notification" /* IgnoredNotification */;
       }
-      return typeof value === "string" ? `unknown_notification_${(0, import_crypto37.createHash)("sha256").update(value).digest("hex").slice(0, 12)}` : "unknown_notification" /* UnknownNotification */;
+      return typeof value === "string" ? `unknown_notification_${(0, import_crypto38.createHash)("sha256").update(value).digest("hex").slice(0, 12)}` : "unknown_notification" /* UnknownNotification */;
   }
 }
 function withStreamDiagnosticStage(error2, stage) {
@@ -110724,9 +108819,9 @@ function nullableCanonicalJson(value, field) {
   return value;
 }
 function requireDigest5(value, field) {
-  const digest2 = requireString4(value, field);
-  if (!/^[a-f0-9]{64}$/.test(digest2)) throw invalidResponse(`${field}_invalid`);
-  return digest2;
+  const digest3 = requireString4(value, field);
+  if (!/^[a-f0-9]{64}$/.test(digest3)) throw invalidResponse(`${field}_invalid`);
+  return digest3;
 }
 function requireNonNegativeInteger4(value, field) {
   if (!Number.isSafeInteger(value) || Number(value) < 0) {
@@ -110778,9 +108873,9 @@ function nullableTimestamp(value, field) {
 }
 
 // src/review-investigation/infrastructure/review-action-v2-investigation-lease-adapter.ts
-var import_crypto38 = require("crypto");
+var import_crypto39 = require("crypto");
 var ReviewActionV2InvestigationLeaseAdapter = class {
-  constructor(client, requestId = import_crypto38.randomUUID) {
+  constructor(client, requestId = import_crypto39.randomUUID) {
     this.client = client;
     this.requestId = requestId;
   }
@@ -110949,8 +109044,8 @@ function leaseFromAcquire(input) {
   return lease;
 }
 function deterministicId2(namespace, parts) {
-  const digest2 = (0, import_crypto38.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
-  return `rr:${namespace}:${digest2}`;
+  const digest3 = (0, import_crypto39.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
+  return `rr:${namespace}:${digest3}`;
 }
 function requireString5(value, field) {
   if (typeof value !== "string" || value.length === 0) {
@@ -111879,7 +109974,7 @@ function capabilityUnavailable(message) {
 }
 
 // src/review-orchestration/infrastructure/review-action-v2-investigation-context-attestation-adapter.ts
-var import_crypto39 = require("crypto");
+var import_crypto40 = require("crypto");
 var ReviewActionV2InvestigationContextAttestationAdapter = class {
   constructor(client, authorizationToken) {
     this.client = client;
@@ -111989,31 +110084,32 @@ var ReviewActionV2InvestigationContextAttestationAdapter = class {
   }
   async abandonGatewaySession(input) {
     const result2 = await this.client.execute(
-      "review_investigation_context_gateway_abandon" /* ReviewInvestigationContextGatewayAbandon */,
+      "review_investigation_context_gateway_seal" /* ReviewInvestigationContextGatewaySeal */,
       {
-        leaseCapability: input.session.sealCapability,
-        idempotencyKey: deterministicId3("investigation-gateway-abandon", [
-          input.session.sessionId,
-          input.invocationLease.attemptId,
-          input.invocationLease.leaseId,
-          input.invocationLease.fencingToken
-        ]),
-        sessionId: input.session.sessionId,
-        attemptId: input.invocationLease.attemptId,
-        sourceLeaseId: input.invocationLease.leaseId,
-        fencingToken: input.invocationLease.fencingToken
+        authorizationToken: this.authorizationToken,
+        leaseCapability: input.invocationLease.leaseCapability,
+        idempotencyKey: deterministicId3(
+          "investigation-gateway-failed-seal",
+          [
+            input.session.sessionId,
+            input.invocationLease.attemptId,
+            input.invocationLease.leaseId,
+            input.invocationLease.fencingToken
+          ]
+        ),
+        ...createFailedContextGatewaySealPayload(input)
       }
     );
-    if (result2.status !== "abandoned" /* Abandoned */ && result2.status !== "idempotent" /* Idempotent */ && result2.status !== "already_terminal" /* AlreadyTerminal */ && result2.status !== "expired" /* Expired */) {
+    if (result2.status !== "accepted" /* Accepted */ && result2.status !== "idempotent" /* Idempotent */) {
       throw new Error(
-        `review_action_v2_investigation_context_gateway_abandon_${result2.status}`
+        `review_action_v2_investigation_context_gateway_failed_seal_${result2.status}`
       );
     }
   }
 };
 function deterministicId3(namespace, parts) {
-  const digest2 = (0, import_crypto39.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
-  return `rr:${namespace}:${digest2}`;
+  const digest3 = (0, import_crypto40.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
+  return `rr:${namespace}:${digest3}`;
 }
 function requireString6(value, field) {
   if (typeof value !== "string" || value.length === 0) {
@@ -112816,7 +110912,7 @@ function canonicalJson13(value) {
   return JSON.stringify(value);
 }
 function sha25617(value) {
-  return (0, import_crypto40.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto41.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/codex-oauth/action.ts

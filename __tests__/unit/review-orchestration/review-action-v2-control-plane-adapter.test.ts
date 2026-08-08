@@ -11,7 +11,6 @@ import {
   ReviewEvidenceLookupResultStatus,
   ReviewEvidenceCommitResultStatus,
   ReviewActionV2OperationId,
-  ReviewContextGatewayAbandonResultStatus,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
   ReviewContextReplayCommitResultStatus,
@@ -714,14 +713,19 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
   });
 
   it.each([
-    ReviewContextGatewayAbandonResultStatus.Abandoned,
-    ReviewContextGatewayAbandonResultStatus.Idempotent,
-    ReviewContextGatewayAbandonResultStatus.AlreadyTerminal,
-    ReviewContextGatewayAbandonResultStatus.Expired,
+    ReviewContextGatewaySealResultStatus.Accepted,
+    ReviewContextGatewaySealResultStatus.Idempotent,
   ])(
-    'abandons a target-bound context gateway session from %s',
+    'terminalizes a failed target-bound context gateway session from %s',
     async (status) => {
-      const execute = jest.fn().mockResolvedValue({ status });
+      const execute = jest
+        .fn()
+        .mockResolvedValueOnce(authorizationResponse())
+        .mockResolvedValueOnce({
+          status,
+          attestationId: null,
+          attestationHash: null,
+        });
       const adapter = createAdapter(execute);
       const session = {
         sessionId: 'session-1',
@@ -731,19 +735,28 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         expiresAt: '2026-07-22T12:05:00.000Z',
       };
 
+      await adapter.authorize({ oidcToken: 'oidc.token' });
       await expect(
         adapter.abandonGatewaySession({ invocationLease: baseLease, session })
       ).resolves.toBeUndefined();
-      expect(execute).toHaveBeenCalledWith(
-        ReviewActionV2OperationId.ReviewContextGatewayAbandon,
+      expect(execute).toHaveBeenNthCalledWith(
+        2,
+        ReviewActionV2OperationId.ReviewContextGatewaySeal,
         expect.objectContaining({
-          leaseCapability: session.sealCapability,
+          authorizationToken: authorization.authorizationToken,
+          leaseCapability: baseLease.leaseCapability,
+          sealCapability: session.sealCapability,
           sessionId: session.sessionId,
           attemptId: baseLease.attemptId,
           sourceLeaseId: baseLease.leaseId,
           fencingToken: baseLease.fencingToken,
+          providerSucceeded: false,
+          schemaValidated: false,
+          fullyConsumed: false,
+          transcriptCanonicalJson: '{}',
+          replayMaterialCanonicalJson: '{}',
           idempotencyKey: expect.stringMatching(
-            /^rr:context-gateway-abandon:[a-f0-9]{64}$/u
+            /^rr:context-gateway-failed-seal:[a-f0-9]{64}$/u
           ),
         })
       );
@@ -751,12 +764,15 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
   );
 
   it('rejects a denied target-bound context gateway abandon', async () => {
-    const adapter = createAdapter(
-      jest.fn().mockResolvedValue({
-        status: ReviewContextGatewayAbandonResultStatus.Denied,
-      })
-    );
+    const execute = jest
+      .fn()
+      .mockResolvedValueOnce(authorizationResponse())
+      .mockResolvedValueOnce({
+        status: ReviewContextGatewaySealResultStatus.Denied,
+      });
+    const adapter = createAdapter(execute);
 
+    await adapter.authorize({ oidcToken: 'oidc.token' });
     await expect(
       adapter.abandonGatewaySession({
         invocationLease: baseLease,
@@ -768,7 +784,7 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
           expiresAt: '2026-07-22T12:05:00.000Z',
         },
       })
-    ).rejects.toThrow('review_action_v2_context_gateway_abandon_denied');
+    ).rejects.toThrow('review_action_v2_context_gateway_failed_seal_denied');
   });
 
   it('translates context open policy mismatches into a safe actionable code', async () => {

@@ -9,7 +9,6 @@ import {
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
   ReviewActionV2OperationId,
-  ReviewContextGatewayAbandonResultStatus,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
   ReviewContextReplayCommitResultStatus,
@@ -57,6 +56,7 @@ import {
 import { ReviewActionV2RetryClass } from '../../control-plane/generated/review-action-v2/review-action-v2-negotiation';
 import { logger } from '../../utils/logger';
 import { emitReviewInvestigationTelemetry } from './review-investigation-telemetry';
+import { createFailedContextGatewaySealPayload } from './context-gateway-failed-seal';
 
 export class ReviewActionV2ControlPlaneAdapter
   implements ReviewActionV2ControlPlanePort, ReviewContextAttestationPort
@@ -317,12 +317,14 @@ export class ReviewActionV2ControlPlaneAdapter
   ): ReturnType<ReviewContextAttestationPort['abandonGatewaySession']> {
     let result;
     try {
+      const authorization = this.requireActiveAuthorization();
       result = await this.client.execute(
-        ReviewActionV2OperationId.ReviewContextGatewayAbandon,
+        ReviewActionV2OperationId.ReviewContextGatewaySeal,
         {
-          leaseCapability: input.session.sealCapability,
+          authorizationToken: authorization.authorizationToken,
+          leaseCapability: input.invocationLease.leaseCapability,
           idempotencyKey: deterministicIdempotencyKey(
-            'context-gateway-abandon',
+            'context-gateway-failed-seal',
             [
               input.session.sessionId,
               input.invocationLease.attemptId,
@@ -330,24 +332,18 @@ export class ReviewActionV2ControlPlaneAdapter
               input.invocationLease.fencingToken,
             ]
           ),
-          sessionId: input.session.sessionId,
-          attemptId: input.invocationLease.attemptId,
-          sourceLeaseId: input.invocationLease.leaseId,
-          fencingToken: input.invocationLease.fencingToken,
+          ...createFailedContextGatewaySealPayload(input),
         }
       );
     } catch (error) {
       throw controlPlaneFailure(error);
     }
     if (
-      result.status !== ReviewContextGatewayAbandonResultStatus.Abandoned &&
-      result.status !== ReviewContextGatewayAbandonResultStatus.Idempotent &&
-      result.status !==
-        ReviewContextGatewayAbandonResultStatus.AlreadyTerminal &&
-      result.status !== ReviewContextGatewayAbandonResultStatus.Expired
+      result.status !== ReviewContextGatewaySealResultStatus.Accepted &&
+      result.status !== ReviewContextGatewaySealResultStatus.Idempotent
     ) {
       throw new Error(
-        `review_action_v2_context_gateway_abandon_${result.status}`
+        `review_action_v2_context_gateway_failed_seal_${result.status}`
       );
     }
   }

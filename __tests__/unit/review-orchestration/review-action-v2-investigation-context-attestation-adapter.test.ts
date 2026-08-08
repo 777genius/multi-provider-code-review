@@ -2,7 +2,6 @@ import { createHash } from 'crypto';
 import type { ReviewActionV2Client } from '../../../src/control-plane/review-action-v2-client';
 import {
   ReviewActionV2OperationId,
-  ReviewContextGatewayAbandonResultStatus,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
@@ -220,11 +219,9 @@ describe('ReviewActionV2InvestigationContextAttestationAdapter', () => {
   });
 
   it.each([
-    ReviewContextGatewayAbandonResultStatus.Abandoned,
-    ReviewContextGatewayAbandonResultStatus.Idempotent,
-    ReviewContextGatewayAbandonResultStatus.AlreadyTerminal,
-    ReviewContextGatewayAbandonResultStatus.Expired,
-  ])('abandons an investigation shadow gateway from %s', async (status) => {
+    ReviewContextGatewaySealResultStatus.Accepted,
+    ReviewContextGatewaySealResultStatus.Idempotent,
+  ])('terminalizes a failed investigation shadow gateway from %s', async (status) => {
     const execute = jest.fn().mockResolvedValue({ status });
     const adapter = createAdapter(execute);
 
@@ -235,27 +232,37 @@ describe('ReviewActionV2InvestigationContextAttestationAdapter', () => {
       })
     ).resolves.toBeUndefined();
     expect(execute).toHaveBeenCalledWith(
-      ReviewActionV2OperationId.ReviewInvestigationContextGatewayAbandon,
-      {
-        leaseCapability: gatewaySession.sealCapability,
-        idempotencyKey: deterministicId('investigation-gateway-abandon', [
-          gatewaySession.sessionId,
-          invocationLease.attemptId,
-          invocationLease.leaseId,
-          invocationLease.fencingToken,
-        ]),
+      ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
+      expect.objectContaining({
+        authorizationToken,
+        leaseCapability: invocationLease.leaseCapability,
+        sealCapability: gatewaySession.sealCapability,
+        idempotencyKey: deterministicId(
+          'investigation-gateway-failed-seal',
+          [
+            gatewaySession.sessionId,
+            invocationLease.attemptId,
+            invocationLease.leaseId,
+            invocationLease.fencingToken,
+          ]
+        ),
         sessionId: gatewaySession.sessionId,
         attemptId: invocationLease.attemptId,
         sourceLeaseId: invocationLease.leaseId,
         fencingToken: invocationLease.fencingToken,
-      }
+        providerSucceeded: false,
+        schemaValidated: false,
+        fullyConsumed: false,
+        transcriptCanonicalJson: '{}',
+        replayMaterialCanonicalJson: '{}',
+      })
     );
   });
 
   it('rejects a denied investigation shadow gateway abandon', async () => {
     const adapter = createAdapter(
       jest.fn().mockResolvedValue({
-        status: ReviewContextGatewayAbandonResultStatus.Denied,
+        status: ReviewContextGatewaySealResultStatus.Denied,
       })
     );
 
@@ -265,7 +272,7 @@ describe('ReviewActionV2InvestigationContextAttestationAdapter', () => {
         session: gatewaySession,
       })
     ).rejects.toThrow(
-      'review_action_v2_investigation_context_gateway_abandon_denied'
+      'review_action_v2_investigation_context_gateway_failed_seal_denied'
     );
   });
 

@@ -3,7 +3,6 @@ import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 import { REVIEW_INVESTIGATION_TURN_PLAN_RESPONSE_MAX_BYTES } from '../review-investigation/domain/investigation-state';
 import reviewContextGatewayOpenSchema from './generated/review-action-v2/schemas/review_context_gateway_open.schema.json';
-import reviewContextGatewayAbandonSchema from './generated/review-action-v2/schemas/review_context_gateway_abandon.schema.json';
 import reviewContextGatewaySealSchema from './generated/review-action-v2/schemas/review_context_gateway_seal.schema.json';
 import reviewContextReceiptReplayCommitSchema from './generated/review-action-v2/schemas/review_context_receipt_replay_commit.schema.json';
 import reviewContextReplayCommitSchema from './generated/review-action-v2/schemas/review_context_replay_commit.schema.json';
@@ -17,7 +16,6 @@ import reviewExecutionStartSchema from './generated/review-action-v2/schemas/rev
 import reviewExecutionSupersedeSchema from './generated/review-action-v2/schemas/review_execution_supersede.schema.json';
 import reviewInvestigationConcludeSchema from './generated/review-action-v2/schemas/review_investigation_conclude.schema.json';
 import reviewInvestigationContextGatewayOpenSchema from './generated/review-action-v2/schemas/review_investigation_context_gateway_open.schema.json';
-import reviewInvestigationContextGatewayAbandonSchema from './generated/review-action-v2/schemas/review_investigation_context_gateway_abandon.schema.json';
 import reviewInvestigationContextGatewaySealSchema from './generated/review-action-v2/schemas/review_investigation_context_gateway_seal.schema.json';
 import reviewInvestigationLeaseAcquireSchema from './generated/review-action-v2/schemas/review_investigation_lease_acquire.schema.json';
 import reviewInvestigationLeaseReleaseSchema from './generated/review-action-v2/schemas/review_investigation_lease_release.schema.json';
@@ -191,14 +189,10 @@ const responseSchemas = {
     reviewInvocationLeaseReleaseSchema,
   [ReviewActionV2OperationId.ReviewContextGatewayOpen]:
     reviewContextGatewayOpenSchema,
-  [ReviewActionV2OperationId.ReviewContextGatewayAbandon]:
-    reviewContextGatewayAbandonSchema,
   [ReviewActionV2OperationId.ReviewContextGatewaySeal]:
     reviewContextGatewaySealSchema,
   [ReviewActionV2OperationId.ReviewInvestigationContextGatewayOpen]:
     reviewInvestigationContextGatewayOpenSchema,
-  [ReviewActionV2OperationId.ReviewInvestigationContextGatewayAbandon]:
-    reviewInvestigationContextGatewayAbandonSchema,
   [ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal]:
     reviewInvestigationContextGatewaySealSchema,
   [ReviewActionV2OperationId.ReviewEvidenceLookup]: reviewEvidenceLookupSchema,

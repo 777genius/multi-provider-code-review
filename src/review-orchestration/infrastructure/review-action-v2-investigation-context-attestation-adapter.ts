@@ -2,7 +2,6 @@ import { createHash } from 'crypto';
 import { ReviewActionV2Client } from '../../control-plane/review-action-v2-client';
 import {
   ReviewActionV2OperationId,
-  ReviewContextGatewayAbandonResultStatus,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
 } from '../../control-plane/generated/review-action-v2/review-action-v2';
@@ -12,6 +11,7 @@ import type {
   ReviewContextAttestationPort,
 } from '../application/review-orchestration-ports';
 import type { ContextGatewayAttestationPort } from './context-gateway-invocation-session';
+import { createFailedContextGatewaySealPayload } from './context-gateway-failed-seal';
 
 export class ReviewActionV2InvestigationContextAttestationAdapter implements ContextGatewayAttestationPort {
   constructor(
@@ -140,30 +140,28 @@ export class ReviewActionV2InvestigationContextAttestationAdapter implements Con
     input: Parameters<ReviewContextAttestationPort['abandonGatewaySession']>[0]
   ): Promise<void> {
     const result = await this.client.execute(
-      ReviewActionV2OperationId.ReviewInvestigationContextGatewayAbandon,
+      ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
       {
-        leaseCapability: input.session.sealCapability,
-        idempotencyKey: deterministicId('investigation-gateway-abandon', [
-          input.session.sessionId,
-          input.invocationLease.attemptId,
-          input.invocationLease.leaseId,
-          input.invocationLease.fencingToken,
-        ]),
-        sessionId: input.session.sessionId,
-        attemptId: input.invocationLease.attemptId,
-        sourceLeaseId: input.invocationLease.leaseId,
-        fencingToken: input.invocationLease.fencingToken,
+        authorizationToken: this.authorizationToken,
+        leaseCapability: input.invocationLease.leaseCapability,
+        idempotencyKey: deterministicId(
+          'investigation-gateway-failed-seal',
+          [
+            input.session.sessionId,
+            input.invocationLease.attemptId,
+            input.invocationLease.leaseId,
+            input.invocationLease.fencingToken,
+          ]
+        ),
+        ...createFailedContextGatewaySealPayload(input),
       }
     );
     if (
-      result.status !== ReviewContextGatewayAbandonResultStatus.Abandoned &&
-      result.status !== ReviewContextGatewayAbandonResultStatus.Idempotent &&
-      result.status !==
-        ReviewContextGatewayAbandonResultStatus.AlreadyTerminal &&
-      result.status !== ReviewContextGatewayAbandonResultStatus.Expired
+      result.status !== ReviewContextGatewaySealResultStatus.Accepted &&
+      result.status !== ReviewContextGatewaySealResultStatus.Idempotent
     ) {
       throw new Error(
-        `review_action_v2_investigation_context_gateway_abandon_${result.status}`
+        `review_action_v2_investigation_context_gateway_failed_seal_${result.status}`
       );
     }
   }
