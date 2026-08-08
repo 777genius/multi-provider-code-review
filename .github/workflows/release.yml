@@ -88,6 +88,7 @@ jobs:
           LOCK_VERSION="$(node -p "require('./package-lock.json').version")"
           LOCK_ROOT_VERSION="$(node -p "require('./package-lock.json').packages[''].version")"
           INSTALLER_RELEASE_TAG="$(node -e 'const fs = require("fs"); const match = fs.readFileSync("scripts/install.sh", "utf8").match(/^LATEST_RELEASE_TAG="([^"]+)"/m); console.log(match?.[1] ?? "")')"
+          HANDOFF_BASE="$(node -p "require('./src/control-plane/generated/review-action-v2/handoff-manifest.json').expectedPublicActionBaseCommit")"
 
           if [[ "$PACKAGE_VERSION" != "$EXPECTED_PACKAGE_VERSION" ]]; then
             echo "::error::package.json version is $PACKAGE_VERSION, expected $EXPECTED_PACKAGE_VERSION"
@@ -99,6 +100,14 @@ jobs:
           fi
           if [[ "$INSTALLER_RELEASE_TAG" != "$VERSION" ]]; then
             echo "::error::scripts/install.sh LATEST_RELEASE_TAG is $INSTALLER_RELEASE_TAG, expected $VERSION"
+            exit 1
+          fi
+          if [[ ! "$HANDOFF_BASE" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::handoff expectedPublicActionBaseCommit must be a full commit SHA"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$HANDOFF_BASE" HEAD; then
+            echo "::error::handoff base $HANDOFF_BASE is not an ancestor of release commit $GITHUB_SHA"
             exit 1
           fi
 

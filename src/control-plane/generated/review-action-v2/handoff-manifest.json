@@ -1,7 +1,7 @@
 {
   "canonicalizerDigest": "865b2cd347d1e5bade8aa921c3384b0c7cd388d275f535919ffb403286d66271",
   "contractExportVersion": 1,
-  "expectedPublicActionBaseCommit": "45699bd34f50b70aa8bcdc448407156cb8423f89",
+  "expectedPublicActionBaseCommit": "38aa6536589282dbd4df5644acd6485e194f0ac1",
   "generatedFileDigests": {
     "fixtures/provider-invocation-manifest-v1.golden.json": "9e0369a80cb91c458befaf0b2aeb41be5b98246e0217b032e8fca414dab579bb",
     "fixtures/review-action-v2.golden.json": "6ce0763e913a804b659b22b8669e6d6b10c25c1046bb987ce01fa6405b3a2b7a",
