@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { estimateTokensSimple } from '../utils/token-estimation';
 import { buildCliSafeEnv } from './cli-env';
+import { CODEX_CONFINEMENT_DISABLED_FEATURES } from './codex-confinement-policy';
 import { prepareCodexCliBeforeAuthRead } from '../codex-oauth/codex-cli';
 import {
   buildReviewFindingsSchema,
@@ -671,24 +672,10 @@ export class CodexProvider extends Provider {
     }
 
     if (options.disableTools || contextGateway) {
-      args.push(
-        '--disable',
-        'shell_tool',
-        '--disable',
-        'unified_exec',
-        '--disable',
-        'browser_use',
-        '--disable',
-        'computer_use',
-        '--disable',
-        'js_repl',
-        '--disable',
-        'tool_search',
-        '--disable',
-        'web_search_request',
-        '--disable',
-        'plugins'
-      );
+      for (const feature of CODEX_CONFINEMENT_DISABLED_FEATURES) {
+        args.push('--disable', feature);
+      }
+      args.push('--disable', 'web_search_request');
     }
 
     if (contextGateway) {

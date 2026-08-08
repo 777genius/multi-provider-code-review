@@ -1307,6 +1307,23 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('fails closed on startup status from a non-gateway MCP server', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('mcpServer/startupStatus/updated', {
+        name: 'codex_apps',
+        threadId,
+        status: 'ready',
+        error: null,
+        failureReason: null,
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.ConfinementViolation,
+    });
+  });
+
   it('rejects duplicate raw response ids and aggregate usage drift', async () => {
     const duplicate = await activeTurn();
     duplicate.client.receive(
