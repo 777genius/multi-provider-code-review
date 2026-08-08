@@ -448,6 +448,7 @@ function investigationPrompt(
     'Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.',
     'For typed search requirements, execute the exact literal query with paths=["."], revision="head", caseSensitive=true, and pageSize=500, then follow every cursor to completion.',
     'For a typed complete_page_chain obligation, put its complete receipt chain in closureClaims only. The control plane derives its discovery evidence; do not duplicate that chain in operationBackedDiscoveryClaims.',
+    'For a typed complete_relation_context obligation, rerun its hydrated query and include the complete matching text_search receipt chain plus complete file_read receipts for exactly every requiredPathHashes entry. Never include unrelated search or directory receipts.',
     'During discovery turns, use operationBackedDiscoveryClaims only for additional exploratory text-search chains. Bind each chain to the coverage_contract changed_content obligation that directly motivated the search, copy the exact query passed to the tool, and include every operationReceiptId from the chain.',
     'Never bind an exploratory search to a deterministic_expansion obligation. If no changed_content source directly motivated it, omit the advisory discovery claim and leave related obligations open.',
     'When inspected evidence reveals additional review scope, add a provider-neutral obligationProposals entry instead of silently broadening an existing obligation.',

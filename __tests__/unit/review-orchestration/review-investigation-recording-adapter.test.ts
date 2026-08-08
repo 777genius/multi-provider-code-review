@@ -196,6 +196,8 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       );
       expect(prompt).toContain('operationBackedDiscoveryClaims');
       expect(prompt).toContain('closureClaims only');
+      expect(prompt).toContain('complete_relation_context obligation');
+      expect(prompt).toContain('exactly every requiredPathHashes entry');
       expect(prompt).toContain('coverage_contract changed_content obligation');
       expect(prompt).toContain(
         'Never bind an exploratory search to a deterministic_expansion obligation'

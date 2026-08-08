@@ -26,9 +26,9 @@ const ownerIdHash = 'c'.repeat(64);
 const providerManifestCanonicalJson = '{"providers":["codex"]}';
 
 const acquireRequestId =
-  'rr:investigation-lease-acquire:d3308a26ae979238a2e3a0fa707c2ef79c0d8add';
+  'rr:investigation-lease-acquire:87533827796ffcf2cbd2cdd4e3cd1ac6feaa9a9f';
 const acquireIdempotencyKey =
-  'rr:investigation-lease-acquire-idem:14aa21c16984d14d03079923c6914d988105eb93';
+  'rr:investigation-lease-acquire-idem:e579eadea6c8071aaf6a25664cb05b479456d22c';
 const renewRequestId = 'rr:investigation-lease-renew:renew-request-1';
 const renewIdempotencyKey =
   'rr:investigation-lease-renew-idem:871a9415f5799413c97f14c382e4c2900d72c1e4';
@@ -104,6 +104,23 @@ describe('ReviewActionV2InvestigationLeaseAdapter', () => {
       await expect(adapter.acquire(acquireInput())).resolves.toEqual({
         status: expectedStatus,
       });
+    });
+
+    it('uses a fresh acquire identity for a new recovery cycle', async () => {
+      const execute = jest.fn().mockResolvedValue({
+        status: ReviewInvestigationLeaseResultStatus.Acquired,
+        ...lease,
+      });
+      const requestIds = ['acquire-cycle-1', 'acquire-cycle-2'];
+      const adapter = createAdapter(execute, () => requestIds.shift()!);
+
+      await adapter.acquire(acquireInput());
+      await adapter.acquire(acquireInput());
+
+      const first = execute.mock.calls[0]![1];
+      const second = execute.mock.calls[1]![1];
+      expect(first.acquireRequestId).not.toBe(second.acquireRequestId);
+      expect(first.idempotencyKey).not.toBe(second.idempotencyKey);
     });
 
     it('maps an acquire idempotency conflict to a typed conflict', async () => {

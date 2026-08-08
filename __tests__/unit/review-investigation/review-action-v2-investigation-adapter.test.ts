@@ -644,6 +644,11 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
       ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid,
     ],
     [
+      'provider obligation evidence',
+      ['investigation_obligation_evidence_mismatch'],
+      ReviewInvestigationControlPlaneFailureClass.ProviderOutputInvalid,
+    ],
+    [
       'an unrelated server invariant',
       ['investigation_internal_state_invalid'],
       ReviewInvestigationControlPlaneFailureClass.Rejected,
