@@ -208,6 +208,99 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('opts out of and tolerates a bounded config warning before thread startup', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const client = new CodexAppServerProtocolClient(
+      protocolRequest(),
+      async (message) => {
+        writes.push({ ...message });
+      }
+    );
+    const result = client.run();
+    await waitForWrite(writes, 'initialize');
+    expect(writes[0]).toMatchObject({
+      params: {
+        capabilities: {
+          optOutNotificationMethods: expect.arrayContaining(['configWarning']),
+        },
+      },
+    });
+    client.receive({
+      id: 1,
+      result: {
+        userAgent: `Codex Desktop/${CODEX_APP_SERVER_VERSION} test`,
+        codexHome: '/tmp/codex-home',
+        platformFamily: 'unix',
+        platformOs: 'linux',
+      },
+    });
+    client.receive(
+      notification('configWarning', {
+        summary: 'Deprecated test setting',
+        details: 'Use the replacement setting.\nThis warning is non-fatal.',
+        path: '/tmp/codex-home/config.toml',
+        range: {
+          start: { line: 1, column: 2 },
+          end: { line: 1, column: 9 },
+        },
+      })
+    );
+    await waitForWrite(writes, 'thread/start');
+    client.receive(notification('thread/started', { thread: thread() }));
+    client.receive({ id: 2, result: threadStartResponse() });
+    await waitForWrite(writes, 'turn/start');
+    client.receive(
+      notification('turn/started', {
+        threadId,
+        turn: turn('inProgress'),
+      })
+    );
+    client.receive({ id: 3, result: { turn: turn('inProgress') } });
+    completeMessage(client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(client);
+    completeTurn(client);
+
+    await expect(result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it('accepts an empty config warning summary allowed by the app-server schema', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(notification('configWarning', { summary: '' }));
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it.each([
+    ['missing summary', { details: 'details' }],
+    ['wrong details type', { summary: 'summary', details: 42 }],
+    [
+      'malformed range',
+      {
+        summary: 'summary',
+        range: {
+          start: { line: -1, column: 0 },
+          end: { line: 1, column: 0 },
+        },
+      },
+    ],
+    ['unexpected field', { summary: 'summary', sensitive: 'value' }],
+  ])('rejects malformed config warning: %s', async (_label, params) => {
+    const fixture = await activeTurn();
+    fixture.client.receive(notification('configWarning', params));
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_config_warning',
+    });
+  });
+
   it('opts out of and tolerates a fenced thread name update', async () => {
     const fixture = await activeTurn();
     const initialize = fixture.writes.find(
