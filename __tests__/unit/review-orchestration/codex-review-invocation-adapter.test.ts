@@ -67,7 +67,8 @@ describe('Codex T0 prepared invocation', () => {
     } as unknown as CodexProvider;
     const promptBuilder = {
       buildPreparedV2: jest.fn().mockResolvedValue({
-        version: 'prepared_review_prompt.v2',
+        version: 'prepared_review_prompt.v3',
+        investigationContextPrompt: 'investigation context',
         prompt: 'prepared prompt',
         pathCoverage: [],
         investigationProbePlan: emptyProbePlan,
@@ -136,7 +137,8 @@ describe('Codex T0 prepared invocation', () => {
       provider,
       {
         buildPreparedV2: jest.fn().mockResolvedValue({
-          version: 'prepared_review_prompt.v2',
+          version: 'prepared_review_prompt.v3',
+          investigationContextPrompt: 'investigation context',
           prompt: 'prepared prompt',
           pathCoverage: [],
           investigationProbePlan: incompleteProbePlan,
@@ -176,7 +178,8 @@ describe('Codex T0 prepared invocation', () => {
       provider,
       {
         buildPreparedV2: jest.fn().mockResolvedValue({
-          version: 'prepared_review_prompt.v2',
+          version: 'prepared_review_prompt.v3',
+          investigationContextPrompt: 'investigation context',
           prompt: 'prepared prompt',
           pathCoverage: [],
           investigationProbePlan: emptyProbePlan,
@@ -210,6 +213,15 @@ describe('Codex T0 prepared invocation', () => {
     );
     expect(invocation.manifestFacts.outputSchemaHash).toBe(
       hash(canonicalJson(buildReviewAgentTurnOutputSchema()))
+    );
+    expect(invocation.investigationContextPrompt).toContain(
+      'investigation context'
+    );
+    expect(invocation.investigationContextPrompt).not.toContain(
+      'prepared prompt'
+    );
+    expect(seed!.envelope.reviewPromptHash).toBe(
+      hash(invocation.investigationContextPrompt!)
     );
     expect(hash(seed!.canonicalJson)).toBe(seed!.hash);
     expect(JSON.parse(seed!.canonicalJson)).toEqual(seed!.envelope);
@@ -264,7 +276,8 @@ describe('Codex T0 prepared invocation', () => {
     } as unknown as CodexProvider;
     const promptBuilder = {
       buildPreparedV2: jest.fn().mockResolvedValue({
-        version: 'prepared_review_prompt.v2',
+        version: 'prepared_review_prompt.v3',
+        investigationContextPrompt: 'investigation context',
         prompt: 'prepared prompt',
         pathCoverage: [],
         investigationProbePlan: emptyProbePlan,
@@ -364,7 +377,8 @@ describe('Codex T0 prepared invocation', () => {
       provider,
       {
         buildPreparedV2: jest.fn().mockResolvedValue({
-          version: 'prepared_review_prompt.v2',
+          version: 'prepared_review_prompt.v3',
+          investigationContextPrompt: 'investigation context',
           prompt: 'prepared prompt',
           pathCoverage: [],
           investigationProbePlan: emptyProbePlan,
@@ -460,7 +474,8 @@ describe('Codex T0 prepared invocation', () => {
         provider,
         {
           buildPreparedV2: jest.fn().mockResolvedValue({
-            version: 'prepared_review_prompt.v2',
+            version: 'prepared_review_prompt.v3',
+            investigationContextPrompt: 'investigation context',
             prompt: 'prepared prompt',
             pathCoverage: [],
             investigationProbePlan: emptyProbePlan,
@@ -558,7 +573,8 @@ describe('Codex T0 prepared invocation', () => {
       provider,
       {
         buildPreparedV2: jest.fn().mockResolvedValue({
-          version: 'prepared_review_prompt.v2',
+          version: 'prepared_review_prompt.v3',
+          investigationContextPrompt: 'investigation context',
           prompt: 'prepared prompt',
           pathCoverage: [],
           investigationProbePlan: emptyProbePlan,
@@ -650,7 +666,8 @@ describe('Codex T0 prepared invocation', () => {
       provider,
       {
         buildPreparedV2: jest.fn().mockResolvedValue({
-          version: 'prepared_review_prompt.v2',
+          version: 'prepared_review_prompt.v3',
+          investigationContextPrompt: 'investigation context',
           prompt: 'prepared prompt',
           pathCoverage: [],
           investigationProbePlan: emptyProbePlan,
@@ -741,7 +758,8 @@ describe('Codex T0 prepared invocation', () => {
       provider,
       {
         buildPreparedV2: jest.fn().mockResolvedValue({
-          version: 'prepared_review_prompt.v2',
+          version: 'prepared_review_prompt.v3',
+          investigationContextPrompt: 'investigation context',
           prompt: 'prepared prompt',
           pathCoverage: [],
           investigationProbePlan: emptyProbePlan,
@@ -814,6 +832,7 @@ describe('Codex T0 prepared invocation', () => {
       provider: 'codex/gpt-test',
       requestedModel: digestShapedModel,
       reviewPrompt: 'review',
+      investigationContextPrompt: null,
       immutableRequest: Object.freeze({}),
       investigationProbePlan: emptyProbePlan,
       coverageManifest: createReviewPromptCoverageManifest({

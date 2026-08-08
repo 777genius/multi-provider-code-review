@@ -63,7 +63,7 @@ describe('PromptBuilder', () => {
 
       expect(prompt).toContain('OUTPUT LANGUAGE:');
       expect(prompt).toContain(
-        'Write the "title" and "message" fields of every finding in Russian.'
+        'Write the title and human-readable text of every finding in Russian.'
       );
       expect(prompt).toContain('never translate code or JSON keys');
     });
@@ -97,6 +97,25 @@ describe('PromptBuilder', () => {
       expect(prompt).toContain('No markdown, no prose, no code fences');
       expect(prompt).toContain('comments, trailing commas');
       expect(prompt).toContain('{"findings":[],"revalidations":[]}');
+    });
+
+    it('separates investigation context from the legacy terminal output contract', async () => {
+      const builder = new PromptBuilder(DEFAULT_CONFIG);
+      const prepared = await builder.buildPreparedV2(mockPR);
+
+      expect(prepared.prompt).toContain('Return ONLY one valid JSON object');
+      expect(prepared.prompt).toContain('SUGGESTION FIELD');
+      expect(prepared.investigationContextPrompt).not.toContain(
+        'Return ONLY one valid JSON object'
+      );
+      expect(prepared.investigationContextPrompt).not.toContain(
+        '{"findings":[],"revalidations":[]}'
+      );
+      expect(prepared.investigationContextPrompt).not.toContain(
+        'SUGGESTION FIELD'
+      );
+      expect(prepared.investigationContextPrompt).toContain('PR #123: Test PR');
+      expect(prepared.investigationContextPrompt).toContain('+new line');
     });
 
     it('includes fixable issue type guidance', async () => {

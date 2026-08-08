@@ -45,6 +45,7 @@ import {
   ReviewInvestigationProbePlanStatus,
 } from '../../review-investigation/domain/deterministic-context-probe-plan';
 import { buildReviewInvestigationSeedEnvelope } from '../../review-investigation/domain/review-investigation-seed-envelope';
+import { REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT_HASH } from '../../review-investigation/application/review-investigation-turn-prompt';
 
 export type CodexReviewAssignment = {
   readonly workSlot: ReviewWorkSlotPlan;
@@ -110,6 +111,10 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
       coverageCanonicalJson,
       'utf8'
     ).toString('base64url')}`;
+    const investigationContextPrompt = `${preparedPrompt.investigationContextPrompt}\n\nREVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
+      coverageCanonicalJson,
+      'utf8'
+    ).toString('base64url')}`;
     const revision = Object.freeze({
       baseSha: assignment.context.baseSha,
       mergeBaseSha: assignment.mergeBaseSha,
@@ -159,7 +164,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
       !taskKindSet.includes(ReviewTaskKind.LifecycleRevalidation);
     const investigationContract = investigationEligible
       ? canonicalJson({
-          adapterVersion: 'review-investigation-codex.v2',
+          adapterVersion: 'review-investigation-codex.v3',
           actualModelAttribution: 'observed',
           confinement: 'gateway_only',
           continuation: 'durable_dossier',
@@ -171,6 +176,8 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           reasoningEffort: 'xhigh',
           requestedModel: prepared.requestedModel,
           searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
+          turnPromptContractHash:
+            REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT_HASH,
         })
       : null;
     const investigationSeedEnvelope = investigationEligible
@@ -178,7 +185,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           coverageManifest,
           canonicalInventory,
           probePlan: preparedPrompt.investigationProbePlan,
-          reviewPrompt: prompt,
+          reviewPrompt: investigationContextPrompt,
           requestedModel: prepared.requestedModel,
         })
       : null;
@@ -188,6 +195,9 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
       provider: prepared.providerName,
       requestedModel: prepared.requestedModel,
       reviewPrompt: prompt,
+      investigationContextPrompt: investigationEligible
+        ? investigationContextPrompt
+        : null,
       immutableRequest: prepared,
       coverageManifest,
       investigationProbePlan: preparedPrompt.investigationProbePlan,

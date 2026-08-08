@@ -44,6 +44,7 @@ import {
   ReviewInvestigationDeferredSignal,
   ReviewInvestigationLegacyFallbackReason,
 } from '../../../src/review-investigation/application/run-investigation-work-slot';
+import { buildReviewInvestigationTurnPrompt } from '../../../src/review-investigation/application/review-investigation-turn-prompt';
 import capabilityGolden from '../../../src/review-investigation/fixtures/review-investigation-capability-v1.golden.json';
 import { logger } from '../../../src/utils/logger';
 
@@ -51,6 +52,37 @@ const hash = (value: string) =>
   createHash('sha256').update(value).digest('hex');
 
 describe('ReviewInvestigationRecordingAdapter', () => {
+  it('builds isolated multi-turn prompts without altering review content', () => {
+    const firstBrief = activeSnapshot().turn!.brief!;
+    const secondBrief = {
+      ...firstBrief,
+      investigationVersion: firstBrief.investigationVersion + 1,
+      turnId: 'turn-2',
+    };
+    const reviewContextPrompt = [
+      'Investigate this diff.',
+      'The changed source contains the literal FINAL OUTPUT CONTRACT marker.',
+    ].join('\n');
+    const first = buildReviewInvestigationTurnPrompt({
+      reviewContextPrompt,
+      turnBrief: firstBrief,
+    });
+    const second = buildReviewInvestigationTurnPrompt({
+      reviewContextPrompt,
+      turnBrief: secondBrief,
+    });
+
+    for (const prompt of [first, second]) {
+      expect(prompt.match(/Investigate this diff\./g)).toHaveLength(1);
+      expect(prompt.match(/REVIEW INVESTIGATION TURN CONTRACT:/g)).toHaveLength(
+        1
+      );
+      expect(prompt).toContain('literal FINAL OUTPUT CONTRACT marker');
+      expect(prompt.match(/TURN_BRIEF_V1_BASE64URL:/g)).toHaveLength(1);
+    }
+    expect(first).not.toBe(second);
+  });
+
   it('reads removed changed content from merge-base instead of the absent head', () => {
     const { invocation } = executionInput();
     const path = 'src/removed.ts';
@@ -210,6 +242,8 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       expect(prompt).toContain(
         'Set criticDecision to null during discovery turns'
       );
+      expect(prompt).toContain('Investigate the assigned change.');
+      expect(prompt).not.toContain('Return ONLY one valid JSON object.');
       return {
         status: ReviewInvestigationRunStatus.Completed,
         snapshot: terminalSnapshot(terminalJson),
@@ -421,6 +455,20 @@ describe('ReviewInvestigationRecordingAdapter', () => {
         policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
       },
       {
+        reason:
+          ReviewInvestigationRecordingSupportReason.InvestigationContextPromptMissing,
+        input: candidate({ investigationContextPrompt: null }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.InvestigationContextPromptUnbound,
+        input: candidate({
+          investigationContextPrompt: 'Different investigation context.',
+        }),
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      },
+      {
         reason: ReviewInvestigationRecordingSupportReason.SeedEnvelopeUnbound,
         input: manifest({ providerRequestEnvelopeHash: '0'.repeat(64) }),
         policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
@@ -554,10 +602,24 @@ describe('ReviewInvestigationRecordingAdapter', () => {
           updateInvocation(state, { investigationSeedEnvelope: null }),
       },
       {
+        reason:
+          ReviewInvestigationRecordingSupportReason.InvestigationContextPromptMissing,
+        apply: (state) =>
+          updateInvocation(state, { investigationContextPrompt: null }),
+      },
+      {
         reason: ReviewInvestigationRecordingSupportReason.SeedEnvelopeUnbound,
         apply: (state) =>
           updateManifest(state, {
             providerRequestEnvelopeHash: '0'.repeat(64),
+          }),
+      },
+      {
+        reason:
+          ReviewInvestigationRecordingSupportReason.InvestigationContextPromptUnbound,
+        apply: (state) =>
+          updateInvocation(state, {
+            investigationContextPrompt: 'Different investigation context.',
           }),
       },
       {
@@ -693,6 +755,30 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     ).toBe(ReviewInvestigationRecordingSupportReason.SeedEnvelopeUnbound);
   });
 
+  it('does not claim an invocation whose investigation prompt differs from its seed', () => {
+    const adapter = new ReviewInvestigationRecordingAdapter(
+      () => ({ execute: jest.fn() }) as never,
+      options()
+    );
+    const input = executionInput();
+    const invocation = {
+      ...input.invocation,
+      investigationContextPrompt: 'Different investigation context.',
+    };
+
+    expect(adapter.supports({ workSlot: input.workSlot, invocation })).toBe(
+      false
+    );
+    expect(
+      reviewInvestigationRecordingSupportDecision(
+        { workSlot: input.workSlot, invocation },
+        REVIEW_INVESTIGATION_PRODUCTION_POLICY
+      ).reason
+    ).toBe(
+      ReviewInvestigationRecordingSupportReason.InvestigationContextPromptUnbound
+    );
+  });
+
   it('binds investigation seed identity to the exact review revision', () => {
     const { invocation } = executionInput();
     const nextRevisionCoverage = {
@@ -708,7 +794,7 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       coverageManifest: nextRevisionCoverage,
       probePlan: invocation.investigationProbePlan,
       requestedModel: invocation.requestedModel,
-      reviewPrompt: invocation.reviewPrompt,
+      reviewPrompt: invocation.investigationContextPrompt!,
     });
 
     expect(nextRevisionSeed.hash).not.toBe(
@@ -924,6 +1010,7 @@ function executionInput(
     ],
     coverageHash: 'd'.repeat(64),
   } as const;
+  const investigationContextPrompt = 'Investigate the assigned change.';
   const investigationSeedEnvelope = buildReviewInvestigationSeedEnvelope({
     canonicalInventory: canonicalInventory([
       inventoryEntry('src/z.ts'),
@@ -933,14 +1020,16 @@ function executionInput(
     coverageManifest,
     probePlan: investigationProbePlan,
     requestedModel: 'gpt-test',
-    reviewPrompt: 'Review the assigned change.',
+    reviewPrompt: investigationContextPrompt,
   });
   const invocation = {
     workSlotId: workSlot.workSlotId,
     attemptOrdinal: 1,
     provider: 'codex/gpt-test',
     requestedModel: 'gpt-test',
-    reviewPrompt: 'Review the assigned change.',
+    reviewPrompt:
+      'Review the assigned change.\nReturn ONLY one valid JSON object.',
+    investigationContextPrompt,
     immutableRequest: {},
     investigationProbePlan,
     investigationSeedEnvelope,
