@@ -106438,7 +106438,7 @@ var CodexAppServerProtocolClient = class {
     )) {
       throw streamFailure2();
     }
-    requireBoundedMetadataString(params.summary, false);
+    requireBoundedMetadataString(params.summary, true);
     requireNullableBoundedMetadataString(params.details);
     requireNullableBoundedMetadataString(params.path);
     if (params.range !== void 0 && params.range !== null) {

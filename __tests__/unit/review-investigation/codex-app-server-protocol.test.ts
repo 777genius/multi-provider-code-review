@@ -265,6 +265,18 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('accepts an empty config warning summary allowed by the app-server schema', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(notification('configWarning', { summary: '' }));
+    completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+    completeUsage(fixture.client);
+    completeTurn(fixture.client);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
   it.each([
     ['missing summary', { details: 'details' }],
     ['wrong details type', { summary: 'summary', details: 42 }],

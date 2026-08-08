@@ -993,7 +993,7 @@ export class CodexAppServerProtocolClient {
     ) {
       throw streamFailure();
     }
-    requireBoundedMetadataString(params.summary, false);
+    requireBoundedMetadataString(params.summary, true);
     requireNullableBoundedMetadataString(params.details);
     requireNullableBoundedMetadataString(params.path);
     if (params.range !== undefined && params.range !== null) {
