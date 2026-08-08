@@ -583,6 +583,68 @@ describe('ReviewActionV2Client', () => {
     });
     expect(cancelled).toBe(true);
   });
+
+  it('allows an escaped turn-plan envelope beyond the default response limit', async () => {
+    const turnBriefCanonicalJson = JSON.stringify({
+      payload: '"'.repeat(1_100_000),
+    });
+    const fetchImpl = jest.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      const body = JSON.stringify({
+        protocolVersion: reviewActionV2PublishedProtocolVersion,
+        schemaDigest: reviewActionV2PublishedSchemaDigest,
+        requestId: request.requestId,
+        serverTime: '2026-07-22T12:00:00.000Z',
+        result: {
+          status: 'applied',
+          turnBriefCanonicalJson,
+          turnBriefHash: 'a'.repeat(64),
+        },
+      });
+      expect(Buffer.byteLength(body, 'utf8')).toBeGreaterThan(2_097_152);
+      return new Response(body, {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    await expect(
+      createClient(fetchImpl, 1).execute(
+        ReviewActionV2OperationId.ReviewInvestigationTurnPlan,
+        {
+          authorizationToken: 'authorization.token',
+          idempotencyKey: 'idem:large-turn-plan',
+          investigationId: 'investigation-1',
+          expectedVersion: '4',
+          dossierDigest: 'd'.repeat(64),
+          leaseDurationMs: 900_000,
+          maxObligationsForTurn: 64,
+          turnBudgetHash: 'b'.repeat(64),
+        }
+      )
+    ).resolves.toMatchObject({ turnBriefCanonicalJson });
+  });
+
+  it('retains the 2 MiB default limit for non-turn-plan responses', async () => {
+    const client = createClient(
+      jest.fn(async () => new Response('x'.repeat(2_097_153))),
+      1
+    );
+
+    await expect(
+      client.execute(ReviewActionV2OperationId.ReviewRunAuthorize, {
+        oidcToken: 'header.payload.signature',
+        supportedProtocols: [
+          {
+            protocolVersion: reviewActionV2PublishedProtocolVersion,
+            schemaDigest: reviewActionV2PublishedSchemaDigest,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      code: ReviewActionV2ClientFailureCode.ResponseTooLarge,
+    });
+  });
 });
 
 function createClient(fetchImpl: typeof fetch, maxAttempts = 2) {
