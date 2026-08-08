@@ -24,6 +24,10 @@ import {
   RunInvestigationWorkSlot,
 } from '../../review-investigation/application/run-investigation-work-slot';
 import {
+  REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT_HASH,
+  buildReviewInvestigationTurnPrompt,
+} from '../../review-investigation/application/review-investigation-turn-prompt';
+import {
   ReviewInvestigationConclusion,
   ReviewInvestigationNextAction,
   ReviewInvestigationRunStatus,
@@ -85,6 +89,8 @@ export enum ReviewInvestigationRecordingSupportReason {
   CoverageWorkSlotMismatch = 'coverage_work_slot_mismatch',
   SeedEnvelopeMissing = 'seed_envelope_missing',
   SeedEnvelopeUnbound = 'seed_envelope_unbound',
+  InvestigationContextPromptMissing = 'investigation_context_prompt_missing',
+  InvestigationContextPromptUnbound = 'investigation_context_prompt_unbound',
   ProbePlanIncomplete = 'probe_plan_incomplete',
   ProbeLimitsMismatch = 'probe_limits_mismatch',
   ObligationLimitExceeded = 'obligation_limit_exceeded',
@@ -118,6 +124,7 @@ export const REVIEW_INVESTIGATION_COVERAGE_PROFILE = Object.freeze({
   probePolicyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
   runtimeProfileVersion: 'gateway-attested-agent.v1',
   searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
+  turnPromptContractHash: REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT_HASH,
 });
 
 export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationRecordingPort {
@@ -210,7 +217,12 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
           input.workSlot.providerKind
         ),
         promptFor: (snapshot) =>
-          investigationPrompt(input.invocation.reviewPrompt, snapshot),
+          buildReviewInvestigationTurnPrompt({
+            reviewContextPrompt: requireInvestigationContextPrompt(
+              input.invocation
+            ),
+            turnBrief: requireTurnBrief(snapshot),
+          }),
         workingDirectory: this.options.workingDirectory,
         turnBudget: {
           maxGatewayOperations: this.options.policy.maxReceiptsPerTurn,
@@ -376,19 +388,8 @@ export function reviewInvestigationRecordingSupportDecision(
       ReviewInvestigationRecordingSupportReason.CoverageWorkSlotMismatch
     );
   }
-  if (!input.invocation.investigationSeedEnvelope) {
-    return unsupported(
-      ReviewInvestigationRecordingSupportReason.SeedEnvelopeMissing
-    );
-  }
-  if (
-    input.invocation.investigationSeedEnvelope.hash !==
-    input.invocation.manifestFacts.providerRequestEnvelopeHash
-  ) {
-    return unsupported(
-      ReviewInvestigationRecordingSupportReason.SeedEnvelopeUnbound
-    );
-  }
+  const bindingFailure = investigationPromptBindingFailure(input.invocation);
+  if (bindingFailure !== null) return unsupported(bindingFailure);
   const plan = input.invocation.investigationProbePlan;
   if (plan.status !== ReviewInvestigationProbePlanStatus.Complete) {
     return unsupported(
@@ -421,43 +422,55 @@ function requireSeedEnvelope(
   invocation: PreparedReviewInvocation
 ): NonNullable<PreparedReviewInvocation['investigationSeedEnvelope']> {
   const envelope = invocation.investigationSeedEnvelope;
-  if (
-    !envelope ||
-    envelope.hash !== invocation.manifestFacts.providerRequestEnvelopeHash
-  ) {
-    throw new Error('review_investigation_seed_envelope_unbound');
+  const failure = investigationPromptBindingFailure(invocation);
+  if (!envelope || failure !== null) {
+    throw new Error(
+      `review_investigation_seed_envelope_unbound:${failure ?? 'missing'}`
+    );
   }
   return envelope;
 }
 
-function investigationPrompt(
-  reviewPrompt: string,
-  snapshot: ReviewInvestigationSnapshot
+function requireInvestigationContextPrompt(
+  invocation: PreparedReviewInvocation
 ): string {
-  if (snapshot.turn?.brief === null || snapshot.turn?.brief === undefined) {
+  const prompt = invocation.investigationContextPrompt;
+  if (!prompt || !invocation.investigationSeedEnvelope) {
+    throw new Error('review_investigation_context_prompt_missing');
+  }
+  return prompt;
+}
+
+function requireTurnBrief(snapshot: ReviewInvestigationSnapshot) {
+  const brief = snapshot.turn?.brief;
+  if (brief === null || brief === undefined) {
     throw new Error('review_investigation_turn_brief_missing');
   }
-  const encodedBrief = Buffer.from(
-    canonicalJson(snapshot.turn.brief),
-    'utf8'
-  ).toString('base64url');
-  return [
-    reviewPrompt,
-    '',
-    'REVIEW INVESTIGATION TURN CONTRACT:',
-    'Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.',
-    'For typed search requirements, execute the exact literal query with paths=["."], revision="head", caseSensitive=true, and pageSize=500, then follow every cursor to completion.',
-    'For a typed complete_page_chain obligation, put its complete receipt chain in closureClaims only. The control plane derives its discovery evidence; do not duplicate that chain in operationBackedDiscoveryClaims.',
-    'For a typed complete_relation_context obligation, rerun its hydrated query and include the complete matching text_search receipt chain plus complete file_read receipts for exactly every requiredPathHashes entry. Never include unrelated search or directory receipts.',
-    'During discovery turns, use operationBackedDiscoveryClaims only for additional exploratory text-search chains. Bind each chain to the coverage_contract changed_content obligation that directly motivated the search, copy the exact query passed to the tool, and include every operationReceiptId from the chain.',
-    'Never bind an exploratory search to a deterministic_expansion obligation. If no changed_content source directly motivated it, omit the advisory discovery claim and leave related obligations open.',
-    'When inspected evidence reveals additional review scope, add a provider-neutral obligationProposals entry instead of silently broadening an existing obligation.',
-    'Each obligation proposal must contain exactly kind, canonicalSubject, canonicalRequirement, and riskPriority. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.',
-    'Obligation proposals are non-authoritative and remain open until the control plane validates and independently closes them with accepted evidence.',
-    'Do not close an obligation without complete operation receipt evidence.',
-    'Set criticDecision to null during discovery turns. During critic turns, set it to exactly accept, veto, or abstain.',
-    `REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:${encodedBrief}`,
-  ].join('\n');
+  return brief;
+}
+
+function investigationPromptBindingFailure(
+  invocation: PreparedReviewInvocation
+): ReviewInvestigationRecordingSupportReason | null {
+  const envelope = invocation.investigationSeedEnvelope;
+  if (!envelope) {
+    return ReviewInvestigationRecordingSupportReason.SeedEnvelopeMissing;
+  }
+  const prompt = invocation.investigationContextPrompt;
+  if (!prompt?.trim()) {
+    return ReviewInvestigationRecordingSupportReason.InvestigationContextPromptMissing;
+  }
+  if (
+    envelope.canonicalJson !== canonicalJson(envelope.envelope) ||
+    envelope.hash !== sha256(envelope.canonicalJson) ||
+    envelope.hash !== invocation.manifestFacts.providerRequestEnvelopeHash
+  ) {
+    return ReviewInvestigationRecordingSupportReason.SeedEnvelopeUnbound;
+  }
+  if (envelope.envelope.reviewPromptHash !== sha256(prompt)) {
+    return ReviewInvestigationRecordingSupportReason.InvestigationContextPromptUnbound;
+  }
+  return null;
 }
 
 function terminalObservation(

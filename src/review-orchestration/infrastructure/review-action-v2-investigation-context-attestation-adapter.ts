@@ -11,6 +11,7 @@ import type {
   ReviewContextAttestationPort,
 } from '../application/review-orchestration-ports';
 import type { ContextGatewayAttestationPort } from './context-gateway-invocation-session';
+import { createFailedContextGatewaySealPayload } from './context-gateway-failed-seal';
 
 export class ReviewActionV2InvestigationContextAttestationAdapter implements ContextGatewayAttestationPort {
   constructor(
@@ -133,6 +134,36 @@ export class ReviewActionV2InvestigationContextAttestationAdapter implements Con
         'context_gateway_attestation_hash'
       ),
     });
+  }
+
+  async abandonGatewaySession(
+    input: Parameters<ReviewContextAttestationPort['abandonGatewaySession']>[0]
+  ): Promise<void> {
+    const result = await this.client.execute(
+      ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
+      {
+        authorizationToken: this.authorizationToken,
+        leaseCapability: input.invocationLease.leaseCapability,
+        idempotencyKey: deterministicId(
+          'investigation-gateway-failed-seal',
+          [
+            input.session.sessionId,
+            input.invocationLease.attemptId,
+            input.invocationLease.leaseId,
+            input.invocationLease.fencingToken,
+          ]
+        ),
+        ...createFailedContextGatewaySealPayload(input),
+      }
+    );
+    if (
+      result.status !== ReviewContextGatewaySealResultStatus.Accepted &&
+      result.status !== ReviewContextGatewaySealResultStatus.Idempotent
+    ) {
+      throw new Error(
+        `review_action_v2_investigation_context_gateway_failed_seal_${result.status}`
+      );
+    }
   }
 }
 

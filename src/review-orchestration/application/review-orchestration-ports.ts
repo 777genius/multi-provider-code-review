@@ -158,6 +158,8 @@ export type PreparedReviewInvocation = {
   readonly requestedModel: string;
   /** In-memory semantic prompt before provider-specific wrapping. Never persist or log. */
   readonly reviewPrompt: string;
+  /** In-memory review context without a terminal output contract. Never persist or log. */
+  readonly investigationContextPrompt: string | null;
   readonly immutableRequest: unknown;
   readonly manifestFacts: PreparedReviewInvocationManifestFacts;
   readonly coverageManifest: import('../domain').ReviewPromptCoverageManifest;
@@ -298,6 +300,10 @@ export interface ReviewContextAttestationPort {
     readonly replayMaterialCanonicalJson: string;
     readonly replayMaterialHash: string;
   }): Promise<ContextDependencyAttestationReference | null>;
+  abandonGatewaySession(input: {
+    readonly invocationLease: ReviewInvocationLease;
+    readonly session: ContextGatewaySessionLease;
+  }): Promise<void>;
   commitContextReplay(input: {
     readonly authorization: ReviewRunAuthorization;
     readonly execution: ReviewExecutionAdmission;

@@ -56,6 +56,7 @@ import {
 import { ReviewActionV2RetryClass } from '../../control-plane/generated/review-action-v2/review-action-v2-negotiation';
 import { logger } from '../../utils/logger';
 import { emitReviewInvestigationTelemetry } from './review-investigation-telemetry';
+import { createFailedContextGatewaySealPayload } from './context-gateway-failed-seal';
 
 export class ReviewActionV2ControlPlaneAdapter
   implements ReviewActionV2ControlPlanePort, ReviewContextAttestationPort
@@ -309,6 +310,42 @@ export class ReviewActionV2ControlPlaneAdapter
         'context_dependency_attestation_hash'
       ),
     });
+  }
+
+  async abandonGatewaySession(
+    input: Parameters<ReviewContextAttestationPort['abandonGatewaySession']>[0]
+  ): ReturnType<ReviewContextAttestationPort['abandonGatewaySession']> {
+    let result;
+    try {
+      const authorization = this.requireActiveAuthorization();
+      result = await this.client.execute(
+        ReviewActionV2OperationId.ReviewContextGatewaySeal,
+        {
+          authorizationToken: authorization.authorizationToken,
+          leaseCapability: input.invocationLease.leaseCapability,
+          idempotencyKey: deterministicIdempotencyKey(
+            'context-gateway-failed-seal',
+            [
+              input.session.sessionId,
+              input.invocationLease.attemptId,
+              input.invocationLease.leaseId,
+              input.invocationLease.fencingToken,
+            ]
+          ),
+          ...createFailedContextGatewaySealPayload(input),
+        }
+      );
+    } catch (error) {
+      throw controlPlaneFailure(error);
+    }
+    if (
+      result.status !== ReviewContextGatewaySealResultStatus.Accepted &&
+      result.status !== ReviewContextGatewaySealResultStatus.Idempotent
+    ) {
+      throw new Error(
+        `review_action_v2_context_gateway_failed_seal_${result.status}`
+      );
+    }
   }
 
   async commitContextReplay(

@@ -16,8 +16,11 @@ export type PreparedPromptPathCoverage = Readonly<{
   contentHash: string | null;
 }>;
 
-export type PreparedReviewPromptV2 = Readonly<{
-  version: 'prepared_review_prompt.v2';
+export type PreparedReviewPromptV3 = Readonly<{
+  version: 'prepared_review_prompt.v3';
+  /** Shared review context without a terminal provider output contract. */
+  investigationContextPrompt: string;
+  /** Legacy single-turn review prompt, including its terminal output contract. */
   prompt: string;
   pathCoverage: readonly PreparedPromptPathCoverage[];
   investigationProbePlan: ReviewInvestigationProbePlan;

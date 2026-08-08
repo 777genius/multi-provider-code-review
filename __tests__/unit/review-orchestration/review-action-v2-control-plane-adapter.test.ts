@@ -712,6 +712,81 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     );
   });
 
+  it.each([
+    ReviewContextGatewaySealResultStatus.Accepted,
+    ReviewContextGatewaySealResultStatus.Idempotent,
+  ])(
+    'terminalizes a failed target-bound context gateway session from %s',
+    async (status) => {
+      const execute = jest
+        .fn()
+        .mockResolvedValueOnce(authorizationResponse())
+        .mockResolvedValueOnce({
+          status,
+          attestationId: null,
+          attestationHash: null,
+        });
+      const adapter = createAdapter(execute);
+      const session = {
+        sessionId: 'session-1',
+        eventChainSeedHash: hash('seed'),
+        gatewaySessionSecret: Buffer.alloc(32, 1).toString('base64url'),
+        sealCapability: 'seal.capability',
+        expiresAt: '2026-07-22T12:05:00.000Z',
+      };
+
+      await adapter.authorize({ oidcToken: 'oidc.token' });
+      await expect(
+        adapter.abandonGatewaySession({ invocationLease: baseLease, session })
+      ).resolves.toBeUndefined();
+      expect(execute).toHaveBeenNthCalledWith(
+        2,
+        ReviewActionV2OperationId.ReviewContextGatewaySeal,
+        expect.objectContaining({
+          authorizationToken: authorization.authorizationToken,
+          leaseCapability: baseLease.leaseCapability,
+          sealCapability: session.sealCapability,
+          sessionId: session.sessionId,
+          attemptId: baseLease.attemptId,
+          sourceLeaseId: baseLease.leaseId,
+          fencingToken: baseLease.fencingToken,
+          providerSucceeded: false,
+          schemaValidated: false,
+          fullyConsumed: false,
+          transcriptCanonicalJson: '{}',
+          replayMaterialCanonicalJson: '{}',
+          idempotencyKey: expect.stringMatching(
+            /^rr:context-gateway-failed-seal:[a-f0-9]{64}$/u
+          ),
+        })
+      );
+    }
+  );
+
+  it('rejects a denied target-bound context gateway abandon', async () => {
+    const execute = jest
+      .fn()
+      .mockResolvedValueOnce(authorizationResponse())
+      .mockResolvedValueOnce({
+        status: ReviewContextGatewaySealResultStatus.Denied,
+      });
+    const adapter = createAdapter(execute);
+
+    await adapter.authorize({ oidcToken: 'oidc.token' });
+    await expect(
+      adapter.abandonGatewaySession({
+        invocationLease: baseLease,
+        session: {
+          sessionId: 'session-1',
+          eventChainSeedHash: hash('seed'),
+          gatewaySessionSecret: Buffer.alloc(32, 1).toString('base64url'),
+          sealCapability: 'seal.capability',
+          expiresAt: '2026-07-22T12:05:00.000Z',
+        },
+      })
+    ).rejects.toThrow('review_action_v2_context_gateway_failed_seal_denied');
+  });
+
   it('translates context open policy mismatches into a safe actionable code', async () => {
     const execute = jest
       .fn()

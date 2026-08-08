@@ -218,6 +218,64 @@ describe('ReviewActionV2InvestigationContextAttestationAdapter', () => {
     );
   });
 
+  it.each([
+    ReviewContextGatewaySealResultStatus.Accepted,
+    ReviewContextGatewaySealResultStatus.Idempotent,
+  ])('terminalizes a failed investigation shadow gateway from %s', async (status) => {
+    const execute = jest.fn().mockResolvedValue({ status });
+    const adapter = createAdapter(execute);
+
+    await expect(
+      adapter.abandonGatewaySession({
+        invocationLease,
+        session: gatewaySession,
+      })
+    ).resolves.toBeUndefined();
+    expect(execute).toHaveBeenCalledWith(
+      ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
+      expect.objectContaining({
+        authorizationToken,
+        leaseCapability: invocationLease.leaseCapability,
+        sealCapability: gatewaySession.sealCapability,
+        idempotencyKey: deterministicId(
+          'investigation-gateway-failed-seal',
+          [
+            gatewaySession.sessionId,
+            invocationLease.attemptId,
+            invocationLease.leaseId,
+            invocationLease.fencingToken,
+          ]
+        ),
+        sessionId: gatewaySession.sessionId,
+        attemptId: invocationLease.attemptId,
+        sourceLeaseId: invocationLease.leaseId,
+        fencingToken: invocationLease.fencingToken,
+        providerSucceeded: false,
+        schemaValidated: false,
+        fullyConsumed: false,
+        transcriptCanonicalJson: '{}',
+        replayMaterialCanonicalJson: '{}',
+      })
+    );
+  });
+
+  it('rejects a denied investigation shadow gateway abandon', async () => {
+    const adapter = createAdapter(
+      jest.fn().mockResolvedValue({
+        status: ReviewContextGatewaySealResultStatus.Denied,
+      })
+    );
+
+    await expect(
+      adapter.abandonGatewaySession({
+        invocationLease,
+        session: gatewaySession,
+      })
+    ).rejects.toThrow(
+      'review_action_v2_investigation_context_gateway_failed_seal_denied'
+    );
+  });
+
   it('propagates an investigation shadow gateway open transport failure', async () => {
     const transportFailure = new Error('transport_failure');
     const adapter = createAdapter(

@@ -138,6 +138,9 @@ export interface ContextGatewayAttestationPort {
   sealGatewaySession(
     input: Parameters<ReviewContextAttestationPort['sealGatewaySession']>[0]
   ): ReturnType<ReviewContextAttestationPort['sealGatewaySession']>;
+  abandonGatewaySession(
+    input: Parameters<ReviewContextAttestationPort['abandonGatewaySession']>[0]
+  ): ReturnType<ReviewContextAttestationPort['abandonGatewaySession']>;
 }
 
 export class SubprocessRequiredContextWitnessRunner implements RequiredContextWitnessRunnerPort {
@@ -286,10 +289,6 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       throw error;
     }
     const secret = Buffer.from(serverSession.gatewaySessionSecret, 'base64url');
-    if (secret.byteLength < 32) {
-      await rm(directory, { recursive: true, force: true });
-      throw new Error('context_gateway_session_secret_invalid');
-    }
     const providerConfig = this.providerConfig({
       revision: input.revision,
       sessionId: serverSession.sessionId,
@@ -301,6 +300,9 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       gatewayBundlePath,
     });
     try {
+      if (secret.byteLength < 32) {
+        throw new Error('context_gateway_session_secret_invalid');
+      }
       await this.requiredWitnessRunner.capture({
         gatewayBundlePath,
         checkoutRoot: this.options.checkoutRoot,
@@ -308,9 +310,14 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         gatewaySessionSecret: serverSession.gatewaySessionSecret,
       });
     } catch (error) {
-      secret.fill(0);
-      await rm(directory, { recursive: true, force: true });
-      throw error;
+      await cleanupOpenedGatewaySession({
+        attestations: this.attestations,
+        invocationLease: input.invocationLease,
+        serverSession,
+        secret,
+        directory,
+        primaryError: error,
+      });
     }
     return new ContextGatewayInvocationSession(
       this.attestations,
@@ -419,6 +426,8 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
 
 class ContextGatewayInvocationSession implements ContextGatewayInvocationSessionPort {
   readonly credentialLease: ContextGatewayCredentialLease;
+  private serverTerminal = false;
+  private disposePromise: Promise<void> | undefined;
 
   constructor(
     private readonly attestations: ContextGatewayAttestationPort,
@@ -518,7 +527,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     const { transcriptCanonicalJson, replayMaterialCanonicalJson } =
       createWireSealPayload(transcript, replayMaterial);
     await rm(this.replayMaterialPath);
-    return this.attestations.sealGatewaySession({
+    const attestation = await this.attestations.sealGatewaySession({
       invocationLease: this.currentInvocationLease(),
       session: this.serverSession,
       providerSucceeded: true,
@@ -531,6 +540,8 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
       replayMaterialCanonicalJson,
       replayMaterialHash: sha256(replayMaterialCanonicalJson),
     });
+    if (attestation) this.serverTerminal = true;
+    return attestation;
   }
 
   private async sealV4(input: {
@@ -576,7 +587,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
         }
       );
       await rm(this.replayMaterialPath);
-      return this.attestations.sealGatewaySession({
+      const attestation = await this.attestations.sealGatewaySession({
         invocationLease: this.currentInvocationLease(),
         session: this.serverSession,
         providerSucceeded: true,
@@ -589,6 +600,8 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
         replayMaterialCanonicalJson,
         replayMaterialHash: sha256(replayMaterialCanonicalJson),
       });
+      if (attestation) this.serverTerminal = true;
+      return attestation;
     } catch (error) {
       if (error instanceof ReviewContextInspectionFailure) throw error;
       throw new ReviewContextInspectionFailure(
@@ -598,9 +611,68 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
   }
 
   async dispose(): Promise<void> {
-    this.secret.fill(0);
-    await rm(this.directory, { recursive: true, force: true });
+    this.disposePromise ??= this.disposeOnce();
+    await this.disposePromise;
   }
+
+  private async disposeOnce(): Promise<void> {
+    const failures: unknown[] = [];
+    if (!this.serverTerminal) {
+      try {
+        await this.attestations.abandonGatewaySession({
+          invocationLease: this.currentInvocationLease(),
+          session: this.serverSession,
+        });
+        this.serverTerminal = true;
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    this.secret.fill(0);
+    try {
+      await rm(this.directory, { recursive: true, force: true });
+    } catch (error) {
+      failures.push(error);
+    }
+    throwCleanupFailures(failures);
+  }
+}
+
+async function cleanupOpenedGatewaySession(input: {
+  readonly attestations: ContextGatewayAttestationPort;
+  readonly invocationLease: ReviewInvocationLease;
+  readonly serverSession: Awaited<
+    ReturnType<ContextGatewayAttestationPort['openGatewaySession']>
+  >;
+  readonly secret: Buffer;
+  readonly directory: string;
+  readonly primaryError: unknown;
+}): Promise<never> {
+  const failures: unknown[] = [input.primaryError];
+  try {
+    await input.attestations.abandonGatewaySession({
+      invocationLease: input.invocationLease,
+      session: input.serverSession,
+    });
+  } catch (error) {
+    failures.push(error);
+  }
+  input.secret.fill(0);
+  try {
+    await rm(input.directory, { recursive: true, force: true });
+  } catch (error) {
+    failures.push(error);
+  }
+  if (failures.length === 1) throw input.primaryError;
+  throw new AggregateError(failures, 'context_gateway_open_cleanup_failed', {
+    cause: input.primaryError,
+  });
+}
+
+function throwCleanupFailures(failures: readonly unknown[]): void {
+  if (failures.length === 0) return;
+  if (failures.length === 1) throw failures[0];
+  throw new AggregateError(failures, 'context_gateway_dispose_failed');
 }
 
 async function readBoundedCanonicalJson(
