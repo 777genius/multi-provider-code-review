@@ -33,6 +33,7 @@ import {
   ReviewInvestigationProbePlanStatus,
   createReviewInvestigationProbePlan,
 } from '../../../src/review-investigation/domain/deterministic-context-probe-plan';
+import { buildReviewAgentTurnOutputSchema } from '../../../src/review-investigation/domain/turn-observation';
 import { canonicalJson } from '../../../src/context-gateway/context-gateway-contract';
 
 const emptyProbePlan = createReviewInvestigationProbePlan({
@@ -206,6 +207,9 @@ describe('Codex T0 prepared invocation', () => {
     );
     expect(invocation.manifestFacts.executionProfile).toBe(
       'investigation_gateway_v1'
+    );
+    expect(invocation.manifestFacts.outputSchemaHash).toBe(
+      hash(canonicalJson(buildReviewAgentTurnOutputSchema()))
     );
     expect(hash(seed!.canonicalJson)).toBe(seed!.hash);
     expect(JSON.parse(seed!.canonicalJson)).toEqual(seed!.envelope);

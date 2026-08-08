@@ -276,6 +276,8 @@ export function buildReviewAgentTurnOutputSchema(): Readonly<
         },
       },
       criticDecision: {
+        description:
+          'Must be null when the authenticated turn purpose is discovery. For a critic turn, must be exactly accept, veto, or abstain.',
         anyOf: [
           { type: 'null' },
           {

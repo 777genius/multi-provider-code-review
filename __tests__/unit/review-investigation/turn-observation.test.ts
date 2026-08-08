@@ -116,6 +116,16 @@ describe('review agent turn observation v2', () => {
     ]);
   });
 
+  it('binds criticDecision semantics to the authenticated turn purpose', () => {
+    const schema = buildReviewAgentTurnOutputSchema() as {
+      properties: Record<string, Record<string, unknown>>;
+    };
+
+    expect(schema.properties.criticDecision.description).toBe(
+      'Must be null when the authenticated turn purpose is discovery. For a critic turn, must be exactly accept, veto, or abstain.'
+    );
+  });
+
   it('omits unsupported uniqueItems constraints from the provider schema', () => {
     const unsupportedNodes: string[] = [];
 
@@ -142,7 +152,8 @@ describe('review agent turn observation v2', () => {
         return;
       }
       const properties = node.properties as
-        Readonly<Record<string, unknown>> | undefined;
+        | Readonly<Record<string, unknown>>
+        | undefined;
       objectNodes.push({
         path,
         additionalProperties: node.additionalProperties,
