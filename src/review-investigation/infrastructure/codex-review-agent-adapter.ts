@@ -25,16 +25,7 @@ import type {
 } from './review-agent-execution-session';
 import { StrictCliReviewAgent, schemaFailure } from './strict-cli-review-agent';
 import type { CodexAppServerReasoningEffort } from './codex-app-server-protocol';
-
-const DISABLED_CODEX_FEATURES = Object.freeze([
-  'shell_tool',
-  'unified_exec',
-  'browser_use',
-  'computer_use',
-  'js_repl',
-  'tool_search',
-  'plugins',
-]);
+import { CODEX_CONFINEMENT_DISABLED_FEATURES } from '../../providers/codex-confinement-policy';
 
 export type CodexReviewAgentAdapterOptions = Readonly<{
   executionSessions: ReviewAgentExecutionSessionResolverPort;
@@ -135,7 +126,7 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
     gateway: ReviewAgentGatewayLaunchBinding
   ): readonly string[] {
     const args = ['app-server', '--stdio', '--strict-config'];
-    for (const feature of DISABLED_CODEX_FEATURES) {
+    for (const feature of CODEX_CONFINEMENT_DISABLED_FEATURES) {
       args.push('--disable', feature);
     }
     args.push(

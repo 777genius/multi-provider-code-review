@@ -272,9 +272,11 @@ describe('CodexProvider', () => {
         'unified_exec',
         'browser_use',
         'computer_use',
+        'apps',
         'plugins',
       ])
     );
+    expect(isFeatureDisabled(args, 'apps')).toBe(true);
     expect(args.indexOf('--skip-git-repo-check')).toBe(1);
   });
 
@@ -302,6 +304,7 @@ describe('CodexProvider', () => {
         'browser_use',
         'computer_use',
         'web_search_request',
+        'apps',
         'plugins',
         '-c',
         'mcp_servers={}',
@@ -317,6 +320,7 @@ describe('CodexProvider', () => {
         'mcp_servers.reviewrouter.startup_timeout_sec=45',
       ])
     );
+    expect(isFeatureDisabled(args, 'apps')).toBe(true);
     expect(args.join('\n')).toContain(
       'mcp_servers.reviewrouter.enabled_tools='
     );
@@ -2061,3 +2065,9 @@ describe('CodexProvider', () => {
     }
   });
 });
+
+function isFeatureDisabled(args: readonly string[], feature: string): boolean {
+  return args.some(
+    (argument, index) => argument === feature && args[index - 1] === '--disable'
+  );
+}

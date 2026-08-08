@@ -21802,6 +21802,19 @@ var os3 = __toESM(require("os"));
 var path5 = __toESM(require("path"));
 var crypto3 = __toESM(require("crypto"));
 
+// src/providers/codex-confinement-policy.ts
+var CODEX_CONFINEMENT_DISABLED_FEATURES = Object.freeze([
+  "shell_tool",
+  "unified_exec",
+  "browser_use",
+  "computer_use",
+  "js_repl",
+  "tool_search",
+  // Codex 0.145 starts the built-in codex_apps MCP unless this is explicit.
+  "apps",
+  "plugins"
+]);
+
 // src/codex-oauth/codex-cli.ts
 var import_child_process3 = require("child_process");
 var fs5 = __toESM(require("fs/promises"));
@@ -22681,24 +22694,10 @@ var CodexProvider = class _CodexProvider extends Provider {
       args.splice(1, 0, "--skip-git-repo-check");
     }
     if (options.disableTools || contextGateway) {
-      args.push(
-        "--disable",
-        "shell_tool",
-        "--disable",
-        "unified_exec",
-        "--disable",
-        "browser_use",
-        "--disable",
-        "computer_use",
-        "--disable",
-        "js_repl",
-        "--disable",
-        "tool_search",
-        "--disable",
-        "web_search_request",
-        "--disable",
-        "plugins"
-      );
+      for (const feature of CODEX_CONFINEMENT_DISABLED_FEATURES) {
+        args.push("--disable", feature);
+      }
+      args.push("--disable", "web_search_request");
     }
     if (contextGateway) {
       args.push(
@@ -107465,15 +107464,6 @@ function deferred2() {
 }
 
 // src/review-investigation/infrastructure/codex-review-agent-adapter.ts
-var DISABLED_CODEX_FEATURES = Object.freeze([
-  "shell_tool",
-  "unified_exec",
-  "browser_use",
-  "computer_use",
-  "js_repl",
-  "tool_search",
-  "plugins"
-]);
 var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
   constructor(runner, options) {
     super(
@@ -107546,7 +107536,7 @@ var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
   }
   buildArguments(gateway) {
     const args = ["app-server", "--stdio", "--strict-config"];
-    for (const feature of DISABLED_CODEX_FEATURES) {
+    for (const feature of CODEX_CONFINEMENT_DISABLED_FEATURES) {
       args.push("--disable", feature);
     }
     args.push(

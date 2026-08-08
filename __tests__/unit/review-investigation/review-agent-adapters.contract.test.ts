@@ -347,9 +347,10 @@ describe('strict provider command shapes', () => {
       'computer_use',
       'js_repl',
       'tool_search',
+      'apps',
       'plugins',
     ]) {
-      expect(args).toContain(feature);
+      expect(isFeatureDisabled(args, feature)).toBe(true);
     }
     const enabled = args.find((argument) =>
       argument.startsWith('mcp_servers.reviewrouter.enabled_tools=')
@@ -767,4 +768,10 @@ function argumentAfter(args: readonly string[], name: string): string {
   if (index < 0 || !args[index + 1])
     throw new Error(`test_argument_missing:${name}`);
   return args[index + 1];
+}
+
+function isFeatureDisabled(args: readonly string[], feature: string): boolean {
+  return args.some(
+    (argument, index) => argument === feature && args[index - 1] === '--disable'
+  );
 }
