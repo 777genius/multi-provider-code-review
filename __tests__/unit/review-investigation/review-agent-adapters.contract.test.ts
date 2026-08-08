@@ -347,6 +347,7 @@ describe('strict provider command shapes', () => {
       'computer_use',
       'js_repl',
       'tool_search',
+      'multi_agent',
       'apps',
       'plugins',
     ]) {

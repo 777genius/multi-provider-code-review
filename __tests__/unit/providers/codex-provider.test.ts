@@ -272,6 +272,7 @@ describe('CodexProvider', () => {
         'unified_exec',
         'browser_use',
         'computer_use',
+        'multi_agent',
         'apps',
         'plugins',
       ])
@@ -304,6 +305,7 @@ describe('CodexProvider', () => {
         'browser_use',
         'computer_use',
         'web_search_request',
+        'multi_agent',
         'apps',
         'plugins',
         '-c',
