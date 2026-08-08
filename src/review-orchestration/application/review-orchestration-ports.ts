@@ -300,6 +300,10 @@ export interface ReviewContextAttestationPort {
     readonly replayMaterialCanonicalJson: string;
     readonly replayMaterialHash: string;
   }): Promise<ContextDependencyAttestationReference | null>;
+  abandonGatewaySession(input: {
+    readonly invocationLease: ReviewInvocationLease;
+    readonly session: ContextGatewaySessionLease;
+  }): Promise<void>;
   commitContextReplay(input: {
     readonly authorization: ReviewRunAuthorization;
     readonly execution: ReviewExecutionAdmission;

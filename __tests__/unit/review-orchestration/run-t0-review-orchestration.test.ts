@@ -659,6 +659,7 @@ describe('RunT0ReviewOrchestration', () => {
     const contextAttestations = {
       openGatewaySession: jest.fn(),
       sealGatewaySession: jest.fn(),
+      abandonGatewaySession: jest.fn(),
       commitContextReplay: jest.fn().mockResolvedValue({
         attachmentCapability: 'replayed.attachment.capability',
       }),

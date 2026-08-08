@@ -102,6 +102,82 @@ describe('ContextGatewayInvocationSessionFactory', () => {
     ).rejects.toThrow('context_gateway_execution_profile_invalid');
   });
 
+  it('abandons the server session when required witness preflight fails', async () => {
+    const checkoutRoot = await mkdtemp(
+      path.join(os.tmpdir(), 'reviewrouter-gateway-open-failure-test-')
+    );
+    try {
+      const gatewayBundlePath = path.join(checkoutRoot, 'gateway.cjs');
+      await writeFile(path.join(checkoutRoot, 'tracked.txt'), 'tracked\n');
+      await writeFile(gatewayBundlePath, 'gateway-v1\n');
+      await git(checkoutRoot, ['init']);
+      await git(checkoutRoot, ['config', 'user.email', 'test@example.com']);
+      await git(checkoutRoot, ['config', 'user.name', 'ReviewRouter Test']);
+      await git(checkoutRoot, ['add', '.']);
+      await git(checkoutRoot, ['commit', '-m', 'test fixture']);
+      const revisionSha = (
+        await git(checkoutRoot, ['rev-parse', 'HEAD'])
+      ).trim();
+      const invocationLease = {
+        leaseId: 'lease-1',
+        attemptId: 'attempt-1',
+        leaseCapability: 'lease-capability',
+        fencingToken: '3',
+        expiresAt: '2026-07-24T19:00:00.000Z',
+        resultReportUntil: '2026-07-24T19:10:00.000Z',
+        renewalCeilingReached: false,
+      };
+      const serverSession = {
+        sessionId: 'gateway-session-1',
+        eventChainSeedHash: '0'.repeat(64),
+        sealCapability: 'seal-capability',
+        gatewaySessionSecret: Buffer.alloc(32, 7).toString('base64url'),
+        expiresAt: '2026-07-24T20:00:00.000Z',
+      };
+      const attestations = {
+        openGatewaySession: jest.fn().mockResolvedValue(serverSession),
+        sealGatewaySession: jest.fn(),
+        abandonGatewaySession: jest.fn().mockResolvedValue(undefined),
+      };
+      const factory = new ContextGatewayInvocationSessionFactory(
+        attestations,
+        { checkoutRoot, gatewayBundlePath },
+        {
+          capture: jest
+            .fn()
+            .mockRejectedValue(new Error('required_witness_failed')),
+        }
+      );
+
+      await expect(
+        factory.open({
+          invocationLease,
+          leaseAuthorityKind:
+            ContextGatewayLeaseAuthorityKind.StandardExecution,
+          sourceExecutionId: 'execution-1',
+          sourceWorkSlotId: 'slot-1',
+          sourceReviewRevisionHash: hash('revision'),
+          providerKind: 'codex',
+          requestedModel: 'model',
+          executionProfile: 'context_gateway_v1',
+          providerInvocationKey: hash('provider-invocation'),
+          toolPolicyHash: hash('tool-policy'),
+          revision: {
+            baseSha: revisionSha,
+            mergeBaseSha: revisionSha,
+            headSha: revisionSha,
+          },
+        })
+      ).rejects.toThrow('required_witness_failed');
+      expect(attestations.abandonGatewaySession).toHaveBeenCalledWith({
+        invocationLease,
+        session: serverSession,
+      });
+    } finally {
+      await rm(checkoutRoot, { recursive: true, force: true });
+    }
+  });
+
   it('seals an authenticated v4 transcript with bound replay material', async () => {
     const fixture = await openSessionFixture(CONTEXT_GATEWAY_V4_POLICY_VERSION);
     try {
@@ -180,6 +256,9 @@ describe('ContextGatewayInvocationSessionFactory', () => {
           gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
         })
       );
+      await fixture.session.dispose();
+      await fixture.session.dispose();
+      expect(fixture.attestations.abandonGatewaySession).not.toHaveBeenCalled();
     } finally {
       await fixture.dispose();
     }
@@ -220,6 +299,11 @@ describe('ContextGatewayInvocationSessionFactory', () => {
     } finally {
       await fixture.dispose();
     }
+    expect(fixture.attestations.abandonGatewaySession).toHaveBeenCalledTimes(1);
+    expect(fixture.attestations.abandonGatewaySession).toHaveBeenCalledWith({
+      invocationLease: fixture.invocationLease,
+      session: fixture.serverSession,
+    });
   });
 
   it('rejects a tainted v4 transcript before contacting the control plane', async () => {
@@ -684,6 +768,7 @@ async function openSessionFixture(
       attestationId: 'attestation-1',
       attestationHash: hash('attestation'),
     }),
+    abandonGatewaySession: jest.fn().mockResolvedValue(undefined),
     commitContextReplay: jest.fn(),
   };
   const requiredWitnessRunner = {

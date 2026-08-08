@@ -9,6 +9,7 @@ import {
   reviewActionV2PublishedProtocolVersion,
   reviewActionV2PublishedSchemaDigest,
   ReviewActionV2OperationId,
+  ReviewContextGatewayAbandonResultStatus,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
   ReviewContextReplayCommitResultStatus,
@@ -309,6 +310,46 @@ export class ReviewActionV2ControlPlaneAdapter
         'context_dependency_attestation_hash'
       ),
     });
+  }
+
+  async abandonGatewaySession(
+    input: Parameters<ReviewContextAttestationPort['abandonGatewaySession']>[0]
+  ): ReturnType<ReviewContextAttestationPort['abandonGatewaySession']> {
+    let result;
+    try {
+      result = await this.client.execute(
+        ReviewActionV2OperationId.ReviewContextGatewayAbandon,
+        {
+          leaseCapability: input.session.sealCapability,
+          idempotencyKey: deterministicIdempotencyKey(
+            'context-gateway-abandon',
+            [
+              input.session.sessionId,
+              input.invocationLease.attemptId,
+              input.invocationLease.leaseId,
+              input.invocationLease.fencingToken,
+            ]
+          ),
+          sessionId: input.session.sessionId,
+          attemptId: input.invocationLease.attemptId,
+          sourceLeaseId: input.invocationLease.leaseId,
+          fencingToken: input.invocationLease.fencingToken,
+        }
+      );
+    } catch (error) {
+      throw controlPlaneFailure(error);
+    }
+    if (
+      result.status !== ReviewContextGatewayAbandonResultStatus.Abandoned &&
+      result.status !== ReviewContextGatewayAbandonResultStatus.Idempotent &&
+      result.status !==
+        ReviewContextGatewayAbandonResultStatus.AlreadyTerminal &&
+      result.status !== ReviewContextGatewayAbandonResultStatus.Expired
+    ) {
+      throw new Error(
+        `review_action_v2_context_gateway_abandon_${result.status}`
+      );
+    }
   }
 
   async commitContextReplay(

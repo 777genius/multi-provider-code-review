@@ -388,6 +388,9 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
         headSha: preparedFacts.assignment.context.headSha,
       },
     });
+    let observation: ReturnType<typeof normalizeReviewObservation> | undefined;
+    let invocationError: unknown;
+    let invocationFailed = false;
     try {
       const runtimePrepared = await this.provider.prepareInvocation(
         preparedFacts.prompt,
@@ -467,7 +470,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
         logger.info(
           'Context attestation sealed; fresh evidence is cross-revision reusable'
         );
-        return normalizeReviewObservation({
+        observation = normalizeReviewObservation({
           workSlotId: input.invocation.workSlotId,
           attemptOrdinal: input.invocation.attemptOrdinal,
           providerName: input.invocation.provider,
@@ -518,9 +521,31 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
           })
         );
       }
-    } finally {
-      await session.dispose();
+    } catch (error) {
+      invocationFailed = true;
+      invocationError = error;
     }
+    let cleanupError: unknown;
+    try {
+      await session.dispose();
+    } catch (error) {
+      cleanupError = error;
+    }
+    if (invocationFailed) {
+      if (cleanupError !== undefined) {
+        logger.warn(
+          `Context gateway cleanup failed after the invocation failure${safeFailureDiagnostic(
+            cleanupError
+          )}`
+        );
+      }
+      throw invocationError;
+    }
+    if (cleanupError !== undefined) throw cleanupError;
+    if (!observation) {
+      throw new Error('review_action_v2_context_gateway_observation_missing');
+    }
+    return observation;
   }
 }
 

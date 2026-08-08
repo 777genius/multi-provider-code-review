@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { ReviewActionV2Client } from '../../control-plane/review-action-v2-client';
 import {
   ReviewActionV2OperationId,
+  ReviewContextGatewayAbandonResultStatus,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
 } from '../../control-plane/generated/review-action-v2/review-action-v2';
@@ -133,6 +134,38 @@ export class ReviewActionV2InvestigationContextAttestationAdapter implements Con
         'context_gateway_attestation_hash'
       ),
     });
+  }
+
+  async abandonGatewaySession(
+    input: Parameters<ReviewContextAttestationPort['abandonGatewaySession']>[0]
+  ): Promise<void> {
+    const result = await this.client.execute(
+      ReviewActionV2OperationId.ReviewInvestigationContextGatewayAbandon,
+      {
+        leaseCapability: input.session.sealCapability,
+        idempotencyKey: deterministicId('investigation-gateway-abandon', [
+          input.session.sessionId,
+          input.invocationLease.attemptId,
+          input.invocationLease.leaseId,
+          input.invocationLease.fencingToken,
+        ]),
+        sessionId: input.session.sessionId,
+        attemptId: input.invocationLease.attemptId,
+        sourceLeaseId: input.invocationLease.leaseId,
+        fencingToken: input.invocationLease.fencingToken,
+      }
+    );
+    if (
+      result.status !== ReviewContextGatewayAbandonResultStatus.Abandoned &&
+      result.status !== ReviewContextGatewayAbandonResultStatus.Idempotent &&
+      result.status !==
+        ReviewContextGatewayAbandonResultStatus.AlreadyTerminal &&
+      result.status !== ReviewContextGatewayAbandonResultStatus.Expired
+    ) {
+      throw new Error(
+        `review_action_v2_investigation_context_gateway_abandon_${result.status}`
+      );
+    }
   }
 }
 

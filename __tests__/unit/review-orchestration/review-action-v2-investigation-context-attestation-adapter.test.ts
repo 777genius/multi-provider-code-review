@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import type { ReviewActionV2Client } from '../../../src/control-plane/review-action-v2-client';
 import {
   ReviewActionV2OperationId,
+  ReviewContextGatewayAbandonResultStatus,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
@@ -215,6 +216,56 @@ describe('ReviewActionV2InvestigationContextAttestationAdapter', () => {
 
     await expect(adapter.sealGatewaySession(sealInput)).rejects.toThrow(
       'review_action_v2_investigation_context_gateway_seal_future_status'
+    );
+  });
+
+  it.each([
+    ReviewContextGatewayAbandonResultStatus.Abandoned,
+    ReviewContextGatewayAbandonResultStatus.Idempotent,
+    ReviewContextGatewayAbandonResultStatus.AlreadyTerminal,
+    ReviewContextGatewayAbandonResultStatus.Expired,
+  ])('abandons an investigation shadow gateway from %s', async (status) => {
+    const execute = jest.fn().mockResolvedValue({ status });
+    const adapter = createAdapter(execute);
+
+    await expect(
+      adapter.abandonGatewaySession({
+        invocationLease,
+        session: gatewaySession,
+      })
+    ).resolves.toBeUndefined();
+    expect(execute).toHaveBeenCalledWith(
+      ReviewActionV2OperationId.ReviewInvestigationContextGatewayAbandon,
+      {
+        leaseCapability: gatewaySession.sealCapability,
+        idempotencyKey: deterministicId('investigation-gateway-abandon', [
+          gatewaySession.sessionId,
+          invocationLease.attemptId,
+          invocationLease.leaseId,
+          invocationLease.fencingToken,
+        ]),
+        sessionId: gatewaySession.sessionId,
+        attemptId: invocationLease.attemptId,
+        sourceLeaseId: invocationLease.leaseId,
+        fencingToken: invocationLease.fencingToken,
+      }
+    );
+  });
+
+  it('rejects a denied investigation shadow gateway abandon', async () => {
+    const adapter = createAdapter(
+      jest.fn().mockResolvedValue({
+        status: ReviewContextGatewayAbandonResultStatus.Denied,
+      })
+    );
+
+    await expect(
+      adapter.abandonGatewaySession({
+        invocationLease,
+        session: gatewaySession,
+      })
+    ).rejects.toThrow(
+      'review_action_v2_investigation_context_gateway_abandon_denied'
     );
   });
 

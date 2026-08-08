@@ -419,6 +419,7 @@ describe('Codex T0 prepared invocation', () => {
       ],
       expectedSealCalls: 0,
       expectedSealedModel: undefined,
+      disposeFailure: undefined,
     },
     {
       name: 'the gateway has no reusable dependencies',
@@ -429,6 +430,19 @@ describe('Codex T0 prepared invocation', () => {
       ],
       expectedSealCalls: 1,
       expectedSealedModel: 'gpt-test-actual',
+      disposeFailure: undefined,
+    },
+    {
+      name: 'the provider and gateway cleanup both fail',
+      actualModel: undefined,
+      expectedQualityFlags: [
+        'provider_warning',
+        'context_attestation_unavailable',
+        'cross_revision_reuse_disabled',
+      ],
+      expectedSealCalls: 0,
+      expectedSealedModel: undefined,
+      disposeFailure: new Error('gateway_cleanup_failed'),
     },
   ])(
     'returns retryable unattested evidence when $name',
@@ -437,6 +451,7 @@ describe('Codex T0 prepared invocation', () => {
       expectedQualityFlags,
       expectedSealCalls,
       expectedSealedModel,
+      disposeFailure,
     }) => {
       const planningPrepared = preparedInvocation('planning prompt');
       const runtimePrepared = preparedInvocation('runtime prompt');
@@ -464,7 +479,9 @@ describe('Codex T0 prepared invocation', () => {
           },
         },
         seal: jest.fn().mockResolvedValue(null),
-        dispose: jest.fn().mockResolvedValue(undefined),
+        dispose: disposeFailure
+          ? jest.fn().mockRejectedValue(disposeFailure)
+          : jest.fn().mockResolvedValue(undefined),
       };
       const gatewayFactory = {
         planningConfig: jest.fn().mockResolvedValue(gatewayConfig),

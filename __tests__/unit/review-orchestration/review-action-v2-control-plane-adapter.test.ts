@@ -11,6 +11,7 @@ import {
   ReviewEvidenceLookupResultStatus,
   ReviewEvidenceCommitResultStatus,
   ReviewActionV2OperationId,
+  ReviewContextGatewayAbandonResultStatus,
   ReviewContextGatewayOpenResultStatus,
   ReviewContextGatewaySealResultStatus,
   ReviewContextReplayCommitResultStatus,
@@ -710,6 +711,64 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         sourceExecutionId: execution.executionId,
       })
     );
+  });
+
+  it.each([
+    ReviewContextGatewayAbandonResultStatus.Abandoned,
+    ReviewContextGatewayAbandonResultStatus.Idempotent,
+    ReviewContextGatewayAbandonResultStatus.AlreadyTerminal,
+    ReviewContextGatewayAbandonResultStatus.Expired,
+  ])(
+    'abandons a target-bound context gateway session from %s',
+    async (status) => {
+      const execute = jest.fn().mockResolvedValue({ status });
+      const adapter = createAdapter(execute);
+      const session = {
+        sessionId: 'session-1',
+        eventChainSeedHash: hash('seed'),
+        gatewaySessionSecret: Buffer.alloc(32, 1).toString('base64url'),
+        sealCapability: 'seal.capability',
+        expiresAt: '2026-07-22T12:05:00.000Z',
+      };
+
+      await expect(
+        adapter.abandonGatewaySession({ invocationLease: baseLease, session })
+      ).resolves.toBeUndefined();
+      expect(execute).toHaveBeenCalledWith(
+        ReviewActionV2OperationId.ReviewContextGatewayAbandon,
+        expect.objectContaining({
+          leaseCapability: session.sealCapability,
+          sessionId: session.sessionId,
+          attemptId: baseLease.attemptId,
+          sourceLeaseId: baseLease.leaseId,
+          fencingToken: baseLease.fencingToken,
+          idempotencyKey: expect.stringMatching(
+            /^rr:context-gateway-abandon:[a-f0-9]{64}$/u
+          ),
+        })
+      );
+    }
+  );
+
+  it('rejects a denied target-bound context gateway abandon', async () => {
+    const adapter = createAdapter(
+      jest.fn().mockResolvedValue({
+        status: ReviewContextGatewayAbandonResultStatus.Denied,
+      })
+    );
+
+    await expect(
+      adapter.abandonGatewaySession({
+        invocationLease: baseLease,
+        session: {
+          sessionId: 'session-1',
+          eventChainSeedHash: hash('seed'),
+          gatewaySessionSecret: Buffer.alloc(32, 1).toString('base64url'),
+          sealCapability: 'seal.capability',
+          expiresAt: '2026-07-22T12:05:00.000Z',
+        },
+      })
+    ).rejects.toThrow('review_action_v2_context_gateway_abandon_denied');
   });
 
   it('translates context open policy mismatches into a safe actionable code', async () => {
