@@ -36,6 +36,10 @@ import {
 } from '../application/investigation-control-plane-port';
 import { canonicalJson, sha256 } from '../domain/canonical-json';
 import {
+  REVIEW_INVESTIGATION_CANONICAL_REQUIREMENT_MAX_LENGTH,
+  REVIEW_INVESTIGATION_CANONICAL_SUBJECT_MAX_LENGTH,
+  REVIEW_INVESTIGATION_TURN_BRIEF_MAX_BYTES,
+  REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
   ReviewInvestigationObligationOrigin,
   ReviewInvestigationConclusion,
   ReviewInvestigationNextAction,
@@ -775,23 +779,16 @@ function attachTurnBrief(
   snapshot: ReviewInvestigationSnapshot,
   result: ReviewInvestigationTurnPlanResult
 ): ReviewInvestigationSnapshot {
-  const raw = requireString(
+  const raw = requireCanonicalDocumentString(
     result.turnBriefCanonicalJson,
-    'turn_brief_canonical_json'
+    'turn_brief_canonical_json',
+    REVIEW_INVESTIGATION_TURN_BRIEF_MAX_BYTES
   );
   const expectedHash = requireDigest(result.turnBriefHash, 'turn_brief_hash');
   if (sha256(raw) !== expectedHash) {
     throw invalidResponse('turn_brief_hash_mismatch');
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw invalidResponse('turn_brief_json_invalid');
-  }
-  if (canonicalJson(parsed as Parameters<typeof canonicalJson>[0]) !== raw) {
-    throw invalidResponse('turn_brief_not_canonical');
-  }
+  const parsed: unknown = JSON.parse(raw);
   if (snapshot.turn === null) {
     if (parsed !== null) throw invalidResponse('turn_brief_without_turn');
     return snapshot;
@@ -833,7 +830,11 @@ function parseTurnBrief(
       'maximum_semantic_risk_priority'
     ),
     obligations: Object.freeze(
-      requireArray(brief.obligations, 'turn_obligations').map((value) => {
+      requireArray(
+        brief.obligations,
+        'turn_obligations',
+        REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS
+      ).map((value) => {
         const obligation = requireRecord(value, 'turn_obligation');
         requireExactKeys(obligation, [
           'obligationId',
@@ -850,13 +851,15 @@ function parseTurnBrief(
             ReviewTurnObligationKind,
             'obligation_kind'
           ),
-          canonicalSubject: requireString(
+          canonicalSubject: requireBoundedText(
             obligation.canonicalSubject,
-            'canonical_subject'
+            'canonical_subject',
+            REVIEW_INVESTIGATION_CANONICAL_SUBJECT_MAX_LENGTH
           ),
-          canonicalRequirement: requireString(
+          canonicalRequirement: requireBoundedText(
             obligation.canonicalRequirement,
-            'canonical_requirement'
+            'canonical_requirement',
+            REVIEW_INVESTIGATION_CANONICAL_REQUIREMENT_MAX_LENGTH
           ),
           riskPriority: requireNonNegativeInteger(
             obligation.riskPriority,
@@ -1300,6 +1303,28 @@ function hasExactKeys(
 
 function requireString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.length < 1 || value.length > 16_000) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  return value;
+}
+
+function requireBoundedText(
+  value: unknown,
+  field: string,
+  maximumLength: number
+): string {
+  if (
+    typeof value !== 'string' ||
+    value.length < 1 ||
+    value.length > maximumLength ||
+    value.trim() !== value ||
+    [...value].some((character) => {
+      const codePoint = character.codePointAt(0);
+      return (
+        codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)
+      );
+    })
+  ) {
     throw invalidResponse(`${field}_invalid`);
   }
   return value;

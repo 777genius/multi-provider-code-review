@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto';
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
+import { REVIEW_INVESTIGATION_TURN_PLAN_RESPONSE_MAX_BYTES } from '../review-investigation/domain/investigation-state';
 import reviewContextGatewayOpenSchema from './generated/review-action-v2/schemas/review_context_gateway_open.schema.json';
 import reviewContextGatewaySealSchema from './generated/review-action-v2/schemas/review_context_gateway_seal.schema.json';
 import reviewContextReceiptReplayCommitSchema from './generated/review-action-v2/schemas/review_context_receipt_replay_commit.schema.json';
@@ -230,7 +231,7 @@ export class ReviewActionV2Client {
   private readonly monotonicNow: () => number;
   private readonly maxAttempts: number;
   private readonly publicationFactsUnavailableMaxAttempts: number;
-  private readonly maxResponseBytes: number;
+  private readonly maxResponseBytesOverride: number | null;
   private readonly validators: Record<
     ReviewActionV2OperationId,
     ValidateFunction
@@ -252,11 +253,10 @@ export class ReviewActionV2Client {
       1,
       3
     );
-    this.maxResponseBytes = clampInteger(
-      options.maxResponseBytes ?? 2_097_152,
-      1024,
-      4_194_304
-    );
+    this.maxResponseBytesOverride =
+      options.maxResponseBytes === undefined
+        ? null
+        : clampInteger(options.maxResponseBytes, 1024, 32 * 1_024 * 1_024);
     this.validators = compileResponseValidators();
     assertGeneratedManifestMatchesRuntime();
   }
@@ -411,7 +411,7 @@ export class ReviewActionV2Client {
       );
       const body = await readBoundedJson(
         response,
-        this.maxResponseBytes,
+        this.responseByteLimit(operationId),
         operationId
       );
       const validator = this.validators[operationId];
@@ -497,6 +497,15 @@ export class ReviewActionV2Client {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private responseByteLimit(operationId: ReviewActionV2OperationId): number {
+    if (this.maxResponseBytesOverride !== null) {
+      return this.maxResponseBytesOverride;
+    }
+    return operationId === ReviewActionV2OperationId.ReviewInvestigationTurnPlan
+      ? REVIEW_INVESTIGATION_TURN_PLAN_RESPONSE_MAX_BYTES
+      : 2_097_152;
   }
 }
 

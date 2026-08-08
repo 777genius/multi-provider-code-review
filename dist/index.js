@@ -61731,6 +61731,46 @@ var import_crypto22 = require("crypto");
 var import__ = __toESM(require__());
 var import_ajv_formats = __toESM(require_dist());
 
+// src/review-investigation/domain/investigation-state.ts
+var REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS = 64;
+var REVIEW_INVESTIGATION_CANONICAL_SUBJECT_MAX_LENGTH = 4096;
+var REVIEW_INVESTIGATION_CANONICAL_REQUIREMENT_MAX_LENGTH = 64e3;
+var REVIEW_INVESTIGATION_TURN_BRIEF_MAX_BYTES = 16 * 1024 * 1024;
+var REVIEW_INVESTIGATION_TURN_PLAN_RESPONSE_MAX_BYTES = 32 * 1024 * 1024;
+var ReviewInvestigationState = /* @__PURE__ */ ((ReviewInvestigationState2) => {
+  ReviewInvestigationState2["Provisional"] = "provisional";
+  ReviewInvestigationState2["AwaitingTurn"] = "awaiting_turn";
+  ReviewInvestigationState2["TurnLeased"] = "turn_leased";
+  ReviewInvestigationState2["AwaitingCritic"] = "awaiting_critic";
+  ReviewInvestigationState2["ReadyToConclude"] = "ready_to_conclude";
+  ReviewInvestigationState2["Concluded"] = "concluded";
+  ReviewInvestigationState2["Inconclusive"] = "inconclusive";
+  ReviewInvestigationState2["Superseded"] = "superseded";
+  ReviewInvestigationState2["Expired"] = "expired";
+  return ReviewInvestigationState2;
+})(ReviewInvestigationState || {});
+var ReviewInvestigationNextAction = /* @__PURE__ */ ((ReviewInvestigationNextAction2) => {
+  ReviewInvestigationNextAction2["RunTurn"] = "run_turn";
+  ReviewInvestigationNextAction2["RunCritic"] = "run_critic";
+  ReviewInvestigationNextAction2["AwaitCapacity"] = "await_capacity";
+  ReviewInvestigationNextAction2["Conclude"] = "conclude";
+  ReviewInvestigationNextAction2["Terminal"] = "terminal";
+  return ReviewInvestigationNextAction2;
+})(ReviewInvestigationNextAction || {});
+var ReviewInvestigationConclusion = /* @__PURE__ */ ((ReviewInvestigationConclusion2) => {
+  ReviewInvestigationConclusion2["VerifiedClean"] = "verified_clean";
+  ReviewInvestigationConclusion2["Findings"] = "findings";
+  ReviewInvestigationConclusion2["Inconclusive"] = "inconclusive";
+  return ReviewInvestigationConclusion2;
+})(ReviewInvestigationConclusion || {});
+var ReviewInvestigationObligationOrigin = /* @__PURE__ */ ((ReviewInvestigationObligationOrigin2) => {
+  ReviewInvestigationObligationOrigin2["CoverageContract"] = "coverage_contract";
+  ReviewInvestigationObligationOrigin2["DeterministicExpansion"] = "deterministic_expansion";
+  ReviewInvestigationObligationOrigin2["AgentProposal"] = "agent_proposal";
+  ReviewInvestigationObligationOrigin2["CriticProposal"] = "critic_proposal";
+  return ReviewInvestigationObligationOrigin2;
+})(ReviewInvestigationObligationOrigin || {});
+
 // src/control-plane/generated/review-action-v2/schemas/review_context_gateway_open.schema.json
 var review_context_gateway_open_schema_default = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -93418,7 +93458,7 @@ var ReviewActionV2Client = class {
   monotonicNow;
   maxAttempts;
   publicationFactsUnavailableMaxAttempts;
-  maxResponseBytes;
+  maxResponseBytesOverride;
   validators;
   constructor(options) {
     this.apiUrl = parseApiUrl(options.apiUrl, options.allowInsecureLocalhost);
@@ -93433,11 +93473,7 @@ var ReviewActionV2Client = class {
       1,
       3
     );
-    this.maxResponseBytes = clampInteger(
-      options.maxResponseBytes ?? 2097152,
-      1024,
-      4194304
-    );
+    this.maxResponseBytesOverride = options.maxResponseBytes === void 0 ? null : clampInteger(options.maxResponseBytes, 1024, 32 * 1024 * 1024);
     this.validators = compileResponseValidators();
     assertGeneratedManifestMatchesRuntime();
   }
@@ -93546,7 +93582,7 @@ var ReviewActionV2Client = class {
       );
       const body = await readBoundedJson(
         response,
-        this.maxResponseBytes,
+        this.responseByteLimit(operationId),
         operationId
       );
       const validator = this.validators[operationId];
@@ -93622,6 +93658,12 @@ var ReviewActionV2Client = class {
     } finally {
       clearTimeout(timeout);
     }
+  }
+  responseByteLimit(operationId) {
+    if (this.maxResponseBytesOverride !== null) {
+      return this.maxResponseBytesOverride;
+    }
+    return operationId === "review_investigation_turn_plan" /* ReviewInvestigationTurnPlan */ ? REVIEW_INVESTIGATION_TURN_PLAN_RESPONSE_MAX_BYTES : 2097152;
   }
 };
 function compileResponseValidators() {
@@ -94376,41 +94418,6 @@ function requireNonNegativeInteger2(value, field) {
 function assertUnique(values, errorCode2) {
   if (new Set(values).size !== values.length) throw new Error(errorCode2);
 }
-
-// src/review-investigation/domain/investigation-state.ts
-var ReviewInvestigationState = /* @__PURE__ */ ((ReviewInvestigationState2) => {
-  ReviewInvestigationState2["Provisional"] = "provisional";
-  ReviewInvestigationState2["AwaitingTurn"] = "awaiting_turn";
-  ReviewInvestigationState2["TurnLeased"] = "turn_leased";
-  ReviewInvestigationState2["AwaitingCritic"] = "awaiting_critic";
-  ReviewInvestigationState2["ReadyToConclude"] = "ready_to_conclude";
-  ReviewInvestigationState2["Concluded"] = "concluded";
-  ReviewInvestigationState2["Inconclusive"] = "inconclusive";
-  ReviewInvestigationState2["Superseded"] = "superseded";
-  ReviewInvestigationState2["Expired"] = "expired";
-  return ReviewInvestigationState2;
-})(ReviewInvestigationState || {});
-var ReviewInvestigationNextAction = /* @__PURE__ */ ((ReviewInvestigationNextAction2) => {
-  ReviewInvestigationNextAction2["RunTurn"] = "run_turn";
-  ReviewInvestigationNextAction2["RunCritic"] = "run_critic";
-  ReviewInvestigationNextAction2["AwaitCapacity"] = "await_capacity";
-  ReviewInvestigationNextAction2["Conclude"] = "conclude";
-  ReviewInvestigationNextAction2["Terminal"] = "terminal";
-  return ReviewInvestigationNextAction2;
-})(ReviewInvestigationNextAction || {});
-var ReviewInvestigationConclusion = /* @__PURE__ */ ((ReviewInvestigationConclusion2) => {
-  ReviewInvestigationConclusion2["VerifiedClean"] = "verified_clean";
-  ReviewInvestigationConclusion2["Findings"] = "findings";
-  ReviewInvestigationConclusion2["Inconclusive"] = "inconclusive";
-  return ReviewInvestigationConclusion2;
-})(ReviewInvestigationConclusion || {});
-var ReviewInvestigationObligationOrigin = /* @__PURE__ */ ((ReviewInvestigationObligationOrigin2) => {
-  ReviewInvestigationObligationOrigin2["CoverageContract"] = "coverage_contract";
-  ReviewInvestigationObligationOrigin2["DeterministicExpansion"] = "deterministic_expansion";
-  ReviewInvestigationObligationOrigin2["AgentProposal"] = "agent_proposal";
-  ReviewInvestigationObligationOrigin2["CriticProposal"] = "critic_proposal";
-  return ReviewInvestigationObligationOrigin2;
-})(ReviewInvestigationObligationOrigin || {});
 
 // src/review-investigation/application/investigation-control-plane-port.ts
 var ReviewInvestigationControlPlaneError = class extends Error {
@@ -108196,23 +108203,16 @@ function parseTurn(value, turnCapability) {
   });
 }
 function attachTurnBrief(snapshot, result2) {
-  const raw = requireString4(
+  const raw = requireCanonicalDocumentString(
     result2.turnBriefCanonicalJson,
-    "turn_brief_canonical_json"
+    "turn_brief_canonical_json",
+    REVIEW_INVESTIGATION_TURN_BRIEF_MAX_BYTES
   );
   const expectedHash = requireDigest5(result2.turnBriefHash, "turn_brief_hash");
   if (sha2562(raw) !== expectedHash) {
     throw invalidResponse("turn_brief_hash_mismatch");
   }
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw invalidResponse("turn_brief_json_invalid");
-  }
-  if (canonicalJson2(parsed) !== raw) {
-    throw invalidResponse("turn_brief_not_canonical");
-  }
+  const parsed = JSON.parse(raw);
   if (snapshot.turn === null) {
     if (parsed !== null) throw invalidResponse("turn_brief_without_turn");
     return snapshot;
@@ -108250,7 +108250,11 @@ function parseTurnBrief(value, snapshot) {
       "maximum_semantic_risk_priority"
     ),
     obligations: Object.freeze(
-      requireArray2(brief.obligations, "turn_obligations").map((value2) => {
+      requireArray2(
+        brief.obligations,
+        "turn_obligations",
+        REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS
+      ).map((value2) => {
         const obligation = requireRecord3(value2, "turn_obligation");
         requireExactKeys4(obligation, [
           "obligationId",
@@ -108267,13 +108271,15 @@ function parseTurnBrief(value, snapshot) {
             ReviewTurnObligationKind,
             "obligation_kind"
           ),
-          canonicalSubject: requireString4(
+          canonicalSubject: requireBoundedText(
             obligation.canonicalSubject,
-            "canonical_subject"
+            "canonical_subject",
+            REVIEW_INVESTIGATION_CANONICAL_SUBJECT_MAX_LENGTH
           ),
-          canonicalRequirement: requireString4(
+          canonicalRequirement: requireBoundedText(
             obligation.canonicalRequirement,
-            "canonical_requirement"
+            "canonical_requirement",
+            REVIEW_INVESTIGATION_CANONICAL_REQUIREMENT_MAX_LENGTH
           ),
           riskPriority: requireNonNegativeInteger4(
             obligation.riskPriority,
@@ -108510,6 +108516,15 @@ function hasExactKeys2(value, keys) {
 }
 function requireString4(value, field) {
   if (typeof value !== "string" || value.length < 1 || value.length > 16e3) {
+    throw invalidResponse(`${field}_invalid`);
+  }
+  return value;
+}
+function requireBoundedText(value, field, maximumLength) {
+  if (typeof value !== "string" || value.length < 1 || value.length > maximumLength || value.trim() !== value || [...value].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== void 0 && (codePoint <= 31 || codePoint === 127);
+  })) {
     throw invalidResponse(`${field}_invalid`);
   }
   return value;
@@ -110054,7 +110069,7 @@ var ProductionT0ReviewRunner = class {
         ),
         certificateTtlMs: 24 * 60 * 6e4,
         minimumCapacityParkMs: 6e4,
-        maxObligationsForTurn: 64,
+        maxObligationsForTurn: REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
         maxStateTransitions: 128,
         policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY
       },

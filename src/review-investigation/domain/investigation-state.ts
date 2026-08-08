@@ -4,6 +4,13 @@ import type {
 } from './turn-observation';
 import type { ReviewAgentProviderKind } from './runtime-profile';
 
+export const REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS = 64;
+export const REVIEW_INVESTIGATION_CANONICAL_SUBJECT_MAX_LENGTH = 4_096;
+export const REVIEW_INVESTIGATION_CANONICAL_REQUIREMENT_MAX_LENGTH = 64_000;
+export const REVIEW_INVESTIGATION_TURN_BRIEF_MAX_BYTES = 16 * 1_024 * 1_024;
+export const REVIEW_INVESTIGATION_TURN_PLAN_RESPONSE_MAX_BYTES =
+  32 * 1_024 * 1_024;
+
 export enum ReviewInvestigationState {
   Provisional = 'provisional',
   AwaitingTurn = 'awaiting_turn',

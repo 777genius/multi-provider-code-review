@@ -24,6 +24,8 @@ import {
   sha256,
 } from '../../../src/review-investigation/domain/canonical-json';
 import {
+  REVIEW_INVESTIGATION_CANONICAL_REQUIREMENT_MAX_LENGTH,
+  REVIEW_INVESTIGATION_TURN_BRIEF_MAX_BYTES,
   ReviewInvestigationState,
   ReviewInvestigationConclusion,
   ReviewInvestigationNextAction as DomainNextAction,
@@ -457,6 +459,174 @@ describe('ReviewActionV2InvestigationAdapter turn brief', () => {
     });
   });
 
+  it('accepts a canonical expanded turn brief larger than 16 KB', async () => {
+    const obligations = Array.from({ length: 16 }, (_, index) => ({
+      obligationId: sha256(`expanded-obligation-${index}`),
+      kind: ReviewTurnObligationKind.ChangedContent,
+      canonicalSubject: `src/expanded-${index}.ts`,
+      canonicalRequirement: `inspect expanded dependency context ${'x'.repeat(1_024)}`,
+      riskPriority: 900_000 - index,
+      origin: 'deterministic_expansion',
+    }));
+    const brief = canonicalJson({
+      briefVersion: 1,
+      investigationId: 'investigation-1',
+      investigationVersion: 2,
+      dossierDigest: digest('d'),
+      turnId: 'turn-1',
+      purpose: ReviewTurnPurpose.Discovery,
+      maximumSemanticRiskPriority: 900_000,
+      obligations,
+    });
+    expect(Buffer.byteLength(brief, 'utf8')).toBeGreaterThan(16_000);
+    const adapter = new ReviewActionV2InvestigationAdapter({
+      execute: jest.fn().mockResolvedValue(
+        planResult({
+          turnBriefCanonicalJson: brief,
+          turnBriefHash: sha256(brief),
+          obligationIds: obligations.map(({ obligationId }) => obligationId),
+        })
+      ),
+    } as never);
+
+    const planned = await adapter.planTurn({
+      authorizationToken: 'authorization-token',
+      snapshot: unplannedSnapshot(),
+      leaseDurationMs: 60_000,
+      maxObligationsForTurn: 16,
+      turnBudget: { maxTokens: 120_000 },
+    });
+
+    expect(planned.turn?.brief?.obligations).toHaveLength(16);
+    expect(planned.turn?.brief?.obligations.at(-1)?.obligationId).toBe(
+      obligations.at(-1)?.obligationId
+    );
+  });
+
+  it('accepts the producer maximum canonical requirement length', async () => {
+    const obligationId = sha256('maximum-requirement-obligation');
+    const canonicalRequirement = '€'.repeat(
+      REVIEW_INVESTIGATION_CANONICAL_REQUIREMENT_MAX_LENGTH
+    );
+    const brief = canonicalJson({
+      briefVersion: 1,
+      investigationId: 'investigation-1',
+      investigationVersion: 2,
+      dossierDigest: digest('d'),
+      turnId: 'turn-1',
+      purpose: ReviewTurnPurpose.Discovery,
+      maximumSemanticRiskPriority: 900_000,
+      obligations: [
+        {
+          obligationId,
+          kind: ReviewTurnObligationKind.ChangedContent,
+          canonicalSubject: 'src/maximum.ts',
+          canonicalRequirement,
+          riskPriority: 900_000,
+          origin: 'deterministic_expansion',
+        },
+      ],
+    });
+    const adapter = new ReviewActionV2InvestigationAdapter({
+      execute: jest.fn().mockResolvedValue(
+        planResult({
+          turnBriefCanonicalJson: brief,
+          turnBriefHash: sha256(brief),
+          obligationIds: [obligationId],
+        })
+      ),
+    } as never);
+
+    await expect(
+      adapter.planTurn({
+        authorizationToken: 'authorization-token',
+        snapshot: unplannedSnapshot(),
+        leaseDurationMs: 60_000,
+        maxObligationsForTurn: 1,
+        turnBudget: { maxTokens: 120_000 },
+      })
+    ).resolves.toMatchObject({
+      turn: {
+        brief: {
+          obligations: [{ canonicalRequirement }],
+        },
+      },
+    });
+  });
+
+  it('rejects a canonical requirement beyond the producer maximum', async () => {
+    const obligationId = sha256('oversized-requirement-obligation');
+    const brief = canonicalJson({
+      briefVersion: 1,
+      investigationId: 'investigation-1',
+      investigationVersion: 2,
+      dossierDigest: digest('d'),
+      turnId: 'turn-1',
+      purpose: ReviewTurnPurpose.Discovery,
+      maximumSemanticRiskPriority: 900_000,
+      obligations: [
+        {
+          obligationId,
+          kind: ReviewTurnObligationKind.ChangedContent,
+          canonicalSubject: 'src/oversized.ts',
+          canonicalRequirement: 'x'.repeat(
+            REVIEW_INVESTIGATION_CANONICAL_REQUIREMENT_MAX_LENGTH + 1
+          ),
+          riskPriority: 900_000,
+          origin: 'deterministic_expansion',
+        },
+      ],
+    });
+    const adapter = new ReviewActionV2InvestigationAdapter({
+      execute: jest.fn().mockResolvedValue(
+        planResult({
+          turnBriefCanonicalJson: brief,
+          turnBriefHash: sha256(brief),
+          obligationIds: [obligationId],
+        })
+      ),
+    } as never);
+
+    await expect(
+      adapter.planTurn({
+        authorizationToken: 'authorization-token',
+        snapshot: unplannedSnapshot(),
+        leaseDurationMs: 60_000,
+        maxObligationsForTurn: 1,
+        turnBudget: { maxTokens: 120_000 },
+      })
+    ).rejects.toThrow('canonical_requirement_invalid');
+  });
+
+  it('rejects a UTF-8 turn brief beyond its aggregate byte limit', async () => {
+    const oversizedBrief = canonicalJson({
+      payload: '€'.repeat(
+        Math.ceil(REVIEW_INVESTIGATION_TURN_BRIEF_MAX_BYTES / 3) + 1
+      ),
+    });
+    expect(Buffer.byteLength(oversizedBrief, 'utf8')).toBeGreaterThan(
+      REVIEW_INVESTIGATION_TURN_BRIEF_MAX_BYTES
+    );
+    const adapter = new ReviewActionV2InvestigationAdapter({
+      execute: jest.fn().mockResolvedValue(
+        planResult({
+          turnBriefCanonicalJson: oversizedBrief,
+          turnBriefHash: sha256(oversizedBrief),
+        })
+      ),
+    } as never);
+
+    await expect(
+      adapter.planTurn({
+        authorizationToken: 'authorization-token',
+        snapshot: unplannedSnapshot(),
+        leaseDurationMs: 60_000,
+        maxObligationsForTurn: 1,
+        turnBudget: { maxTokens: 120_000 },
+      })
+    ).rejects.toThrow('turn_brief_canonical_json_invalid');
+  });
+
   it.each([
     [
       'provider discovery evidence',
@@ -855,17 +1025,20 @@ function planResult(input: {
   turnBriefCanonicalJson: string;
   turnBriefHash: string;
   critic?: boolean;
+  obligationIds?: readonly string[];
 }) {
   const purpose = input.critic
     ? ReviewTurnPurpose.Critic
     : ReviewTurnPurpose.Discovery;
-  const obligationIds = input.critic ? [] : [digest('b')];
+  const obligationIds = input.critic
+    ? []
+    : (input.obligationIds ?? [digest('b')]);
   const readModel = {
     investigationId: 'investigation-1',
     version: 2,
     state: ReviewInvestigationState.TurnLeased,
     dossierDigest: digest('d'),
-    openObligationCount: input.critic ? 0 : 1,
+    openObligationCount: obligationIds.length,
     satisfiedObligationCount: 0,
     unresolvableObligationCount: 0,
     findingCount: 0,
