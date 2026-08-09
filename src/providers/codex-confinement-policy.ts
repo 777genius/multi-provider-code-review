@@ -10,4 +10,10 @@ export const CODEX_CONFINEMENT_DISABLED_FEATURES = Object.freeze([
   // Codex 0.145 starts the built-in codex_apps MCP unless this is explicit.
   'apps',
   'plugins',
+  // Hooks are stable and default-on in Codex 0.145. Memory surfaces are
+  // disabled explicitly so a future/default config cannot add hidden context.
+  'hooks',
+  'memories',
+  'external_agent_memory_import',
+  'chronicle',
 ]);

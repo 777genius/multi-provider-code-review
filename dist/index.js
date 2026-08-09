@@ -21814,7 +21814,13 @@ var CODEX_CONFINEMENT_DISABLED_FEATURES = Object.freeze([
   "multi_agent",
   // Codex 0.145 starts the built-in codex_apps MCP unless this is explicit.
   "apps",
-  "plugins"
+  "plugins",
+  // Hooks are stable and default-on in Codex 0.145. Memory surfaces are
+  // disabled explicitly so a future/default config cannot add hidden context.
+  "hooks",
+  "memories",
+  "external_agent_memory_import",
+  "chronicle"
 ]);
 
 // src/codex-oauth/codex-cli.ts
@@ -94544,7 +94550,12 @@ var RunInvestigationTurn = class {
         minimumMaxTurns: input.maxTurns
       });
     } catch (error2) {
-      return this.abortProviderFailure(input, error2);
+      const failure = await this.recordOperationalFailure(
+        input,
+        error2,
+        "agent_preflight" /* AgentPreflight */
+      );
+      return this.abortProviderFailure(input, failure);
     }
     const invocationId = `${input.snapshot.investigationId}:${turn.turnId}:${input.currentLease().attemptId}`;
     const current = await this.dependencies.currency.check(input);
@@ -94748,6 +94759,10 @@ var RunInvestigationTurn = class {
   }
 };
 var operationalFailureCodes = Object.freeze({
+  ["agent_preflight" /* AgentPreflight */]: Object.freeze({
+    default: "review_investigation_agent_preflight_failure",
+    confinement: "review_investigation_agent_preflight_confinement_failure"
+  }),
   ["agent_cancel" /* AgentCancel */]: Object.freeze({
     default: "review_investigation_agent_cancel_failure",
     confinement: "review_investigation_agent_cancel_confinement_failure"
@@ -106171,7 +106186,7 @@ var CodexAppServerProtocolClient = class {
       const hasMethod = Object.prototype.hasOwnProperty.call(message, "method");
       const hasId = Object.prototype.hasOwnProperty.call(message, "id");
       if (hasMethod && hasId) {
-        throw confinementFailure();
+        throw confinementFailure("server_request");
       }
       if (hasId) {
         diagnosticStage = "response" /* Response */;
@@ -106335,7 +106350,7 @@ var CodexAppServerProtocolClient = class {
     const responseModelProvider = requireModelProvider(response.modelProvider);
     const threadModelProvider = requireModelProvider(thread.modelProvider);
     if (responseModelProvider !== threadModelProvider || thread.ephemeral !== true || thread.path !== null || thread.cliVersion !== CODEX_APP_SERVER_VERSION || response.cwd !== this.request.cwd || thread.cwd !== this.request.cwd || response.approvalPolicy !== "never" || response.approvalsReviewer !== "user" || !isReadOnlySandbox(response.sandbox) || response.reasoningEffort !== this.request.reasoningEffort || !Array.isArray(response.instructionSources) || response.instructionSources.length !== 0 || !Array.isArray(thread.turns) || thread.turns.length !== 0 || this.provisionalThreadId !== null && this.provisionalThreadId !== threadId) {
-      throw confinementFailure();
+      throw confinementFailure("thread_start_contract");
     }
     this.threadId = threadId;
     this.provisionalThreadId = threadId;
@@ -106358,7 +106373,7 @@ var CodexAppServerProtocolClient = class {
     const thread = requireRecord2(params.thread, "thread_started_thread");
     const threadId = requireIdentifier2(thread.id, "thread_id");
     if (this.provisionalThreadId !== null && this.provisionalThreadId !== threadId || thread.ephemeral !== true || thread.path !== null || thread.cliVersion !== CODEX_APP_SERVER_VERSION || thread.cwd !== this.request.cwd || !Array.isArray(thread.turns) || thread.turns.length !== 0) {
-      throw confinementFailure();
+      throw confinementFailure("thread_started_contract");
     }
     requireModelProvider(thread.modelProvider);
     this.provisionalThreadId = threadId;
@@ -106367,7 +106382,9 @@ var CodexAppServerProtocolClient = class {
   }
   onMcpServerStatus(params) {
     const name = requireNonEmptyString(params.name, "mcp_server_name");
-    if (name !== CODEX_APP_SERVER_MCP_NAME) throw confinementFailure();
+    if (name !== CODEX_APP_SERVER_MCP_NAME) {
+      throw confinementFailure("mcp_server_identity");
+    }
     if (params.threadId !== null) {
       this.assertThreadId(requireIdentifier2(params.threadId, "thread_id"));
     }
@@ -106433,7 +106450,7 @@ var CodexAppServerProtocolClient = class {
     }
     this.validateAllowedItem(item, "completed");
     if (type2 === "mcpToolCall" && (active.server !== item.server || active.tool !== item.tool)) {
-      throw confinementFailure();
+      throw confinementFailure("mcp_tool_identity_changed");
     }
     this.activeItems.delete(id);
     this.completedItems.set(id, active);
@@ -106462,7 +106479,9 @@ var CodexAppServerProtocolClient = class {
   }
   validateAllowedItem(item, lifecycle) {
     const type2 = requireNonEmptyString(item.type, "item_type");
-    if (FORBIDDEN_ITEM_TYPES.has(type2)) throw confinementFailure();
+    if (FORBIDDEN_ITEM_TYPES.has(type2)) {
+      throw confinementFailure("forbidden_item_type");
+    }
     if (!ALLOWED_ITEM_TYPES.has(type2)) throw streamFailure2();
     switch (type2) {
       case "userMessage":
@@ -106504,7 +106523,7 @@ var CodexAppServerProtocolClient = class {
     const server = requireNonEmptyString(item.server, "mcp_server");
     const tool = requireNonEmptyString(item.tool, "mcp_tool");
     if (server !== CODEX_APP_SERVER_MCP_NAME || !this.allowedTools.has(tool) || item.pluginId !== null || item.appContext !== null) {
-      throw confinementFailure();
+      throw confinementFailure("mcp_tool_authority");
     }
     requireRecord2(item.arguments, "mcp_arguments");
     if (lifecycle === "started") {
@@ -106513,8 +106532,11 @@ var CodexAppServerProtocolClient = class {
       }
       return;
     }
-    if (item.status !== "completed" || item.error !== null || !isRecord9(item.result)) {
-      throw confinementFailure();
+    const completed = item.status === "completed" && item.error === null && isRecord9(item.result);
+    const failedWithResult = item.status === "failed" && item.error === null && isRecord9(item.result);
+    const failedWithTransportError = item.status === "failed" && item.result === null && isRecord9(item.error) && hasOnlyKeys(item.error, ["message"]) && typeof item.error.message === "string" && Buffer.byteLength(item.error.message, "utf8") <= MAX_NOTIFICATION_STRING_BYTES;
+    if (!completed && !failedWithResult && !failedWithTransportError) {
+      throw streamFailure2();
     }
   }
   captureFinalMessage(item) {
@@ -107178,11 +107200,11 @@ function modelFailure() {
     "review_agent_actual_model_unavailable"
   );
 }
-function confinementFailure() {
+function confinementFailure(reason) {
   return new ReviewAgentExecutionError(
     "confinement_violation" /* ConfinementViolation */,
     null,
-    "review_agent_confinement_violation"
+    `review_agent_confinement_violation_${reason}`
   );
 }
 function processFailure() {

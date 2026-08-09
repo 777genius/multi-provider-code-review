@@ -1288,6 +1288,7 @@ describe('CodexAppServerProtocolClient', () => {
     });
     await expect(requestFixture.result).rejects.toMatchObject({
       failureClass: ReviewAgentFailureClass.ConfinementViolation,
+      message: 'review_agent_confinement_violation_server_request',
     });
 
     const itemFixture = await activeTurn();
@@ -1304,8 +1305,116 @@ describe('CodexAppServerProtocolClient', () => {
     );
     await expect(itemFixture.result).rejects.toMatchObject({
       failureClass: ReviewAgentFailureClass.ConfinementViolation,
+      message: 'review_agent_confinement_violation_forbidden_item_type',
     });
   });
+
+  it.each([
+    [
+      'gateway-declared error result',
+      {
+        status: 'failed',
+        result: { content: [], isError: true },
+        error: null,
+      },
+    ],
+    [
+      'transport error',
+      {
+        status: 'failed',
+        result: null,
+        error: { message: 'bounded gateway transport failure' },
+      },
+    ],
+  ] as const)(
+    'keeps a trusted MCP %s inside the turn lifecycle',
+    async (_label, outcome) => {
+      const fixture = await activeTurn();
+      const started = mcpToolCallItem('mcp-call', {
+        status: 'inProgress',
+        result: null,
+        error: null,
+      });
+      fixture.client.receive(
+        notification('item/started', {
+          threadId,
+          turnId,
+          startedAtMs: 1,
+          item: started,
+        })
+      );
+      fixture.client.receive(
+        notification('item/completed', {
+          threadId,
+          turnId,
+          completedAtMs: 2,
+          item: mcpToolCallItem('mcp-call', outcome),
+        })
+      );
+      completeMessage(fixture.client, 'final', 'final_answer', '{"ok":true}');
+      completeUsage(fixture.client);
+      completeTurn(fixture.client);
+
+      await expect(fixture.result).resolves.toMatchObject({
+        finalMessage: '{"ok":true}',
+      });
+    }
+  );
+
+  it.each([
+    [
+      'missing terminal payload',
+      { status: 'failed', result: null, error: null },
+    ],
+    [
+      'unexpected transport error fields',
+      {
+        status: 'failed',
+        result: null,
+        error: { message: 'transport failure', code: 'unexpected' },
+      },
+    ],
+    [
+      'oversized transport error message',
+      {
+        status: 'failed',
+        result: null,
+        error: { message: 'x'.repeat(1_025) },
+      },
+    ],
+  ] as const)(
+    'rejects a malformed trusted MCP lifecycle with %s as protocol drift',
+    async (_label, outcome) => {
+      const fixture = await activeTurn();
+      fixture.client.receive(
+        notification('item/started', {
+          threadId,
+          turnId,
+          startedAtMs: 1,
+          item: mcpToolCallItem('mcp-call', {
+            status: 'inProgress',
+            result: null,
+            error: null,
+          }),
+        })
+      );
+      fixture.client.receive(
+        notification('item/completed', {
+          threadId,
+          turnId,
+          completedAtMs: 2,
+          item: mcpToolCallItem('mcp-call', {
+            ...outcome,
+          }),
+        })
+      );
+
+      await expect(fixture.result).rejects.toMatchObject({
+        failureClass: ReviewAgentFailureClass.StreamIncomplete,
+        message: 'review_agent_stream_incomplete_item_completed',
+      });
+    }
+  );
 
   it('fails closed on startup status from a non-gateway MCP server', async () => {
     const fixture = await activeTurn();
@@ -1321,6 +1430,7 @@ describe('CodexAppServerProtocolClient', () => {
 
     await expect(fixture.result).rejects.toMatchObject({
       failureClass: ReviewAgentFailureClass.ConfinementViolation,
+      message: 'review_agent_confinement_violation_mcp_server_identity',
     });
   });
 
@@ -1558,6 +1668,26 @@ function turnError(
 
 function notification(method: string, params: Record<string, unknown>) {
   return { method, params, emittedAtMs: 1 };
+}
+
+function mcpToolCallItem(
+  id: string,
+  outcome: Readonly<{
+    status: 'inProgress' | 'completed' | 'failed';
+    result: Readonly<Record<string, unknown>> | null;
+    error: Readonly<Record<string, unknown>> | null;
+  }>
+) {
+  return {
+    id,
+    type: 'mcpToolCall',
+    server: 'reviewrouter',
+    tool: 'review_read_file',
+    arguments: { path: 'src/value.ts', revision: 'head' },
+    pluginId: null,
+    appContext: null,
+    ...outcome,
+  };
 }
 
 function completeMessage(

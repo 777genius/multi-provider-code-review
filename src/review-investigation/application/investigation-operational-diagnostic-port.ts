@@ -1,6 +1,7 @@
 import type { ReviewAgentFailureClass } from './review-agent-port';
 
 export enum ReviewInvestigationOperationalFailurePhase {
+  AgentPreflight = 'agent_preflight',
   AgentCancel = 'agent_cancel',
   AgentExecution = 'agent_execution',
   GatewayCleanup = 'gateway_cleanup',

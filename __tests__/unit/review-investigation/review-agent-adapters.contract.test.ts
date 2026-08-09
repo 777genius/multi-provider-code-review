@@ -458,6 +458,10 @@ describe('strict provider command shapes', () => {
       'multi_agent',
       'apps',
       'plugins',
+      'hooks',
+      'memories',
+      'external_agent_memory_import',
+      'chronicle',
     ]) {
       expect(isFeatureDisabled(args, feature)).toBe(true);
     }
