@@ -1238,23 +1238,96 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
-  it.each([
-    [
-      'unseen allowed item',
-      [agentMessageItem('unseen', 'final_answer', '{"ok":true}')],
-    ],
-    ['forbidden item', [{ id: 'native-command', type: 'commandExecution' }]],
-  ])('fails terminal snapshot confinement for %s', async (_label, items) => {
+  it('rejects an unseen allowed terminal snapshot item as protocol drift', async () => {
     const fixture = await activeTurn();
     fixture.client.receive(
       notification('turn/completed', {
         threadId,
-        turn: { id: turnId, status: 'completed', error: null, items },
+        turn: {
+          id: turnId,
+          status: 'completed',
+          error: null,
+          items: [agentMessageItem('unseen', 'final_answer', '{"ok":true}')],
+        },
       })
     );
 
     await expect(fixture.result).rejects.toMatchObject({
       failureClass: ReviewAgentFailureClass.StreamIncomplete,
+    });
+  });
+
+  it('preserves a forbidden terminal snapshot item confinement reason', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          id: turnId,
+          status: 'completed',
+          error: null,
+          items: [{ id: 'native-command', type: 'commandExecution' }],
+        },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.ConfinementViolation,
+      message: 'review_agent_confinement_violation_forbidden_item_type',
+    });
+  });
+
+  it('preserves terminal snapshot MCP authority confinement', async () => {
+    const fixture = await activeTurn();
+    completeMcpToolCall(fixture.client, 'mcp-call');
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          id: turnId,
+          status: 'completed',
+          error: null,
+          items: [
+            {
+              ...mcpToolCallItem('mcp-call', successfulMcpOutcome()),
+              server: 'codex_apps',
+            },
+          ],
+        },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.ConfinementViolation,
+      message: 'review_agent_confinement_violation_mcp_tool_authority',
+    });
+  });
+
+  it('preserves terminal snapshot MCP identity drift confinement', async () => {
+    const fixture = await activeTurn({
+      allowedTools: ['review_read_file', 'review_search'],
+    });
+    completeMcpToolCall(fixture.client, 'mcp-call');
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          id: turnId,
+          status: 'completed',
+          error: null,
+          items: [
+            {
+              ...mcpToolCallItem('mcp-call', successfulMcpOutcome()),
+              tool: 'review_search',
+            },
+          ],
+        },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.ConfinementViolation,
+      message: 'review_agent_confinement_violation_mcp_tool_identity_changed',
     });
   });
 
@@ -1521,11 +1594,17 @@ async function activeTurn(
   options: Readonly<{
     omitTurnNotificationError?: boolean;
     omitTurnResponseError?: boolean;
+    allowedTools?: readonly string[];
   }> = {}
 ) {
   const writes: Array<Record<string, unknown>> = [];
   const client = new CodexAppServerProtocolClient(
-    protocolRequest(),
+    {
+      ...protocolRequest(),
+      ...(options.allowedTools === undefined
+        ? {}
+        : { allowedTools: options.allowedTools }),
+    },
     async (message) => {
       writes.push({ ...message });
     }
@@ -1688,6 +1767,40 @@ function mcpToolCallItem(
     appContext: null,
     ...outcome,
   };
+}
+
+function successfulMcpOutcome() {
+  return {
+    status: 'completed' as const,
+    result: { content: [{ type: 'text', text: 'bounded result' }] },
+    error: null,
+  };
+}
+
+function completeMcpToolCall(
+  client: CodexAppServerProtocolClient,
+  id: string
+): void {
+  client.receive(
+    notification('item/started', {
+      threadId,
+      turnId,
+      startedAtMs: 1,
+      item: mcpToolCallItem(id, {
+        status: 'inProgress',
+        result: null,
+        error: null,
+      }),
+    })
+  );
+  client.receive(
+    notification('item/completed', {
+      threadId,
+      turnId,
+      completedAtMs: 2,
+      item: mcpToolCallItem(id, successfulMcpOutcome()),
+    })
+  );
 }
 
 function completeMessage(

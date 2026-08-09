@@ -106465,15 +106465,18 @@ var CodexAppServerProtocolClient = class {
         const type2 = requireNonEmptyString(item.type, "item_type");
         this.validateAllowedItem(item, "completed");
         const observed = this.completedItems.get(id);
-        if (!observed || snapshotItemIds.has(id) || observed.type !== type2 || type2 === "mcpToolCall" && (observed.server !== item.server || observed.tool !== item.tool)) {
+        if (!observed || snapshotItemIds.has(id) || observed.type !== type2) {
           throw streamFailure2();
+        }
+        if (type2 === "mcpToolCall" && (observed.server !== item.server || observed.tool !== item.tool)) {
+          throw confinementFailure("mcp_tool_identity_changed");
         }
         snapshotItemIds.add(id);
       } catch (error2) {
-        if (error2 instanceof ReviewAgentExecutionError) {
-          throw streamFailure2();
+        if (error2 instanceof ReviewAgentExecutionError && error2.failureClass === "confinement_violation" /* ConfinementViolation */) {
+          throw error2;
         }
-        throw error2;
+        throw streamFailure2();
       }
     }
   }

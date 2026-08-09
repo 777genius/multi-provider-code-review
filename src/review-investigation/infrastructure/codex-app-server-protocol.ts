@@ -632,21 +632,24 @@ export class CodexAppServerProtocolClient {
         const type = requireNonEmptyString(item.type, 'item_type');
         this.validateAllowedItem(item, 'completed');
         const observed = this.completedItems.get(id);
-        if (
-          !observed ||
-          snapshotItemIds.has(id) ||
-          observed.type !== type ||
-          (type === 'mcpToolCall' &&
-            (observed.server !== item.server || observed.tool !== item.tool))
-        ) {
+        if (!observed || snapshotItemIds.has(id) || observed.type !== type) {
           throw streamFailure();
+        }
+        if (
+          type === 'mcpToolCall' &&
+          (observed.server !== item.server || observed.tool !== item.tool)
+        ) {
+          throw confinementFailure('mcp_tool_identity_changed');
         }
         snapshotItemIds.add(id);
       } catch (error) {
-        if (error instanceof ReviewAgentExecutionError) {
-          throw streamFailure();
+        if (
+          error instanceof ReviewAgentExecutionError &&
+          error.failureClass === ReviewAgentFailureClass.ConfinementViolation
+        ) {
+          throw error;
         }
-        throw error;
+        throw streamFailure();
       }
     }
   }
