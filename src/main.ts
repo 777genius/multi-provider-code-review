@@ -240,7 +240,7 @@ async function run(): Promise<void> {
       : commentToken.status;
 
     if (mode === 'interaction') {
-      await runInteraction(token!, fallbackToken, runtimeConfig);
+      await runInteraction(token!, runtimeConfig);
       return;
     }
     if (mode === 'interaction-preflight') {
@@ -402,14 +402,9 @@ function runRuntimePreflight(
 
 async function runInteraction(
   token: string,
-  actionsToken?: string,
   runtimeConfig?: RuntimeConfigResult
 ): Promise<void> {
   const githubClient = new GitHubClient(token);
-  const actionsClient =
-    actionsToken && actionsToken !== token
-      ? new GitHubClient(actionsToken)
-      : githubClient;
   const ledger = new ReviewLedger(
     githubClient,
     process.env.REVIEW_ROUTER_LEDGER_KEY,
@@ -424,7 +419,7 @@ async function runInteraction(
     githubClient,
     ledger,
     discussionHandler,
-    actionsClient,
+    githubClient,
     memoryClient,
     reviewRequests
   );

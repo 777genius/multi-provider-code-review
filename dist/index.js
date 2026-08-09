@@ -111815,7 +111815,7 @@ async function run() {
     }
     process.env.REVIEW_ROUTER_COMMENT_TOKEN_STATUS = githubTokenProvider ? "rotating" : commentToken.status;
     if (mode === "interaction") {
-      await runInteraction(token, fallbackToken, runtimeConfig);
+      await runInteraction(token, runtimeConfig);
       return;
     }
     if (mode === "interaction-preflight") {
@@ -111946,9 +111946,8 @@ function runRuntimePreflight(runtimeConfig) {
     `ReviewRouter runtime preflight: status=${runtimeConfig?.status || "unknown"}, codex_cli_needed=${plan.codexCliNeeded}, codex_oauth_needed=${plan.codexOauthNeeded}, claude_cli_needed=${plan.claudeCliNeeded}.`
   );
 }
-async function runInteraction(token, actionsToken, runtimeConfig) {
+async function runInteraction(token, runtimeConfig) {
   const githubClient = new GitHubClient(token);
-  const actionsClient = actionsToken && actionsToken !== token ? new GitHubClient(actionsToken) : githubClient;
   const ledger = new ReviewLedger(
     githubClient,
     process.env.REVIEW_ROUTER_LEDGER_KEY,
@@ -111963,7 +111962,7 @@ async function runInteraction(token, actionsToken, runtimeConfig) {
     githubClient,
     ledger,
     discussionHandler,
-    actionsClient,
+    githubClient,
     memoryClient,
     reviewRequests
   );

@@ -11,6 +11,7 @@ import {
   ActionMemoryMutationResponse,
 } from '../../../src/control-plane/memory';
 import {
+  ControlPlaneManualReviewRequestClient,
   ManualReviewRequestAvailability,
   type ManualReviewRequestPort,
   type ManualReviewRequestCommandKind,
@@ -443,75 +444,127 @@ describe('ReviewInteractionHandler', () => {
     );
   });
 
-  it('uses the workflow token client for rerunning checks when comments use an App token', async () => {
-    const { client: commentClient, octokit: commentOctokit } = makeClient();
-    const { client: actionsClient, octokit: actionsOctokit } = makeClient();
+  it('falls back from disabled control-plane intent to the exact same-head PR run using the App client', async () => {
+    const { client: appClient, octokit: appOctokit } = makeClient();
+    const controlPlaneRequest = new ControlPlaneManualReviewRequestClient(
+      {
+        status: 'applied',
+        apiUrl: 'https://api.reviewrouter.test',
+        actionVersion: '1.0.100',
+        configVersion: 1,
+        sessionToken: 'runtime-session-token',
+      },
+      jest.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: { code: 'review_request_intent_disabled' },
+            }),
+            { status: 404, headers: { 'content-type': 'application/json' } }
+          )
+      ) as typeof fetch
+    );
     process.env.GITHUB_EVENT_PATH = writeEvent({
       comment: {
-        id: 11,
-        in_reply_to_id: 10,
-        body: '/rr skip validated by maintainer',
+        id: 22,
+        body: '/rr review',
         user: { login: 'maintainer' },
       },
-      pull_request: {
+      issue: { number: 123, pull_request: {} },
+    });
+    appOctokit.rest.pulls.get.mockResolvedValue({
+      data: {
         number: 123,
         head: { sha: 'abc', repo: { fork: false } },
         user: { login: 'author' },
       },
     });
-    actionsOctokit.rest.repos.getCollaboratorPermissionLevel.mockResolvedValue({
+    appOctokit.rest.repos.getCollaboratorPermissionLevel.mockResolvedValue({
       data: { permission: 'write', role_name: 'maintain' },
     });
-    actionsOctokit.rest.actions.listWorkflowRunsForRepo.mockResolvedValue({
+    appOctokit.rest.actions.listWorkflowRunsForRepo.mockResolvedValue({
       data: {
         workflow_runs: [
+          {
+            id: 454,
+            path: '.github/workflows/reviewrouter.yml',
+            head_sha: 'stale-head',
+            status: 'completed',
+            conclusion: 'failure',
+            pull_requests: [{ number: 123 }],
+          },
+          {
+            id: 455,
+            path: '.github/workflows/reviewrouter.yml',
+            head_sha: 'abc',
+            status: 'completed',
+            conclusion: 'failure',
+            pull_requests: [{ number: 999 }],
+          },
           {
             id: 456,
             path: '.github/workflows/reviewrouter.yml',
             head_sha: 'abc',
+            status: 'completed',
             conclusion: 'failure',
             pull_requests: [{ number: 123 }],
           },
         ],
       },
     });
-    commentOctokit.rest.actions.listWorkflowRunsForRepo.mockRejectedValue(
-      Object.assign(new Error('App token must not rerun workflows'), {
-        status: 403,
-      })
-    );
 
-    const ledger = new ReviewLedger(commentClient, 'test-secret');
     await new ReviewInteractionHandler(
-      commentClient,
-      ledger,
+      appClient,
+      new ReviewLedger(appClient, 'test-secret'),
       undefined,
-      actionsClient
+      appClient,
+      undefined,
+      controlPlaneRequest
     ).execute();
 
     expect(
-      actionsOctokit.rest.actions.reRunWorkflowFailedJobs
+      appOctokit.rest.actions.reRunWorkflowFailedJobs
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      appOctokit.rest.actions.reRunWorkflowFailedJobs
     ).toHaveBeenCalledWith(expect.objectContaining({ run_id: 456 }));
-    expect(commentOctokit.graphql).not.toHaveBeenCalled();
-    expect(actionsOctokit.graphql).not.toHaveBeenCalled();
-    expect(
-      commentOctokit.rest.actions.reRunWorkflowFailedJobs
-    ).not.toHaveBeenCalled();
-    expect(commentOctokit.rest.issues.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        issue_number: 123,
-        body: expect.stringContaining('reviewrouter-ledger:v1'),
-      })
-    );
-    expect(commentOctokit.rest.pulls.updateReviewComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        comment_id: 10,
-        body: expect.stringContaining('review-router-dismissal:start'),
-      })
-    );
-    expect(
-      actionsOctokit.rest.pulls.updateReviewComment
-    ).not.toHaveBeenCalled();
+    expect(appOctokit.graphql).not.toHaveBeenCalled();
+  });
+
+  it('does not call the request API or rerun a workflow for fork pull requests', async () => {
+    const { client, octokit } = makeClient();
+    const request = jest.fn();
+    process.env.GITHUB_EVENT_PATH = writeEvent({
+      comment: {
+        id: 22,
+        body: '/rr review',
+        user: { login: 'maintainer' },
+      },
+      issue: { number: 123, pull_request: {} },
+    });
+    octokit.rest.pulls.get.mockResolvedValue({
+      data: {
+        number: 123,
+        head: { sha: 'abc', repo: { fork: true } },
+        user: { login: 'author' },
+      },
+    });
+
+    await new ReviewInteractionHandler(
+      client,
+      new ReviewLedger(client, 'test-secret'),
+      undefined,
+      client,
+      undefined,
+      {
+        availability: () => ManualReviewRequestAvailability.Available,
+        request,
+      }
+    ).execute();
+
+    expect(request).not.toHaveBeenCalled();
+    expect(octokit.rest.actions.listWorkflowRunsForRepo).not.toHaveBeenCalled();
+    expect(octokit.rest.actions.reRunWorkflowFailedJobs).not.toHaveBeenCalled();
   });
 
   it('records /rr skip without requiring a reason', async () => {
