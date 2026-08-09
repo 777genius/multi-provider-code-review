@@ -268,7 +268,7 @@ export class CodexAppServerProtocolClient {
       const hasMethod = Object.prototype.hasOwnProperty.call(message, 'method');
       const hasId = Object.prototype.hasOwnProperty.call(message, 'id');
       if (hasMethod && hasId) {
-        throw confinementFailure();
+        throw confinementFailure('server_request');
       }
       if (hasId) {
         diagnosticStage = CodexProtocolDiagnosticStage.Response;
@@ -472,7 +472,7 @@ export class CodexAppServerProtocolClient {
       (this.provisionalThreadId !== null &&
         this.provisionalThreadId !== threadId)
     ) {
-      throw confinementFailure();
+      throw confinementFailure('thread_start_contract');
     }
     this.threadId = threadId;
     this.provisionalThreadId = threadId;
@@ -512,7 +512,7 @@ export class CodexAppServerProtocolClient {
       !Array.isArray(thread.turns) ||
       thread.turns.length !== 0
     ) {
-      throw confinementFailure();
+      throw confinementFailure('thread_started_contract');
     }
     requireModelProvider(thread.modelProvider);
     this.provisionalThreadId = threadId;
@@ -522,7 +522,9 @@ export class CodexAppServerProtocolClient {
 
   private onMcpServerStatus(params: Record<string, unknown>): void {
     const name = requireNonEmptyString(params.name, 'mcp_server_name');
-    if (name !== CODEX_APP_SERVER_MCP_NAME) throw confinementFailure();
+    if (name !== CODEX_APP_SERVER_MCP_NAME) {
+      throw confinementFailure('mcp_server_identity');
+    }
     if (params.threadId !== null) {
       this.assertThreadId(requireIdentifier(params.threadId, 'thread_id'));
     }
@@ -614,7 +616,7 @@ export class CodexAppServerProtocolClient {
       type === 'mcpToolCall' &&
       (active.server !== item.server || active.tool !== item.tool)
     ) {
-      throw confinementFailure();
+      throw confinementFailure('mcp_tool_identity_changed');
     }
     this.activeItems.delete(id);
     this.completedItems.set(id, active);
@@ -630,21 +632,24 @@ export class CodexAppServerProtocolClient {
         const type = requireNonEmptyString(item.type, 'item_type');
         this.validateAllowedItem(item, 'completed');
         const observed = this.completedItems.get(id);
-        if (
-          !observed ||
-          snapshotItemIds.has(id) ||
-          observed.type !== type ||
-          (type === 'mcpToolCall' &&
-            (observed.server !== item.server || observed.tool !== item.tool))
-        ) {
+        if (!observed || snapshotItemIds.has(id) || observed.type !== type) {
           throw streamFailure();
+        }
+        if (
+          type === 'mcpToolCall' &&
+          (observed.server !== item.server || observed.tool !== item.tool)
+        ) {
+          throw confinementFailure('mcp_tool_identity_changed');
         }
         snapshotItemIds.add(id);
       } catch (error) {
-        if (error instanceof ReviewAgentExecutionError) {
-          throw streamFailure();
+        if (
+          error instanceof ReviewAgentExecutionError &&
+          error.failureClass === ReviewAgentFailureClass.ConfinementViolation
+        ) {
+          throw error;
         }
-        throw error;
+        throw streamFailure();
       }
     }
   }
@@ -654,7 +659,9 @@ export class CodexAppServerProtocolClient {
     lifecycle: 'started' | 'completed'
   ): void {
     const type = requireNonEmptyString(item.type, 'item_type');
-    if (FORBIDDEN_ITEM_TYPES.has(type)) throw confinementFailure();
+    if (FORBIDDEN_ITEM_TYPES.has(type)) {
+      throw confinementFailure('forbidden_item_type');
+    }
     if (!ALLOWED_ITEM_TYPES.has(type)) throw streamFailure();
     switch (type) {
       case 'userMessage':
@@ -718,7 +725,7 @@ export class CodexAppServerProtocolClient {
       item.pluginId !== null ||
       item.appContext !== null
     ) {
-      throw confinementFailure();
+      throw confinementFailure('mcp_tool_authority');
     }
     requireRecord(item.arguments, 'mcp_arguments');
     if (lifecycle === 'started') {
@@ -731,12 +738,22 @@ export class CodexAppServerProtocolClient {
       }
       return;
     }
-    if (
-      item.status !== 'completed' ||
-      item.error !== null ||
-      !isRecord(item.result)
-    ) {
-      throw confinementFailure();
+    const completed =
+      item.status === 'completed' &&
+      item.error === null &&
+      isRecord(item.result);
+    const failedWithResult =
+      item.status === 'failed' && item.error === null && isRecord(item.result);
+    const failedWithTransportError =
+      item.status === 'failed' &&
+      item.result === null &&
+      isRecord(item.error) &&
+      hasOnlyKeys(item.error, ['message']) &&
+      typeof item.error.message === 'string' &&
+      Buffer.byteLength(item.error.message, 'utf8') <=
+        MAX_NOTIFICATION_STRING_BYTES;
+    if (!completed && !failedWithResult && !failedWithTransportError) {
+      throw streamFailure();
     }
   }
 
@@ -1694,11 +1711,22 @@ function modelFailure(): ReviewAgentExecutionError {
   );
 }
 
-function confinementFailure(): ReviewAgentExecutionError {
+type CodexConfinementDiagnosticReason =
+  | 'forbidden_item_type'
+  | 'mcp_server_identity'
+  | 'mcp_tool_authority'
+  | 'mcp_tool_identity_changed'
+  | 'server_request'
+  | 'thread_start_contract'
+  | 'thread_started_contract';
+
+function confinementFailure(
+  reason: CodexConfinementDiagnosticReason
+): ReviewAgentExecutionError {
   return new ReviewAgentExecutionError(
     ReviewAgentFailureClass.ConfinementViolation,
     null,
-    'review_agent_confinement_violation'
+    `review_agent_confinement_violation_${reason}`
   );
 }
 

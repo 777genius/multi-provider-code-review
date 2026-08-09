@@ -1240,11 +1240,14 @@ describe('RunInvestigationWorkSlot', () => {
       );
     });
     const gateway = gatewayFixture();
+    const diagnostics = {
+      record: jest.fn(async () => undefined),
+    };
 
     const result = await runnerFixture(
       controlPlane,
       agentFixture(observation()),
-      { agents: { resolve }, gateway }
+      { agents: { resolve }, diagnostics, gateway }
     ).execute(runInput());
 
     expect(result).toEqual({
@@ -1260,6 +1263,15 @@ describe('RunInvestigationWorkSlot', () => {
     expect(gateway.factory.open).not.toHaveBeenCalled();
     expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
     expect(controlPlane.planTurn).not.toHaveBeenCalled();
+    expect(diagnostics.record).toHaveBeenCalledWith({
+      investigationId: 'investigation-1',
+      turnId: 'turn-1',
+      phase: ReviewInvestigationOperationalFailurePhase.AgentPreflight,
+      failureClass: ReviewAgentFailureClass.ConfinementViolation,
+      code: 'review_investigation_agent_preflight_confinement_failure',
+      detailCode: 'review_agent_critic_execution_authority_unavailable',
+      retryAfterMs: null,
+    });
   });
 });
 

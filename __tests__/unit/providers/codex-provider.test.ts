@@ -275,6 +275,10 @@ describe('CodexProvider', () => {
         'multi_agent',
         'apps',
         'plugins',
+        'hooks',
+        'memories',
+        'external_agent_memory_import',
+        'chronicle',
       ])
     );
     expect(isFeatureDisabled(args, 'apps')).toBe(true);
@@ -308,6 +312,10 @@ describe('CodexProvider', () => {
         'multi_agent',
         'apps',
         'plugins',
+        'hooks',
+        'memories',
+        'external_agent_memory_import',
+        'chronicle',
         '-c',
         'mcp_servers={}',
         `mcp_servers.reviewrouter.command=${JSON.stringify(process.execPath)}`,

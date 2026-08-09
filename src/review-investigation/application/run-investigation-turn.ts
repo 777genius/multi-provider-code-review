@@ -108,7 +108,12 @@ export class RunInvestigationTurn {
         minimumMaxTurns: input.maxTurns,
       });
     } catch (error) {
-      return this.abortProviderFailure(input, error);
+      const failure = await this.recordOperationalFailure(
+        input,
+        error,
+        ReviewInvestigationOperationalFailurePhase.AgentPreflight
+      );
+      return this.abortProviderFailure(input, failure);
     }
     const invocationId = `${input.snapshot.investigationId}:${turn.turnId}:${input.currentLease().attemptId}`;
     const current = await this.dependencies.currency.check(input);
@@ -369,6 +374,10 @@ export class RunInvestigationTurn {
 }
 
 const operationalFailureCodes = Object.freeze({
+  [ReviewInvestigationOperationalFailurePhase.AgentPreflight]: Object.freeze({
+    default: 'review_investigation_agent_preflight_failure',
+    confinement: 'review_investigation_agent_preflight_confinement_failure',
+  }),
   [ReviewInvestigationOperationalFailurePhase.AgentCancel]: Object.freeze({
     default: 'review_investigation_agent_cancel_failure',
     confinement: 'review_investigation_agent_cancel_confinement_failure',
