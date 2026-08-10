@@ -87,8 +87,8 @@ jobs:
     permissions:
       actions: write
       contents: read
-      pull-requests: write
-      issues: write
+      pull-requests: read
+      issues: read
       id-token: write
     env:
       RR_RUNTIME_REF: ${{ inputs.runtime_ref }}
