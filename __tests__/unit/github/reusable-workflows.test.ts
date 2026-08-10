@@ -44,6 +44,20 @@ function parseWorkflow(filePath: string): WorkflowDocument {
   }) as WorkflowDocument;
 }
 
+function permissionEscalations(
+  callerPermissions: Record<string, string>,
+  calledPermissions: Record<string, string>
+): string[] {
+  const ranks: Record<string, number> = { none: 0, read: 1, write: 2 };
+  return Object.entries(calledPermissions).flatMap(([scope, requested]) => {
+    const granted = callerPermissions[scope] ?? 'none';
+    return (ranks[requested] ?? Number.POSITIVE_INFINITY) >
+      (ranks[granted] ?? Number.NEGATIVE_INFINITY)
+      ? [`${scope}: ${granted} -> ${requested}`]
+      : [];
+  });
+}
+
 function runInteractionRuntimePreparation(reviewWorkflowFile: string) {
   const workflow = readRepoFile(
     '.github/workflows/reviewrouter-interaction-reusable.yml'
@@ -440,6 +454,29 @@ describe('production reusable workflows', () => {
       CODEX_AUTH_JSON: '${{ secrets.REVIEWROUTER_CODEX_AUTH_JSON }}',
     });
     expect(interaction?.secrets).not.toHaveProperty('REVIEW_ROUTER_LEDGER_KEY');
+  });
+
+  it('keeps reusable permissions executable by the secured thin caller', () => {
+    const caller = parseWorkflow(
+      '__tests__/fixtures/github/reviewrouter-codex-interaction-caller.yml'
+    ).jobs?.interaction;
+    const reusable = parseWorkflow(
+      '.github/workflows/reviewrouter-interaction-reusable.yml'
+    ).jobs?.interaction;
+
+    expect(reusable?.permissions).toEqual({
+      actions: 'write',
+      contents: 'read',
+      'pull-requests': 'read',
+      issues: 'read',
+      'id-token': 'write',
+    });
+    expect(
+      permissionEscalations(
+        caller?.permissions ?? {},
+        reusable?.permissions ?? {}
+      )
+    ).toEqual([]);
   });
 
   it.each([
