@@ -1,5 +1,6 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import yaml from 'js-yaml';
 
@@ -25,7 +26,11 @@ type WorkflowJob = {
 };
 
 type WorkflowDocument = {
+  permissions?: Record<string, string>;
   on?: {
+    issue_comment?: { types?: string[] };
+    pull_request_review_comment?: { types?: string[] };
+    workflow_dispatch?: unknown;
     workflow_call?: {
       inputs?: Record<string, { default?: unknown }>;
     };
@@ -37,6 +42,42 @@ function parseWorkflow(filePath: string): WorkflowDocument {
   return yaml.load(readRepoFile(filePath), {
     schema: yaml.JSON_SCHEMA,
   }) as WorkflowDocument;
+}
+
+function runInteractionRuntimePreparation(reviewWorkflowFile: string) {
+  const workflow = readRepoFile(
+    '.github/workflows/reviewrouter-interaction-reusable.yml'
+  );
+  const scriptMatch = workflow.match(/node <<'NODE'\n([\s\S]*?)\n\s+NODE/u);
+  if (!scriptMatch) {
+    throw new Error('Interaction runtime preparation script not found');
+  }
+
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'reviewrouter-interaction-workflow-')
+  );
+  const githubEnv = path.join(tempDir, 'github-env');
+  const githubOutput = path.join(tempDir, 'github-output');
+  fs.writeFileSync(githubEnv, '');
+  fs.writeFileSync(githubOutput, '');
+
+  const result = spawnSync(process.execPath, ['-e', scriptMatch[1]], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      RR_RUNTIME_REF: '0123456789abcdef0123456789abcdef01234567',
+      RR_REVIEW_WORKFLOW_FILE: reviewWorkflowFile,
+      REVIEWROUTER_RUNTIME_CONFIG_MODE: 'oidc',
+      REVIEW_APP_PRIVATE_KEY_PRESENT: '0',
+      RR_REVIEW_APP_CLIENT_ID: '',
+      GITHUB_ENV: githubEnv,
+      GITHUB_OUTPUT: githubOutput,
+    },
+  });
+
+  const githubEnvContents = fs.readFileSync(githubEnv, 'utf8');
+  fs.rmSync(tempDir, { recursive: true, force: true });
+  return { ...result, githubEnvContents };
 }
 
 describe('production reusable workflows', () => {
@@ -298,9 +339,14 @@ describe('production reusable workflows', () => {
   });
 
   it('keeps the interaction reusable workflow focused on /rr handling', () => {
-    const workflow = readRepoFile(
-      '.github/workflows/reviewrouter-interaction-reusable.yml'
-    );
+    const workflowPath =
+      '.github/workflows/reviewrouter-interaction-reusable.yml';
+    const workflow = readRepoFile(workflowPath);
+    const parsedWorkflow = parseWorkflow(workflowPath);
+    const interaction = parsedWorkflow.jobs?.interaction;
+    const externalActionUses = (interaction?.steps ?? [])
+      .map((step) => step.uses)
+      .filter((value): value is string => Boolean(value));
 
     expect(workflow).toContain('workflow_call:');
     expect(workflow).toContain('control_plane_url:');
@@ -312,7 +358,14 @@ describe('production reusable workflows', () => {
     );
     expect(workflow).toContain('review_app_client_id:');
     expect(workflow).toContain('REVIEW_APP_PRIVATE_KEY:');
-    expect(workflow).toContain('uses: actions/create-github-app-token@v3');
+    expect(externalActionUses).toEqual([
+      'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+      'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
+      'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
+    ]);
+    for (const actionUses of externalActionUses) {
+      expect(actionUses).toMatch(/@[0-9a-f]{40}$/u);
+    }
     expect(workflow).toContain('REVIEW_ROUTER_LEDGER_KEY');
     expect(workflow).toContain('actions: write');
     expect(workflow).toContain('id-token: write');
@@ -331,11 +384,91 @@ describe('production reusable workflows', () => {
       'RR_REVIEW_WORKFLOW_FILE: ${{ inputs.review_workflow_file }}'
     );
     expect(workflow).toContain('Invalid review_workflow_file');
+    expect(workflow).toContain('/^reviewrouter(?:-codex)?\\.ya?ml$/');
     expect(workflow).toContain(
       'REVIEW_ROUTER_REVIEW_WORKFLOW_FILE=${reviewWorkflowFile}'
     );
     expect(workflow).not.toContain('pull_request_target');
     expect(workflow).not.toContain('REVIEW_ROUTER_THREAD_RESOLVE_TOKEN');
+  });
+
+  it('supports a pinned read-token agent-teams interaction caller', () => {
+    const caller = parseWorkflow(
+      '__tests__/fixtures/github/reviewrouter-codex-interaction-caller.yml'
+    );
+    const interaction = caller.jobs?.interaction;
+    const pinnedRuntimeRef = '0123456789abcdef0123456789abcdef01234567';
+
+    expect(caller.on?.pull_request_review_comment?.types).toEqual([
+      'created',
+      'edited',
+    ]);
+    expect(caller.on?.issue_comment?.types).toEqual(['created', 'edited']);
+    expect(caller.on).toHaveProperty('workflow_dispatch');
+    expect(caller.permissions).toEqual({});
+    expect(interaction?.if).toBe(
+      "${{ github.event_name == 'workflow_dispatch' || ((github.event_name != 'issue_comment' || github.event.issue.pull_request) && github.event.comment.user.type != 'Bot') }}"
+    );
+    expect(interaction?.permissions).toEqual({
+      actions: 'write',
+      contents: 'read',
+      issues: 'read',
+      'pull-requests': 'read',
+      'id-token': 'write',
+    });
+    expect(interaction?.uses).toBe(
+      `777genius/review-router/.github/workflows/reviewrouter-interaction-reusable.yml@${pinnedRuntimeRef}`
+    );
+    expect(interaction?.with).toMatchObject({
+      runtime_ref: pinnedRuntimeRef,
+      runtime_config_mode: 'oidc',
+      review_workflow_file: 'reviewrouter-codex.yml',
+      discussion_mode: "${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || 'off' }}",
+      discussion_model: "${{ vars.REVIEW_CODEX_MODEL || 'gpt-5.5' }}",
+      discussion_reasoning_effort: "${{ vars.REVIEW_CODEX_EFFORT || 'xhigh' }}",
+      discussion_max_per_pr:
+        "${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_PR || '20' }}",
+      discussion_max_per_thread:
+        "${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD || '5' }}",
+      discussion_timeout_seconds:
+        "${{ vars.REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS || '60' }}",
+    });
+    expect(interaction?.secrets).toEqual({
+      CODEX_AUTH_JSON: '${{ secrets.REVIEWROUTER_CODEX_AUTH_JSON }}',
+    });
+    expect(interaction?.secrets).not.toHaveProperty('REVIEW_ROUTER_LEDGER_KEY');
+  });
+
+  it.each([
+    'reviewrouter.yml',
+    'reviewrouter.yaml',
+    'reviewrouter-codex.yml',
+    'reviewrouter-codex.yaml',
+  ])('accepts the safe review workflow filename %s', (reviewWorkflowFile) => {
+    const result = runInteractionRuntimePreparation(reviewWorkflowFile);
+
+    expect(result.status).toBe(0);
+    expect(result.githubEnvContents).toContain(
+      `REVIEW_ROUTER_REVIEW_WORKFLOW_FILE=${reviewWorkflowFile}\n`
+    );
+    expect(result.githubEnvContents).toContain(
+      'REVIEWROUTER_COMMENT_TOKEN_MODE=app-oidc\n'
+    );
+  });
+
+  it.each([
+    '../reviewrouter-codex.yml',
+    'reviewrouter-codex.yml/../../reviewrouter.yml',
+    'reviewrouter-other.yml',
+    'ReviewRouter-codex.yml',
+  ])('rejects the unsafe review workflow filename %s', (reviewWorkflowFile) => {
+    const result = runInteractionRuntimePreparation(reviewWorkflowFile);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'Invalid review_workflow_file. Use reviewrouter.yml or reviewrouter-codex.yml.'
+    );
+    expect(result.githubEnvContents).toBe('');
   });
 
   it('does not expose the removed resolve-conversation token in public surfaces', () => {
