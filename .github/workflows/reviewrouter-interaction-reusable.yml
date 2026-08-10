@@ -127,7 +127,13 @@ jobs:
             fail('Invalid ReviewRouter runtime_config_mode. Use oidc or static.');
           }
           const reviewWorkflowFile = (process.env.RR_REVIEW_WORKFLOW_FILE || '').trim();
-          if (!/^reviewrouter(?:-codex)?\.ya?ml$/.test(reviewWorkflowFile)) {
+          const allowedReviewWorkflowFiles = new Set([
+            'reviewrouter.yml',
+            'reviewrouter.yaml',
+            'reviewrouter-codex.yml',
+            'reviewrouter-codex.yaml',
+          ]);
+          if (!allowedReviewWorkflowFiles.has(reviewWorkflowFile)) {
             fail('Invalid review_workflow_file. Use reviewrouter.yml or reviewrouter-codex.yml.');
           }
           const githubEnv = process.env.GITHUB_ENV;

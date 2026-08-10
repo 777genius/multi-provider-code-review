@@ -56,28 +56,31 @@ function runInteractionRuntimePreparation(reviewWorkflowFile: string) {
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'reviewrouter-interaction-workflow-')
   );
-  const githubEnv = path.join(tempDir, 'github-env');
-  const githubOutput = path.join(tempDir, 'github-output');
-  fs.writeFileSync(githubEnv, '');
-  fs.writeFileSync(githubOutput, '');
+  try {
+    const githubEnv = path.join(tempDir, 'github-env');
+    const githubOutput = path.join(tempDir, 'github-output');
+    fs.writeFileSync(githubEnv, '');
+    fs.writeFileSync(githubOutput, '');
 
-  const result = spawnSync(process.execPath, ['-e', scriptMatch[1]], {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      RR_RUNTIME_REF: '0123456789abcdef0123456789abcdef01234567',
-      RR_REVIEW_WORKFLOW_FILE: reviewWorkflowFile,
-      REVIEWROUTER_RUNTIME_CONFIG_MODE: 'oidc',
-      REVIEW_APP_PRIVATE_KEY_PRESENT: '0',
-      RR_REVIEW_APP_CLIENT_ID: '',
-      GITHUB_ENV: githubEnv,
-      GITHUB_OUTPUT: githubOutput,
-    },
-  });
+    const result = spawnSync(process.execPath, ['-e', scriptMatch[1]], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        RR_RUNTIME_REF: '0123456789abcdef0123456789abcdef01234567',
+        RR_REVIEW_WORKFLOW_FILE: reviewWorkflowFile,
+        REVIEWROUTER_RUNTIME_CONFIG_MODE: 'oidc',
+        REVIEW_APP_PRIVATE_KEY_PRESENT: '0',
+        RR_REVIEW_APP_CLIENT_ID: '',
+        GITHUB_ENV: githubEnv,
+        GITHUB_OUTPUT: githubOutput,
+      },
+    });
 
-  const githubEnvContents = fs.readFileSync(githubEnv, 'utf8');
-  fs.rmSync(tempDir, { recursive: true, force: true });
-  return { ...result, githubEnvContents };
+    const githubEnvContents = fs.readFileSync(githubEnv, 'utf8');
+    return { ...result, githubEnvContents };
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 describe('production reusable workflows', () => {
@@ -384,7 +387,7 @@ describe('production reusable workflows', () => {
       'RR_REVIEW_WORKFLOW_FILE: ${{ inputs.review_workflow_file }}'
     );
     expect(workflow).toContain('Invalid review_workflow_file');
-    expect(workflow).toContain('/^reviewrouter(?:-codex)?\\.ya?ml$/');
+    expect(workflow).toContain('allowedReviewWorkflowFiles');
     expect(workflow).toContain(
       'REVIEW_ROUTER_REVIEW_WORKFLOW_FILE=${reviewWorkflowFile}'
     );
@@ -461,7 +464,8 @@ describe('production reusable workflows', () => {
     'reviewrouter-codex.yml/../../reviewrouter.yml',
     'reviewrouter-other.yml',
     'ReviewRouter-codex.yml',
-  ])('rejects the unsafe review workflow filename %s', (reviewWorkflowFile) => {
+    'reviewrouter.yml\nINJECTED=true',
+  ])('rejects the unsafe review workflow filename %j', (reviewWorkflowFile) => {
     const result = runInteractionRuntimePreparation(reviewWorkflowFile);
 
     expect(result.status).toBe(1);
