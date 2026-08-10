@@ -96,7 +96,7 @@ jobs:
           fi
 
       - name: Checkout trusted ReviewRouter runtime
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: 777genius/review-router-saas
           ref: ${{ inputs.runtime_ref }}
@@ -104,7 +104,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
 
@@ -129,7 +129,7 @@ jobs:
           node --conditions=production packages/features/conflict-runtime/dist/interface/cli/reviewrouter-conflict-runtime.js preflight
 
       - name: Checkout exact conflict head
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.repository }}
           ref: ${{ inputs.conflict_head_sha }}
