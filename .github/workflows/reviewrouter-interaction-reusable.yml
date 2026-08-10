@@ -34,7 +34,7 @@ on:
         type: string
         default: ''
       review_workflow_file:
-        description: 'Review workflow file name to rerun after an accepted /rr skip'
+        description: 'Review workflow file name to rerun after an accepted /rr skip: reviewrouter.yml or reviewrouter-codex.yml'
         required: false
         type: string
         default: reviewrouter.yml
@@ -127,8 +127,14 @@ jobs:
             fail('Invalid ReviewRouter runtime_config_mode. Use oidc or static.');
           }
           const reviewWorkflowFile = (process.env.RR_REVIEW_WORKFLOW_FILE || '').trim();
-          if (!/^reviewrouter\.ya?ml$/.test(reviewWorkflowFile)) {
-            fail('Invalid review_workflow_file. Use reviewrouter.yml.');
+          const allowedReviewWorkflowFiles = new Set([
+            'reviewrouter.yml',
+            'reviewrouter.yaml',
+            'reviewrouter-codex.yml',
+            'reviewrouter-codex.yaml',
+          ]);
+          if (!allowedReviewWorkflowFiles.has(reviewWorkflowFile)) {
+            fail('Invalid review_workflow_file. Use reviewrouter.yml or reviewrouter-codex.yml.');
           }
           const githubEnv = process.env.GITHUB_ENV;
           const githubOutput = process.env.GITHUB_OUTPUT;
@@ -151,7 +157,7 @@ jobs:
           RR_REVIEW_APP_CLIENT_ID: ${{ inputs.review_app_client_id }}
 
       - name: Checkout ReviewRouter runtime
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: 777genius/review-router
           ref: ${{ steps.runtime.outputs.runtime_ref }}
@@ -159,14 +165,14 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
 
       - name: Create ReviewRouter GitHub App token
         id: app-token
         if: ${{ steps.runtime.outputs.app_token_needed == 'true' }}
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ inputs.review_app_client_id }}
           private-key: ${{ secrets.REVIEW_APP_PRIVATE_KEY }}

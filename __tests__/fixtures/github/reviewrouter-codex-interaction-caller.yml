@@ -1,0 +1,33 @@
+name: ReviewRouter Interaction
+
+on:
+  pull_request_review_comment:
+    types: [created, edited]
+  issue_comment:
+    types: [created, edited]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  interaction:
+    if: ${{ github.event_name == 'workflow_dispatch' || ((github.event_name != 'issue_comment' || github.event.issue.pull_request) && github.event.comment.user.type != 'Bot') }}
+    permissions:
+      actions: write
+      contents: read
+      issues: read
+      pull-requests: read
+      id-token: write
+    uses: 777genius/review-router/.github/workflows/reviewrouter-interaction-reusable.yml@0123456789abcdef0123456789abcdef01234567
+    with:
+      runtime_ref: 0123456789abcdef0123456789abcdef01234567
+      runtime_config_mode: oidc
+      review_workflow_file: reviewrouter-codex.yml
+      discussion_mode: ${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || 'off' }}
+      discussion_model: ${{ vars.REVIEW_CODEX_MODEL || 'gpt-5.5' }}
+      discussion_reasoning_effort: ${{ vars.REVIEW_CODEX_EFFORT || 'xhigh' }}
+      discussion_max_per_pr: ${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_PR || '20' }}
+      discussion_max_per_thread: ${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD || '5' }}
+      discussion_timeout_seconds: ${{ vars.REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS || '60' }}
+    secrets:
+      CODEX_AUTH_JSON: ${{ secrets.REVIEWROUTER_CODEX_AUTH_JSON }}
