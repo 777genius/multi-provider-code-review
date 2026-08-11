@@ -116,6 +116,101 @@ describe('ReviewActionV2Client', () => {
     expect(JSON.parse(bodies[0]).requestBodyHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it('honors a bounded per-call retry policy with byte-identical framing', async () => {
+    const bodies: string[] = [];
+    const sleep = jest.fn(async () => undefined);
+    const fetchImpl = jest.fn(async (_url, init) => {
+      const body = String(init?.body);
+      bodies.push(body);
+      if (bodies.length < 5) throw new Error('connection_reset');
+      const request = JSON.parse(body);
+      return jsonResponse(
+        {
+          protocolVersion: reviewActionV2PublishedProtocolVersion,
+          schemaDigest: reviewActionV2PublishedSchemaDigest,
+          requestId: request.requestId,
+          serverTime: '2026-07-22T12:00:00.000Z',
+          result: { status: ReviewExecutionStartResultStatus.Admitted },
+        },
+        201
+      );
+    });
+    const client = new ReviewActionV2Client({
+      apiUrl: 'http://127.0.0.1:3000',
+      allowInsecureLocalhost: true,
+      fetchImpl,
+      maxAttempts: 1,
+      requestIdFactory: () => 'rr:test-request',
+      sleep,
+      random: () => 0,
+    });
+
+    await client.execute(
+      ReviewActionV2OperationId.ReviewExecutionStart,
+      {
+        authorizationToken: 'authorization.token',
+        idempotencyKey: 'idem:start:per-call-retry',
+        authorizationId: 'authorization-1',
+        executionId: 'execution-1',
+        reviewRevisionHash: '1'.repeat(64),
+        compatibilityKey: '2'.repeat(64),
+        planHash: '3'.repeat(64),
+        workSlotsCanonicalJson: '[]',
+        sourceRunId: 'run-1',
+        sourceRunAttempt: '1',
+      },
+      { maxAttempts: 5, retryBaseDelayMs: 1_000 }
+    );
+
+    expect(bodies).toHaveLength(5);
+    expect(new Set(bodies).size).toBe(1);
+    expect(sleep.mock.calls).toEqual([[1_000], [2_000], [4_000], [8_000]]);
+  });
+
+  it('does not let a per-call retry policy override semantic no-retry classification', async () => {
+    const sleep = jest.fn(async () => undefined);
+    const fetchImpl = jest.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      return protocolErrorResponse(request.requestId, {
+        errorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
+        retryClass: ReviewActionV2RetryClass.Never,
+        issues: ['revision_not_current'],
+        status: 412,
+      });
+    });
+    const client = new ReviewActionV2Client({
+      apiUrl: 'http://127.0.0.1:3000',
+      allowInsecureLocalhost: true,
+      fetchImpl,
+      requestIdFactory: () => 'rr:test-request',
+      sleep,
+    });
+
+    await expect(
+      client.execute(
+        ReviewActionV2OperationId.ReviewExecutionStart,
+        {
+          authorizationToken: 'authorization.token',
+          idempotencyKey: 'idem:start:no-retry',
+          authorizationId: 'authorization-1',
+          executionId: 'execution-1',
+          reviewRevisionHash: '1'.repeat(64),
+          compatibilityKey: '2'.repeat(64),
+          planHash: '3'.repeat(64),
+          workSlotsCanonicalJson: '[]',
+          sourceRunId: 'run-1',
+          sourceRunAttempt: '1',
+        },
+        { maxAttempts: 5, retryBaseDelayMs: 1_000 }
+      )
+    ).rejects.toMatchObject({
+      protocolErrorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
+      retryClass: ReviewActionV2RetryClass.Never,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it('waits with bounded jitter and performs only one capacity-limited semantic retry', async () => {
     const sleep = jest.fn(async () => undefined);
     const fetchImpl = jest.fn(async (_url, init) => {

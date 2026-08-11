@@ -1188,12 +1188,15 @@ export class CodexProvider extends Provider {
       ...enabledTools.map((tool) => `- ${tool}`),
       'Before returning final JSON, you MUST call at least one ReviewRouter MCP tool to inspect repository context beyond the deterministic prompt.',
       'Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.',
-      'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.',
       ...(gatewayPolicyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION
         ? [
+            'If any ReviewRouter MCP tool result says "truncated": true, do not produce final JSON from that partial result. Use the tool-specific continuation contract or a smaller range/maxResults/maxBytes follow-up until the inspected result is not truncated.',
+            'For every review_list_directory, review_search_text, or review_canonical_inventory result with "complete": false, you MUST NOT produce final JSON. Continue the exact same operation and query inputs, changing only the cursor to the returned nextCursor, until that operation returns "complete": true. You MUST NOT abandon that cursor chain or narrow, broaden, or switch the query before it is complete.',
             'For every review_read_file result with "eof": false, you MUST NOT produce final JSON. Continue reading the same path and revision contiguously with startByte equal to the prior startByte plus byteCount until review_read_file returns "eof": true.',
           ]
-        : []),
+        : [
+            'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.',
+          ]),
       'Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.',
       'Use repository-relative paths only. Only report concrete bugs on changed lines.',
       '',

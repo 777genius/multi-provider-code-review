@@ -423,6 +423,18 @@ describe('CodexProvider', () => {
 
     expect(prompt).toContain('- review_canonical_inventory');
     expect(prompt).toContain(
+      'For every review_list_directory, review_search_text, or review_canonical_inventory result with "complete": false'
+    );
+    expect(prompt).toContain(
+      'Continue the exact same operation and query inputs, changing only the cursor to the returned nextCursor'
+    );
+    expect(prompt).toContain(
+      'MUST NOT abandon that cursor chain or narrow, broaden, or switch the query before it is complete'
+    );
+    expect(prompt).not.toContain(
+      'Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up'
+    );
+    expect(prompt).toContain(
       'For every review_read_file result with "eof": false'
     );
     expect(prompt).toContain(
@@ -439,6 +451,12 @@ describe('CodexProvider', () => {
     );
     expect(v3Prompt).not.toContain(
       'For every review_read_file result with "eof": false'
+    );
+    expect(v3Prompt).not.toContain(
+      'Continue the exact same operation and query inputs, changing only the cursor to the returned nextCursor'
+    );
+    expect(v3Prompt).toContain(
+      'Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up'
     );
   });
 

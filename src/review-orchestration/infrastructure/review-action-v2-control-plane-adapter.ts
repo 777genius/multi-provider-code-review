@@ -283,7 +283,8 @@ export class ReviewActionV2ControlPlaneAdapter
           transcriptHash: input.transcriptHash,
           replayMaterialCanonicalJson: input.replayMaterialCanonicalJson,
           replayMaterialHash: input.replayMaterialHash,
-        }
+        },
+        { maxAttempts: 5, retryBaseDelayMs: 1_000 }
       );
     } catch (error) {
       throw controlPlaneFailure(error);
@@ -1068,6 +1069,16 @@ const SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = new Set([
   'safety_decision_mismatch',
 ]);
 
+const SAFE_CONTEXT_GATEWAY_V4_DIAGNOSTIC_ISSUE =
+  /^context_gateway_v4_[a-z_]{1,80}$/u;
+
+function isSafeControlPlaneDiagnosticIssue(value: string): boolean {
+  return (
+    SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES.has(value) ||
+    SAFE_CONTEXT_GATEWAY_V4_DIAGNOSTIC_ISSUE.test(value)
+  );
+}
+
 const SAFE_PUBLICATION_REQUEST_STALE_ISSUES = new Set([
   'lifecycle_not_current',
   'lifecycle_status_not_current',
@@ -1167,9 +1178,7 @@ function controlPlaneFailure(error: unknown): Error {
   }
   const category = error.protocolErrorCode ?? error.code;
   const base = `review_action_v2:${error.operationId}:${category}`;
-  const issue = error.issues?.find((value) =>
-    SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES.has(value)
-  );
+  const issue = error.issues?.find(isSafeControlPlaneDiagnosticIssue);
   const diagnostic = issue ? `${base}:${issue}` : base;
   return new Error(diagnostic.length <= 120 ? diagnostic : base, {
     cause: error,

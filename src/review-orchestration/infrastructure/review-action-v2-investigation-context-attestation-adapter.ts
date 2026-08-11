@@ -108,7 +108,8 @@ export class ReviewActionV2InvestigationContextAttestationAdapter implements Con
         transcriptHash: input.transcriptHash,
         replayMaterialCanonicalJson: input.replayMaterialCanonicalJson,
         replayMaterialHash: input.replayMaterialHash,
-      }
+      },
+      { maxAttempts: 5, retryBaseDelayMs: 1_000 }
     );
     if (
       result.status === ReviewContextGatewaySealResultStatus.Denied ||
@@ -144,15 +145,12 @@ export class ReviewActionV2InvestigationContextAttestationAdapter implements Con
       {
         authorizationToken: this.authorizationToken,
         leaseCapability: input.invocationLease.leaseCapability,
-        idempotencyKey: deterministicId(
-          'investigation-gateway-failed-seal',
-          [
-            input.session.sessionId,
-            input.invocationLease.attemptId,
-            input.invocationLease.leaseId,
-            input.invocationLease.fencingToken,
-          ]
-        ),
+        idempotencyKey: deterministicId('investigation-gateway-failed-seal', [
+          input.session.sessionId,
+          input.invocationLease.attemptId,
+          input.invocationLease.leaseId,
+          input.invocationLease.fencingToken,
+        ]),
         ...createFailedContextGatewaySealPayload(input),
       }
     );

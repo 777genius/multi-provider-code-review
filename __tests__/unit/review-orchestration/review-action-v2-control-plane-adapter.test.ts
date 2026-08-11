@@ -710,6 +710,15 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         sourceExecutionId: execution.executionId,
       })
     );
+    expect(execute).toHaveBeenNthCalledWith(
+      3,
+      ReviewActionV2OperationId.ReviewContextGatewaySeal,
+      expect.objectContaining({
+        sessionId: session.sessionId,
+        sealCapability: session.sealCapability,
+      }),
+      { maxAttempts: 5, retryBaseDelayMs: 1_000 }
+    );
   });
 
   it.each([
@@ -865,48 +874,54 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
     });
   });
 
-  it('translates context seal protocol failures into safe actionable codes', async () => {
-    const execute = jest
-      .fn()
-      .mockResolvedValueOnce(authorizationResponse())
-      .mockRejectedValueOnce(
-        new ReviewActionV2ClientError(
-          ReviewActionV2ClientFailureCode.ProtocolError,
-          ReviewActionV2OperationId.ReviewContextGatewaySeal,
-          {
-            httpStatus: 422,
-            protocolErrorCode: ReviewActionV2ProtocolErrorCode.InvalidRequest,
-            issues: ['context_actual_model_mismatch'],
-          }
-        )
-      );
-    const adapter = createAdapter(execute);
-    await adapter.authorize({ oidcToken: 'oidc.token' });
+  it.each([
+    'context_actual_model_mismatch',
+    'context_gateway_v4_pagination_incomplete',
+  ])(
+    'translates context seal protocol failure %s into a safe actionable code',
+    async (issue) => {
+      const execute = jest
+        .fn()
+        .mockResolvedValueOnce(authorizationResponse())
+        .mockRejectedValueOnce(
+          new ReviewActionV2ClientError(
+            ReviewActionV2ClientFailureCode.ProtocolError,
+            ReviewActionV2OperationId.ReviewContextGatewaySeal,
+            {
+              httpStatus: 422,
+              protocolErrorCode: ReviewActionV2ProtocolErrorCode.InvalidRequest,
+              issues: [issue],
+            }
+          )
+        );
+      const adapter = createAdapter(execute);
+      await adapter.authorize({ oidcToken: 'oidc.token' });
 
-    await expect(
-      adapter.sealGatewaySession({
-        invocationLease: baseLease,
-        session: {
-          sessionId: 'session-1',
-          eventChainSeedHash: hash('seed'),
-          gatewaySessionSecret: Buffer.alloc(32, 1).toString('base64url'),
-          sealCapability: 'seal.capability',
-          expiresAt: '2026-07-22T12:05:00.000Z',
-        },
-        providerSucceeded: true,
-        schemaValidated: true,
-        fullyConsumed: true,
-        actualModel: 'gpt-5.6-sol',
-        terminalOutcomeHash: hash('outcome'),
-        transcriptCanonicalJson: '{"transcriptVersion":1}',
-        transcriptHash: hash('{"transcriptVersion":1}'),
-        replayMaterialCanonicalJson: '{"replayMaterialVersion":1}',
-        replayMaterialHash: hash('{"replayMaterialVersion":1}'),
-      })
-    ).rejects.toThrow(
-      'review_action_v2:review_context_gateway_seal:invalid_request:context_actual_model_mismatch'
-    );
-  });
+      await expect(
+        adapter.sealGatewaySession({
+          invocationLease: baseLease,
+          session: {
+            sessionId: 'session-1',
+            eventChainSeedHash: hash('seed'),
+            gatewaySessionSecret: Buffer.alloc(32, 1).toString('base64url'),
+            sealCapability: 'seal.capability',
+            expiresAt: '2026-07-22T12:05:00.000Z',
+          },
+          providerSucceeded: true,
+          schemaValidated: true,
+          fullyConsumed: true,
+          actualModel: 'gpt-5.6-sol',
+          terminalOutcomeHash: hash('outcome'),
+          transcriptCanonicalJson: '{"transcriptVersion":1}',
+          transcriptHash: hash('{"transcriptVersion":1}'),
+          replayMaterialCanonicalJson: '{"replayMaterialVersion":1}',
+          replayMaterialHash: hash('{"replayMaterialVersion":1}'),
+        })
+      ).rejects.toThrow(
+        `review_action_v2:review_context_gateway_seal:invalid_request:${issue}`
+      );
+    }
+  );
 
   it('parses replay-required evidence and commits its target proof', async () => {
     const payloadCanonicalJson = canonicalJson({ findings: [] });
