@@ -496,7 +496,7 @@ export class CodexReviewInvocationAdapter implements PreparedReviewInvocationPor
             ],
           });
           logger.warn(
-            `Context inspection incomplete (${error.reason}); fresh evidence is not cross-revision reusable`
+            `Context inspection incomplete (${error.reason}${error.stage ? `, stage=${error.stage}` : ''}); fresh evidence is not cross-revision reusable`
           );
           throw new RetryableReviewContextInspectionFailure(
             error.reason,

@@ -44,6 +44,7 @@ import type {
 import {
   ReviewContextInspectionFailure,
   ReviewContextInspectionFailureReason,
+  ReviewContextInspectionFailureStage,
   ReviewExecutionProviderKind,
 } from '../application';
 
@@ -548,6 +549,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     readonly actualModel: string;
     readonly terminalOutcomeHash: string;
   }): Promise<ContextDependencyAttestationReference | null> {
+    let stage = ReviewContextInspectionFailureStage.TranscriptResume;
     try {
       const recorder = new ContextGatewayV4Recorder({
         sessionId: this.serverSession.sessionId,
@@ -560,6 +562,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
         eventChainSeedHash: this.serverSession.eventChainSeedHash,
       });
       await recorder.resume();
+      stage = ReviewContextInspectionFailureStage.TranscriptValidation;
       const transcript = recorder.snapshot();
       if (transcript.events.length === 0) {
         throw new ReviewContextInspectionFailure(
@@ -575,10 +578,12 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
         );
       }
       const transcriptCanonicalJson = createV4WireSealPayload(transcript);
+      stage = ReviewContextInspectionFailureStage.ReplayRead;
       const encryptedReplayMaterialCanonicalJson = await readBoundedText(
         this.replayMaterialPath,
         MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES
       );
+      stage = ReviewContextInspectionFailureStage.ReplayDecrypt;
       const replayMaterialCanonicalJson = decryptContextGatewayV4ReplayMaterial(
         {
           encryptedCanonicalJson: encryptedReplayMaterialCanonicalJson,
@@ -586,7 +591,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
           sessionId: this.serverSession.sessionId,
         }
       );
-      await rm(this.replayMaterialPath);
+      stage = ReviewContextInspectionFailureStage.ControlPlaneSeal;
       const attestation = await this.attestations.sealGatewaySession({
         invocationLease: this.currentInvocationLease(),
         session: this.serverSession,
@@ -605,7 +610,8 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     } catch (error) {
       if (error instanceof ReviewContextInspectionFailure) throw error;
       throw new ReviewContextInspectionFailure(
-        ReviewContextInspectionFailureReason.GatewayOutputUnavailable
+        ReviewContextInspectionFailureReason.GatewayOutputUnavailable,
+        stage
       );
     }
   }

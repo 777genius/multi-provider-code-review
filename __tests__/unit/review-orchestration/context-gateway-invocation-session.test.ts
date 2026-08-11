@@ -24,6 +24,7 @@ import { ContextGatewayV4ReplayMaterialRecorder } from '../../../src/context-gat
 import { ContextGatewayLeaseAuthorityKind } from '../../../src/context-gateway/context-gateway-lease-authority';
 import {
   ReviewContextInspectionFailureReason,
+  ReviewContextInspectionFailureStage,
   type ReviewContextAttestationPort,
   type ReviewInvocationLease,
 } from '../../../src/review-orchestration/application';
@@ -233,7 +234,7 @@ describe('ContextGatewayInvocationSessionFactory', () => {
           fixture.session.providerConfig.runtimeEnvironment
             .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!
         )
-      ).rejects.toThrow();
+      ).resolves.toBeUndefined();
       expect(JSON.parse(sealInput.transcriptCanonicalJson)).toMatchObject({
         manifestVersion: 3,
         gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
@@ -258,8 +259,91 @@ describe('ContextGatewayInvocationSessionFactory', () => {
         })
       );
       await fixture.session.dispose();
+      await expect(
+        access(
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!
+        )
+      ).rejects.toThrow();
       await fixture.session.dispose();
       expect(fixture.attestations.abandonGatewaySession).not.toHaveBeenCalled();
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it.each([
+    {
+      name: 'transcript resume',
+      stage: ReviewContextInspectionFailureStage.TranscriptResume,
+      mutate: async (fixture: SessionFixture) => {
+        await writeFile(
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH!,
+          'not-json'
+        );
+      },
+    },
+    {
+      name: 'replay read',
+      stage: ReviewContextInspectionFailureStage.ReplayRead,
+      mutate: async (fixture: SessionFixture) => {
+        await writeFile(
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!,
+          'x'
+        );
+      },
+    },
+    {
+      name: 'replay decrypt',
+      stage: ReviewContextInspectionFailureStage.ReplayDecrypt,
+      mutate: async (fixture: SessionFixture) => {
+        await writeFile(
+          fixture.session.providerConfig.runtimeEnvironment
+            .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!,
+          '{}'
+        );
+      },
+    },
+  ])('reports the safe v4 $name failure stage', async ({ stage, mutate }) => {
+    const fixture = await openSessionFixture(CONTEXT_GATEWAY_V4_POLICY_VERSION);
+    try {
+      await writeValidV4Evidence(fixture);
+      await mutate(fixture);
+
+      await expect(
+        fixture.session.seal({
+          actualModel: 'gpt-test-actual',
+          terminalOutcomeHash: hash('outcome'),
+        })
+      ).rejects.toMatchObject({
+        reason: ReviewContextInspectionFailureReason.GatewayOutputUnavailable,
+        stage,
+      });
+      expect(fixture.attestations.sealGatewaySession).not.toHaveBeenCalled();
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  it('reports the control-plane v4 seal failure stage', async () => {
+    const fixture = await openSessionFixture(CONTEXT_GATEWAY_V4_POLICY_VERSION);
+    try {
+      await writeValidV4Evidence(fixture);
+      fixture.attestations.sealGatewaySession.mockRejectedValueOnce(
+        new Error('control-plane-unavailable')
+      );
+
+      await expect(
+        fixture.session.seal({
+          actualModel: 'gpt-test-actual',
+          terminalOutcomeHash: hash('outcome'),
+        })
+      ).rejects.toMatchObject({
+        reason: ReviewContextInspectionFailureReason.GatewayOutputUnavailable,
+        stage: ReviewContextInspectionFailureStage.ControlPlaneSeal,
+      });
     } finally {
       await fixture.dispose();
     }
@@ -372,6 +456,7 @@ describe('ContextGatewayInvocationSessionFactory', () => {
         })
       ).rejects.toMatchObject({
         reason: ReviewContextInspectionFailureReason.IncompleteTranscript,
+        stage: undefined,
       });
       expect(fixture.attestations.sealGatewaySession).not.toHaveBeenCalled();
     } finally {
@@ -765,6 +850,45 @@ describe('ContextGatewayInvocationSessionFactory', () => {
 });
 
 type SessionFixture = Awaited<ReturnType<typeof openSessionFixture>>;
+
+async function writeValidV4Evidence(fixture: SessionFixture): Promise<void> {
+  const recorder = new ContextGatewayV4Recorder({
+    sessionId: fixture.serverSession.sessionId,
+    transcriptPath:
+      fixture.session.providerConfig.runtimeEnvironment
+        .REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH!,
+    secret: fixture.secret,
+    gatewayBinaryHash: fixture.gatewayHash,
+    checkoutTreeOid: fixture.checkoutTreeOid,
+    eventChainSeedHash: fixture.serverSession.eventChainSeedHash,
+  });
+  await recorder.initialize();
+  const replay = new ContextGatewayV4ReplayMaterialRecorder({
+    sessionId: fixture.serverSession.sessionId,
+    replayMaterialPath:
+      fixture.session.providerConfig.runtimeEnvironment
+        .REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH!,
+    secret: fixture.secret,
+  });
+  await replay.initialize();
+  const event = await recorder.recordSucceeded({
+    operation: {
+      kind: ContextGatewayV4OperationKind.GitFact,
+      fact: 'merge_base',
+    },
+    result: {
+      complete: true,
+      fact: 'merge_base',
+      itemCount: 1,
+      resultHash: hash('merge-base-result'),
+    },
+    operationReceiptId: hash('operation-receipt'),
+  });
+  await replay.recordSucceeded({
+    event,
+    replayInput: { fact: 'merge_base' },
+  });
+}
 
 async function openSessionFixture(
   policyVersion: ContextGatewayPolicyVersion = CONTEXT_GATEWAY_POLICY_VERSION,
