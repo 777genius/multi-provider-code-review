@@ -17,7 +17,7 @@ import {
 } from './context-gateway-v4-contract';
 
 const MAX_EVENTS = 2_000;
-const MAX_STATE_BYTES = 4 * 1024 * 1024;
+export const CONTEXT_GATEWAY_V4_MAX_TRANSCRIPT_BYTES = 4 * 1024 * 1024;
 
 export type ContextGatewayV4TranscriptEvent = ContextGatewayV4OutcomeEvent &
   Readonly<{
@@ -94,7 +94,10 @@ export class ContextGatewayV4Recorder {
       throw new Error('context_gateway_v4_recorder_already_active');
     }
     const raw = await readFile(this.config.transcriptPath, 'utf8');
-    if (raw.length < 2 || Buffer.byteLength(raw, 'utf8') > MAX_STATE_BYTES) {
+    if (
+      raw.length < 2 ||
+      Buffer.byteLength(raw, 'utf8') > CONTEXT_GATEWAY_V4_MAX_TRANSCRIPT_BYTES
+    ) {
       throw new Error('context_gateway_v4_recorder_state_size_invalid');
     }
     let parsed: unknown;

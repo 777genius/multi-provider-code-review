@@ -1,5 +1,8 @@
 import { CONTEXT_GATEWAY_READ_ONLY_TOOL_ANNOTATIONS } from '../../../src/context-gateway/context-gateway-tool-annotations';
-import { CONTEXT_GATEWAY_TOOL_DEFINITIONS } from '../../../src/context-gateway/context-gateway-tool-definitions';
+import {
+  CONTEXT_GATEWAY_TOOL_DEFINITIONS,
+  CONTEXT_GATEWAY_V4_TOOL_DEFINITIONS,
+} from '../../../src/context-gateway/context-gateway-tool-definitions';
 
 describe('context gateway tool annotations', () => {
   it('declares every confined tool as read-only and closed-world', () => {
@@ -21,5 +24,15 @@ describe('context gateway tool annotations', () => {
       idempotentHint: true,
       openWorldHint: false,
     });
+  });
+
+  it('binds incomplete v4 file reads to contiguous follow-up ranges', () => {
+    const readFile = CONTEXT_GATEWAY_V4_TOOL_DEFINITIONS.find(
+      (tool) => tool.name === 'review_read_file'
+    );
+
+    expect(readFile?.description).toContain('If eof is false');
+    expect(readFile?.description).toContain('prior startByte plus byteCount');
+    expect(readFile?.description).toContain('until eof is true');
   });
 });

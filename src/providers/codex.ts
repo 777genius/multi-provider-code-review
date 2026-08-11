@@ -378,7 +378,11 @@ export class CodexProvider extends Provider {
       ? true
       : this.shouldUseAgenticContext();
     const finalPrompt = contextGateway
-      ? this.wrapContextGatewayReviewPrompt(prompt, contextGateway.enabledTools)
+      ? this.wrapContextGatewayReviewPrompt(
+          prompt,
+          contextGateway.enabledTools,
+          contextGateway.gatewayPolicyVersion
+        )
       : agenticContext
         ? await this.wrapAgenticReviewPrompt(prompt)
         : this.wrapPromptOnlyReviewPrompt(prompt);
@@ -1173,7 +1177,8 @@ export class CodexProvider extends Provider {
 
   private wrapContextGatewayReviewPrompt(
     prompt: string,
-    enabledTools: readonly string[]
+    enabledTools: readonly string[],
+    gatewayPolicyVersion?: string
   ): string {
     return [
       'You are running as review-router inside GitHub Actions.',
@@ -1184,6 +1189,11 @@ export class CodexProvider extends Provider {
       'Before returning final JSON, you MUST call at least one ReviewRouter MCP tool to inspect repository context beyond the deterministic prompt.',
       'Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.',
       'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.',
+      ...(gatewayPolicyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION
+        ? [
+            'For every review_read_file result with "eof": false, you MUST NOT produce final JSON. Continue reading the same path and revision contiguously with startByte equal to the prior startByte plus byteCount until review_read_file returns "eof": true.',
+          ]
+        : []),
       'Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.',
       'Use repository-relative paths only. Only report concrete bugs on changed lines.',
       '',
