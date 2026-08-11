@@ -23081,10 +23081,13 @@ var CodexProvider = class _CodexProvider extends Provider {
       ...enabledTools.map((tool) => `- ${tool}`),
       "Before returning final JSON, you MUST call at least one ReviewRouter MCP tool to inspect repository context beyond the deterministic prompt.",
       "Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.",
-      'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.',
       ...gatewayPolicyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION ? [
+        'If any ReviewRouter MCP tool result says "truncated": true, do not produce final JSON from that partial result. Use the tool-specific continuation contract or a smaller range/maxResults/maxBytes follow-up until the inspected result is not truncated.',
+        'For every review_list_directory, review_search_text, or review_canonical_inventory result with "complete": false, you MUST NOT produce final JSON. Continue the exact same operation and query inputs, changing only the cursor to the returned nextCursor, until that operation returns "complete": true. You MUST NOT abandon that cursor chain or narrow, broaden, or switch the query before it is complete.',
         'For every review_read_file result with "eof": false, you MUST NOT produce final JSON. Continue reading the same path and revision contiguously with startByte equal to the prior startByte plus byteCount until review_read_file returns "eof": true.'
-      ] : [],
+      ] : [
+        'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.'
+      ],
       "Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.",
       "Use repository-relative paths only. Only report concrete bugs on changed lines.",
       "",
@@ -40228,6 +40231,33 @@ var ExecutionDeadline = class {
   }
 };
 
+// src/review-execution/infrastructure/execution-deadline-from-environment.ts
+var REVIEW_EXECUTION_DEADLINE_ENV_KEY = "REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS";
+var DEFAULT_COMPLETION_RESERVE_MS = 12e4;
+var DEFAULT_MINIMUM_BATCH_START_WINDOW_MS = 3e4;
+var DEFAULT_MINIMUM_RETRY_START_WINDOW_MS = 3e4;
+function parseOptionalEpochMs(value) {
+  if (!value?.trim()) return void 0;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(
+      `${REVIEW_EXECUTION_DEADLINE_ENV_KEY} must be a positive epoch timestamp`
+    );
+  }
+  return parsed;
+}
+function createExecutionDeadlineFromEnvironment(environment = process.env, clock) {
+  return new ExecutionDeadline(
+    parseOptionalEpochMs(environment[REVIEW_EXECUTION_DEADLINE_ENV_KEY]),
+    {
+      completionReserveMs: DEFAULT_COMPLETION_RESERVE_MS,
+      minimumBatchStartWindowMs: DEFAULT_MINIMUM_BATCH_START_WINDOW_MS,
+      minimumOptionalRetryStartWindowMs: DEFAULT_MINIMUM_RETRY_START_WINDOW_MS
+    },
+    clock
+  );
+}
+
 // src/review-execution/infrastructure/http-review-checkpoint-client.ts
 var fs14 = __toESM(require("fs/promises"));
 var import_crypto16 = require("crypto");
@@ -41036,7 +41066,7 @@ var HttpReviewCheckpointClient = class _HttpReviewCheckpointClient {
       leaseId,
       providerInstanceId,
       fetchImpl: input.fetchImpl,
-      deadlineEpochMs: parseOptionalEpochMs(env[EXECUTION_DEADLINE_ENV])
+      deadlineEpochMs: parseOptionalEpochMs2(env[EXECUTION_DEADLINE_ENV])
     });
   }
   apiUrl;
@@ -41358,27 +41388,14 @@ function conflictResponseSchema(status) {
     }).strict()
   ]);
 }
-function parseOptionalEpochMs(value) {
+function parseOptionalEpochMs2(value) {
   if (!value?.trim()) return void 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : void 0;
 }
 
 // src/setup.ts
-var DEFAULT_COMPLETION_RESERVE_MS = 12e4;
-var DEFAULT_MINIMUM_BATCH_START_WINDOW_MS = 3e4;
-var DEFAULT_MINIMUM_RETRY_START_WINDOW_MS = 3e4;
 var DEFAULT_PROVIDER_DISCOVERY_WAVE_TIMEOUT_MS = 15e3;
-function parseOptionalEpochMs2(value) {
-  if (!value?.trim()) return void 0;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(
-      "REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS must be a positive epoch timestamp"
-    );
-  }
-  return parsed;
-}
 function parseBoundedParallelism(value) {
   if (!value?.trim()) return void 0;
   const parsed = Number(value);
@@ -41388,16 +41405,6 @@ function parseBoundedParallelism(value) {
     );
   }
   return parsed;
-}
-function createExecutionDeadline() {
-  return new ExecutionDeadline(
-    parseOptionalEpochMs2(process.env.REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS),
-    {
-      completionReserveMs: DEFAULT_COMPLETION_RESERVE_MS,
-      minimumBatchStartWindowMs: DEFAULT_MINIMUM_BATCH_START_WINDOW_MS,
-      minimumOptionalRetryStartWindowMs: DEFAULT_MINIMUM_RETRY_START_WINDOW_MS
-    }
-  );
 }
 function bindDeadlineAwareProviderDiscovery(providerRegistry, llmExecutor) {
   const discover = providerRegistry.discoverAdditionalFreeProviders.bind(providerRegistry);
@@ -41416,7 +41423,7 @@ async function createComponents(config, githubToken, options = {}) {
   if (pluginLoader) {
     await pluginLoader.loadPlugins();
   }
-  const executionDeadline = createExecutionDeadline();
+  const executionDeadline = createExecutionDeadlineFromEnvironment();
   const llmExecutor = new LLMExecutor(config, {
     deadline: executionDeadline,
     maxParallelCalls: parseBoundedParallelism(
@@ -50257,7 +50264,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.104",
+  version: "1.0.105",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -93511,6 +93518,8 @@ var ReviewActionV2Client = class {
     const request = this.frameRequest(operationId, payload);
     const serializedRequest = JSON.stringify(request);
     let capacityRetriesConsumed = 0;
+    const perCallMaxAttempts = options.maxAttempts === void 0 ? null : clampInteger(options.maxAttempts, 1, 5);
+    const perCallRetryBaseDelayMs = options.retryBaseDelayMs === void 0 ? null : clampInteger(options.retryBaseDelayMs, 1, 3e4);
     const deadlineMs = options.timeoutMs === void 0 ? null : createDeadlineMs(
       this.monotonicNow(),
       requirePositiveTimeout(options.timeoutMs)
@@ -93521,10 +93530,10 @@ var ReviewActionV2Client = class {
         operationId
       );
     }
-    const loopAttemptLimit = operationId === "review_publication_request" /* ReviewPublicationRequest */ ? Math.max(
+    const loopAttemptLimit = perCallMaxAttempts ?? (operationId === "review_publication_request" /* ReviewPublicationRequest */ ? Math.max(
       this.maxAttempts,
       this.publicationFactsUnavailableMaxAttempts
-    ) : this.maxAttempts;
+    ) : this.maxAttempts);
     for (let attempt = 1; attempt <= loopAttemptLimit; attempt += 1) {
       try {
         const attemptTimeoutMs = remainingTimeoutMs(
@@ -93543,13 +93552,18 @@ var ReviewActionV2Client = class {
       } catch (error2) {
         const normalized = normalizeClientError(error2, operationId);
         const publicationFactsUnavailable = isPublicationFactsUnavailable(normalized);
-        const attemptLimit = publicationFactsUnavailable ? this.publicationFactsUnavailableMaxAttempts : this.maxAttempts;
+        const attemptLimit = perCallMaxAttempts ?? (publicationFactsUnavailable ? this.publicationFactsUnavailableMaxAttempts : this.maxAttempts);
         const capacityRetryLimit = publicationFactsUnavailable ? 2 : 1;
         if (attempt >= attemptLimit || !isRetryAllowed(descriptor.semanticRetryClass, normalized) || isCapacityLimited(normalized) && capacityRetriesConsumed >= capacityRetryLimit) {
           throw normalized;
         }
         if (isCapacityLimited(normalized)) capacityRetriesConsumed += 1;
-        const retryDelay = retryDelayMs(normalized, attempt, this.random);
+        const retryDelay = retryDelayMs(
+          normalized,
+          attempt,
+          this.random,
+          perCallRetryBaseDelayMs
+        );
         const remainingMs = remainingTimeoutMs(
           deadlineMs,
           this.monotonicNow,
@@ -93826,9 +93840,11 @@ var PUBLICATION_FACT_UNAVAILABLE_ISSUES = /* @__PURE__ */ new Set([
 function isPublicationFactsUnavailable(error2) {
   return error2.operationId === "review_publication_request" /* ReviewPublicationRequest */ && isCapacityLimited(error2) && error2.retryClass === "same_request" /* SameRequest */ && error2.issues?.includes(PUBLICATION_FACTS_UNAVAILABLE_ISSUE) === true && error2.issues.some((issue) => PUBLICATION_FACT_UNAVAILABLE_ISSUES.has(issue));
 }
-function retryDelayMs(error2, attempt, random) {
-  if (!isCapacityLimited(error2)) return error2.retryAfterMs ?? 0;
-  const baseDelayMs = isPublicationFactsUnavailable(error2) ? Math.min(5e3 * 2 ** Math.max(0, attempt - 1), 1e4) : Math.min(500 * 2 ** Math.max(0, attempt - 1), 5e3);
+function retryDelayMs(error2, attempt, random, perCallBaseDelayMs) {
+  if (!isCapacityLimited(error2) && perCallBaseDelayMs === null) {
+    return error2.retryAfterMs ?? 0;
+  }
+  const baseDelayMs = perCallBaseDelayMs === null ? isPublicationFactsUnavailable(error2) ? Math.min(5e3 * 2 ** Math.max(0, attempt - 1), 1e4) : Math.min(500 * 2 ** Math.max(0, attempt - 1), 5e3) : Math.min(perCallBaseDelayMs * 2 ** Math.max(0, attempt - 1), 3e4);
   const sample = random();
   const boundedSample = Number.isFinite(sample) && sample >= 0 && sample < 1 ? sample : 0;
   const jitteredDelayMs = baseDelayMs + Math.floor(baseDelayMs * boundedSample);
@@ -95315,6 +95331,18 @@ var RunT0ReviewOrchestration = class {
           });
           continue;
         }
+        if (restoredSlot.state !== "satisfied" /* Satisfied */ && !this.canStartBatch()) {
+          exhaustedWorkSlotIds.push(workSlot.workSlotId);
+          exhaustedWorkSlotReasons.set(
+            workSlot.workSlotId,
+            "deadline_reached" /* DeadlineReached */
+          );
+          state = evolveReviewOrchestration(state, {
+            type: "slot_exhausted" /* SlotExhausted */,
+            workSlotId: workSlot.workSlotId
+          });
+          continue;
+        }
         if (restoredSlot.state !== "satisfied" /* Satisfied */ && (busyPollsByProviderLane.get(workSlot.providerVoteIdentityHash) ?? 0) >= this.maxBusyPollsPerProviderLane) {
           exhaustedWorkSlotIds.push(workSlot.workSlotId);
           exhaustedWorkSlotReasons.set(
@@ -95455,6 +95483,7 @@ var RunT0ReviewOrchestration = class {
       });
       execution = refreshExecutionAdmission(execution, latestExecution);
       validateProjectionAgainstLimits(projection, authorization.limits);
+      this.assertExecutionDeadlineAvailable();
       state = evolveReviewOrchestration(state, {
         type: "finalization_started" /* FinalizationStarted */
       });
@@ -95469,6 +95498,7 @@ var RunT0ReviewOrchestration = class {
         allowPartial: partial
       });
       await this.assertRevisionCurrent(command);
+      this.assertExecutionDeadlineAvailable();
       assertPublicationAuthorizationWindow({
         validForMsAtResponse: publicationRenewal.validForMsAtResponse,
         elapsedMs: elapsedMonotonicMs(
@@ -95554,12 +95584,19 @@ var RunT0ReviewOrchestration = class {
           "review_orchestration_publication_authorization_window_exhausted"
         );
       }
-      const publicationDeadlineMs = safeAddMilliseconds(
-        readMonotonicClockMs(this.dependencies.clock),
+      const publicationWindowMs = Math.min(
         safeAddMilliseconds(
           reconciliationBudgetMs,
           FINAL_PUBLICATION_STATUS_RESERVE_MS
-        )
+        ),
+        this.executionDeadlineRemainingMs()
+      );
+      if (publicationWindowMs <= 0) {
+        throw new ReviewExecutionDeadlineReachedSignal();
+      }
+      const publicationDeadlineMs = safeAddMilliseconds(
+        readMonotonicClockMs(this.dependencies.clock),
+        publicationWindowMs
       );
       const publicationPollLimit = calculatePublicationPollLimit({
         hardLimit: this.maxPublicationPolls,
@@ -95708,6 +95745,16 @@ var RunT0ReviewOrchestration = class {
           "review_orchestration_restored_observation_unavailable"
         );
       }
+      if (!this.canStartInvocation(attemptOrdinal)) {
+        input.onEvent({
+          type: "slot_exhausted" /* SlotExhausted */,
+          workSlotId: input.workSlot.workSlotId
+        });
+        return {
+          streamVersion,
+          exhaustionReason: "deadline_reached" /* DeadlineReached */
+        };
+      }
       let investigationCandidate;
       try {
         investigationCandidate = await this.prepareInvestigationCandidate({
@@ -95719,6 +95766,16 @@ var RunT0ReviewOrchestration = class {
           revision: input.revision
         });
       } catch (error2) {
+        if (error2 instanceof ReviewExecutionDeadlineReachedSignal) {
+          input.onEvent({
+            type: "slot_exhausted" /* SlotExhausted */,
+            workSlotId: input.workSlot.workSlotId
+          });
+          return {
+            streamVersion,
+            exhaustionReason: "deadline_reached" /* DeadlineReached */
+          };
+        }
         if (!(error2 instanceof ReviewInvestigationDeferredSignal)) throw error2;
         this.recordInvestigationDiagnostic({
           outcome: "authoritative_deferred" /* AuthoritativeDeferred */,
@@ -95756,6 +95813,16 @@ var RunT0ReviewOrchestration = class {
           };
         }
       }
+      if (!this.canStartInvocation(attemptOrdinal)) {
+        input.onEvent({
+          type: "slot_exhausted" /* SlotExhausted */,
+          workSlotId: input.workSlot.workSlotId
+        });
+        return {
+          streamVersion,
+          exhaustionReason: "deadline_reached" /* DeadlineReached */
+        };
+      }
       const acquireRequestId = this.identity("acquire-request", [
         input.execution.executionId,
         input.workSlot.workSlotId,
@@ -95765,6 +95832,16 @@ var RunT0ReviewOrchestration = class {
       let lease = null;
       let localBusyPollCount = 0;
       while (lease === null) {
+        if (!this.canStartInvocation(attemptOrdinal)) {
+          input.onEvent({
+            type: "slot_exhausted" /* SlotExhausted */,
+            workSlotId: input.workSlot.workSlotId
+          });
+          return {
+            streamVersion,
+            exhaustionReason: "deadline_reached" /* DeadlineReached */
+          };
+        }
         const providerLaneBusyPollCount = input.busyPollsByProviderLane.get(
           input.workSlot.providerVoteIdentityHash
         ) ?? 0;
@@ -95779,9 +95856,20 @@ var RunT0ReviewOrchestration = class {
           };
         }
         if (localBusyPollCount > 0) {
-          await this.dependencies.delay.sleep(
+          const delayMs = this.clampProviderDelay(
             Math.min(5e3, 500 * 2 ** Math.min(localBusyPollCount - 1, 4))
           );
+          if (delayMs <= 0) {
+            input.onEvent({
+              type: "slot_exhausted" /* SlotExhausted */,
+              workSlotId: input.workSlot.workSlotId
+            });
+            return {
+              streamVersion,
+              exhaustionReason: "deadline_reached" /* DeadlineReached */
+            };
+          }
+          await this.dependencies.delay.sleep(delayMs);
           await this.assertRevisionCurrent(input.revision);
           const joined = await this.trySatisfyFromLookup({
             ...input,
@@ -95848,6 +95936,17 @@ var RunT0ReviewOrchestration = class {
         workSlotId: input.workSlot.workSlotId
       });
       await this.assertRevisionCurrent(input.revision);
+      if (!this.canStartInvocation(attemptOrdinal)) {
+        await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+        input.onEvent({
+          type: "slot_exhausted" /* SlotExhausted */,
+          workSlotId: input.workSlot.workSlotId
+        });
+        return {
+          streamVersion,
+          exhaustionReason: "deadline_reached" /* DeadlineReached */
+        };
+      }
       let observationPayload;
       try {
         observationPayload = await this.dependencies.leaseSupervisor.run({
@@ -95868,10 +95967,24 @@ var RunT0ReviewOrchestration = class {
         if (invocation.manifestFacts.executionProfile !== "context_gateway_v1") {
           await this.assertRevisionCurrent(input.revision);
         }
+        if (this.providerOperationRemainingMs() <= 0) {
+          throw new ReviewExecutionDeadlineReachedSignal();
+        }
       } catch (error2) {
         if (error2 instanceof ReviewExecutionSupersededSignal) {
           await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
           throw error2;
+        }
+        if (error2 instanceof ReviewExecutionDeadlineReachedSignal) {
+          await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+          input.onEvent({
+            type: "slot_exhausted" /* SlotExhausted */,
+            workSlotId: input.workSlot.workSlotId
+          });
+          return {
+            streamVersion,
+            exhaustionReason: "deadline_reached" /* DeadlineReached */
+          };
         }
         if (error2 instanceof RetryableReviewContextInspectionFailure && attemptOrdinal === input.workSlot.attemptBudget && invocation.manifestFacts.executionProfile !== "context_gateway_v1") {
           observationPayload = error2.currentRevisionObservation;
@@ -96125,10 +96238,19 @@ var RunT0ReviewOrchestration = class {
       input.signal.addEventListener("abort", relayLeaseAbort, { once: true });
     const drainOnSupersession = input.invocation.manifestFacts.executionProfile === "context_gateway_v1";
     const monitor = async () => {
-      if (drainOnSupersession) return;
       while (!stopped && !abort.signal.aborted) {
-        await this.dependencies.delay.sleep(this.revisionPollIntervalMs);
+        const delayMs = this.clampProviderDelay(this.revisionPollIntervalMs);
+        if (delayMs <= 0) {
+          abort.abort(new ReviewExecutionDeadlineReachedSignal());
+          return;
+        }
+        await this.dependencies.delay.sleep(delayMs);
         if (stopped || abort.signal.aborted) return;
+        if (this.providerOperationRemainingMs() <= 0) {
+          abort.abort(new ReviewExecutionDeadlineReachedSignal());
+          return;
+        }
+        if (drainOnSupersession) continue;
         try {
           await this.assertRevisionCurrent(input.revision);
         } catch (error2) {
@@ -96141,9 +96263,16 @@ var RunT0ReviewOrchestration = class {
     };
     void monitor();
     try {
-      return await this.executeLegacyInvocation(input, abort.signal);
+      const observation = await this.executeLegacyInvocation(
+        input,
+        abort.signal
+      );
+      if (abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
+        throw abort.signal.reason;
+      }
+      return observation;
     } catch (error2) {
-      if (abort.signal.reason instanceof ReviewExecutionSupersededSignal) {
+      if (abort.signal.reason instanceof ReviewExecutionSupersededSignal || abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
         throw abort.signal.reason;
       }
       throw error2;
@@ -96175,8 +96304,17 @@ var RunT0ReviewOrchestration = class {
       let stopped = false;
       const monitor = async () => {
         while (!stopped && !abort.signal.aborted) {
-          await this.dependencies.delay.sleep(this.revisionPollIntervalMs);
+          const delayMs = this.clampProviderDelay(this.revisionPollIntervalMs);
+          if (delayMs <= 0) {
+            abort.abort(new ReviewExecutionDeadlineReachedSignal());
+            return;
+          }
+          await this.dependencies.delay.sleep(delayMs);
           if (stopped || abort.signal.aborted) return;
+          if (this.providerOperationRemainingMs() <= 0) {
+            abort.abort(new ReviewExecutionDeadlineReachedSignal());
+            return;
+          }
           try {
             await this.assertRevisionCurrent(input.revision);
           } catch (error2) {
@@ -96199,9 +96337,12 @@ var RunT0ReviewOrchestration = class {
           sourceReviewRevisionHash: input.revision.reviewRevisionHash,
           signal: abort.signal
         });
+        if (abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
+          throw abort.signal.reason;
+        }
         return { invocation, manifest, observation };
       } catch (error2) {
-        if (abort.signal.reason instanceof ReviewExecutionSupersededSignal) {
+        if (abort.signal.reason instanceof ReviewExecutionSupersededSignal || abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
           throw abort.signal.reason;
         }
         throw error2;
@@ -96209,7 +96350,9 @@ var RunT0ReviewOrchestration = class {
         stopped = true;
       }
     } catch (error2) {
-      if (error2 instanceof ReviewExecutionSupersededSignal) throw error2;
+      if (error2 instanceof ReviewExecutionSupersededSignal || error2 instanceof ReviewExecutionDeadlineReachedSignal) {
+        throw error2;
+      }
       if (error2 instanceof ReviewInvestigationLegacyFallbackSignal || recording.mode === "record_only" /* RecordOnly */) {
         this.recordInvestigationDiagnostic({
           outcome: "legacy_fallback" /* LegacyFallback */,
@@ -96248,6 +96391,32 @@ var RunT0ReviewOrchestration = class {
       sourceReviewRevisionHash: input.revision.reviewRevisionHash,
       signal
     });
+  }
+  canStartBatch() {
+    return this.dependencies.executionDeadline?.canStartBatch() ?? true;
+  }
+  canStartInvocation(attemptOrdinal) {
+    const deadline = this.dependencies.executionDeadline;
+    if (!deadline) return true;
+    return attemptOrdinal === 1 ? deadline.canStartInitialInvocation() : deadline.canStartOptionalRetry();
+  }
+  executionDeadlineRemainingMs() {
+    return this.dependencies.executionDeadline?.remainingMs() ?? Infinity;
+  }
+  assertExecutionDeadlineAvailable() {
+    if (this.executionDeadlineRemainingMs() <= 0) {
+      throw new ReviewExecutionDeadlineReachedSignal();
+    }
+  }
+  providerOperationRemainingMs() {
+    return this.dependencies.executionDeadline?.clampProviderTimeout(
+      Number.MAX_SAFE_INTEGER
+    ) ?? Infinity;
+  }
+  clampProviderDelay(requestedDelayMs) {
+    return Math.floor(
+      Math.min(requestedDelayMs, this.providerOperationRemainingMs())
+    );
   }
   async releaseLease(lease, ownerIdHash, attemptOrdinal) {
     const releaseRequestId = this.identity("lease-release-request", [
@@ -96331,6 +96500,9 @@ function derivePartialFailureCode(input) {
     }
     if (reason === "investigation_deferred" /* InvestigationDeferred */) {
       return "required_investigation_deferred";
+    }
+    if (reason === "deadline_reached" /* DeadlineReached */) {
+      return "required_execution_deadline_reached";
     }
     return "required_work_exhausted";
   }
@@ -96550,6 +96722,11 @@ var ReviewExecutionSupersededSignal = class extends Error {
   constructor(currentRevisionHash) {
     super("review_orchestration_superseded");
     this.currentRevisionHash = currentRevisionHash;
+  }
+};
+var ReviewExecutionDeadlineReachedSignal = class extends Error {
+  constructor() {
+    super("review_orchestration_execution_deadline_reached");
   }
 };
 var ReviewProviderUnavailableSignal = class extends Error {
@@ -104350,7 +104527,8 @@ var ReviewActionV2ControlPlaneAdapter = class {
           transcriptHash: input.transcriptHash,
           replayMaterialCanonicalJson: input.replayMaterialCanonicalJson,
           replayMaterialHash: input.replayMaterialHash
-        }
+        },
+        { maxAttempts: 5, retryBaseDelayMs: 1e3 }
       );
     } catch (error2) {
       throw controlPlaneFailure(error2);
@@ -104974,6 +105152,10 @@ var SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES = /* @__PURE__ */ new Set([
   "safety_denied",
   "safety_decision_mismatch"
 ]);
+var SAFE_CONTEXT_GATEWAY_V4_DIAGNOSTIC_ISSUE = /^context_gateway_v4_[a-z_]{1,80}$/u;
+function isSafeControlPlaneDiagnosticIssue(value) {
+  return SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES.has(value) || SAFE_CONTEXT_GATEWAY_V4_DIAGNOSTIC_ISSUE.test(value);
+}
 var SAFE_PUBLICATION_REQUEST_STALE_ISSUES = /* @__PURE__ */ new Set([
   "lifecycle_not_current",
   "lifecycle_status_not_current",
@@ -105048,9 +105230,7 @@ function controlPlaneFailure(error2) {
   }
   const category = error2.protocolErrorCode ?? error2.code;
   const base = `review_action_v2:${error2.operationId}:${category}`;
-  const issue = error2.issues?.find(
-    (value) => SAFE_CONTROL_PLANE_DIAGNOSTIC_ISSUES.has(value)
-  );
+  const issue = error2.issues?.find(isSafeControlPlaneDiagnosticIssue);
   const diagnostic = issue ? `${base}:${issue}` : base;
   return new Error(diagnostic.length <= 120 ? diagnostic : base, {
     cause: error2
@@ -110428,7 +110608,8 @@ var ReviewActionV2InvestigationContextAttestationAdapter = class {
         transcriptHash: input.transcriptHash,
         replayMaterialCanonicalJson: input.replayMaterialCanonicalJson,
         replayMaterialHash: input.replayMaterialHash
-      }
+      },
+      { maxAttempts: 5, retryBaseDelayMs: 1e3 }
     );
     if (result2.status === "denied" /* Denied */ || result2.status === "conflict" /* Conflict */) {
       return null;
@@ -110455,15 +110636,12 @@ var ReviewActionV2InvestigationContextAttestationAdapter = class {
       {
         authorizationToken: this.authorizationToken,
         leaseCapability: input.invocationLease.leaseCapability,
-        idempotencyKey: deterministicId3(
-          "investigation-gateway-failed-seal",
-          [
-            input.session.sessionId,
-            input.invocationLease.attemptId,
-            input.invocationLease.leaseId,
-            input.invocationLease.fencingToken
-          ]
-        ),
+        idempotencyKey: deterministicId3("investigation-gateway-failed-seal", [
+          input.session.sessionId,
+          input.invocationLease.attemptId,
+          input.invocationLease.leaseId,
+          input.invocationLease.fencingToken
+        ]),
         ...createFailedContextGatewaySealPayload(input)
       }
     );
@@ -110520,8 +110698,15 @@ var ProductionT0ReviewRunner = class {
   }
   async runInWorkspace(input) {
     validateInput(input);
+    const authoritativeDeadlineEpochMs = process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY];
     await applyReviewRuntimeConfig(input, this.fetchImpl);
+    if (authoritativeDeadlineEpochMs === void 0) {
+      delete process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY];
+    } else {
+      process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY] = authoritativeDeadlineEpochMs;
+    }
     const config = ConfigLoader.load();
+    const executionDeadline = createExecutionDeadlineFromEnvironment();
     const reviewActionClient = new ReviewActionV2Client({
       apiUrl: input.apiUrl,
       fetchImpl: this.fetchImpl
@@ -110782,7 +110967,8 @@ var ProductionT0ReviewRunner = class {
       } : {},
       identities,
       clock: new SystemReviewOrchestrationClock(),
-      delay: new SystemReviewOrchestrationDelay()
+      delay: new SystemReviewOrchestrationDelay(),
+      executionDeadline
     });
     const result2 = await useCase.executeAuthorized(
       {
@@ -110976,6 +111162,8 @@ function mapPartialFailureReason(failureCode2) {
       return "required_work_exhausted" /* RequiredWorkExhausted */;
     case "required_investigation_deferred":
       return "required_investigation_deferred" /* RequiredInvestigationDeferred */;
+    case "required_execution_deadline_reached":
+      return "required_work_exhausted" /* RequiredWorkExhausted */;
     default:
       return "unknown" /* Unknown */;
   }
