@@ -1564,15 +1564,15 @@ var require_dist_node9 = __commonJS({
         octokit.log.debug("request", options);
         const start = Date.now();
         const requestOptions = octokit.request.endpoint.parse(options);
-        const path28 = requestOptions.url.replace(options.baseUrl, "");
+        const path29 = requestOptions.url.replace(options.baseUrl, "");
         return request(options).then((response) => {
           octokit.log.info(
-            `${requestOptions.method} ${path28} - ${response.status} in ${Date.now() - start}ms`
+            `${requestOptions.method} ${path29} - ${response.status} in ${Date.now() - start}ms`
           );
           return response;
         }).catch((error2) => {
           octokit.log.info(
-            `${requestOptions.method} ${path28} - ${error2.status} in ${Date.now() - start}ms`
+            `${requestOptions.method} ${path29} - ${error2.status} in ${Date.now() - start}ms`
           );
           throw error2;
         });
@@ -7447,8 +7447,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path28) {
-      let input = path28;
+    function removeDotSegments(path29) {
+      let input = path29;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -7700,8 +7700,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path28, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path28 && path28 !== "/" ? path28 : void 0;
+        const [path29, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path29 && path29 !== "/" ? path29 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -15786,8 +15786,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path28, errorMaps, issueData } = params;
-  const fullPath = [...path28, ...issueData.path || []];
+  const { data, path: path29, errorMaps, issueData } = params;
+  const fullPath = [...path29, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -15903,11 +15903,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path28, key) {
+  constructor(parent, value, path29, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path28;
+    this._path = path29;
     this._key = key;
   }
   get path() {
@@ -21168,12 +21168,12 @@ function formatSummaryOnlyChunk(chunk, file) {
 function shellQuote(value) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
-function unquoteGitPath(path28) {
-  if (path28.startsWith('"') && path28.endsWith('"')) {
-    path28 = path28.slice(1, -1);
+function unquoteGitPath(path29) {
+  if (path29.startsWith('"') && path29.endsWith('"')) {
+    path29 = path29.slice(1, -1);
   }
   try {
-    path28 = path28.replace(/\\([\\"tnr])/g, (_m, ch) => {
+    path29 = path29.replace(/\\([\\"tnr])/g, (_m, ch) => {
       switch (ch) {
         case "\\":
           return "\\";
@@ -21191,7 +21191,7 @@ function unquoteGitPath(path28) {
     });
   } catch {
   }
-  return path28;
+  return path29;
 }
 
 // src/utils/token-estimation.ts
@@ -25882,8 +25882,8 @@ var HIGH_RISK_PATH_TOKENS = /* @__PURE__ */ new Set([
   "workflow",
   "workflows"
 ]);
-function changedPathSemanticRiskPriority(path28) {
-  const normalized = path28.trim().replaceAll("\\", "/").replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+function changedPathSemanticRiskPriority(path29) {
+  const normalized = path29.trim().replaceAll("\\", "/").replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
   if (normalized.length === 0) {
     throw new Error("review_investigation_changed_path_missing");
   }
@@ -26306,7 +26306,7 @@ function parseCanonicalCompleteFileRequirement(value) {
   if (requirement.kind !== COMPLETE_FILE_REQUIREMENT_KIND || requirement.requirementVersion !== COMPLETE_FILE_REQUIREMENT_VERSION) {
     throw new Error("review_agent_obligation_requirement_unsupported");
   }
-  const path28 = requireString(
+  const path29 = requireString(
     requirement.path,
     "obligation_requirement_path",
     MAX_PROPOSAL_PATH_LENGTH
@@ -26315,7 +26315,7 @@ function parseCanonicalCompleteFileRequirement(value) {
     requirement.pathHash,
     "obligation_requirement_path_hash"
   );
-  if (pathHash !== sha2562(path28)) {
+  if (pathHash !== sha2562(path29)) {
     throw new Error("review_agent_obligation_requirement_path_hash_mismatch");
   }
   const revision = requireEnum(
@@ -26326,7 +26326,7 @@ function parseCanonicalCompleteFileRequirement(value) {
   const normalized = Object.freeze({
     requirementVersion: COMPLETE_FILE_REQUIREMENT_VERSION,
     kind: COMPLETE_FILE_REQUIREMENT_KIND,
-    path: path28,
+    path: path29,
     pathHash,
     revision
   });
@@ -26664,13 +26664,13 @@ function reviewInvestigationSearchOperationInputHash(query) {
     })
   );
 }
-function reviewInvestigationBasenameFallbackQuery(path28) {
-  assertPath(path28, "review_investigation_probe_path_invalid");
-  const basename3 = basenameWithoutExtension(path28);
+function reviewInvestigationBasenameFallbackQuery(path29) {
+  assertPath(path29, "review_investigation_probe_path_invalid");
+  const basename3 = basenameWithoutExtension(path29);
   return isSpecificProbeQuery(
     "basename_fallback" /* BasenameFallback */,
     basename3
-  ) ? basename3 : path28;
+  ) ? basename3 : path29;
 }
 function createProbe(candidate) {
   const obligationKind = obligationKindFor(candidate);
@@ -26778,7 +26778,7 @@ function extractImportExportRelations(line, add) {
     }
   }
 }
-function extractStructuredRelations(path28, line, add) {
+function extractStructuredRelations(path29, line, add) {
   const keyPatterns = [
     /(?:^|[{,])\s*["']?([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*:/gu,
     /^\s*-?\s*["']?([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*=/gu,
@@ -26791,7 +26791,7 @@ function extractStructuredRelations(path28, line, add) {
       add("structured_key" /* StructuredKey */, match2[1]);
     }
   }
-  if (STRUCTURED_PATH_PATTERN.test(path28)) {
+  if (STRUCTURED_PATH_PATTERN.test(path29)) {
     for (const literal of quotedLiterals(line)) {
       if (isContractLiteral(literal)) {
         add("structured_key" /* StructuredKey */, literal);
@@ -26882,24 +26882,24 @@ function splitDiffByDestinationPath(diff) {
   for (let index = 0; index < matches.length; index += 1) {
     const match2 = matches[index];
     if (match2.index === void 0) continue;
-    const path28 = unquoteGitPath2(match2[2].trim());
+    const path29 = unquoteGitPath2(match2[2].trim());
     const end = matches[index + 1]?.index ?? diff.length;
-    if (path28.length === 0 || chunks.has(path28)) continue;
-    chunks.set(path28, diff.slice(match2.index, end));
+    if (path29.length === 0 || chunks.has(path29)) continue;
+    chunks.set(path29, diff.slice(match2.index, end));
   }
   return chunks;
 }
 function unquoteGitPath2(value) {
-  const path28 = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
-  return path28.replace(/\\([\\"tnr])/gu, (_match, char) => {
+  const path29 = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+  return path29.replace(/\\([\\"tnr])/gu, (_match, char) => {
     if (char === "t") return "	";
     if (char === "n") return "\n";
     if (char === "r") return "\r";
     return char;
   });
 }
-function basenameWithoutExtension(path28) {
-  const fileName = path28.split("/").at(-1) ?? path28;
+function basenameWithoutExtension(path29) {
+  const fileName = path29.split("/").at(-1) ?? path29;
   const extension = fileName.lastIndexOf(".");
   return extension > 0 ? fileName.slice(0, extension) : fileName;
 }
@@ -27467,16 +27467,16 @@ function splitDiffByDestinationPath2(diff) {
   for (let index = 0; index < matches.length; index += 1) {
     const match2 = matches[index];
     if (match2.index === void 0) continue;
-    const path28 = unquoteGitPath3(match2[2].trim());
+    const path29 = unquoteGitPath3(match2[2].trim());
     const end = matches[index + 1]?.index ?? diff.length;
-    if (!path28 || chunks.has(path28)) continue;
-    chunks.set(path28, diff.slice(match2.index, end).replace(/\n+$/, ""));
+    if (!path29 || chunks.has(path29)) continue;
+    chunks.set(path29, diff.slice(match2.index, end).replace(/\n+$/, ""));
   }
   return chunks;
 }
 function unquoteGitPath3(value) {
-  const path28 = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
-  return path28.replace(/\\([\\"tnr])/g, (_match, char) => {
+  const path29 = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+  return path29.replace(/\\([\\"tnr])/g, (_match, char) => {
     if (char === "t") return "	";
     if (char === "n") return "\n";
     if (char === "r") return "\r";
@@ -31358,12 +31358,12 @@ function collectMarkerMatches(body, pattern) {
 var INLINE_MARKER_RE = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/i;
 var INLINE_MARKER_RE_GLOBAL = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
 var MAX_NEARBY_LINE_DISTANCE = 12;
-function signatureFromInlineComment(path28, line, body) {
+function signatureFromInlineComment(path29, line, body) {
   const cleanBody = stripInlineFingerprintMarkers(body);
   const severity = extractSeverity(cleanBody);
   if (severity) {
     return [
-      (path28 || "unknown").toLowerCase(),
+      (path29 || "unknown").toLowerCase(),
       String(line ?? 0),
       severity
     ].join(":");
@@ -31371,13 +31371,13 @@ function signatureFromInlineComment(path28, line, body) {
   const titleMatch = cleanBody.match(/\*\*(.+?)\*\*/);
   const title = titleMatch ? titleMatch[1] : cleanBody.split("\n")[0] || "unknown";
   return [
-    (path28 || "unknown").toLowerCase(),
+    (path29 || "unknown").toLowerCase(),
     String(line ?? 0),
     normalizeForSignature(title)
   ].join(":");
 }
-function fingerprintFromInlineComment(path28, line, body) {
-  return (0, import_crypto6.createHash)("sha256").update(signatureFromInlineComment(path28, line, body)).digest("hex").slice(0, 16);
+function fingerprintFromInlineComment(path29, line, body) {
+  return (0, import_crypto6.createHash)("sha256").update(signatureFromInlineComment(path29, line, body)).digest("hex").slice(0, 16);
 }
 function inlineFingerprintMarker(fingerprint) {
   return `<!-- review-router-inline:${fingerprint} -->`;
@@ -31393,19 +31393,19 @@ function extractFindingFingerprint(body) {
   const parsed = parseFindingMarker(body);
   return parsed.kind === "valid" /* Valid */ ? parsed.fingerprint : null;
 }
-function appendInlineFingerprintMarker(body, path28, line) {
+function appendInlineFingerprintMarker(body, path29, line) {
   const sanitizedBody = stripReservedFindingMarkerSyntax(body);
   const parts = [sanitizedBody.trimEnd()];
   if (!extractInlineFingerprint(sanitizedBody)) {
     parts.push(
       inlineFingerprintMarker(
-        fingerprintFromInlineComment(path28, line, sanitizedBody)
+        fingerprintFromInlineComment(path29, line, sanitizedBody)
       )
     );
   }
   parts.push(
     findingFingerprintMarker(
-      findingFingerprintFromInlineComment(path28, line, sanitizedBody)
+      findingFingerprintFromInlineComment(path29, line, sanitizedBody)
     )
   );
   return parts.join("\n\n");
@@ -31429,12 +31429,12 @@ function findingFingerprintFromFinding(finding) {
     message: finding.message
   });
 }
-function findingFingerprintFromInlineComment(path28, _line, body) {
+function findingFingerprintFromInlineComment(path29, _line, body) {
   const marker = extractFindingFingerprint(body);
   if (marker) return marker;
   const cleanBody = stripInlineFingerprintMarkers(body);
   return stableFindingFingerprint({
-    path: path28,
+    path: path29,
     severity: extractSeverity(cleanBody) || "unknown",
     title: extractNormalizedTitle(cleanBody),
     message: extractCoreMessage(cleanBody)
@@ -32063,10 +32063,10 @@ ${content.substring(0, 500)}...`
     }
     return { keys, comments: activeComments };
   }
-  hasInlineDuplicate(activeComments, path28, line, body) {
+  hasInlineDuplicate(activeComments, path29, line, body) {
     const marker = extractInlineFingerprint(body);
-    return activeComments.keys.has(signatureFromInlineComment(path28, line, body)) || activeComments.keys.has(fingerprintFromInlineComment(path28, line, body)) || (marker ? activeComments.keys.has(marker) : false) || activeComments.comments.some(
-      (comment) => isLikelySameInlineFinding(comment, { path: path28, line, body })
+    return activeComments.keys.has(signatureFromInlineComment(path29, line, body)) || activeComments.keys.has(fingerprintFromInlineComment(path29, line, body)) || (marker ? activeComments.keys.has(marker) : false) || activeComments.comments.some(
+      (comment) => isLikelySameInlineFinding(comment, { path: path29, line, body })
     );
   }
   /**
@@ -35086,11 +35086,11 @@ function hasValidTrustedResolutionMarker(target) {
     marker && marker.trust === "trusted" /* Trusted */ && marker.schemaVersion === "reviewrouter-lifecycle-resolution.v1" && marker.targetId === target.targetId && marker.fingerprint === target.trustedMarker
   );
 }
-function summaryPlacement(lineageId, path28, reason) {
+function summaryPlacement(lineageId, path29, reason) {
   return {
     lineageId,
     kind: "summary" /* Summary */,
-    path: path28,
+    path: path29,
     reason
   };
 }
@@ -35113,8 +35113,8 @@ function sortOccurrences(occurrences) {
     (left, right) => stateOrder[left.state] - stateOrder[right.state] || severityOrder[left.severity] - severityOrder[right.severity] || left.filePath.localeCompare(right.filePath) || (left.line ?? 0) - (right.line ?? 0) || left.lineageId.localeCompare(right.lineageId)
   );
 }
-function normalizePath(path28) {
-  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+function normalizePath(path29) {
+  return path29.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 }
 function sortedUnique(values) {
   return Array.from(new Set(values)).sort(
@@ -35432,8 +35432,8 @@ var FeedbackFilter = class {
       (existing) => isLikelySameDismissedFinding(existing, comment)
     );
   }
-  signatureFromComment(path28, line, body) {
-    return signatureFromInlineComment(path28, line, body);
+  signatureFromComment(path29, line, body) {
+    return signatureFromInlineComment(path29, line, body);
   }
 };
 function skippedFindingBody(skip) {
@@ -35553,9 +35553,9 @@ var TOKEN_STOPWORDS = /* @__PURE__ */ new Set([
   "when",
   "with"
 ]);
-function locationKey(path28, line) {
-  if (!path28 || line == null) return null;
-  return `${path28.toLowerCase()}:${line}`;
+function locationKey(path29, line) {
+  if (!path29 || line == null) return null;
+  return `${path29.toLowerCase()}:${line}`;
 }
 
 // src/github/ledger.ts
@@ -36233,8 +36233,8 @@ var CodeGraph = class _CodeGraph {
   /**
    * Normalize a file path for comparison (strips extensions, converts to posix)
    */
-  normalizePathForComparison(path28) {
-    let normalized = path28.replace(/\\/g, "/");
+  normalizePathForComparison(path29) {
+    let normalized = path29.replace(/\\/g, "/");
     normalized = normalized.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
     return normalized;
   }
@@ -39923,8 +39923,8 @@ async function readSafeErrorCode(response) {
   }
   return void 0;
 }
-function joinApiPath(apiUrl, path28) {
-  return `${apiUrl.replace(/\/+$/, "")}${path28}`;
+function joinApiPath(apiUrl, path29) {
+  return `${apiUrl.replace(/\/+$/, "")}${path29}`;
 }
 function safeReason(message) {
   return message.replace(/[^a-zA-Z0-9:_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 120);
@@ -40002,13 +40002,13 @@ var ControlPlaneMemoryClient = class {
     }
     return results.map(parseMutationResponse);
   }
-  async postJson(path28, body) {
+  async postJson(path29, body) {
     if (!this.isAvailable()) {
       throw new Error("memory_runtime_unavailable");
     }
     const runtimeConfig = this.runtimeConfig;
     const response = await this.fetchImpl(
-      joinApiPath2(runtimeConfig.apiUrl, path28),
+      joinApiPath2(runtimeConfig.apiUrl, path29),
       {
         method: "POST",
         headers: {
@@ -40130,14 +40130,14 @@ function endpointPath(value, fallback2) {
   const normalized = value?.trim();
   return normalized || fallback2;
 }
-function joinApiPath2(apiUrl, path28) {
-  return new URL(path28, ensureTrailingSlash(apiUrl)).toString();
+function joinApiPath2(apiUrl, path29) {
+  return new URL(path29, ensureTrailingSlash(apiUrl)).toString();
 }
 function ensureTrailingSlash(value) {
   return value.endsWith("/") ? value : `${value}/`;
 }
-function compactPathHint(path28) {
-  return path28.split("/").filter(Boolean).slice(-3).join("/");
+function compactPathHint(path29) {
+  return path29.split("/").filter(Boolean).slice(-3).join("/");
 }
 function compactWhitespace(value) {
   return value.replace(/\s+/g, " ").trim();
@@ -40387,10 +40387,10 @@ function normalizeFilePaths(record) {
   const seen = /* @__PURE__ */ new Set();
   for (const value of values) {
     if (typeof value !== "string") continue;
-    const path28 = normalizeText2(value, 4096);
-    if (!path28 || seen.has(path28)) continue;
-    seen.add(path28);
-    paths.push(path28);
+    const path29 = normalizeText2(value, 4096);
+    if (!path29 || seen.has(path29)) continue;
+    seen.add(path29);
+    paths.push(path29);
     if (paths.length > MAX_FILE_PATHS) {
       throw new Error("review_checkpoint_filePaths_limit_exceeded");
     }
@@ -41154,7 +41154,7 @@ var HttpReviewCheckpointClient = class _HttpReviewCheckpointClient {
       ...body
     };
   }
-  async post(path28, body, schema2) {
+  async post(path29, body, schema2) {
     const serialized = JSON.stringify(body);
     if (Buffer.byteLength(serialized, "utf8") > REVIEW_CHECKPOINT_MAX_REQUEST_BYTES) {
       throw new ReviewCheckpointHttpError(
@@ -41178,7 +41178,7 @@ var HttpReviewCheckpointClient = class _HttpReviewCheckpointClient {
       let response;
       try {
         response = await Promise.race([
-          this.fetchImpl(`${this.apiUrl}${CHECKPOINT_PATH}${path28}`, {
+          this.fetchImpl(`${this.apiUrl}${CHECKPOINT_PATH}${path29}`, {
             method: "POST",
             redirect: "error",
             headers: {
@@ -41295,12 +41295,12 @@ function isAllowedCheckpointApiUrl(input) {
   }
 }
 var FileReviewCheckpointFinalizationMarkerWriter = class _FileReviewCheckpointFinalizationMarkerWriter {
-  constructor(path28) {
-    this.path = path28;
+  constructor(path29) {
+    this.path = path29;
   }
   static fromEnvironment(env = process.env) {
-    const path28 = env[REVIEW_CHECKPOINT_FINALIZATION_PATH_ENV]?.trim();
-    return path28 ? new _FileReviewCheckpointFinalizationMarkerWriter(path28) : null;
+    const path29 = env[REVIEW_CHECKPOINT_FINALIZATION_PATH_ENV]?.trim();
+    return path29 ? new _FileReviewCheckpointFinalizationMarkerWriter(path29) : null;
   }
   static parse(input) {
     return parseReviewCheckpointFinalizationMarker(input);
@@ -44772,11 +44772,11 @@ function extractDiffDestinationPaths(diff) {
   }
   return paths;
 }
-function unquoteGitPath4(path28) {
-  if (path28.startsWith('"') && path28.endsWith('"')) {
-    path28 = path28.slice(1, -1);
+function unquoteGitPath4(path29) {
+  if (path29.startsWith('"') && path29.endsWith('"')) {
+    path29 = path29.slice(1, -1);
   }
-  return path28.replace(/\\([\\"tnr])/g, (_match, char) => {
+  return path29.replace(/\\([\\"tnr])/g, (_match, char) => {
     switch (char) {
       case "\\":
         return "\\";
@@ -47571,17 +47571,17 @@ var ReviewOrchestrator = class {
     if (reviewCommentState.commandDismissed?.has(target.fingerprint)) {
       return true;
     }
-    const path28 = target.currentPath || target.originalPath;
+    const path29 = target.currentPath || target.originalPath;
     const line = target.currentLine ?? target.originalLine;
-    if (path28 && line != null && reviewCommentState.commandDismissedLocations?.has(
-      `${path28.toLowerCase()}:${line}`
+    if (path29 && line != null && reviewCommentState.commandDismissedLocations?.has(
+      `${path29.toLowerCase()}:${line}`
     )) {
       return true;
     }
     const severity = target.severity === "critical" || target.severity === "major" || target.severity === "minor" ? target.severity : "minor";
     return this.components.feedbackFilter.isInlineCommandDismissed(
       {
-        path: path28,
+        path: path29,
         line: line ?? 0,
         side: "RIGHT",
         body: target.message,
@@ -49554,14 +49554,14 @@ ${this.ledger.statusText(loaded.payload, headSha)}` : `ReviewRouter override led
     }
   }
   matchesReviewWorkflowRun(candidate, workflowFile, prNumber, headSha) {
-    const path28 = String(candidate.path || "");
+    const path29 = String(candidate.path || "");
     const knownWorkflowFiles = [
       workflowFile,
       "reviewrouter.yml",
       "ai-robot-review.yml"
     ];
     const matchesWorkflow = knownWorkflowFiles.some(
-      (file) => path28.endsWith(`/${file}`) || path28 === file
+      (file) => path29.endsWith(`/${file}`) || path29 === file
     );
     const matchesSha = candidate.head_sha === headSha;
     const matchesPr = (candidate.pull_requests || []).some(
@@ -50530,8 +50530,8 @@ async function readSafeErrorCode2(response) {
   }
   return void 0;
 }
-function joinApiPath3(apiUrl, path28) {
-  return new URL(path28, ensureTrailingSlash3(apiUrl)).toString();
+function joinApiPath3(apiUrl, path29) {
+  return new URL(path29, ensureTrailingSlash3(apiUrl)).toString();
 }
 function ensureTrailingSlash3(value) {
   return value.endsWith("/") ? value : `${value}/`;
@@ -50621,8 +50621,8 @@ function fallback(input, reason) {
   );
   return { status: "fallback", token: input.fallbackToken, reason };
 }
-function joinApiPath4(apiUrl, path28) {
-  return `${apiUrl.replace(/\/+$/, "")}${path28}`;
+function joinApiPath4(apiUrl, path29) {
+  return `${apiUrl.replace(/\/+$/, "")}${path29}`;
 }
 async function readSafeErrorCode3(response) {
   try {
@@ -50926,8 +50926,8 @@ function safeErrorSummaryForCategory(category) {
       return void 0;
   }
 }
-function joinApiPath5(apiUrl, path28) {
-  return new URL(path28, ensureTrailingSlash4(apiUrl)).toString();
+function joinApiPath5(apiUrl, path29) {
+  return new URL(path29, ensureTrailingSlash4(apiUrl)).toString();
 }
 function ensureTrailingSlash4(value) {
   return value.endsWith("/") ? value : `${value}/`;
@@ -51084,7 +51084,7 @@ function pluralize(word, count) {
 
 // src/codex-oauth/action.ts
 var fs20 = __toESM(require("fs"));
-var path27 = __toESM(require("path"));
+var path28 = __toESM(require("path"));
 
 // src/codex-oauth/control-plane.ts
 var CodexOAuthControlPlaneClient = class {
@@ -51159,8 +51159,8 @@ var CodexOAuthControlPlaneClient = class {
       isActionCommentTokenResponse
     );
   }
-  async postJson(path28, body, guard) {
-    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path28), {
+  async postJson(path29, body, guard) {
+    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path29), {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -51180,8 +51180,8 @@ var CodexOAuthControlPlaneClient = class {
     }
     return payload;
   }
-  async postJsonWithAuthorization(path28, bearerToken, body, guard) {
-    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path28), {
+  async postJsonWithAuthorization(path29, bearerToken, body, guard) {
+    const response = await this.fetchImpl(resolveApiPath(this.apiUrl, path29), {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -51274,11 +51274,11 @@ function parseTrustedApiUrl(apiUrl) {
   }
   throw new Error("codex_oauth_api_url_invalid");
 }
-function resolveApiPath(apiUrl, path28) {
-  if (!path28.startsWith("/") || path28.startsWith("//") || path28.includes("\\") || path28.includes("?") || path28.includes("#") || path28.includes("..") || /%2e|%2f|%5c/i.test(path28)) {
+function resolveApiPath(apiUrl, path29) {
+  if (!path29.startsWith("/") || path29.startsWith("//") || path29.includes("\\") || path29.includes("?") || path29.includes("#") || path29.includes("..") || /%2e|%2f|%5c/i.test(path29)) {
     throw new Error("codex_oauth_api_path_invalid");
   }
-  const resolved = new URL(path28, apiUrl);
+  const resolved = new URL(path29, apiUrl);
   if (resolved.origin !== apiUrl.origin) {
     throw new Error("codex_oauth_api_path_invalid");
   }
@@ -61741,7 +61741,7 @@ function isRecord3(value) {
 // src/review-orchestration/infrastructure/production-t0-review-runner.ts
 var import_crypto41 = require("crypto");
 var import_child_process19 = require("child_process");
-var path26 = __toESM(require("path"));
+var path27 = __toESM(require("path"));
 var import_util13 = require("util");
 
 // src/control-plane/review-action-v2-client.ts
@@ -94180,10 +94180,10 @@ function createReviewPromptCoverageManifest(input) {
     }
     byPath.set(fact.path, fact);
   }
-  if (byPath.size !== assigned.length || assigned.some((path28) => !byPath.has(path28))) {
+  if (byPath.size !== assigned.length || assigned.some((path29) => !byPath.has(path29))) {
     throw new Error("review_prompt_coverage_path_set_mismatch");
   }
-  const paths = Object.freeze(assigned.map((path28) => byPath.get(path28)));
+  const paths = Object.freeze(assigned.map((path29) => byPath.get(path29)));
   const canonicalFacts = canonicalJson6({
     paths,
     reviewRevisionHash: input.reviewRevisionHash,
@@ -94200,7 +94200,7 @@ function createReviewPromptCoverageManifest(input) {
 }
 function isReviewPromptCoverageComplete(manifest) {
   return manifest.paths.length > 0 && manifest.paths.every(
-    (path28) => path28.kind === "full_patch" /* FullPatch */ || path28.kind === "policy_excluded" /* PolicyExcluded */
+    (path29) => path29.kind === "full_patch" /* FullPatch */ || path29.kind === "policy_excluded" /* PolicyExcluded */
   );
 }
 function createProviderVisibleReviewCoverage(manifest) {
@@ -97031,7 +97031,7 @@ function buildReviewInvestigationSeedEnvelope(input) {
   if (changedPathFacts.size !== input.probePlan.changedPaths.length) {
     throw new Error("review_investigation_seed_changed_path_duplicate");
   }
-  if (changedPathFacts.size !== paths.length || paths.some((path28) => !changedPathFacts.has(path28))) {
+  if (changedPathFacts.size !== paths.length || paths.some((path29) => !changedPathFacts.has(path29))) {
     throw new Error("review_investigation_seed_path_set_mismatch");
   }
   const inventory = prepareCanonicalInventory(input.canonicalInventory);
@@ -98218,9 +98218,9 @@ function compareCodeUnits4(left, right) {
 // src/review-orchestration/infrastructure/context-gateway-invocation-session.ts
 var import_child_process13 = require("child_process");
 var import_crypto30 = require("crypto");
-var import_promises2 = require("fs/promises");
+var import_promises3 = require("fs/promises");
 var os9 = __toESM(require("os"));
-var path20 = __toESM(require("path"));
+var path21 = __toESM(require("path"));
 var import_util8 = require("util");
 
 // src/context-gateway/canonical-git-inventory.ts
@@ -98318,18 +98318,18 @@ function parseRawInventory(raw) {
       tokens[index],
       "canonical_inventory_raw_record_encoding_invalid"
     );
-    const path28 = decodeUtf8(
+    const path29 = decodeUtf8(
       tokens[index + 1],
       "canonical_inventory_path_encoding_invalid"
     );
     const match2 = RAW_RECORD.exec(record);
-    if (!match2 || !path28 || path28.includes("\0")) {
+    if (!match2 || !path29 || path29.includes("\0")) {
       throw new Error("canonical_inventory_raw_record_invalid");
     }
     entries.push(
       Object.freeze({
         status: rawStatus(match2[5]),
-        path: path28,
+        path: path29,
         beforeMode: match2[1],
         afterMode: match2[2],
         beforeOid: requireGitOidOrZero2(match2[3]),
@@ -98578,10 +98578,116 @@ function gitOptions(root, encoding) {
 
 // src/context-gateway/context-gateway-v4-replay-material.ts
 var import_crypto28 = require("crypto");
+var import_promises = require("fs/promises");
+var import_path3 = __toESM(require("path"));
+var MAX_ENTRIES = 2e3;
 var MAX_STATE_BYTES = 2 * 1024 * 1024;
 var MAX_ENCRYPTED_STATE_BYTES = Math.ceil(MAX_STATE_BYTES * 4 / 3) + 4096;
 var REPLAY_ENCRYPTION_VERSION = 1;
 var REPLAY_ENCRYPTION_ALGORITHM = "aes-256-gcm";
+var ContextGatewayV4ReplayMaterialRecorder = class {
+  constructor(config) {
+    this.config = config;
+    assertReplaySecret(config.secret);
+  }
+  entries = [];
+  mutationTail = Promise.resolve();
+  async initialize() {
+    await (0, import_promises.mkdir)(import_path3.default.dirname(this.config.replayMaterialPath), {
+      recursive: true,
+      mode: 448
+    });
+    try {
+      await (0, import_promises.writeFile)(this.config.replayMaterialPath, "", {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 384
+      });
+    } catch {
+      throw new Error("context_gateway_v4_replay_already_initialized");
+    }
+    await this.flush();
+  }
+  async resume() {
+    if (this.entries.length > 0) {
+      throw new Error("context_gateway_v4_replay_already_active");
+    }
+    const encrypted = await (0, import_promises.readFile)(this.config.replayMaterialPath, "utf8");
+    const raw = decryptContextGatewayV4ReplayMaterial({
+      encryptedCanonicalJson: encrypted,
+      secret: this.config.secret,
+      sessionId: this.config.sessionId
+    });
+    const parsed = JSON.parse(raw);
+    if (canonicalJson(parsed) !== raw || parsed.replayMaterialVersion !== 2 || parsed.sessionId !== this.config.sessionId || !Array.isArray(parsed.entries) || parsed.entries.length > MAX_ENTRIES) {
+      throw new Error("context_gateway_v4_replay_identity_invalid");
+    }
+    let previousSequence = 0;
+    for (const candidate of parsed.entries) {
+      const entry = normalizeEntry(candidate, previousSequence);
+      this.entries.push(entry);
+      previousSequence = entry.sequence;
+    }
+  }
+  recordSucceeded(input) {
+    const operationReceiptId = input.event.operationReceiptId;
+    if (!operationReceiptId) {
+      throw new Error("context_gateway_v4_replay_receipt_missing");
+    }
+    return this.serializeMutation(async () => {
+      const existing = this.entries.find(
+        (entry2) => entry2.operationReceiptId === operationReceiptId
+      );
+      if (existing) {
+        if (existing.sequence !== input.event.sequence || existing.operationKey !== input.event.operationKey || existing.operationKind !== input.event.operationKind || canonicalJson(existing.replayInput) !== canonicalJson(input.replayInput)) {
+          throw new Error("context_gateway_v4_replay_receipt_collision");
+        }
+        return;
+      }
+      if (this.entries.length >= MAX_ENTRIES || input.event.sequence <= (this.entries.at(-1)?.sequence ?? 0)) {
+        throw new Error("context_gateway_v4_replay_sequence_invalid");
+      }
+      const entry = normalizeEntry(
+        {
+          sequence: input.event.sequence,
+          operationReceiptId,
+          operationKey: input.event.operationKey,
+          operationKind: input.event.operationKind,
+          replayInput: input.replayInput
+        },
+        this.entries.at(-1)?.sequence ?? 0
+      );
+      if (operationForReplayInput(entry.operationKind, entry.replayInput) !== input.event.operationKey) {
+        throw new Error("context_gateway_v4_replay_input_mismatch");
+      }
+      this.entries.push(entry);
+      await this.flush();
+    });
+  }
+  snapshot() {
+    return Object.freeze({
+      replayMaterialVersion: 2,
+      sessionId: this.config.sessionId,
+      entries: Object.freeze([...this.entries])
+    });
+  }
+  serializeMutation(operation) {
+    const mutation = this.mutationTail.then(operation);
+    this.mutationTail = mutation.then(
+      () => void 0,
+      () => void 0
+    );
+    return mutation;
+  }
+  async flush() {
+    const encrypted = encryptContextGatewayV4ReplayMaterial({
+      plaintextCanonicalJson: canonicalJson(this.snapshot()),
+      secret: this.config.secret,
+      sessionId: this.config.sessionId
+    });
+    await atomicPrivateWrite(this.config.replayMaterialPath, encrypted);
+  }
+};
 function decryptContextGatewayV4ReplayMaterial(input) {
   assertReplaySecret(input.secret);
   if (Buffer.byteLength(input.encryptedCanonicalJson, "utf8") > MAX_ENCRYPTED_STATE_BYTES) {
@@ -98622,6 +98728,31 @@ function decryptContextGatewayV4ReplayMaterial(input) {
     throw new Error("context_gateway_v4_replay_decryption_invalid");
   }
 }
+function encryptContextGatewayV4ReplayMaterial(input) {
+  assertReplaySecret(input.secret);
+  if (Buffer.byteLength(input.plaintextCanonicalJson, "utf8") > MAX_STATE_BYTES) {
+    throw new Error("context_gateway_v4_replay_size_invalid");
+  }
+  const nonce = (0, import_crypto28.randomBytes)(12);
+  const cipher = (0, import_crypto28.createCipheriv)(
+    REPLAY_ENCRYPTION_ALGORITHM,
+    replayEncryptionKey(input.secret, input.sessionId),
+    nonce
+  );
+  cipher.setAAD(replayAssociatedData(input.sessionId));
+  const ciphertext = Buffer.concat([
+    cipher.update(input.plaintextCanonicalJson, "utf8"),
+    cipher.final()
+  ]);
+  return canonicalJson({
+    encryptionVersion: REPLAY_ENCRYPTION_VERSION,
+    algorithm: REPLAY_ENCRYPTION_ALGORITHM,
+    sessionId: input.sessionId,
+    nonce: nonce.toString("base64url"),
+    ciphertext: ciphertext.toString("base64url"),
+    authTag: cipher.getAuthTag().toString("base64url")
+  });
+}
 function replayEncryptionKey(secret, sessionId) {
   return (0, import_crypto28.createHmac)("sha256", secret).update("reviewrouter.context-gateway-v4.replay-material.v1\0", "utf8").update(sessionId, "utf8").digest();
 }
@@ -98640,16 +98771,76 @@ function assertReplaySecret(secret) {
     throw new Error("context_gateway_v4_replay_secret_invalid");
   }
 }
+function operationForReplayInput(kind, replayInput) {
+  switch (kind) {
+    case "file_read" /* FileRead */:
+      return sha256(
+        canonicalJson({
+          kind,
+          inputHash: sha256(canonicalJson(replayInput))
+        })
+      );
+    case "directory_list" /* DirectoryList */:
+    case "canonical_inventory" /* CanonicalInventory */:
+      return sha256(
+        canonicalJson({
+          kind,
+          inputHash: sha256(
+            canonicalJson({
+              ...replayInput,
+              cursor: typeof replayInput.cursor === "string" ? sha256(replayInput.cursor) : null
+            })
+          )
+        })
+      );
+    case "text_search" /* TextSearch */:
+      return sha256(
+        canonicalJson({
+          kind,
+          inputHash: sha256(
+            canonicalJson({
+              ...replayInput,
+              query: sha256(String(replayInput.query)),
+              cursor: typeof replayInput.cursor === "string" ? sha256(replayInput.cursor) : null
+            })
+          )
+        })
+      );
+    case "git_fact" /* GitFact */:
+      return sha256(canonicalJson({ kind, fact: replayInput.fact }));
+    case "unsupported_tool" /* UnsupportedTool */:
+      throw new Error("context_gateway_v4_replay_kind_unsupported");
+  }
+}
+function normalizeEntry(candidate, previousSequence) {
+  if (!Number.isSafeInteger(candidate.sequence) || candidate.sequence <= previousSequence || !Object.values(ContextGatewayV4OperationKind).includes(
+    candidate.operationKind
+  ) || candidate.operationKind === "unsupported_tool" /* UnsupportedTool */ || !isRecord5(candidate.replayInput)) {
+    throw new Error("context_gateway_v4_replay_entry_invalid");
+  }
+  requireSha256(candidate.operationReceiptId, "operation_receipt_id");
+  requireSha256(candidate.operationKey, "operation_key");
+  return Object.freeze({
+    ...candidate,
+    replayInput: Object.freeze({ ...candidate.replayInput })
+  });
+}
 function isRecord5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+async function atomicPrivateWrite(target, content) {
+  await (0, import_promises.mkdir)(import_path3.default.dirname(target), { recursive: true, mode: 448 });
+  const temporary = `${target}.${process.pid}.${(0, import_crypto28.randomBytes)(6).toString("hex")}.tmp`;
+  await (0, import_promises.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
+  await (0, import_promises.rename)(temporary, target);
 }
 
 // src/context-gateway/context-gateway-v4-recorder.ts
 var import_crypto29 = require("crypto");
-var import_promises = require("fs/promises");
-var import_path3 = __toESM(require("path"));
+var import_promises2 = require("fs/promises");
+var import_path4 = __toESM(require("path"));
 var MAX_EVENTS = 2e3;
-var MAX_STATE_BYTES2 = 4 * 1024 * 1024;
+var CONTEXT_GATEWAY_V4_MAX_TRANSCRIPT_BYTES = 4 * 1024 * 1024;
 var ContextGatewayV4Recorder = class {
   constructor(config) {
     this.config = config;
@@ -98667,12 +98858,12 @@ var ContextGatewayV4Recorder = class {
   terminalFailureClass = null;
   now;
   async initialize() {
-    await (0, import_promises.mkdir)(import_path3.default.dirname(this.config.transcriptPath), {
+    await (0, import_promises2.mkdir)(import_path4.default.dirname(this.config.transcriptPath), {
       recursive: true,
       mode: 448
     });
     try {
-      await (0, import_promises.writeFile)(this.config.transcriptPath, "", {
+      await (0, import_promises2.writeFile)(this.config.transcriptPath, "", {
         encoding: "utf8",
         flag: "wx",
         mode: 384
@@ -98686,8 +98877,8 @@ var ContextGatewayV4Recorder = class {
     if (this.events.length > 0) {
       throw new Error("context_gateway_v4_recorder_already_active");
     }
-    const raw = await (0, import_promises.readFile)(this.config.transcriptPath, "utf8");
-    if (raw.length < 2 || Buffer.byteLength(raw, "utf8") > MAX_STATE_BYTES2) {
+    const raw = await (0, import_promises2.readFile)(this.config.transcriptPath, "utf8");
+    if (raw.length < 2 || Buffer.byteLength(raw, "utf8") > CONTEXT_GATEWAY_V4_MAX_TRANSCRIPT_BYTES) {
       throw new Error("context_gateway_v4_recorder_state_size_invalid");
     }
     let parsed;
@@ -98863,7 +99054,7 @@ var ContextGatewayV4Recorder = class {
     });
   }
   async flush() {
-    await atomicPrivateWrite(
+    await atomicPrivateWrite2(
       this.config.transcriptPath,
       canonicalJson(this.toTranscript())
     );
@@ -98875,11 +99066,11 @@ function sanitizeReason(value) {
   }
   return value;
 }
-async function atomicPrivateWrite(target, content) {
-  await (0, import_promises.mkdir)(import_path3.default.dirname(target), { recursive: true, mode: 448 });
+async function atomicPrivateWrite2(target, content) {
+  await (0, import_promises2.mkdir)(import_path4.default.dirname(target), { recursive: true, mode: 448 });
   const temporary = `${target}.${process.pid}.${(0, import_crypto29.randomBytes)(6).toString("hex")}.tmp`;
-  await (0, import_promises.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
-  await (0, import_promises.rename)(temporary, target);
+  await (0, import_promises2.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
+  await (0, import_promises2.rename)(temporary, target);
 }
 
 // src/review-orchestration/infrastructure/context-gateway-invocation-session.ts
@@ -98905,6 +99096,13 @@ var SubprocessRequiredContextWitnessRunner = class {
         maxBuffer: 64 * 1024
       }
     );
+    if (input.runtimeEnvironment.REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION !== CONTEXT_GATEWAY_V4_POLICY_VERSION) {
+      return null;
+    }
+    return captureV4WitnessBoundary({
+      runtimeEnvironment: input.runtimeEnvironment,
+      secret: Buffer.from(input.gatewaySessionSecret, "base64url")
+    });
   }
 };
 var ContextGatewayInvocationSessionFactory = class {
@@ -98912,7 +99110,7 @@ var ContextGatewayInvocationSessionFactory = class {
     this.attestations = attestations;
     this.options = options;
     this.requiredWitnessRunner = requiredWitnessRunner;
-    if (!path20.isAbsolute(options.checkoutRoot) || !path20.isAbsolute(options.gatewayBundlePath)) {
+    if (!path21.isAbsolute(options.checkoutRoot) || !path21.isAbsolute(options.gatewayBundlePath)) {
       throw new Error("context_gateway_factory_path_invalid");
     }
   }
@@ -98929,8 +99127,8 @@ var ContextGatewayInvocationSessionFactory = class {
       eventChainSeedHash: "0".repeat(64),
       gatewayBinaryHash,
       ...revisionTreeOids,
-      transcriptPath: path20.join(os9.tmpdir(), "planning-transcript.json"),
-      replayMaterialPath: path20.join(os9.tmpdir(), "planning-replay.json"),
+      transcriptPath: path21.join(os9.tmpdir(), "planning-transcript.json"),
+      replayMaterialPath: path21.join(os9.tmpdir(), "planning-replay.json"),
       gatewayBundlePath: this.options.gatewayBundlePath
     });
   }
@@ -98951,19 +99149,20 @@ var ContextGatewayInvocationSessionFactory = class {
     const { checkoutTreeOid } = revisionTreeOids;
     const gatewayBinaryHash = sha25613(gatewayBundleSnapshot);
     const gatewayPolicyVersion = this.policyVersion();
-    const directory = await (0, import_promises2.mkdtemp)(
-      path20.join(os9.tmpdir(), "reviewrouter-context-gateway-")
+    const directory = await (0, import_promises3.mkdtemp)(
+      path21.join(os9.tmpdir(), "reviewrouter-context-gateway-")
     );
-    const gatewayBundlePath = path20.join(directory, "context-gateway.cjs");
-    const transcriptPath = path20.join(directory, "transcript.json");
-    const replayMaterialPath = path20.join(directory, "replay-material.json");
+    const gatewayBundlePath = path21.join(directory, "context-gateway.cjs");
+    const transcriptPath = path21.join(directory, "transcript.json");
+    const replayMaterialPath = path21.join(directory, "replay-material.json");
+    let requiredWitness = null;
     try {
-      await (0, import_promises2.writeFile)(gatewayBundlePath, gatewayBundleSnapshot, {
+      await (0, import_promises3.writeFile)(gatewayBundlePath, gatewayBundleSnapshot, {
         flag: "wx",
         mode: 448
       });
     } catch (error2) {
-      await (0, import_promises2.rm)(directory, { recursive: true, force: true });
+      await (0, import_promises3.rm)(directory, { recursive: true, force: true });
       throw error2;
     }
     const confinementEvidenceHash = sha25613(
@@ -99000,7 +99199,7 @@ var ContextGatewayInvocationSessionFactory = class {
         }
       });
     } catch (error2) {
-      await (0, import_promises2.rm)(directory, { recursive: true, force: true });
+      await (0, import_promises3.rm)(directory, { recursive: true, force: true });
       throw error2;
     }
     const secret = Buffer.from(serverSession.gatewaySessionSecret, "base64url");
@@ -99018,12 +99217,15 @@ var ContextGatewayInvocationSessionFactory = class {
       if (secret.byteLength < 32) {
         throw new Error("context_gateway_session_secret_invalid");
       }
-      await this.requiredWitnessRunner.capture({
+      requiredWitness = await this.requiredWitnessRunner.capture({
         gatewayBundlePath,
         checkoutRoot: this.options.checkoutRoot,
         runtimeEnvironment: providerConfig.runtimeEnvironment,
         gatewaySessionSecret: serverSession.gatewaySessionSecret
       });
+      if (gatewayPolicyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION && executionProfile === "context_gateway_v1" /* ContextGatewayV1 */ && !requiredWitness) {
+        throw new Error("context_gateway_required_witness_missing");
+      }
     } catch (error2) {
       await cleanupOpenedGatewaySession({
         attestations: this.attestations,
@@ -99042,7 +99244,9 @@ var ContextGatewayInvocationSessionFactory = class {
       secret,
       transcriptPath,
       replayMaterialPath,
-      directory
+      directory,
+      executionProfile,
+      requiredWitness
     );
   }
   providerConfig(input) {
@@ -99074,7 +99278,7 @@ var ContextGatewayInvocationSessionFactory = class {
     return this.options.policyVersion ?? CONTEXT_GATEWAY_POLICY_VERSION;
   }
   async gatewayBundleSnapshot() {
-    this.gatewayBundleSnapshotPromise ??= (0, import_promises2.readFile)(
+    this.gatewayBundleSnapshotPromise ??= (0, import_promises3.readFile)(
       this.options.gatewayBundlePath
     );
     return Buffer.from(await this.gatewayBundleSnapshotPromise);
@@ -99116,7 +99320,7 @@ var ContextGatewayInvocationSessionFactory = class {
   }
 };
 var ContextGatewayInvocationSession = class {
-  constructor(attestations, currentInvocationLease, serverSession, providerConfig, secret, transcriptPath, replayMaterialPath, directory) {
+  constructor(attestations, currentInvocationLease, serverSession, providerConfig, secret, transcriptPath, replayMaterialPath, directory, executionProfile, requiredWitness) {
     this.attestations = attestations;
     this.currentInvocationLease = currentInvocationLease;
     this.serverSession = serverSession;
@@ -99125,6 +99329,8 @@ var ContextGatewayInvocationSession = class {
     this.transcriptPath = transcriptPath;
     this.replayMaterialPath = replayMaterialPath;
     this.directory = directory;
+    this.executionProfile = executionProfile;
+    this.requiredWitness = requiredWitness;
     this.credentialLease = Object.freeze({
       environment: Object.freeze({
         REVIEWROUTER_CONTEXT_GATEWAY_SECRET: serverSession.gatewaySessionSecret
@@ -99196,7 +99402,7 @@ var ContextGatewayInvocationSession = class {
       );
     }
     const { transcriptCanonicalJson, replayMaterialCanonicalJson } = createWireSealPayload(transcript, replayMaterial);
-    await (0, import_promises2.rm)(this.replayMaterialPath);
+    await (0, import_promises3.rm)(this.replayMaterialPath);
     const attestation = await this.attestations.sealGatewaySession({
       invocationLease: this.currentInvocationLease(),
       session: this.serverSession,
@@ -99251,6 +99457,34 @@ var ContextGatewayInvocationSession = class {
           sessionId: this.serverSession.sessionId
         }
       );
+      if (this.executionProfile === "context_gateway_v1" /* ContextGatewayV1 */) {
+        verifyStrictV4ProviderInspection({
+          transcript,
+          replayMaterialCanonicalJson,
+          requiredWitness: this.requiredWitness,
+          sessionId: this.serverSession.sessionId
+        });
+        const [stableTranscriptCanonicalJson, stableReplay] = await Promise.all(
+          [
+            readBoundedCanonicalJson(
+              this.transcriptPath,
+              CONTEXT_GATEWAY_V4_MAX_TRANSCRIPT_BYTES
+            ),
+            readBoundedText(
+              this.replayMaterialPath,
+              MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES
+            )
+          ]
+        );
+        if (!sameV4TranscriptBoundary(
+          stableTranscriptCanonicalJson,
+          transcript
+        ) || stableReplay !== encryptedReplayMaterialCanonicalJson) {
+          throw new ReviewContextInspectionFailure(
+            "incomplete_transcript" /* IncompleteTranscript */
+          );
+        }
+      }
       stage = "control_plane_seal" /* ControlPlaneSeal */;
       const attestation = await this.attestations.sealGatewaySession({
         invocationLease: this.currentInvocationLease(),
@@ -99294,13 +99528,110 @@ var ContextGatewayInvocationSession = class {
     }
     this.secret.fill(0);
     try {
-      await (0, import_promises2.rm)(this.directory, { recursive: true, force: true });
+      await (0, import_promises3.rm)(this.directory, { recursive: true, force: true });
     } catch (error2) {
       failures.push(error2);
     }
     throwCleanupFailures(failures);
   }
 };
+async function captureV4WitnessBoundary(input) {
+  const sessionId = requireEnvironmentValue2(
+    input.runtimeEnvironment,
+    "REVIEWROUTER_CONTEXT_SESSION_ID"
+  );
+  const recorder = new ContextGatewayV4Recorder({
+    sessionId,
+    transcriptPath: requireEnvironmentValue2(
+      input.runtimeEnvironment,
+      "REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH"
+    ),
+    secret: input.secret,
+    gatewayBinaryHash: requireEnvironmentValue2(
+      input.runtimeEnvironment,
+      "REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH"
+    ),
+    checkoutTreeOid: requireEnvironmentValue2(
+      input.runtimeEnvironment,
+      "REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID"
+    ),
+    eventChainSeedHash: requireEnvironmentValue2(
+      input.runtimeEnvironment,
+      "REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH"
+    )
+  });
+  await recorder.resume();
+  const transcript = recorder.snapshot();
+  const replay = new ContextGatewayV4ReplayMaterialRecorder({
+    sessionId,
+    replayMaterialPath: requireEnvironmentValue2(
+      input.runtimeEnvironment,
+      "REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH"
+    ),
+    secret: input.secret
+  });
+  await replay.resume();
+  const replayMaterial = replay.snapshot();
+  if (transcript.events.length === 0 || replayMaterial.entries.length === 0 || replayMaterial.entries.length !== transcript.events.filter(
+    (event) => event.outcome === "succeeded" /* Succeeded */
+  ).length) {
+    throw new Error("context_gateway_required_witness_incomplete");
+  }
+  return Object.freeze({
+    policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+    eventCount: transcript.events.length,
+    authenticatedChainHash: transcript.authenticatedChainHash,
+    replayEntryCount: replayMaterial.entries.length,
+    replayPrefixHash: sha25613(canonicalJson(replayMaterial.entries))
+  });
+}
+function verifyStrictV4ProviderInspection(input) {
+  const baseline = input.requiredWitness;
+  if (!baseline || baseline.policyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION || baseline.eventCount < 1 || baseline.eventCount > input.transcript.events.length || input.transcript.events[baseline.eventCount - 1]?.eventHash !== baseline.authenticatedChainHash) {
+    throw new ReviewContextInspectionFailure(
+      "incomplete_transcript" /* IncompleteTranscript */
+    );
+  }
+  const replayMaterial = JSON.parse(input.replayMaterialCanonicalJson);
+  if (replayMaterial.replayMaterialVersion !== 2 || replayMaterial.sessionId !== input.sessionId || !Array.isArray(replayMaterial.entries) || baseline.replayEntryCount < 1 || baseline.replayEntryCount > replayMaterial.entries.length || sha25613(
+    canonicalJson(replayMaterial.entries.slice(0, baseline.replayEntryCount))
+  ) !== baseline.replayPrefixHash) {
+    throw new ReviewContextInspectionFailure(
+      "incomplete_transcript" /* IncompleteTranscript */
+    );
+  }
+  const successfulEvents = input.transcript.events.filter(
+    (event) => event.outcome === "succeeded" /* Succeeded */
+  );
+  if (successfulEvents.length !== replayMaterial.entries.length || successfulEvents.some((event, index) => {
+    const replayEntry = replayMaterial.entries[index];
+    return replayEntry?.sequence !== event.sequence || replayEntry.operationReceiptId !== event.operationReceiptId || replayEntry.operationKey !== event.operationKey || replayEntry.operationKind !== event.operationKind;
+  })) {
+    throw new ReviewContextInspectionFailure(
+      "incomplete_transcript" /* IncompleteTranscript */
+    );
+  }
+  const providerSuffix = input.transcript.events.slice(baseline.eventCount);
+  if (!providerSuffix.some(
+    (event) => event.outcome === "succeeded" /* Succeeded */
+  )) {
+    throw new ReviewContextInspectionFailure(
+      "missing_provider_inspection" /* MissingProviderInspection */
+    );
+  }
+}
+function sameV4TranscriptBoundary(canonicalTranscript, expected) {
+  const candidate = JSON.parse(
+    canonicalTranscript
+  );
+  return typeof candidate.updatedAtMs === "number" && canonicalJson({ ...candidate, updatedAtMs: 0 }) === canonicalJson({ ...expected, updatedAtMs: 0 });
+}
+function requireEnvironmentValue2(environment, key) {
+  const value = environment[key];
+  if (!value)
+    throw new Error("context_gateway_required_witness_config_invalid");
+  return value;
+}
 async function cleanupOpenedGatewaySession(input) {
   const failures = [input.primaryError];
   try {
@@ -99313,7 +99644,7 @@ async function cleanupOpenedGatewaySession(input) {
   }
   input.secret.fill(0);
   try {
-    await (0, import_promises2.rm)(input.directory, { recursive: true, force: true });
+    await (0, import_promises3.rm)(input.directory, { recursive: true, force: true });
   } catch (error2) {
     failures.push(error2);
   }
@@ -99328,19 +99659,19 @@ function throwCleanupFailures(failures) {
   throw new AggregateError(failures, "context_gateway_dispose_failed");
 }
 async function readBoundedCanonicalJson(file, maximumBytes) {
-  const metadata = await (0, import_promises2.stat)(file);
+  const metadata = await (0, import_promises3.stat)(file);
   if (!metadata.isFile() || metadata.size < 2 || metadata.size > maximumBytes) {
     throw new Error("context_gateway_output_size_invalid");
   }
-  const parsed = JSON.parse(await (0, import_promises2.readFile)(file, "utf8"));
+  const parsed = JSON.parse(await (0, import_promises3.readFile)(file, "utf8"));
   return canonicalJson(parsed);
 }
 async function readBoundedText(file, maximumBytes) {
-  const metadata = await (0, import_promises2.stat)(file);
+  const metadata = await (0, import_promises3.stat)(file);
   if (!metadata.isFile() || metadata.size < 2 || metadata.size > maximumBytes) {
     throw new Error("context_gateway_output_size_invalid");
   }
-  const value = await (0, import_promises2.readFile)(file, "utf8");
+  const value = await (0, import_promises3.readFile)(file, "utf8");
   if (Buffer.byteLength(value, "utf8") !== metadata.size) {
     throw new Error("context_gateway_output_size_invalid");
   }
@@ -99490,15 +99821,15 @@ function sha25613(value) {
 // src/review-orchestration/infrastructure/context-attestation-replay-runner.ts
 var import_child_process16 = require("child_process");
 var import_crypto32 = require("crypto");
-var import_promises6 = require("fs/promises");
+var import_promises7 = require("fs/promises");
 var os10 = __toESM(require("os"));
-var path24 = __toESM(require("path"));
+var path25 = __toESM(require("path"));
 var import_util11 = require("util");
 
 // src/context-gateway/context-gateway-recorder.ts
 var import_crypto31 = require("crypto");
-var import_promises3 = require("fs/promises");
-var path21 = __toESM(require("path"));
+var import_promises4 = require("fs/promises");
+var path22 = __toESM(require("path"));
 var MAX_RECORDER_STATE_BYTES = 2 * 1024 * 1024;
 var ContextGatewayRecorder = class {
   constructor(config) {
@@ -99513,22 +99844,22 @@ var ContextGatewayRecorder = class {
   hadFailure = false;
   async initialize() {
     await Promise.all([
-      (0, import_promises3.mkdir)(path21.dirname(this.config.transcriptPath), {
+      (0, import_promises4.mkdir)(path22.dirname(this.config.transcriptPath), {
         recursive: true,
         mode: 448
       }),
-      (0, import_promises3.mkdir)(path21.dirname(this.config.replayMaterialPath), {
+      (0, import_promises4.mkdir)(path22.dirname(this.config.replayMaterialPath), {
         recursive: true,
         mode: 448
       })
     ]);
     try {
-      await (0, import_promises3.writeFile)(this.config.transcriptPath, "", {
+      await (0, import_promises4.writeFile)(this.config.transcriptPath, "", {
         encoding: "utf8",
         flag: "wx",
         mode: 384
       });
-      await (0, import_promises3.writeFile)(this.config.replayMaterialPath, "", {
+      await (0, import_promises4.writeFile)(this.config.replayMaterialPath, "", {
         encoding: "utf8",
         flag: "wx",
         mode: 384
@@ -99717,13 +100048,13 @@ var ContextGatewayRecorder = class {
       entries: Object.freeze([...this.replayEntries])
     });
     await Promise.all([
-      atomicPrivateWrite2(this.config.transcriptPath, canonicalJson(transcript)),
-      atomicPrivateWrite2(this.config.replayMaterialPath, canonicalJson(replay))
+      atomicPrivateWrite3(this.config.transcriptPath, canonicalJson(transcript)),
+      atomicPrivateWrite3(this.config.replayMaterialPath, canonicalJson(replay))
     ]);
   }
 };
 async function readBoundedState(file) {
-  const value = await (0, import_promises3.readFile)(file, "utf8");
+  const value = await (0, import_promises4.readFile)(file, "utf8");
   if (value.length < 2 || Buffer.byteLength(value, "utf8") > MAX_RECORDER_STATE_BYTES) {
     throw new Error("context_gateway_recorder_state_size_invalid");
   }
@@ -99741,18 +100072,18 @@ function parseCanonicalState(raw, kind) {
   }
   return parsed;
 }
-async function atomicPrivateWrite2(target, content) {
-  await (0, import_promises3.mkdir)(path21.dirname(target), { recursive: true, mode: 448 });
+async function atomicPrivateWrite3(target, content) {
+  await (0, import_promises4.mkdir)(path22.dirname(target), { recursive: true, mode: 448 });
   const temporary = `${target}.${process.pid}.${(0, import_crypto31.randomBytes)(6).toString("hex")}.tmp`;
-  await (0, import_promises3.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
-  await (0, import_promises3.rename)(temporary, target);
+  await (0, import_promises4.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
+  await (0, import_promises4.rename)(temporary, target);
 }
 
 // src/context-gateway/filesystem-context-gateway.ts
 var import_child_process14 = require("child_process");
-var import_promises4 = require("fs/promises");
+var import_promises5 = require("fs/promises");
 var import_os = require("os");
-var path22 = __toESM(require("path"));
+var path23 = __toESM(require("path"));
 var import_util9 = require("util");
 var execFileAsync4 = (0, import_util9.promisify)(import_child_process14.execFile);
 var MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -99779,7 +100110,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
   }
   revisionTreeOidPromises = /* @__PURE__ */ new Map();
   static async create(input) {
-    const root = await (0, import_promises4.realpath)(input.root);
+    const root = await (0, import_promises5.realpath)(input.root);
     requireGitOid(input.checkoutTreeOid, "checkout_tree_oid");
     requireGitOid(input.baseSha, "base_sha");
     requireGitOid(input.mergeBaseSha, "merge_base_sha");
@@ -100031,7 +100362,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
               }
             )).sort();
           } finally {
-            await (0, import_promises4.rm)(isolatedGit.gitDirectory, {
+            await (0, import_promises5.rm)(isolatedGit.gitDirectory, {
               recursive: true,
               force: true
             });
@@ -100160,10 +100491,10 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     if (gitPath.length === 0) {
       throw new Error("context_gateway_git_info_attributes_path_invalid");
     }
-    const attributesPath = path22.isAbsolute(gitPath) ? gitPath : path22.resolve(this.root, gitPath);
+    const attributesPath = path23.isAbsolute(gitPath) ? gitPath : path23.resolve(this.root, gitPath);
     let infoAttributes;
     try {
-      infoAttributes = await (0, import_promises4.readFile)(attributesPath);
+      infoAttributes = await (0, import_promises5.readFile)(attributesPath);
     } catch (error2) {
       if (error2.code !== "ENOENT") throw error2;
       infoAttributes = null;
@@ -100201,24 +100532,24 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
     ]);
   }
   async createIsolatedGitDirectory(policy) {
-    const gitDirectory = await (0, import_promises4.mkdtemp)(
-      path22.join((0, import_os.tmpdir)(), "reviewrouter-context-git-")
+    const gitDirectory = await (0, import_promises5.mkdtemp)(
+      path23.join((0, import_os.tmpdir)(), "reviewrouter-context-git-")
     );
     try {
       const [objectsPathOutput, objectFormatOutput] = await Promise.all([
         this.gitText(["rev-parse", "--git-path", "objects"]),
         this.gitText(["rev-parse", "--show-object-format=storage"]),
-        (0, import_promises4.mkdir)(path22.join(gitDirectory, "objects", "info"), { recursive: true }),
-        (0, import_promises4.mkdir)(path22.join(gitDirectory, "refs", "heads"), { recursive: true }),
-        (0, import_promises4.mkdir)(path22.join(gitDirectory, "info"), { recursive: true }),
-        (0, import_promises4.mkdir)(path22.join(gitDirectory, "worktree"), { recursive: true })
+        (0, import_promises5.mkdir)(path23.join(gitDirectory, "objects", "info"), { recursive: true }),
+        (0, import_promises5.mkdir)(path23.join(gitDirectory, "refs", "heads"), { recursive: true }),
+        (0, import_promises5.mkdir)(path23.join(gitDirectory, "info"), { recursive: true }),
+        (0, import_promises5.mkdir)(path23.join(gitDirectory, "worktree"), { recursive: true })
       ]);
       const rawObjectsPath = objectsPathOutput.trim();
       if (rawObjectsPath.length === 0) {
         throw new Error("context_gateway_git_objects_path_invalid");
       }
-      const objectsPath = await (0, import_promises4.realpath)(
-        path22.isAbsolute(rawObjectsPath) ? rawObjectsPath : path22.resolve(this.root, rawObjectsPath)
+      const objectsPath = await (0, import_promises5.realpath)(
+        path23.isAbsolute(rawObjectsPath) ? rawObjectsPath : path23.resolve(this.root, rawObjectsPath)
       );
       if (objectsPath.includes("\0") || objectsPath.includes("\n")) {
         throw new Error("context_gateway_git_objects_path_invalid");
@@ -100229,20 +100560,20 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       }
       const config = objectFormat === "sha256" ? "[core]\n	repositoryformatversion = 1\n	bare = false\n[extensions]\n	objectformat = sha256\n" : "[core]\n	repositoryformatversion = 0\n	bare = false\n";
       await Promise.all([
-        (0, import_promises4.writeFile)(path22.join(gitDirectory, "HEAD"), "ref: refs/heads/unused\n"),
-        (0, import_promises4.writeFile)(path22.join(gitDirectory, "config"), config),
-        (0, import_promises4.writeFile)(
-          path22.join(gitDirectory, "objects", "info", "alternates"),
+        (0, import_promises5.writeFile)(path23.join(gitDirectory, "HEAD"), "ref: refs/heads/unused\n"),
+        (0, import_promises5.writeFile)(path23.join(gitDirectory, "config"), config),
+        (0, import_promises5.writeFile)(
+          path23.join(gitDirectory, "objects", "info", "alternates"),
           `${objectsPath}
 `
         ),
-        policy.infoAttributes === null ? Promise.resolve() : (0, import_promises4.writeFile)(
-          path22.join(gitDirectory, "info", "attributes"),
+        policy.infoAttributes === null ? Promise.resolve() : (0, import_promises5.writeFile)(
+          path23.join(gitDirectory, "info", "attributes"),
           policy.infoAttributes
         )
       ]);
-      const indexPath = path22.join(gitDirectory, "index");
-      const workTreePath = path22.join(gitDirectory, "worktree");
+      const indexPath = path23.join(gitDirectory, "index");
+      const workTreePath = path23.join(gitDirectory, "worktree");
       await this.gitText(["read-tree", "--reset", this.headSha], /* @__PURE__ */ new Set([0]), {
         GIT_DIR: gitDirectory,
         GIT_INDEX_FILE: indexPath,
@@ -100250,7 +100581,7 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
       });
       return Object.freeze({ gitDirectory, indexPath, workTreePath });
     } catch (error2) {
-      await (0, import_promises4.rm)(gitDirectory, { recursive: true, force: true });
+      await (0, import_promises5.rm)(gitDirectory, { recursive: true, force: true });
       throw error2;
     }
   }
@@ -100322,10 +100653,10 @@ var FilesystemContextGateway = class _FilesystemContextGateway {
   }
 };
 function normalizeRelativePath(value) {
-  if (typeof value !== "string" || value.length === 0 || value.length > 1024 || value.includes("\0") || value.includes("\\") || path22.isAbsolute(value)) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 1024 || value.includes("\0") || value.includes("\\") || path23.isAbsolute(value)) {
     throw new Error("context_gateway_path_invalid");
   }
-  const normalized = path22.posix.normalize(value);
+  const normalized = path23.posix.normalize(value);
   if (normalized === ".." || normalized.startsWith("../") || normalized.split("/").some((segment) => segment === "..")) {
     throw new Error("context_gateway_path_invalid");
   }
@@ -100340,8 +100671,8 @@ function boundedInteger(value, minimum, maximum, field) {
 
 // src/context-gateway/filesystem-context-gateway-v4.ts
 var import_child_process15 = require("child_process");
-var import_promises5 = require("fs/promises");
-var import_path4 = __toESM(require("path"));
+var import_promises6 = require("fs/promises");
+var import_path5 = __toESM(require("path"));
 var import_util10 = require("util");
 var execFileAsync5 = (0, import_util10.promisify)(import_child_process15.execFile);
 var MAX_FILE_RANGE_BYTES = 2 * 1024 * 1024;
@@ -100363,7 +100694,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
   }
   inventoryPromise = null;
   static async create(input) {
-    const root = await (0, import_promises5.realpath)(input.root);
+    const root = await (0, import_promises6.realpath)(input.root);
     requireGitOid(
       input.checkoutTreeOid,
       "context_gateway_v4_checkout_tree_oid"
@@ -101040,10 +101371,10 @@ async function gitTreeEntry(root, revision, relativePath) {
   };
 }
 function normalizeRelativePath2(value) {
-  if (typeof value !== "string" || value.length < 1 || value.length > 1024 || value.includes("\0") || value.includes("\\") || import_path4.default.isAbsolute(value)) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 1024 || value.includes("\0") || value.includes("\\") || import_path5.default.isAbsolute(value)) {
     throw new Error("context_gateway_path_invalid");
   }
-  const normalized = import_path4.default.posix.normalize(value);
+  const normalized = import_path5.default.posix.normalize(value);
   if (normalized === ".." || normalized.startsWith("../") || normalized.split("/").some((segment) => segment === "..")) {
     throw new Error("context_gateway_path_invalid");
   }
@@ -101105,7 +101436,7 @@ var MAX_REPLAY_PLAN_BYTES = 512 * 1024;
 var ContextAttestationReplayRunner = class {
   constructor(options) {
     this.options = options;
-    if (!path24.isAbsolute(options.checkoutRoot) || !path24.isAbsolute(options.gatewayBundlePath)) {
+    if (!path25.isAbsolute(options.checkoutRoot) || !path25.isAbsolute(options.gatewayBundlePath)) {
       throw new Error("context_replay_path_invalid");
     }
   }
@@ -101128,7 +101459,7 @@ var ContextAttestationReplayRunner = class {
     const plan = parseReplayPlan(candidate);
     const [targetCheckoutTreeOid, gatewayBinaryHash] = await Promise.all([
       this.checkoutTreeOid(targetRevision.headSha),
-      (0, import_promises6.readFile)(this.options.gatewayBundlePath).then(sha256)
+      (0, import_promises7.readFile)(this.options.gatewayBundlePath).then(sha256)
     ]);
     if (plan.gatewayBinaryHash !== gatewayBinaryHash) {
       return null;
@@ -101145,8 +101476,8 @@ var ContextAttestationReplayRunner = class {
     if (plan.gatewayPolicyVersion !== CONTEXT_GATEWAY_POLICY_VERSION) {
       return null;
     }
-    const directory = await (0, import_promises6.mkdtemp)(
-      path24.join(os10.tmpdir(), "reviewrouter-context-replay-")
+    const directory = await (0, import_promises7.mkdtemp)(
+      path25.join(os10.tmpdir(), "reviewrouter-context-replay-")
     );
     const secret = (0, import_crypto32.randomBytes)(32);
     try {
@@ -101160,8 +101491,8 @@ var ContextAttestationReplayRunner = class {
       );
       const recorder = new ContextGatewayRecorder({
         sessionId: `replay-${plan.attestationHash}`,
-        transcriptPath: path24.join(directory, "transcript.json"),
-        replayMaterialPath: path24.join(directory, "replay-material.json"),
+        transcriptPath: path25.join(directory, "transcript.json"),
+        replayMaterialPath: path25.join(directory, "replay-material.json"),
         secret,
         gatewayBinaryHash,
         checkoutTreeOid: targetCheckoutTreeOid,
@@ -101223,12 +101554,12 @@ var ContextAttestationReplayRunner = class {
       });
     } finally {
       secret.fill(0);
-      await (0, import_promises6.rm)(directory, { recursive: true, force: true });
+      await (0, import_promises7.rm)(directory, { recursive: true, force: true });
     }
   }
   async replayV4(input) {
-    const directory = await (0, import_promises6.mkdtemp)(
-      path24.join(os10.tmpdir(), "reviewrouter-context-replay-v4-")
+    const directory = await (0, import_promises7.mkdtemp)(
+      path25.join(os10.tmpdir(), "reviewrouter-context-replay-v4-")
     );
     const secret = (0, import_crypto32.randomBytes)(32);
     try {
@@ -101243,7 +101574,7 @@ var ContextAttestationReplayRunner = class {
       const sessionId = `replay-v4-${input.candidate.attestationHash.slice(0, 32)}`;
       const recorder = new ContextGatewayV4Recorder({
         sessionId,
-        transcriptPath: path24.join(directory, "transcript.json"),
+        transcriptPath: path25.join(directory, "transcript.json"),
         secret,
         gatewayBinaryHash: input.gatewayBinaryHash,
         checkoutTreeOid: input.targetCheckoutTreeOid,
@@ -101321,7 +101652,7 @@ var ContextAttestationReplayRunner = class {
       });
     } finally {
       secret.fill(0);
-      await (0, import_promises6.rm)(directory, { recursive: true, force: true });
+      await (0, import_promises7.rm)(directory, { recursive: true, force: true });
     }
   }
   async checkoutTreeOid(expectedHeadSha) {
@@ -102767,11 +103098,11 @@ function countOccurrenceStates(occurrences) {
 function publicationMarker(kind, scope) {
   return `reviewrouter:${kind}:v2:${scope.reviewRevisionHash}`;
 }
-function summaryPlacement2(lineageId, path28, reason) {
+function summaryPlacement2(lineageId, path29, reason) {
   return {
     lineageId,
     kind: "summary" /* Summary */,
-    path: path28,
+    path: path29,
     reason
   };
 }
@@ -102897,8 +103228,8 @@ function validateGateDecision(occurrences, gate) {
 function assertNonEmpty(name, value) {
   if (!value.trim()) throw new Error(`${name} must not be empty`);
 }
-function normalizePath2(path28) {
-  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+function normalizePath2(path29) {
+  return path29.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 }
 function sortedUnique2(values) {
   return Array.from(new Set(values)).sort(
@@ -103319,8 +103650,8 @@ function formatLifecycleLines(headSha, occurrences) {
     }
   });
 }
-function findRevisionFile(path28, revisionFiles) {
-  const normalized = normalizePath3(path28);
+function findRevisionFile(path29, revisionFiles) {
+  const normalized = normalizePath3(path29);
   return revisionFiles.find(
     (file) => normalizePath3(file.path) === normalized || file.previousPath && normalizePath3(file.previousPath) === normalized
   );
@@ -103342,8 +103673,8 @@ function toProjectionSeverity2(severity) {
 function toLegacySeverity(severity) {
   return severity;
 }
-function normalizePath3(path28) {
-  return path28.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+function normalizePath3(path29) {
+  return path29.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 }
 function normalizeText4(value) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -103482,13 +103813,13 @@ var ProductionReviewProjectionCommandFactory = class {
           `work_slot_investigation_inconclusive:${assignment.workSlotId}`
         );
       }
-      for (const path28 of manifest.paths) {
-        if (path28.kind === "full_patch" /* FullPatch */) {
-          reviewedFiles.add(path28.path);
-        } else if (path28.kind === "policy_excluded" /* PolicyExcluded */) {
-          policyExcludedFiles.add(path28.path);
+      for (const path29 of manifest.paths) {
+        if (path29.kind === "full_patch" /* FullPatch */) {
+          reviewedFiles.add(path29.path);
+        } else if (path29.kind === "policy_excluded" /* PolicyExcluded */) {
+          policyExcludedFiles.add(path29.path);
         } else {
-          coverageLimitations.push(`path_coverage:${path28.path}:${path28.kind}`);
+          coverageLimitations.push(`path_coverage:${path29.path}:${path29.kind}`);
         }
       }
       if (!isReviewPromptCoverageComplete(manifest)) {
@@ -103506,7 +103837,7 @@ var ProductionReviewProjectionCommandFactory = class {
         (omission) => `pull_request_load:${omission.reason}`
       ) : [],
       ...requiredExhaustedWorkSlotIds.map((id) => `work_slot_exhausted:${id}`),
-      ...this.input.uncoveredPaths.map((path28) => `work_slot_uncovered:${path28}`),
+      ...this.input.uncoveredPaths.map((path29) => `work_slot_uncovered:${path29}`),
       ...this.input.uncoveredLifecycleTargetIds.map(
         (targetId) => `lifecycle_target_uncovered:${targetId}`
       ),
@@ -105998,7 +106329,7 @@ var CLAUDE_NATIVE_TOOLS = Object.freeze([
 
 // src/review-investigation/infrastructure/codex-app-server-protocol.ts
 var import_crypto38 = require("crypto");
-var import_path5 = __toESM(require("path"));
+var import_path6 = __toESM(require("path"));
 var CODEX_APP_SERVER_VERSION = "0.145.0";
 var CODEX_APP_SERVER_MCP_NAME = "reviewrouter";
 var OPTED_OUT_NOTIFICATIONS = Object.freeze([
@@ -106819,7 +107150,7 @@ function validateInitializeResponse(value) {
     `^[A-Za-z][A-Za-z0-9 ._-]{0,64}/${CODEX_APP_SERVER_VERSION.replaceAll(".", "\\.")}(?:\\s|$)`,
     "u"
   );
-  if (!versionPattern.test(userAgent) || !import_path5.default.isAbsolute(requireNonEmptyString(response.codexHome, "codex_home")) || !requireNonEmptyString(response.platformFamily, "platform_family") || !requireNonEmptyString(response.platformOs, "platform_os")) {
+  if (!versionPattern.test(userAgent) || !import_path6.default.isAbsolute(requireNonEmptyString(response.codexHome, "codex_home")) || !requireNonEmptyString(response.platformFamily, "platform_family") || !requireNonEmptyString(response.platformOs, "platform_os")) {
     throw new ReviewAgentExecutionError(
       "capability_unavailable" /* CapabilityUnavailable */,
       null,
@@ -110227,7 +110558,7 @@ var ProductionT0ReviewRunner = class {
       return { outcome: "superseded" /* Superseded */ };
     }
     await new GitReviewRevisionMaterializer().ensureAvailable({
-      checkoutRoot: path26.resolve(input.workspacePath),
+      checkoutRoot: path27.resolve(input.workspacePath),
       repository: input.repository,
       scmReadToken: await scmReadTokenProvider.getToken(),
       commitShas: [
@@ -110273,7 +110604,7 @@ var ProductionT0ReviewRunner = class {
     const contextGatewayOptions = resolveProductionContextGatewaySessionFactoryOptions({
       agenticContext,
       investigationRecordingEnabled,
-      checkoutRoot: path26.resolve(input.workspacePath),
+      checkoutRoot: path27.resolve(input.workspacePath),
       gatewayBundlePath
     });
     const contextGateway = contextGatewayOptions ? new ContextGatewayInvocationSessionFactory(
@@ -110282,7 +110613,7 @@ var ProductionT0ReviewRunner = class {
       requiredContextWitness
     ) : void 0;
     const contextReplayRunner = contextGateway ? new ContextAttestationReplayRunner({
-      checkoutRoot: path26.resolve(input.workspacePath),
+      checkoutRoot: path27.resolve(input.workspacePath),
       gatewayBundlePath
     }) : void 0;
     const planned = planAssignments({
@@ -110387,7 +110718,7 @@ var ProductionT0ReviewRunner = class {
         });
       },
       {
-        workingDirectory: path26.resolve(input.workspacePath),
+        workingDirectory: path27.resolve(input.workspacePath),
         leaseDurationMs: Math.max(1e3, config.runTimeoutSeconds * 1e3) + 5 * 6e4,
         providerTimeoutMs: Math.max(
           1e3,
@@ -110720,8 +111051,8 @@ function resolveContextGatewayBundlePath() {
   if (!entrypoint) {
     throw new Error("review_action_v2_runtime_entrypoint_missing");
   }
-  return path26.join(
-    path26.dirname(path26.resolve(entrypoint)),
+  return path27.join(
+    path27.dirname(path27.resolve(entrypoint)),
     "context-gateway.js"
   );
 }
@@ -110884,7 +111215,7 @@ async function withRunnerEnvironment(input, operation) {
     set2("REVIEWROUTER_CODEX_BINARY", input.codexBinaryPath);
     set2(
       "PATH",
-      `${path26.dirname(input.codexBinaryPath)}${path26.delimiter}${process.env.PATH ?? ""}`
+      `${path27.dirname(input.codexBinaryPath)}${path27.delimiter}${process.env.PATH ?? ""}`
     );
   }
   try {
@@ -111480,8 +111811,8 @@ async function runReviewComputation(input) {
     process.env.CODEX_HEALTHCHECK_MODE = "binary";
     if (input.codexBinaryPath) {
       process.env.REVIEWROUTER_CODEX_BINARY = input.codexBinaryPath;
-      const codexBinDir = path27.dirname(input.codexBinaryPath);
-      process.env.PATH = previousPath ? `${codexBinDir}${path27.delimiter}${previousPath}` : codexBinDir;
+      const codexBinDir = path28.dirname(input.codexBinaryPath);
+      process.env.PATH = previousPath ? `${codexBinDir}${path28.delimiter}${previousPath}` : codexBinDir;
     }
     process.env.REVIEW_ROUTER_PROGRESS_COMMENTS = "never";
     await applyCodexRotatingReviewRuntimeConfig({

@@ -29,10 +29,15 @@ import {
 import {
   CONTEXT_GATEWAY_V4_ENABLED_TOOLS,
   CONTEXT_GATEWAY_V4_POLICY_VERSION,
+  ContextOperationOutcomeKind,
 } from '../../context-gateway/context-gateway-v4-contract';
 import { ContextGatewayLeaseAuthorityKind } from '../../context-gateway/context-gateway-lease-authority';
-import { decryptContextGatewayV4ReplayMaterial } from '../../context-gateway/context-gateway-v4-replay-material';
 import {
+  ContextGatewayV4ReplayMaterialRecorder,
+  decryptContextGatewayV4ReplayMaterial,
+} from '../../context-gateway/context-gateway-v4-replay-material';
+import {
+  CONTEXT_GATEWAY_V4_MAX_TRANSCRIPT_BYTES,
   ContextGatewayV4Recorder,
   type ContextGatewayV4Transcript,
 } from '../../context-gateway/context-gateway-v4-recorder';
@@ -129,8 +134,16 @@ export interface RequiredContextWitnessRunnerPort {
     readonly checkoutRoot: string;
     readonly runtimeEnvironment: Readonly<Record<string, string | undefined>>;
     readonly gatewaySessionSecret: string;
-  }): Promise<void>;
+  }): Promise<RequiredContextWitnessCapture | null>;
 }
+
+export type RequiredContextWitnessCapture = Readonly<{
+  policyVersion: typeof CONTEXT_GATEWAY_V4_POLICY_VERSION;
+  eventCount: number;
+  authenticatedChainHash: string;
+  replayEntryCount: number;
+  replayPrefixHash: string;
+}>;
 
 export interface ContextGatewayAttestationPort {
   openGatewaySession(
@@ -150,7 +163,7 @@ export class SubprocessRequiredContextWitnessRunner implements RequiredContextWi
     readonly checkoutRoot: string;
     readonly runtimeEnvironment: Readonly<Record<string, string | undefined>>;
     readonly gatewaySessionSecret: string;
-  }): Promise<void> {
+  }): Promise<RequiredContextWitnessCapture | null> {
     await execFileAsync(
       process.execPath,
       [input.gatewayBundlePath, '--preflight'],
@@ -167,6 +180,16 @@ export class SubprocessRequiredContextWitnessRunner implements RequiredContextWi
         maxBuffer: 64 * 1024,
       }
     );
+    if (
+      input.runtimeEnvironment.REVIEWROUTER_CONTEXT_GATEWAY_POLICY_VERSION !==
+      CONTEXT_GATEWAY_V4_POLICY_VERSION
+    ) {
+      return null;
+    }
+    return captureV4WitnessBoundary({
+      runtimeEnvironment: input.runtimeEnvironment,
+      secret: Buffer.from(input.gatewaySessionSecret, 'base64url'),
+    });
   }
 }
 
@@ -238,6 +261,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     const gatewayBundlePath = path.join(directory, 'context-gateway.cjs');
     const transcriptPath = path.join(directory, 'transcript.json');
     const replayMaterialPath = path.join(directory, 'replay-material.json');
+    let requiredWitness: RequiredContextWitnessCapture | null = null;
     try {
       await writeFile(gatewayBundlePath, gatewayBundleSnapshot, {
         flag: 'wx',
@@ -304,12 +328,19 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       if (secret.byteLength < 32) {
         throw new Error('context_gateway_session_secret_invalid');
       }
-      await this.requiredWitnessRunner.capture({
+      requiredWitness = await this.requiredWitnessRunner.capture({
         gatewayBundlePath,
         checkoutRoot: this.options.checkoutRoot,
         runtimeEnvironment: providerConfig.runtimeEnvironment,
         gatewaySessionSecret: serverSession.gatewaySessionSecret,
       });
+      if (
+        gatewayPolicyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION &&
+        executionProfile === ContextGatewayExecutionProfile.ContextGatewayV1 &&
+        !requiredWitness
+      ) {
+        throw new Error('context_gateway_required_witness_missing');
+      }
     } catch (error) {
       await cleanupOpenedGatewaySession({
         attestations: this.attestations,
@@ -328,7 +359,9 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       secret,
       transcriptPath,
       replayMaterialPath,
-      directory
+      directory,
+      executionProfile,
+      requiredWitness
     );
   }
 
@@ -440,7 +473,9 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     private readonly secret: Buffer,
     private readonly transcriptPath: string,
     private readonly replayMaterialPath: string,
-    private readonly directory: string
+    private readonly directory: string,
+    private readonly executionProfile: ContextGatewayExecutionProfile,
+    private readonly requiredWitness: RequiredContextWitnessCapture | null
   ) {
     this.credentialLease = Object.freeze({
       environment: Object.freeze({
@@ -591,6 +626,40 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
           sessionId: this.serverSession.sessionId,
         }
       );
+      if (
+        this.executionProfile ===
+        ContextGatewayExecutionProfile.ContextGatewayV1
+      ) {
+        verifyStrictV4ProviderInspection({
+          transcript,
+          replayMaterialCanonicalJson,
+          requiredWitness: this.requiredWitness,
+          sessionId: this.serverSession.sessionId,
+        });
+        const [stableTranscriptCanonicalJson, stableReplay] = await Promise.all(
+          [
+            readBoundedCanonicalJson(
+              this.transcriptPath,
+              CONTEXT_GATEWAY_V4_MAX_TRANSCRIPT_BYTES
+            ),
+            readBoundedText(
+              this.replayMaterialPath,
+              MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES
+            ),
+          ]
+        );
+        if (
+          !sameV4TranscriptBoundary(
+            stableTranscriptCanonicalJson,
+            transcript
+          ) ||
+          stableReplay !== encryptedReplayMaterialCanonicalJson
+        ) {
+          throw new ReviewContextInspectionFailure(
+            ReviewContextInspectionFailureReason.IncompleteTranscript
+          );
+        }
+      }
       stage = ReviewContextInspectionFailureStage.ControlPlaneSeal;
       const attestation = await this.attestations.sealGatewaySession({
         invocationLease: this.currentInvocationLease(),
@@ -642,6 +711,163 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     }
     throwCleanupFailures(failures);
   }
+}
+
+async function captureV4WitnessBoundary(input: {
+  readonly runtimeEnvironment: Readonly<Record<string, string | undefined>>;
+  readonly secret: Buffer;
+}): Promise<RequiredContextWitnessCapture> {
+  const sessionId = requireEnvironmentValue(
+    input.runtimeEnvironment,
+    'REVIEWROUTER_CONTEXT_SESSION_ID'
+  );
+  const recorder = new ContextGatewayV4Recorder({
+    sessionId,
+    transcriptPath: requireEnvironmentValue(
+      input.runtimeEnvironment,
+      'REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH'
+    ),
+    secret: input.secret,
+    gatewayBinaryHash: requireEnvironmentValue(
+      input.runtimeEnvironment,
+      'REVIEWROUTER_CONTEXT_GATEWAY_BINARY_HASH'
+    ),
+    checkoutTreeOid: requireEnvironmentValue(
+      input.runtimeEnvironment,
+      'REVIEWROUTER_CONTEXT_CHECKOUT_TREE_OID'
+    ),
+    eventChainSeedHash: requireEnvironmentValue(
+      input.runtimeEnvironment,
+      'REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH'
+    ),
+  });
+  await recorder.resume();
+  const transcript = recorder.snapshot();
+  const replay = new ContextGatewayV4ReplayMaterialRecorder({
+    sessionId,
+    replayMaterialPath: requireEnvironmentValue(
+      input.runtimeEnvironment,
+      'REVIEWROUTER_CONTEXT_REPLAY_MATERIAL_PATH'
+    ),
+    secret: input.secret,
+  });
+  await replay.resume();
+  const replayMaterial = replay.snapshot();
+  if (
+    transcript.events.length === 0 ||
+    replayMaterial.entries.length === 0 ||
+    replayMaterial.entries.length !==
+      transcript.events.filter(
+        (event) => event.outcome === ContextOperationOutcomeKind.Succeeded
+      ).length
+  ) {
+    throw new Error('context_gateway_required_witness_incomplete');
+  }
+  return Object.freeze({
+    policyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
+    eventCount: transcript.events.length,
+    authenticatedChainHash: transcript.authenticatedChainHash,
+    replayEntryCount: replayMaterial.entries.length,
+    replayPrefixHash: sha256(canonicalJson(replayMaterial.entries)),
+  });
+}
+
+function verifyStrictV4ProviderInspection(input: {
+  readonly transcript: ContextGatewayV4Transcript;
+  readonly replayMaterialCanonicalJson: string;
+  readonly requiredWitness: RequiredContextWitnessCapture | null;
+  readonly sessionId: string;
+}): void {
+  const baseline = input.requiredWitness;
+  if (
+    !baseline ||
+    baseline.policyVersion !== CONTEXT_GATEWAY_V4_POLICY_VERSION ||
+    baseline.eventCount < 1 ||
+    baseline.eventCount > input.transcript.events.length ||
+    input.transcript.events[baseline.eventCount - 1]?.eventHash !==
+      baseline.authenticatedChainHash
+  ) {
+    throw new ReviewContextInspectionFailure(
+      ReviewContextInspectionFailureReason.IncompleteTranscript
+    );
+  }
+  const replayMaterial = JSON.parse(input.replayMaterialCanonicalJson) as {
+    readonly replayMaterialVersion: unknown;
+    readonly sessionId: unknown;
+    readonly entries: readonly Readonly<{
+      sequence: number;
+      operationReceiptId: string;
+      operationKey: string;
+      operationKind: string;
+    }>[];
+  };
+  if (
+    replayMaterial.replayMaterialVersion !== 2 ||
+    replayMaterial.sessionId !== input.sessionId ||
+    !Array.isArray(replayMaterial.entries) ||
+    baseline.replayEntryCount < 1 ||
+    baseline.replayEntryCount > replayMaterial.entries.length ||
+    sha256(
+      canonicalJson(replayMaterial.entries.slice(0, baseline.replayEntryCount))
+    ) !== baseline.replayPrefixHash
+  ) {
+    throw new ReviewContextInspectionFailure(
+      ReviewContextInspectionFailureReason.IncompleteTranscript
+    );
+  }
+  const successfulEvents = input.transcript.events.filter(
+    (event) => event.outcome === ContextOperationOutcomeKind.Succeeded
+  );
+  if (
+    successfulEvents.length !== replayMaterial.entries.length ||
+    successfulEvents.some((event, index) => {
+      const replayEntry = replayMaterial.entries[index];
+      return (
+        replayEntry?.sequence !== event.sequence ||
+        replayEntry.operationReceiptId !== event.operationReceiptId ||
+        replayEntry.operationKey !== event.operationKey ||
+        replayEntry.operationKind !== event.operationKind
+      );
+    })
+  ) {
+    throw new ReviewContextInspectionFailure(
+      ReviewContextInspectionFailureReason.IncompleteTranscript
+    );
+  }
+  const providerSuffix = input.transcript.events.slice(baseline.eventCount);
+  if (
+    !providerSuffix.some(
+      (event) => event.outcome === ContextOperationOutcomeKind.Succeeded
+    )
+  ) {
+    throw new ReviewContextInspectionFailure(
+      ReviewContextInspectionFailureReason.MissingProviderInspection
+    );
+  }
+}
+
+function sameV4TranscriptBoundary(
+  canonicalTranscript: string,
+  expected: ContextGatewayV4Transcript
+): boolean {
+  const candidate = JSON.parse(
+    canonicalTranscript
+  ) as ContextGatewayV4Transcript;
+  return (
+    typeof candidate.updatedAtMs === 'number' &&
+    canonicalJson({ ...candidate, updatedAtMs: 0 }) ===
+      canonicalJson({ ...expected, updatedAtMs: 0 })
+  );
+}
+
+function requireEnvironmentValue(
+  environment: Readonly<Record<string, string | undefined>>,
+  key: string
+): string {
+  const value = environment[key];
+  if (!value)
+    throw new Error('context_gateway_required_witness_config_invalid');
+  return value;
 }
 
 async function cleanupOpenedGatewaySession(input: {
