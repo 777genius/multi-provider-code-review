@@ -243,7 +243,11 @@ describe('ContextGatewayInvocationSessionFactory', () => {
         gatewayPolicyVersion: CONTEXT_GATEWAY_V4_POLICY_VERSION,
         complete: true,
       });
-      expect(JSON.parse(sealInput.replayMaterialCanonicalJson)).toEqual({
+      const sealedReplayMaterial = JSON.parse(
+        sealInput.replayMaterialCanonicalJson
+      );
+      expect(sealedReplayMaterial.entries).toHaveLength(2);
+      expect(sealedReplayMaterial).toEqual({
         replayMaterialVersion: 2,
         sessionId: fixture.serverSession.sessionId,
         entries: expect.arrayContaining([
@@ -1063,16 +1067,7 @@ function v4Recorder(fixture: SessionFixture): ContextGatewayV4Recorder {
 }
 
 async function writeValidV4Evidence(fixture: SessionFixture): Promise<void> {
-  const recorder = new ContextGatewayV4Recorder({
-    sessionId: fixture.serverSession.sessionId,
-    transcriptPath:
-      fixture.session.providerConfig.runtimeEnvironment
-        .REVIEWROUTER_CONTEXT_TRANSCRIPT_PATH!,
-    secret: fixture.secret,
-    gatewayBinaryHash: fixture.gatewayHash,
-    checkoutTreeOid: fixture.checkoutTreeOid,
-    eventChainSeedHash: fixture.serverSession.eventChainSeedHash,
-  });
+  const recorder = v4Recorder(fixture);
   await recorder.resume();
   const replay = new ContextGatewayV4ReplayMaterialRecorder({
     sessionId: fixture.serverSession.sessionId,

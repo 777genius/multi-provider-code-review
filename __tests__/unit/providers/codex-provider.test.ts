@@ -430,6 +430,16 @@ describe('CodexProvider', () => {
     );
     expect(prompt).toContain('until review_read_file returns "eof": true');
     expect(prompt).toContain('MUST NOT produce final JSON');
+
+    const v3Gateway = contextGatewayConfig();
+    const v3Prompt = (provider as any).wrapContextGatewayReviewPrompt(
+      'deterministic review input',
+      v3Gateway.enabledTools,
+      v3Gateway.gatewayPolicyVersion
+    );
+    expect(v3Prompt).not.toContain(
+      'For every review_read_file result with "eof": false'
+    );
   });
 
   it('keeps ephemeral runner paths and gateway session data out of semantic identity', async () => {
