@@ -57,6 +57,7 @@ import {
   ReviewInvestigationLegacyFallbackSignal,
 } from '../../review-investigation/application/run-investigation-work-slot';
 import type { MergeGateConclusion } from '../../review-projection/domain';
+import type { ExecutionDeadline } from '../../review-execution/domain/execution-deadline';
 
 export enum ReviewOrchestrationResultStatus {
   Completed = 'completed',
@@ -110,6 +111,7 @@ enum ReviewWorkSlotExhaustionReason {
   ProviderLaneBusy = 'provider_lane_busy',
   InvestigationDeferred = 'investigation_deferred',
   RestoredTerminal = 'restored_terminal',
+  DeadlineReached = 'deadline_reached',
 }
 
 export type RunT0ReviewOrchestrationDependencies = {
@@ -130,6 +132,7 @@ export type RunT0ReviewOrchestrationDependencies = {
   readonly identities: ReviewOrchestrationIdentityPort;
   readonly clock: ReviewOrchestrationClockPort;
   readonly delay: ReviewOrchestrationDelayPort;
+  readonly executionDeadline?: ExecutionDeadline;
 };
 
 export class RunT0ReviewOrchestration {
@@ -292,6 +295,21 @@ export class RunT0ReviewOrchestration {
         }
         if (
           restoredSlot.state !== RestoredReviewWorkSlotState.Satisfied &&
+          !this.canStartBatch()
+        ) {
+          exhaustedWorkSlotIds.push(workSlot.workSlotId);
+          exhaustedWorkSlotReasons.set(
+            workSlot.workSlotId,
+            ReviewWorkSlotExhaustionReason.DeadlineReached
+          );
+          state = evolveReviewOrchestration(state, {
+            type: ReviewOrchestrationEventType.SlotExhausted,
+            workSlotId: workSlot.workSlotId,
+          });
+          continue;
+        }
+        if (
+          restoredSlot.state !== RestoredReviewWorkSlotState.Satisfied &&
           (busyPollsByProviderLane.get(workSlot.providerVoteIdentityHash) ??
             0) >= this.maxBusyPollsPerProviderLane
         ) {
@@ -444,6 +462,7 @@ export class RunT0ReviewOrchestration {
         });
       execution = refreshExecutionAdmission(execution, latestExecution);
       validateProjectionAgainstLimits(projection, authorization.limits);
+      this.assertExecutionDeadlineAvailable();
       state = evolveReviewOrchestration(state, {
         type: ReviewOrchestrationEventType.FinalizationStarted,
       });
@@ -458,6 +477,7 @@ export class RunT0ReviewOrchestration {
         allowPartial: partial,
       });
       await this.assertRevisionCurrent(command);
+      this.assertExecutionDeadlineAvailable();
       assertPublicationAuthorizationWindow({
         validForMsAtResponse: publicationRenewal.validForMsAtResponse,
         elapsedMs: elapsedMonotonicMs(
@@ -552,12 +572,19 @@ export class RunT0ReviewOrchestration {
           'review_orchestration_publication_authorization_window_exhausted'
         );
       }
-      const publicationDeadlineMs = safeAddMilliseconds(
-        readMonotonicClockMs(this.dependencies.clock),
+      const publicationWindowMs = Math.min(
         safeAddMilliseconds(
           reconciliationBudgetMs,
           FINAL_PUBLICATION_STATUS_RESERVE_MS
-        )
+        ),
+        this.executionDeadlineRemainingMs()
+      );
+      if (publicationWindowMs <= 0) {
+        throw new ReviewExecutionDeadlineReachedSignal();
+      }
+      const publicationDeadlineMs = safeAddMilliseconds(
+        readMonotonicClockMs(this.dependencies.clock),
+        publicationWindowMs
       );
       const publicationPollLimit = calculatePublicationPollLimit({
         hardLimit: this.maxPublicationPolls,
@@ -756,6 +783,16 @@ export class RunT0ReviewOrchestration {
           'review_orchestration_restored_observation_unavailable'
         );
       }
+      if (!this.canStartInvocation(attemptOrdinal)) {
+        input.onEvent({
+          type: ReviewOrchestrationEventType.SlotExhausted,
+          workSlotId: input.workSlot.workSlotId,
+        });
+        return {
+          streamVersion,
+          exhaustionReason: ReviewWorkSlotExhaustionReason.DeadlineReached,
+        };
+      }
 
       let investigationCandidate;
       try {
@@ -768,6 +805,16 @@ export class RunT0ReviewOrchestration {
           revision: input.revision,
         });
       } catch (error) {
+        if (error instanceof ReviewExecutionDeadlineReachedSignal) {
+          input.onEvent({
+            type: ReviewOrchestrationEventType.SlotExhausted,
+            workSlotId: input.workSlot.workSlotId,
+          });
+          return {
+            streamVersion,
+            exhaustionReason: ReviewWorkSlotExhaustionReason.DeadlineReached,
+          };
+        }
         if (!(error instanceof ReviewInvestigationDeferredSignal)) throw error;
         this.recordInvestigationDiagnostic({
           outcome: ReviewInvestigationDiagnosticOutcome.AuthoritativeDeferred,
@@ -823,6 +870,17 @@ export class RunT0ReviewOrchestration {
         }
       }
 
+      if (!this.canStartInvocation(attemptOrdinal)) {
+        input.onEvent({
+          type: ReviewOrchestrationEventType.SlotExhausted,
+          workSlotId: input.workSlot.workSlotId,
+        });
+        return {
+          streamVersion,
+          exhaustionReason: ReviewWorkSlotExhaustionReason.DeadlineReached,
+        };
+      }
+
       const acquireRequestId = this.identity('acquire-request', [
         input.execution.executionId,
         input.workSlot.workSlotId,
@@ -832,6 +890,16 @@ export class RunT0ReviewOrchestration {
       let lease: ReviewInvocationLease | null = null;
       let localBusyPollCount = 0;
       while (lease === null) {
+        if (!this.canStartInvocation(attemptOrdinal)) {
+          input.onEvent({
+            type: ReviewOrchestrationEventType.SlotExhausted,
+            workSlotId: input.workSlot.workSlotId,
+          });
+          return {
+            streamVersion,
+            exhaustionReason: ReviewWorkSlotExhaustionReason.DeadlineReached,
+          };
+        }
         const providerLaneBusyPollCount =
           input.busyPollsByProviderLane.get(
             input.workSlot.providerVoteIdentityHash
@@ -847,9 +915,20 @@ export class RunT0ReviewOrchestration {
           };
         }
         if (localBusyPollCount > 0) {
-          await this.dependencies.delay.sleep(
+          const delayMs = this.clampProviderDelay(
             Math.min(5_000, 500 * 2 ** Math.min(localBusyPollCount - 1, 4))
           );
+          if (delayMs <= 0) {
+            input.onEvent({
+              type: ReviewOrchestrationEventType.SlotExhausted,
+              workSlotId: input.workSlot.workSlotId,
+            });
+            return {
+              streamVersion,
+              exhaustionReason: ReviewWorkSlotExhaustionReason.DeadlineReached,
+            };
+          }
+          await this.dependencies.delay.sleep(delayMs);
           await this.assertRevisionCurrent(input.revision);
           const joined = await this.trySatisfyFromLookup({
             ...input,
@@ -927,6 +1006,17 @@ export class RunT0ReviewOrchestration {
       });
 
       await this.assertRevisionCurrent(input.revision);
+      if (!this.canStartInvocation(attemptOrdinal)) {
+        await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+        input.onEvent({
+          type: ReviewOrchestrationEventType.SlotExhausted,
+          workSlotId: input.workSlot.workSlotId,
+        });
+        return {
+          streamVersion,
+          exhaustionReason: ReviewWorkSlotExhaustionReason.DeadlineReached,
+        };
+      }
 
       let observationPayload;
       try {
@@ -953,10 +1043,24 @@ export class RunT0ReviewOrchestration {
         ) {
           await this.assertRevisionCurrent(input.revision);
         }
+        if (this.providerOperationRemainingMs() <= 0) {
+          throw new ReviewExecutionDeadlineReachedSignal();
+        }
       } catch (error) {
         if (error instanceof ReviewExecutionSupersededSignal) {
           await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
           throw error;
+        }
+        if (error instanceof ReviewExecutionDeadlineReachedSignal) {
+          await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+          input.onEvent({
+            type: ReviewOrchestrationEventType.SlotExhausted,
+            workSlotId: input.workSlot.workSlotId,
+          });
+          return {
+            streamVersion,
+            exhaustionReason: ReviewWorkSlotExhaustionReason.DeadlineReached,
+          };
         }
         if (
           error instanceof RetryableReviewContextInspectionFailure &&
@@ -1293,10 +1397,19 @@ export class RunT0ReviewOrchestration {
     const drainOnSupersession =
       input.invocation.manifestFacts.executionProfile === 'context_gateway_v1';
     const monitor = async () => {
-      if (drainOnSupersession) return;
       while (!stopped && !abort.signal.aborted) {
-        await this.dependencies.delay.sleep(this.revisionPollIntervalMs);
+        const delayMs = this.clampProviderDelay(this.revisionPollIntervalMs);
+        if (delayMs <= 0) {
+          abort.abort(new ReviewExecutionDeadlineReachedSignal());
+          return;
+        }
+        await this.dependencies.delay.sleep(delayMs);
         if (stopped || abort.signal.aborted) return;
+        if (this.providerOperationRemainingMs() <= 0) {
+          abort.abort(new ReviewExecutionDeadlineReachedSignal());
+          return;
+        }
+        if (drainOnSupersession) continue;
         try {
           await this.assertRevisionCurrent(input.revision);
         } catch (error) {
@@ -1309,9 +1422,19 @@ export class RunT0ReviewOrchestration {
     };
     void monitor();
     try {
-      return await this.executeLegacyInvocation(input, abort.signal);
+      const observation = await this.executeLegacyInvocation(
+        input,
+        abort.signal
+      );
+      if (abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
+        throw abort.signal.reason;
+      }
+      return observation;
     } catch (error) {
-      if (abort.signal.reason instanceof ReviewExecutionSupersededSignal) {
+      if (
+        abort.signal.reason instanceof ReviewExecutionSupersededSignal ||
+        abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal
+      ) {
         throw abort.signal.reason;
       }
       throw error;
@@ -1362,8 +1485,17 @@ export class RunT0ReviewOrchestration {
       let stopped = false;
       const monitor = async () => {
         while (!stopped && !abort.signal.aborted) {
-          await this.dependencies.delay.sleep(this.revisionPollIntervalMs);
+          const delayMs = this.clampProviderDelay(this.revisionPollIntervalMs);
+          if (delayMs <= 0) {
+            abort.abort(new ReviewExecutionDeadlineReachedSignal());
+            return;
+          }
+          await this.dependencies.delay.sleep(delayMs);
           if (stopped || abort.signal.aborted) return;
+          if (this.providerOperationRemainingMs() <= 0) {
+            abort.abort(new ReviewExecutionDeadlineReachedSignal());
+            return;
+          }
           try {
             await this.assertRevisionCurrent(input.revision);
           } catch (error) {
@@ -1386,9 +1518,17 @@ export class RunT0ReviewOrchestration {
           sourceReviewRevisionHash: input.revision.reviewRevisionHash,
           signal: abort.signal,
         });
+        if (
+          abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal
+        ) {
+          throw abort.signal.reason;
+        }
         return { invocation, manifest, observation };
       } catch (error) {
-        if (abort.signal.reason instanceof ReviewExecutionSupersededSignal) {
+        if (
+          abort.signal.reason instanceof ReviewExecutionSupersededSignal ||
+          abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal
+        ) {
           throw abort.signal.reason;
         }
         throw error;
@@ -1396,7 +1536,12 @@ export class RunT0ReviewOrchestration {
         stopped = true;
       }
     } catch (error) {
-      if (error instanceof ReviewExecutionSupersededSignal) throw error;
+      if (
+        error instanceof ReviewExecutionSupersededSignal ||
+        error instanceof ReviewExecutionDeadlineReachedSignal
+      ) {
+        throw error;
+      }
       if (
         error instanceof ReviewInvestigationLegacyFallbackSignal ||
         recording.mode === ReviewInvestigationRecordingMode.RecordOnly
@@ -1458,6 +1603,42 @@ export class RunT0ReviewOrchestration {
       sourceReviewRevisionHash: input.revision.reviewRevisionHash,
       signal,
     });
+  }
+
+  private canStartBatch(): boolean {
+    return this.dependencies.executionDeadline?.canStartBatch() ?? true;
+  }
+
+  private canStartInvocation(attemptOrdinal: number): boolean {
+    const deadline = this.dependencies.executionDeadline;
+    if (!deadline) return true;
+    return attemptOrdinal === 1
+      ? deadline.canStartInitialInvocation()
+      : deadline.canStartOptionalRetry();
+  }
+
+  private executionDeadlineRemainingMs(): number {
+    return this.dependencies.executionDeadline?.remainingMs() ?? Infinity;
+  }
+
+  private assertExecutionDeadlineAvailable(): void {
+    if (this.executionDeadlineRemainingMs() <= 0) {
+      throw new ReviewExecutionDeadlineReachedSignal();
+    }
+  }
+
+  private providerOperationRemainingMs(): number {
+    return (
+      this.dependencies.executionDeadline?.clampProviderTimeout(
+        Number.MAX_SAFE_INTEGER
+      ) ?? Infinity
+    );
+  }
+
+  private clampProviderDelay(requestedDelayMs: number): number {
+    return Math.floor(
+      Math.min(requestedDelayMs, this.providerOperationRemainingMs())
+    );
   }
 
   private async releaseLease(
@@ -1578,6 +1759,9 @@ function derivePartialFailureCode(input: {
     }
     if (reason === ReviewWorkSlotExhaustionReason.InvestigationDeferred) {
       return 'required_investigation_deferred';
+    }
+    if (reason === ReviewWorkSlotExhaustionReason.DeadlineReached) {
+      return 'required_execution_deadline_reached';
     }
     return 'required_work_exhausted';
   }
@@ -1990,6 +2174,12 @@ function isTerminal(phase: ReviewOrchestrationPhase): boolean {
 class ReviewExecutionSupersededSignal extends Error {
   constructor(readonly currentRevisionHash: string) {
     super('review_orchestration_superseded');
+  }
+}
+
+class ReviewExecutionDeadlineReachedSignal extends Error {
+  constructor() {
+    super('review_orchestration_execution_deadline_reached');
   }
 }
 

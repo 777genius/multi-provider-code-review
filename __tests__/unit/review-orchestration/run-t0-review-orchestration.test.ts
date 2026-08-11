@@ -38,8 +38,211 @@ import {
 } from '../../../src/review-investigation/application/run-investigation-work-slot';
 import { ReviewInvestigationRunStatus } from '../../../src/review-investigation/domain/investigation-state';
 import { MergeGateConclusion } from '../../../src/review-projection/domain';
+import { ExecutionDeadline } from '../../../src/review-execution/domain/execution-deadline';
 
 describe('RunT0ReviewOrchestration', () => {
+  it('finishes a partial review without starting pending work inside the deadline reserve', async () => {
+    const fixture = createFixture({ allowPartial: true });
+    Object.assign(fixture.dependencies, {
+      executionDeadline: orchestrationDeadline(
+        149_999,
+        fixture.dependencies.clock.monotonicNowMs
+      ),
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.PartialCompleted,
+      failureCode: 'required_execution_deadline_reached',
+    });
+    expect(fixture.dependencies.invocations.prepare).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.acquireInvocationLease).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.finalizeExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ allowPartial: true })
+    );
+  });
+
+  it('aborts in-flight provider work at the deadline and commits no evidence', async () => {
+    const fixture = createFixture({ allowPartial: true });
+    const providerSignal = jest.fn();
+    Object.assign(fixture.dependencies, {
+      executionDeadline: orchestrationDeadline(
+        155_000,
+        fixture.dependencies.clock.monotonicNowMs
+      ),
+    });
+    jest.mocked(fixture.dependencies.invocations.execute).mockImplementation(
+      async ({ signal }: { readonly signal: AbortSignal }) =>
+        await new Promise((_, reject) => {
+          const abort = () => {
+            providerSignal(signal.reason);
+            reject(signal.reason);
+          };
+          if (signal.aborted) abort();
+          else signal.addEventListener('abort', abort, { once: true });
+        })
+    );
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.PartialCompleted,
+      failureCode: 'required_execution_deadline_reached',
+    });
+    expect(providerSignal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'review_orchestration_execution_deadline_reached',
+      })
+    );
+    expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
+      1
+    );
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
+    expect(
+      fixture.dependencies.invocationFailureClassifier.classify
+    ).not.toHaveBeenCalled();
+  });
+
+  it('rejects a provider result that resolves after the work cutoff race', async () => {
+    const fixture = createFixture({ allowPartial: true });
+    let now = 0;
+    Object.assign(fixture.dependencies, {
+      executionDeadline: orchestrationDeadline(151_000, () => now),
+    });
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockImplementationOnce(async () => {
+        now = 31_001;
+        return observationPayload;
+      });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.PartialCompleted,
+      failureCode: 'required_execution_deadline_reached',
+    });
+    expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
+      1
+    );
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
+  });
+
+  it('turns an investigation deadline into slot exhaustion before standard acquisition', async () => {
+    const fixture = createFixture({
+      allowPartial: true,
+      executionProfile: 'context_gateway_v1',
+      investigationMode: ReviewInvestigationRecordingMode.RecordOnly,
+    });
+    Object.assign(fixture.dependencies, {
+      executionDeadline: orchestrationDeadline(
+        155_000,
+        fixture.dependencies.clock.monotonicNowMs
+      ),
+    });
+    fixture.investigationRecording?.execute.mockImplementation(
+      async ({ signal }: { readonly signal: AbortSignal }) =>
+        await new Promise((_, reject) => {
+          const abort = () => reject(signal.reason);
+          if (signal.aborted) abort();
+          else signal.addEventListener('abort', abort, { once: true });
+        })
+    );
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.PartialCompleted,
+      failureCode: 'required_execution_deadline_reached',
+    });
+    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.acquireInvocationLease).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
+  });
+
+  it('does not start another provider attempt after the retry window closes', async () => {
+    const fixture = createFixture({ maxAttempts: 2, allowPartial: true });
+    let now = 0;
+    Object.assign(fixture.dependencies, {
+      executionDeadline: orchestrationDeadline(151_000, () => now),
+    });
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockImplementationOnce(async () => {
+        now = 2_000;
+        throw new Error('provider_failed');
+      });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.PartialCompleted,
+      failureCode: 'required_execution_deadline_reached',
+    });
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(1);
+    expect(fixture.controlPlane.acquireInvocationLease).toHaveBeenCalledTimes(
+      1
+    );
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
+  });
+
+  it('caps publication polling to the execution deadline', async () => {
+    const fixture = createFixture();
+    Object.assign(fixture.dependencies, {
+      executionDeadline: orchestrationDeadline(
+        200_000,
+        fixture.dependencies.clock.monotonicNowMs
+      ),
+    });
+    fixture.controlPlane.requestPublication.mockResolvedValue({
+      status: ReviewPublicationRequestOutcomeStatus.Requested,
+      publicationAttemptId: 'publication-1',
+      pollAfterMs: 60_000,
+    });
+    fixture.controlPlane.readPublicationStatus.mockResolvedValue({
+      terminal: false,
+      pollAfterMs: 60_000,
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'publication_poll_exhausted',
+    });
+    expect(
+      fixture.controlPlane.readPublicationStatus.mock.calls.length
+    ).toBeLessThanOrEqual(4);
+    for (const [request] of fixture.controlPlane.readPublicationStatus.mock
+      .calls) {
+      expect(request.timeoutMs).toBeLessThanOrEqual(200_000);
+      expect(request.timeoutMs).toBeGreaterThan(0);
+    }
+  });
+
+  it('does not request publication after finalization consumes the deadline', async () => {
+    const fixture = createFixture();
+    let now = 0;
+    Object.assign(fixture.dependencies, {
+      executionDeadline: orchestrationDeadline(200_000, () => now),
+    });
+    fixture.controlPlane.finalizeExecution.mockImplementationOnce(async () => {
+      now = 200_001;
+      return { publicationPermit: 'publication.permit' };
+    });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'review_orchestration_execution_deadline_reached',
+    });
+    expect(fixture.controlPlane.finalizeExecution).toHaveBeenCalledTimes(1);
+    expect(fixture.controlPlane.requestPublication).not.toHaveBeenCalled();
+  });
+
   it('completes a fresh exact-revision observation and publication', async () => {
     const fixture = createFixture();
 
@@ -1856,6 +2059,21 @@ function createFixture(
     investigationRecording,
     useCase: new RunT0ReviewOrchestration(dependencies),
   };
+}
+
+function orchestrationDeadline(
+  deadlineEpochMs: number,
+  now: () => number
+): ExecutionDeadline {
+  return new ExecutionDeadline(
+    deadlineEpochMs,
+    {
+      completionReserveMs: 120_000,
+      minimumBatchStartWindowMs: 30_000,
+      minimumOptionalRetryStartWindowMs: 30_000,
+    },
+    { now }
+  );
 }
 
 const authorization: ReviewRunAuthorization = {

@@ -130,6 +130,8 @@ export interface ReviewActionV2ClientOptions {
 
 export interface ReviewActionV2ClientExecutionOptions {
   readonly timeoutMs?: number;
+  readonly maxAttempts?: number;
+  readonly retryBaseDelayMs?: number;
 }
 
 export interface ReviewActionV2ClientResponse<
@@ -280,6 +282,14 @@ export class ReviewActionV2Client {
     const request = this.frameRequest(operationId, payload);
     const serializedRequest = JSON.stringify(request);
     let capacityRetriesConsumed = 0;
+    const perCallMaxAttempts =
+      options.maxAttempts === undefined
+        ? null
+        : clampInteger(options.maxAttempts, 1, 5);
+    const perCallRetryBaseDelayMs =
+      options.retryBaseDelayMs === undefined
+        ? null
+        : clampInteger(options.retryBaseDelayMs, 1, 30_000);
     const deadlineMs =
       options.timeoutMs === undefined
         ? null
@@ -298,12 +308,13 @@ export class ReviewActionV2Client {
     }
 
     const loopAttemptLimit =
-      operationId === ReviewActionV2OperationId.ReviewPublicationRequest
+      perCallMaxAttempts ??
+      (operationId === ReviewActionV2OperationId.ReviewPublicationRequest
         ? Math.max(
             this.maxAttempts,
             this.publicationFactsUnavailableMaxAttempts
           )
-        : this.maxAttempts;
+        : this.maxAttempts);
     for (let attempt = 1; attempt <= loopAttemptLimit; attempt += 1) {
       try {
         const attemptTimeoutMs = remainingTimeoutMs(
@@ -323,10 +334,16 @@ export class ReviewActionV2Client {
         const normalized = normalizeClientError(error, operationId);
         const publicationFactsUnavailable =
           isPublicationFactsUnavailable(normalized);
-        const attemptLimit = publicationFactsUnavailable
-          ? this.publicationFactsUnavailableMaxAttempts
-          : this.maxAttempts;
-        const capacityRetryLimit = publicationFactsUnavailable ? 2 : 1;
+        const attemptLimit =
+          perCallMaxAttempts ??
+          (publicationFactsUnavailable
+            ? this.publicationFactsUnavailableMaxAttempts
+            : this.maxAttempts);
+        const capacityRetryLimit = publicationFactsUnavailable
+          ? 2
+          : perCallMaxAttempts === null
+            ? 1
+            : perCallMaxAttempts - 1;
         if (
           attempt >= attemptLimit ||
           !isRetryAllowed(descriptor.semanticRetryClass, normalized) ||
@@ -336,7 +353,12 @@ export class ReviewActionV2Client {
           throw normalized;
         }
         if (isCapacityLimited(normalized)) capacityRetriesConsumed += 1;
-        const retryDelay = retryDelayMs(normalized, attempt, this.random);
+        const retryDelay = retryDelayMs(
+          normalized,
+          attempt,
+          this.random,
+          perCallRetryBaseDelayMs
+        );
         const remainingMs = remainingTimeoutMs(
           deadlineMs,
           this.monotonicNow,
@@ -708,12 +730,18 @@ function isPublicationFactsUnavailable(
 function retryDelayMs(
   error: ReviewActionV2ClientError,
   attempt: number,
-  random: () => number
+  random: () => number,
+  perCallBaseDelayMs: number | null
 ): number {
-  if (!isCapacityLimited(error)) return error.retryAfterMs ?? 0;
-  const baseDelayMs = isPublicationFactsUnavailable(error)
-    ? Math.min(5_000 * 2 ** Math.max(0, attempt - 1), 10_000)
-    : Math.min(500 * 2 ** Math.max(0, attempt - 1), 5_000);
+  if (!isCapacityLimited(error) && perCallBaseDelayMs === null) {
+    return error.retryAfterMs ?? 0;
+  }
+  const baseDelayMs =
+    perCallBaseDelayMs === null
+      ? isPublicationFactsUnavailable(error)
+        ? Math.min(5_000 * 2 ** Math.max(0, attempt - 1), 10_000)
+        : Math.min(500 * 2 ** Math.max(0, attempt - 1), 5_000)
+      : Math.min(perCallBaseDelayMs * 2 ** Math.max(0, attempt - 1), 30_000);
   const sample = random();
   const boundedSample =
     Number.isFinite(sample) && sample >= 0 && sample < 1 ? sample : 0;

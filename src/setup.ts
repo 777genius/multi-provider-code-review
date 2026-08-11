@@ -51,24 +51,10 @@ import { ControlPlaneReviewThreadLifecycleResolver } from './control-plane/revie
 import { RuntimeConfigResult } from './control-plane/runtime-config';
 import { ControlPlaneMemoryClient } from './control-plane/memory';
 import { logger } from './utils/logger';
-import { ExecutionDeadline } from './review-execution/domain/execution-deadline';
+import { createExecutionDeadlineFromEnvironment } from './review-execution/infrastructure/execution-deadline-from-environment';
 import { createReviewCheckpointSessionFromEnvironment } from './review-execution/infrastructure/http-review-checkpoint-client';
 
-const DEFAULT_COMPLETION_RESERVE_MS = 120_000;
-const DEFAULT_MINIMUM_BATCH_START_WINDOW_MS = 30_000;
-const DEFAULT_MINIMUM_RETRY_START_WINDOW_MS = 30_000;
 const DEFAULT_PROVIDER_DISCOVERY_WAVE_TIMEOUT_MS = 15_000;
-
-function parseOptionalEpochMs(value: string | undefined): number | undefined {
-  if (!value?.trim()) return undefined;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(
-      'REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS must be a positive epoch timestamp'
-    );
-  }
-  return parsed;
-}
 
 function parseBoundedParallelism(
   value: string | undefined
@@ -81,17 +67,6 @@ function parseBoundedParallelism(
     );
   }
   return parsed;
-}
-
-function createExecutionDeadline(): ExecutionDeadline {
-  return new ExecutionDeadline(
-    parseOptionalEpochMs(process.env.REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS),
-    {
-      completionReserveMs: DEFAULT_COMPLETION_RESERVE_MS,
-      minimumBatchStartWindowMs: DEFAULT_MINIMUM_BATCH_START_WINDOW_MS,
-      minimumOptionalRetryStartWindowMs: DEFAULT_MINIMUM_RETRY_START_WINDOW_MS,
-    }
-  );
 }
 
 function bindDeadlineAwareProviderDiscovery(
@@ -164,7 +139,7 @@ async function createComponentsForCLI(
     await pluginLoader.loadPlugins();
   }
 
-  const executionDeadline = createExecutionDeadline();
+  const executionDeadline = createExecutionDeadlineFromEnvironment();
   const llmExecutor = new LLMExecutor(config, {
     deadline: executionDeadline,
     maxParallelCalls: parseBoundedParallelism(
@@ -341,7 +316,7 @@ export async function createComponents(
     await pluginLoader.loadPlugins();
   }
 
-  const executionDeadline = createExecutionDeadline();
+  const executionDeadline = createExecutionDeadlineFromEnvironment();
   const llmExecutor = new LLMExecutor(config, {
     deadline: executionDeadline,
     maxParallelCalls: parseBoundedParallelism(

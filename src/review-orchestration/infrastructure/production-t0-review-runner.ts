@@ -13,6 +13,10 @@ import { REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS } from '../../review-investig
 import { CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION } from '../../context-gateway/context-gateway-release-contract';
 import { BatchOrchestrator } from '../../core/batch-orchestrator';
 import { prioritizeFilesByRisk } from '../../review-execution/domain/file-risk-priority';
+import {
+  createExecutionDeadlineFromEnvironment,
+  REVIEW_EXECUTION_DEADLINE_ENV_KEY,
+} from '../../review-execution/infrastructure/execution-deadline-from-environment';
 import { GitHubClient } from '../../github/client';
 import type { GitHubTokenProvider } from '../../github/token-provider';
 import { ReviewLedger } from '../../github/ledger';
@@ -133,8 +137,17 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     input: Parameters<CodexOAuthV2ReviewRunnerPort['run']>[0]
   ): Promise<CodexOAuthV2ReviewResult> {
     validateInput(input);
+    const authoritativeDeadlineEpochMs =
+      process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY];
     await applyReviewRuntimeConfig(input, this.fetchImpl);
+    if (authoritativeDeadlineEpochMs === undefined) {
+      delete process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY];
+    } else {
+      process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY] =
+        authoritativeDeadlineEpochMs;
+    }
     const config = ConfigLoader.load();
+    const executionDeadline = createExecutionDeadlineFromEnvironment();
     const reviewActionClient = new ReviewActionV2Client({
       apiUrl: input.apiUrl,
       fetchImpl: this.fetchImpl,
@@ -430,6 +443,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       identities,
       clock: new SystemReviewOrchestrationClock(),
       delay: new SystemReviewOrchestrationDelay(),
+      executionDeadline,
     });
     const result = await useCase.executeAuthorized(
       {
@@ -724,6 +738,8 @@ function mapPartialFailureReason(
       return CodexOAuthV2TerminalReason.RequiredWorkExhausted;
     case 'required_investigation_deferred':
       return CodexOAuthV2TerminalReason.RequiredInvestigationDeferred;
+    case 'required_execution_deadline_reached':
+      return CodexOAuthV2TerminalReason.RequiredWorkExhausted;
     default:
       return CodexOAuthV2TerminalReason.Unknown;
   }

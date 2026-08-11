@@ -164,7 +164,8 @@ describe('ReviewActionV2InvestigationContextAttestationAdapter', () => {
           transcriptHash: sealInput.transcriptHash,
           replayMaterialCanonicalJson: sealInput.replayMaterialCanonicalJson,
           replayMaterialHash: sealInput.replayMaterialHash,
-        }
+        },
+        { maxAttempts: 5, retryBaseDelayMs: 1_000 }
       );
       expect(result).toEqual(attestation);
       expect(Object.isFrozen(result)).toBe(true);
@@ -221,43 +222,43 @@ describe('ReviewActionV2InvestigationContextAttestationAdapter', () => {
   it.each([
     ReviewContextGatewaySealResultStatus.Accepted,
     ReviewContextGatewaySealResultStatus.Idempotent,
-  ])('terminalizes a failed investigation shadow gateway from %s', async (status) => {
-    const execute = jest.fn().mockResolvedValue({ status });
-    const adapter = createAdapter(execute);
+  ])(
+    'terminalizes a failed investigation shadow gateway from %s',
+    async (status) => {
+      const execute = jest.fn().mockResolvedValue({ status });
+      const adapter = createAdapter(execute);
 
-    await expect(
-      adapter.abandonGatewaySession({
-        invocationLease,
-        session: gatewaySession,
-      })
-    ).resolves.toBeUndefined();
-    expect(execute).toHaveBeenCalledWith(
-      ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
-      expect.objectContaining({
-        authorizationToken,
-        leaseCapability: invocationLease.leaseCapability,
-        sealCapability: gatewaySession.sealCapability,
-        idempotencyKey: deterministicId(
-          'investigation-gateway-failed-seal',
-          [
+      await expect(
+        adapter.abandonGatewaySession({
+          invocationLease,
+          session: gatewaySession,
+        })
+      ).resolves.toBeUndefined();
+      expect(execute).toHaveBeenCalledWith(
+        ReviewActionV2OperationId.ReviewInvestigationContextGatewaySeal,
+        expect.objectContaining({
+          authorizationToken,
+          leaseCapability: invocationLease.leaseCapability,
+          sealCapability: gatewaySession.sealCapability,
+          idempotencyKey: deterministicId('investigation-gateway-failed-seal', [
             gatewaySession.sessionId,
             invocationLease.attemptId,
             invocationLease.leaseId,
             invocationLease.fencingToken,
-          ]
-        ),
-        sessionId: gatewaySession.sessionId,
-        attemptId: invocationLease.attemptId,
-        sourceLeaseId: invocationLease.leaseId,
-        fencingToken: invocationLease.fencingToken,
-        providerSucceeded: false,
-        schemaValidated: false,
-        fullyConsumed: false,
-        transcriptCanonicalJson: '{}',
-        replayMaterialCanonicalJson: '{}',
-      })
-    );
-  });
+          ]),
+          sessionId: gatewaySession.sessionId,
+          attemptId: invocationLease.attemptId,
+          sourceLeaseId: invocationLease.leaseId,
+          fencingToken: invocationLease.fencingToken,
+          providerSucceeded: false,
+          schemaValidated: false,
+          fullyConsumed: false,
+          transcriptCanonicalJson: '{}',
+          replayMaterialCanonicalJson: '{}',
+        })
+      );
+    }
+  );
 
   it('rejects a denied investigation shadow gateway abandon', async () => {
     const adapter = createAdapter(

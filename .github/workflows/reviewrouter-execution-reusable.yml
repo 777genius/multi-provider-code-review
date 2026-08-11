@@ -157,6 +157,20 @@ jobs:
             'REVIEWROUTER_COMMENT_TOKEN_MODE',
             runtimeConfigMode === 'oidc' ? 'app-oidc' : 'github-token'
           );
+          const reviewTimeoutMinutes = Number(
+            process.env.RR_REVIEW_TIMEOUT_MINUTES
+          );
+          if (
+            !Number.isSafeInteger(reviewTimeoutMinutes) ||
+            reviewTimeoutMinutes < 10 ||
+            reviewTimeoutMinutes > 360
+          ) {
+            fail('review_timeout_minutes must be an integer from 10 to 360.');
+          }
+          appendEnv(
+            'REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS',
+            Date.now() + (reviewTimeoutMinutes - 5) * 60_000
+          );
 
           let staticEnv;
           try {
@@ -178,8 +192,11 @@ jobs:
             if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) {
               fail(`Invalid static runtime env key: ${key}`);
             }
-            if (key === 'REVIEWROUTER_ACTION_V2_MODE') {
-              fail('Set review_action_v2_mode on the reusable workflow instead of static_runtime_env_json.');
+            if (
+              key === 'REVIEWROUTER_ACTION_V2_MODE' ||
+              key === 'REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS'
+            ) {
+              fail(`Static runtime env cannot override reserved key: ${key}`);
             }
             if (isSecretLikeStaticRuntimeEnvKey(key)) {
               fail(`Static runtime env cannot contain secret-like key: ${key}`);
@@ -209,6 +226,7 @@ jobs:
         env:
           GITHUB_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name || '' }}
           RR_REVIEW_APP_CLIENT_ID: ${{ inputs.review_app_client_id }}
+          RR_REVIEW_TIMEOUT_MINUTES: ${{ inputs.review_timeout_minutes }}
           RR_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
           RR_WORKFLOW_SHA: ${{ job.workflow_sha }}
 

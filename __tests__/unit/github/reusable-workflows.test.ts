@@ -256,6 +256,7 @@ describe('production reusable workflows', () => {
     expect(runtimePreparation?.env).toMatchObject({
       RR_WORKFLOW_REPOSITORY: '${{ job.workflow_repository }}',
       RR_WORKFLOW_SHA: '${{ job.workflow_sha }}',
+      RR_REVIEW_TIMEOUT_MINUTES: '${{ inputs.review_timeout_minutes }}',
     });
     expect(workflowSource).toContain("eventName === 'merge_group'");
     expect(workflowSource).toContain("isMergeGroup ? 'merge_group'");
@@ -299,6 +300,12 @@ describe('production reusable workflows', () => {
     expect(workflowSource).toContain("['TARGET_TOKENS_PER_BATCH']");
     expect(workflowSource).toContain('isSecretLikeStaticRuntimeEnvKey(key)');
     expect(workflowSource).toContain("key === 'REVIEWROUTER_ACTION_V2_MODE'");
+    expect(workflowSource).toContain(
+      "key === 'REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS'"
+    );
+    expect(workflowSource).toContain(
+      "appendEnv(\n            'REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS'"
+    );
     expect(workflowSource).toContain('npm install -g @openai/codex@0.145.0');
     expect(workflowSource).toContain(
       'curl -fsSL https://claude.ai/install.sh | bash'

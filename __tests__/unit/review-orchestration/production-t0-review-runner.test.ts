@@ -211,6 +211,10 @@ describe('ProductionT0ReviewRunner policy', () => {
       'required_investigation_deferred',
       CodexOAuthV2TerminalReason.RequiredInvestigationDeferred,
     ],
+    [
+      'required_execution_deadline_reached',
+      CodexOAuthV2TerminalReason.RequiredWorkExhausted,
+    ],
   ])(
     'keeps incomplete required partial coverage blocking for %s',
     (failureCode, reason) => {
