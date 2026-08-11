@@ -8,8 +8,19 @@ export enum ReviewContextInspectionFailureReason {
   GatewayOutputUnavailable = 'gateway_output_unavailable',
 }
 
+export enum ReviewContextInspectionFailureStage {
+  TranscriptResume = 'transcript_resume',
+  TranscriptValidation = 'transcript_validation',
+  ReplayRead = 'replay_read',
+  ReplayDecrypt = 'replay_decrypt',
+  ControlPlaneSeal = 'control_plane_seal',
+}
+
 export class ReviewContextInspectionFailure extends Error {
-  constructor(readonly reason: ReviewContextInspectionFailureReason) {
+  constructor(
+    readonly reason: ReviewContextInspectionFailureReason,
+    readonly stage?: ReviewContextInspectionFailureStage
+  ) {
     super(`review_context_inspection_failed:${reason}`);
     this.name = 'ReviewContextInspectionFailure';
   }
