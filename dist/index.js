@@ -93553,7 +93553,7 @@ var ReviewActionV2Client = class {
         const normalized = normalizeClientError(error2, operationId);
         const publicationFactsUnavailable = isPublicationFactsUnavailable(normalized);
         const attemptLimit = perCallMaxAttempts ?? (publicationFactsUnavailable ? this.publicationFactsUnavailableMaxAttempts : this.maxAttempts);
-        const capacityRetryLimit = publicationFactsUnavailable ? 2 : 1;
+        const capacityRetryLimit = publicationFactsUnavailable ? 2 : perCallMaxAttempts === null ? 1 : perCallMaxAttempts - 1;
         if (attempt >= attemptLimit || !isRetryAllowed(descriptor.semanticRetryClass, normalized) || isCapacityLimited(normalized) && capacityRetriesConsumed >= capacityRetryLimit) {
           throw normalized;
         }
