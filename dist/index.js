@@ -50250,7 +50250,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.102",
+  version: "1.0.103",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -93993,9 +93993,10 @@ var RestoredReviewWorkSlotState = /* @__PURE__ */ ((RestoredReviewWorkSlotState2
 
 // src/review-orchestration/application/review-context-inspection-failure.ts
 var ReviewContextInspectionFailure = class extends Error {
-  constructor(reason) {
+  constructor(reason, stage) {
     super(`review_context_inspection_failed:${reason}`);
     this.reason = reason;
+    this.stage = stage;
     this.name = "ReviewContextInspectionFailure";
   }
 };
@@ -97940,7 +97941,7 @@ REVIEWROUTER_COVERAGE_MANIFEST_V3_BASE64URL:${Buffer.from(
             ]
           });
           logger.warn(
-            `Context inspection incomplete (${error2.reason}); fresh evidence is not cross-revision reusable`
+            `Context inspection incomplete (${error2.reason}${error2.stage ? `, stage=${error2.stage}` : ""}); fresh evidence is not cross-revision reusable`
           );
           throw new RetryableReviewContextInspectionFailure(
             error2.reason,
@@ -99213,6 +99214,7 @@ var ContextGatewayInvocationSession = class {
     return attestation;
   }
   async sealV4(input) {
+    let stage = "transcript_resume" /* TranscriptResume */;
     try {
       const recorder = new ContextGatewayV4Recorder({
         sessionId: this.serverSession.sessionId,
@@ -99223,6 +99225,7 @@ var ContextGatewayInvocationSession = class {
         eventChainSeedHash: this.serverSession.eventChainSeedHash
       });
       await recorder.resume();
+      stage = "transcript_validation" /* TranscriptValidation */;
       const transcript = recorder.snapshot();
       if (transcript.events.length === 0) {
         throw new ReviewContextInspectionFailure(
@@ -99235,10 +99238,12 @@ var ContextGatewayInvocationSession = class {
         );
       }
       const transcriptCanonicalJson = createV4WireSealPayload(transcript);
+      stage = "replay_read" /* ReplayRead */;
       const encryptedReplayMaterialCanonicalJson = await readBoundedText(
         this.replayMaterialPath,
         MAX_ENCRYPTED_REPLAY_MATERIAL_BYTES
       );
+      stage = "replay_decrypt" /* ReplayDecrypt */;
       const replayMaterialCanonicalJson = decryptContextGatewayV4ReplayMaterial(
         {
           encryptedCanonicalJson: encryptedReplayMaterialCanonicalJson,
@@ -99246,7 +99251,7 @@ var ContextGatewayInvocationSession = class {
           sessionId: this.serverSession.sessionId
         }
       );
-      await (0, import_promises2.rm)(this.replayMaterialPath);
+      stage = "control_plane_seal" /* ControlPlaneSeal */;
       const attestation = await this.attestations.sealGatewaySession({
         invocationLease: this.currentInvocationLease(),
         session: this.serverSession,
@@ -99265,7 +99270,8 @@ var ContextGatewayInvocationSession = class {
     } catch (error2) {
       if (error2 instanceof ReviewContextInspectionFailure) throw error2;
       throw new ReviewContextInspectionFailure(
-        "gateway_output_unavailable" /* GatewayOutputUnavailable */
+        "gateway_output_unavailable" /* GatewayOutputUnavailable */,
+        stage
       );
     }
   }
