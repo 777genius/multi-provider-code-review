@@ -22477,7 +22477,11 @@ var CodexProvider = class _CodexProvider extends Provider {
     const binary2 = await this.resolveBinary();
     const cwd = process.cwd();
     const agenticContext = contextGateway ? true : this.shouldUseAgenticContext();
-    const finalPrompt = contextGateway ? this.wrapContextGatewayReviewPrompt(prompt, contextGateway.enabledTools) : agenticContext ? await this.wrapAgenticReviewPrompt(prompt) : this.wrapPromptOnlyReviewPrompt(prompt);
+    const finalPrompt = contextGateway ? this.wrapContextGatewayReviewPrompt(
+      prompt,
+      contextGateway.enabledTools,
+      contextGateway.gatewayPolicyVersion
+    ) : agenticContext ? await this.wrapAgenticReviewPrompt(prompt) : this.wrapPromptOnlyReviewPrompt(prompt);
     const auditMode = agenticContext && !contextGateway ? this.agenticAuditMode() : "off";
     const eventAudit = contextGateway ? true : this.shouldUseEventAudit();
     const forkSandbox = this.shouldUseForkSandboxCodexHomeConfig();
@@ -23068,7 +23072,7 @@ var CodexProvider = class _CodexProvider extends Provider {
         throw new Error("codex_context_gateway_config_invalid");
     }
   }
-  wrapContextGatewayReviewPrompt(prompt, enabledTools) {
+  wrapContextGatewayReviewPrompt(prompt, enabledTools, gatewayPolicyVersion) {
     return [
       "You are running as review-router inside GitHub Actions.",
       "",
@@ -23078,6 +23082,9 @@ var CodexProvider = class _CodexProvider extends Provider {
       "Before returning final JSON, you MUST call at least one ReviewRouter MCP tool to inspect repository context beyond the deterministic prompt.",
       "Then inspect changed hunks and at least one directly related caller, test, schema, config, or helper when available.",
       'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.',
+      ...gatewayPolicyVersion === CONTEXT_GATEWAY_V4_POLICY_VERSION ? [
+        'For every review_read_file result with "eof": false, you MUST NOT produce final JSON. Continue reading the same path and revision contiguously with startByte equal to the prior startByte plus byteCount until review_read_file returns "eof": true.'
+      ] : [],
       "Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.",
       "Use repository-relative paths only. Only report concrete bugs on changed lines.",
       "",

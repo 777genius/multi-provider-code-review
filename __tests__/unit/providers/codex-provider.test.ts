@@ -417,10 +417,19 @@ describe('CodexProvider', () => {
     const gateway = contextGatewayV4Config();
     const prompt = (provider as any).wrapContextGatewayReviewPrompt(
       'deterministic review input',
-      gateway.enabledTools
+      gateway.enabledTools,
+      gateway.gatewayPolicyVersion
     );
 
     expect(prompt).toContain('- review_canonical_inventory');
+    expect(prompt).toContain(
+      'For every review_read_file result with "eof": false'
+    );
+    expect(prompt).toContain(
+      'startByte equal to the prior startByte plus byteCount'
+    );
+    expect(prompt).toContain('until review_read_file returns "eof": true');
+    expect(prompt).toContain('MUST NOT produce final JSON');
   });
 
   it('keeps ephemeral runner paths and gateway session data out of semantic identity', async () => {

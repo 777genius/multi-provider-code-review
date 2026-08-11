@@ -140,9 +140,10 @@ describe('FilesystemContextGatewayV4', () => {
       const tail = await gateway.readFile({
         path: 'src/current.ts',
         revision: ContextGatewayV4Revision.Head,
-        startByte: 7,
+        startByte: head.startByte + head.byteCount,
         maxBytes: 1024,
       });
+      expect(tail.startByte).toBe(head.startByte + head.byteCount);
       expect(tail.content).toContain('const current');
       expect(tail.eof).toBe(true);
 
