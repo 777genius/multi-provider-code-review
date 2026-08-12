@@ -1008,6 +1008,47 @@ describe('ReviewActionV2ControlPlaneAdapter', () => {
         }),
       })
     );
+    expect(execute).toHaveBeenCalledWith(
+      ReviewActionV2OperationId.ReviewExecutionStart,
+      expect.objectContaining({
+        assignmentManifestCanonicalJson:
+          startInput.assignmentManifestCanonicalJson,
+        assignmentManifestHash: startInput.assignmentManifestHash,
+      })
+    );
+  });
+
+  it('terminalizes a work slot with the exact generation and reason pair', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      status: ReviewExecutionMutationResultStatus.Applied,
+      executionId: execution.executionId,
+      workSlotId: workSlot.workSlotId,
+      streamVersion: '3',
+    });
+
+    await expect(
+      createAdapter(execute).terminalizeWorkSlot({
+        authorization,
+        idempotencyKey: 'idem:terminalize:1',
+        execution,
+        reviewRevisionHash: execution.restoredExecution.reviewRevisionHash,
+        workSlotId: workSlot.workSlotId,
+        terminal: {
+          terminalState: 'exhausted',
+          reasonCode: 'attempt_budget_exhausted',
+        },
+      })
+    ).resolves.toEqual({ streamVersion: '3' });
+    expect(execute).toHaveBeenCalledWith(
+      ReviewActionV2OperationId.ReviewExecutionWorkSlotTerminalize,
+      expect.objectContaining({
+        executionId: execution.executionId,
+        generation: execution.generation,
+        workSlotId: workSlot.workSlotId,
+        terminalState: 'exhausted',
+        reasonCode: 'attempt_budget_exhausted',
+      })
+    );
   });
 
   it('consumes a lookup hit payload and its attachment capability', async () => {
@@ -2119,6 +2160,8 @@ const startInput = {
   compatibilityKey: '2'.repeat(64),
   planHash: '3'.repeat(64),
   workSlotsCanonicalJson: '[]',
+  assignmentManifestCanonicalJson: '{"manifestVersion":1}',
+  assignmentManifestHash: '4'.repeat(64),
   workSlots: [workSlot],
   sourceRunId: 'run-1',
   sourceRunAttempt: '1',

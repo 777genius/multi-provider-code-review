@@ -452,10 +452,28 @@ export interface ReviewActionV2ControlPlanePort {
     readonly compatibilityKey: string;
     readonly planHash: string;
     readonly workSlotsCanonicalJson: string;
+    readonly assignmentManifestCanonicalJson: string;
+    readonly assignmentManifestHash: string;
     readonly workSlots: readonly ReviewWorkSlotPlan[];
     readonly sourceRunId: string;
     readonly sourceRunAttempt: string;
   }): Promise<ReviewExecutionAdmission>;
+  terminalizeWorkSlot(input: {
+    readonly authorization: ReviewRunAuthorization;
+    readonly idempotencyKey: string;
+    readonly execution: ReviewExecutionAdmission;
+    readonly reviewRevisionHash: string;
+    readonly workSlotId: string;
+    readonly terminal:
+      | {
+          readonly terminalState: 'exhausted';
+          readonly reasonCode: 'attempt_budget_exhausted';
+        }
+      | {
+          readonly terminalState: 'cancelled';
+          readonly reasonCode: 'deadline_reached';
+        };
+  }): Promise<{ readonly streamVersion: string }>;
   supersedeExecution(input: {
     readonly authorization: ReviewRunAuthorization;
     readonly idempotencyKey: string;
