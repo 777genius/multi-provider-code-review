@@ -1459,6 +1459,17 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.dependencies.projectionBuilder.build).toHaveBeenCalledWith(
       expect.objectContaining({ exhaustedWorkSlotIds: ['slot-1'] })
     );
+    expect(fixture.controlPlane.terminalizeWorkSlot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution: expect.objectContaining({ generation: '1' }),
+        reviewRevisionHash: fixture.command.reviewRevisionHash,
+        workSlotId: 'slot-1',
+        terminal: {
+          terminalState: 'exhausted',
+          reasonCode: 'attempt_budget_exhausted',
+        },
+      })
+    );
   });
 
   it('does not consume a semantic attempt ordinal while a lease is busy', async () => {
@@ -1848,6 +1859,7 @@ function createFixture(
         })),
       },
     })),
+    terminalizeWorkSlot: jest.fn().mockResolvedValue({ streamVersion: '1' }),
     supersedeExecution: jest.fn().mockResolvedValue(undefined),
     lookupEvidence: jest
       .fn()
@@ -1902,6 +1914,8 @@ function createFixture(
     compatibilityKey: hash('compatibility'),
     planHash: hash('plan'),
     workSlotsCanonicalJson: canonicalizeReviewWorkSlots(workSlots),
+    assignmentManifestCanonicalJson: '{"manifestVersion":1}',
+    assignmentManifestHash: hash('{"manifestVersion":1}'),
     workSlots,
     sourceRunId: 'run-1',
     sourceRunAttempt: '1',

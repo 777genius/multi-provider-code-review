@@ -13,6 +13,7 @@ import reviewExecutionObservationAttachSchema from './generated/review-action-v2
 import reviewExecutionObservationAdoptSchema from './generated/review-action-v2/schemas/review_execution_observation_adopt.schema.json';
 import reviewExecutionRestoreSchema from './generated/review-action-v2/schemas/review_execution_restore.schema.json';
 import reviewExecutionStartSchema from './generated/review-action-v2/schemas/review_execution_start.schema.json';
+import reviewExecutionWorkSlotTerminalizeSchema from './generated/review-action-v2/schemas/review_execution_work_slot_terminalize.schema.json';
 import reviewExecutionSupersedeSchema from './generated/review-action-v2/schemas/review_execution_supersede.schema.json';
 import reviewInvestigationConcludeSchema from './generated/review-action-v2/schemas/review_investigation_conclude.schema.json';
 import reviewInvestigationContextGatewayOpenSchema from './generated/review-action-v2/schemas/review_investigation_context_gateway_open.schema.json';
@@ -149,6 +150,8 @@ const responseSchemas = {
   [ReviewActionV2OperationId.ReviewExecutionRestore]:
     reviewExecutionRestoreSchema,
   [ReviewActionV2OperationId.ReviewExecutionStart]: reviewExecutionStartSchema,
+  [ReviewActionV2OperationId.ReviewExecutionWorkSlotTerminalize]:
+    reviewExecutionWorkSlotTerminalizeSchema,
   [ReviewActionV2OperationId.ReviewExecutionSupersede]:
     reviewExecutionSupersedeSchema,
   [ReviewActionV2OperationId.ReviewExecutionObservationAttach]:

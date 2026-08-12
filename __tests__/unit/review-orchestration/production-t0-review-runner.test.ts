@@ -149,6 +149,20 @@ describe('ProductionT0ReviewRunner policy', () => {
     expect(planned.assignments).toHaveLength(1);
     expect(planned.assignments[0].context.files).toHaveLength(1);
     expect(planned.uncoveredPaths).toHaveLength(2);
+    expect(JSON.parse(planned.plan.assignmentManifestCanonicalJson)).toEqual({
+      assignments: [
+        {
+          paths: planned.assignments[0].context.files.map(
+            (file) => file.filename
+          ),
+          workSlotId: planned.assignments[0].workSlot.workSlotId,
+        },
+      ],
+      eligiblePaths: [...pr.files.map((file) => file.filename)].sort(),
+      excludedPaths: [],
+      manifestVersion: 1,
+      uncoveredPaths: [...planned.uncoveredPaths],
+    });
     expect(
       new Set([
         planned.assignments[0].context.files[0].filename,

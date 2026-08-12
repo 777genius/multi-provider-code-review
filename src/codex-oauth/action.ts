@@ -63,6 +63,10 @@ import {
 } from '../control-plane/review-action-v2-contract';
 import { createProductionT0ReviewRunner } from '../review-orchestration/infrastructure/production-t0-review-runner';
 import { ReviewPublicationUnavailableFact } from '../review-orchestration/application';
+import {
+  createCiReviewProgressPublisher,
+  CiOrchestrationProgressReporter,
+} from './ci-review-progress';
 
 export const CODEX_OAUTH_ROTATING_MODE = 'codex-oauth-rotating';
 const SETUP_PULL_REQUEST_BRANCH = 'reviewrouter/setup';
@@ -190,6 +194,16 @@ export async function runCodexOAuthRotatingAction(
           githubWorkspacePath: inputs.workspacePath,
         })
       : null;
+  const ciProgress =
+    reviewActionV2Activation.mode === ReviewActionV2RuntimeMode.T0
+      ? createCiReviewProgressPublisher({
+          repository: inputs.repository,
+          pullRequestNumber: inputs.pullRequestNumber,
+        })
+      : null;
+  const ciProgressReporter = ciProgress
+    ? new CiOrchestrationProgressReporter(ciProgress)
+    : null;
   try {
     const runtime =
       reviewActionV2Activation.mode === ReviewActionV2RuntimeMode.T0
@@ -205,6 +219,11 @@ export async function runCodexOAuthRotatingAction(
                 options.v2ReviewRunner ??
                 createProductionT0ReviewRunner({
                   fetchImpl: options.fetchImpl,
+                  ...(ciProgressReporter
+                    ? {
+                        progress: ciProgressReporter,
+                      }
+                    : {}),
                 }),
             }
           )
@@ -257,6 +276,7 @@ export async function runCodexOAuthRotatingAction(
       return;
     }
     if ('v2Review' in runtime) {
+      await ciProgressReporter?.finish(progressTerminal(runtime.v2Review));
       core.setOutput('reviewrouter_v2_outcome', runtime.v2Review.outcome);
       if (runtime.v2Review.outcome === CodexOAuthV2ReviewOutcome.Completed) {
         await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
@@ -289,6 +309,22 @@ export async function runCodexOAuthRotatingAction(
       fs.rmSync(t0WorkspacePath, { recursive: true, force: true });
     }
   }
+}
+
+function progressTerminal(
+  review: CodexOAuthV2ReviewResult
+): Exclude<
+  import('./ci-review-progress').ProgressSnapshot['terminal'],
+  'none'
+> {
+  if (review.outcome === CodexOAuthV2ReviewOutcome.Completed) return 'complete';
+  if (review.outcome === CodexOAuthV2ReviewOutcome.PartialCompleted) {
+    return 'complete_with_gaps';
+  }
+  if (review.outcome === CodexOAuthV2ReviewOutcome.Superseded) {
+    return 'superseded';
+  }
+  return 'failed';
 }
 
 function buildSkippedTerminalOutcomeReport(

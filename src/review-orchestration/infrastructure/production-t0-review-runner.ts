@@ -117,7 +117,10 @@ const CODEX_RETRY_POLICY_VERSION = 'codex-semantic-retry.v1';
 const SCM_READ_TOKEN_EXPIRY_MARGIN_MS = 30_000;
 
 export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
-  constructor(private readonly fetchImpl: typeof fetch = fetch) {}
+  constructor(
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly progress?: import('../application/run-t0-review-orchestration').ReviewOrchestrationProgressPort
+  ) {}
 
   async run(
     input: Parameters<CodexOAuthV2ReviewRunnerPort['run']>[0]
@@ -444,6 +447,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       clock: new SystemReviewOrchestrationClock(),
       delay: new SystemReviewOrchestrationDelay(),
       executionDeadline,
+      ...(this.progress ? { progress: this.progress } : {}),
     });
     const result = await useCase.executeAuthorized(
       {
@@ -459,6 +463,9 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
         compatibilityKey,
         planHash: planned.plan.planHash,
         workSlotsCanonicalJson: planned.plan.workSlotsCanonicalJson,
+        assignmentManifestCanonicalJson:
+          planned.plan.assignmentManifestCanonicalJson,
+        assignmentManifestHash: planned.plan.assignmentManifestHash,
         workSlots: planned.plan.assignments.map(
           (assignment) => assignment.workSlot
         ),
@@ -867,9 +874,10 @@ function resolveContextGatewayBundlePath(): string {
 export function createProductionT0ReviewRunner(
   input: {
     readonly fetchImpl?: typeof fetch;
+    readonly progress?: import('../application/run-t0-review-orchestration').ReviewOrchestrationProgressPort;
   } = {}
 ): CodexOAuthV2ReviewRunnerPort {
-  return new ProductionT0ReviewRunner(input.fetchImpl);
+  return new ProductionT0ReviewRunner(input.fetchImpl, input.progress);
 }
 
 export function planAssignments(input: {
@@ -973,8 +981,12 @@ export function planAssignments(input: {
       batchId: batch.batchId,
       taskKind: batch.taskKind,
       required: batch.required,
+      paths: batch.files.map((file) => file.filename),
       schedulingOrdinal,
     })),
+    eligiblePaths: files.map((file) => file.filename),
+    uncoveredPaths,
+    excludedPaths: [],
     maxWorkSlots: maxSlots,
     maxAttemptsPerSlot: input.authorization.limits.maxAttemptsPerSlot,
   });

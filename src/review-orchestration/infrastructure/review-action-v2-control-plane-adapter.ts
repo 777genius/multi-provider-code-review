@@ -17,6 +17,8 @@ import {
   ReviewExecutionMutationResultStatus,
   ReviewExecutionRestoreResultStatus,
   ReviewExecutionStartResultStatus,
+  ReviewWorkSlotTerminalReason,
+  ReviewWorkSlotTerminalState,
   ReviewInvocationLeaseResultStatus,
   ReviewPublicationRequestResultStatus,
   ReviewPublicationStatusResultStatus,
@@ -464,6 +466,8 @@ export class ReviewActionV2ControlPlaneAdapter
     readonly compatibilityKey: string;
     readonly planHash: string;
     readonly workSlotsCanonicalJson: string;
+    readonly assignmentManifestCanonicalJson: string;
+    readonly assignmentManifestHash: string;
     readonly workSlots: readonly ReviewWorkSlotPlan[];
     readonly sourceRunId: string;
     readonly sourceRunAttempt: string;
@@ -478,6 +482,8 @@ export class ReviewActionV2ControlPlaneAdapter
         reviewRevisionHash: input.reviewRevisionHash,
         compatibilityKey: input.compatibilityKey,
         planHash: input.planHash,
+        assignmentManifestCanonicalJson: input.assignmentManifestCanonicalJson,
+        assignmentManifestHash: input.assignmentManifestHash,
         workSlotsCanonicalJson: input.workSlotsCanonicalJson,
         sourceRunId: input.sourceRunId,
         sourceRunAttempt: input.sourceRunAttempt,
@@ -490,6 +496,45 @@ export class ReviewActionV2ControlPlaneAdapter
       throw new Error(`review_action_v2_execution_${result.status}`);
     }
     return parseExecutionAdmission(result, input);
+  }
+
+  async terminalizeWorkSlot(
+    input: Parameters<ReviewActionV2ControlPlanePort['terminalizeWorkSlot']>[0]
+  ): Promise<{ readonly streamVersion: string }> {
+    const result = await this.client.execute(
+      ReviewActionV2OperationId.ReviewExecutionWorkSlotTerminalize,
+      {
+        authorizationToken: input.authorization.authorizationToken,
+        idempotencyKey: input.idempotencyKey,
+        executionId: input.execution.executionId,
+        generation: input.execution.generation,
+        reviewRevisionHash: input.reviewRevisionHash,
+        workSlotId: input.workSlotId,
+        terminalState:
+          input.terminal.terminalState === 'exhausted'
+            ? ReviewWorkSlotTerminalState.Exhausted
+            : ReviewWorkSlotTerminalState.Cancelled,
+        reasonCode:
+          input.terminal.reasonCode === 'attempt_budget_exhausted'
+            ? ReviewWorkSlotTerminalReason.AttemptBudgetExhausted
+            : ReviewWorkSlotTerminalReason.DeadlineReached,
+      }
+    );
+    requireMutationApplied(result.status, 'execution_work_slot_terminalize');
+    if (
+      requireString(result.executionId, 'terminalize_execution_id') !==
+        input.execution.executionId ||
+      requireString(result.workSlotId, 'terminalize_work_slot_id') !==
+        input.workSlotId
+    ) {
+      throw new Error('review_action_v2_terminalize_envelope_mismatch');
+    }
+    return {
+      streamVersion: requireDecimal(
+        result.streamVersion,
+        'terminalize_stream_version'
+      ),
+    };
   }
 
   async supersedeExecution(input: {

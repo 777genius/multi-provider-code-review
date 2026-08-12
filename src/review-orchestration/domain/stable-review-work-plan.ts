@@ -5,6 +5,10 @@ import {
   type ReviewWorkSlotPlan,
 } from '../application/review-orchestration-ports';
 
+const assignmentManifestMaxBytes = 512 * 1024;
+const assignmentManifestMaxPaths = 4_096;
+const assignmentManifestMaxPathLength = 1_024;
+
 export type StableReviewProviderLane = {
   readonly providerName: string;
   readonly providerKind: ReviewExecutionProviderKind;
@@ -18,7 +22,13 @@ export type StableReviewBatch = {
   readonly batchId: string;
   readonly taskKind: ReviewTaskKind;
   readonly required: boolean;
+  readonly paths: readonly string[];
   readonly schedulingOrdinal?: number;
+};
+
+export type StableReviewAssignmentManifest = {
+  readonly assignmentManifestCanonicalJson: string;
+  readonly assignmentManifestHash: string;
 };
 
 export type StableReviewBatchMember = {
@@ -42,6 +52,8 @@ export type StableReviewWorkAssignment = {
 export type StableReviewWorkPlan = {
   readonly planHash: string;
   readonly workSlotsCanonicalJson: string;
+  readonly assignmentManifestCanonicalJson: string;
+  readonly assignmentManifestHash: string;
   readonly assignments: readonly StableReviewWorkAssignment[];
 };
 
@@ -85,6 +97,9 @@ export function createStableReviewWorkPlan(input: {
   readonly compatibilityKey: string;
   readonly providers: readonly StableReviewProviderLane[];
   readonly batches: readonly StableReviewBatch[];
+  readonly eligiblePaths: readonly string[];
+  readonly uncoveredPaths: readonly string[];
+  readonly excludedPaths: readonly string[];
   readonly maxWorkSlots: number;
   readonly maxAttemptsPerSlot: number;
 }): StableReviewWorkPlan {
@@ -195,23 +210,33 @@ export function createStableReviewWorkPlan(input: {
   const canonicalAssignments = [...assignments].sort((left, right) =>
     compareCodePoints(left.workSlot.workSlotId, right.workSlot.workSlotId)
   );
+  const pathsByBatchId = new Map(
+    batches.map((batch) => [batch.batchId, canonicalPaths(batch.paths)])
+  );
+  const assignmentManifest = createStableReviewAssignmentManifest({
+    assignments: canonicalAssignments.map((assignment) => ({
+      workSlotId: assignment.workSlot.workSlotId,
+      paths: pathsByBatchId.get(assignment.batchId) ?? [],
+    })),
+    eligiblePaths: input.eligiblePaths,
+    uncoveredPaths: input.uncoveredPaths,
+    excludedPaths: input.excludedPaths,
+  });
   const workSlotsCanonicalJson = canonicalJson(
     canonicalAssignments.map((assignment) => assignment.workSlot)
   );
   const planHash = sha256(
-    `rr.review-work-plan.v1\0${canonicalJson({
+    `rr.review-work-plan.v2\0${canonicalJson({
+      assignmentManifestHash: assignmentManifest.assignmentManifestHash,
       compatibilityKey: input.compatibilityKey,
       reviewRevisionHash: input.reviewRevisionHash,
-      workSlots: canonicalAssignments.map((assignment) => ({
-        batchId: assignment.batchId,
-        providerName: assignment.providerName,
-        ...assignment.workSlot,
-      })),
+      workSlots: canonicalAssignments.map((assignment) => assignment.workSlot),
     })}`
   );
   return Object.freeze({
     planHash,
     workSlotsCanonicalJson,
+    ...assignmentManifest,
     assignments: Object.freeze(
       assignments.map((assignment) =>
         Object.freeze({
@@ -221,6 +246,114 @@ export function createStableReviewWorkPlan(input: {
       )
     ),
   });
+}
+
+export function createStableReviewAssignmentManifest(input: {
+  readonly assignments: readonly {
+    readonly workSlotId: string;
+    readonly paths: readonly string[];
+  }[];
+  readonly eligiblePaths: readonly string[];
+  readonly uncoveredPaths: readonly string[];
+  readonly excludedPaths: readonly string[];
+}): StableReviewAssignmentManifest {
+  const eligiblePaths = canonicalPaths(input.eligiblePaths);
+  const uncoveredPaths = canonicalPaths(input.uncoveredPaths);
+  const excludedPaths = canonicalPaths(input.excludedPaths);
+  const eligible = new Set(eligiblePaths);
+  for (const path of uncoveredPaths) {
+    if (!eligible.has(path)) {
+      throw new Error('review_assignment_manifest_uncovered_not_eligible');
+    }
+  }
+  const assignments = input.assignments
+    .map((assignment) => {
+      requireIdentity(assignment.workSlotId, 'work_slot_id');
+      const paths = canonicalPaths(assignment.paths);
+      for (const path of paths) {
+        if (!eligible.has(path)) {
+          throw new Error('review_assignment_manifest_assignment_not_eligible');
+        }
+      }
+      return { paths, workSlotId: assignment.workSlotId };
+    })
+    .sort((left, right) =>
+      compareCodePoints(left.workSlotId, right.workSlotId)
+    );
+  assertUnique(
+    assignments.map((assignment) => assignment.workSlotId),
+    'review_assignment_manifest_slot_duplicate'
+  );
+  const assignedPaths = new Set(
+    assignments.flatMap((assignment) => assignment.paths)
+  );
+  for (const path of uncoveredPaths) {
+    if (assignedPaths.has(path)) {
+      throw new Error('review_assignment_manifest_uncovered_assigned_overlap');
+    }
+  }
+  const uncovered = new Set(uncoveredPaths);
+  for (const path of eligiblePaths) {
+    if (!assignedPaths.has(path) && !uncovered.has(path)) {
+      throw new Error('review_assignment_manifest_eligible_unaccounted');
+    }
+  }
+  for (const path of excludedPaths) {
+    if (eligible.has(path)) {
+      throw new Error('review_assignment_manifest_excluded_eligible_overlap');
+    }
+  }
+  const pathCount =
+    assignments.reduce(
+      (total, assignment) => total + assignment.paths.length,
+      0
+    ) +
+    eligiblePaths.length +
+    uncoveredPaths.length +
+    excludedPaths.length;
+  if (pathCount > assignmentManifestMaxPaths) {
+    throw new Error('review_assignment_manifest_path_count_out_of_bounds');
+  }
+  const assignmentManifestCanonicalJson = canonicalJson({
+    assignments,
+    eligiblePaths,
+    excludedPaths,
+    manifestVersion: 1,
+    uncoveredPaths,
+  });
+  if (
+    Buffer.byteLength(assignmentManifestCanonicalJson, 'utf8') >
+    assignmentManifestMaxBytes
+  ) {
+    throw new Error('review_assignment_manifest_too_large');
+  }
+  return Object.freeze({
+    assignmentManifestCanonicalJson,
+    assignmentManifestHash: sha256(
+      `rr.review-assignment-manifest.v1\0${assignmentManifestCanonicalJson}`
+    ),
+  });
+}
+
+function canonicalPaths(paths: readonly string[]): readonly string[] {
+  for (const path of paths) requireNormalizedRepoPath(path);
+  return Object.freeze([...new Set(paths)].sort(compareCodePoints));
+}
+
+function requireNormalizedRepoPath(path: string): void {
+  if (
+    path.length === 0 ||
+    path.length > assignmentManifestMaxPathLength ||
+    path.includes('\0') ||
+    path.includes('\\') ||
+    path.startsWith('/') ||
+    path.endsWith('/') ||
+    path
+      .split('/')
+      .some((segment) => segment === '' || segment === '.' || segment === '..')
+  ) {
+    throw new Error('review_assignment_manifest_path_invalid');
+  }
 }
 
 function canonicalJson(value: unknown): string {

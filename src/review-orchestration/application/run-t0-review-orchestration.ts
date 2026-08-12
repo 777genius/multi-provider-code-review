@@ -86,6 +86,8 @@ export type RunT0ReviewOrchestrationCommand = {
   readonly compatibilityKey: string;
   readonly planHash: string;
   readonly workSlotsCanonicalJson: string;
+  readonly assignmentManifestCanonicalJson: string;
+  readonly assignmentManifestHash: string;
   readonly workSlots: readonly ReviewWorkSlotPlan[];
   readonly sourceRunId: string;
   readonly sourceRunAttempt: string;
@@ -133,7 +135,21 @@ export type RunT0ReviewOrchestrationDependencies = {
   readonly clock: ReviewOrchestrationClockPort;
   readonly delay: ReviewOrchestrationDelayPort;
   readonly executionDeadline?: ExecutionDeadline;
+  readonly progress?: ReviewOrchestrationProgressPort;
 };
+
+export interface ReviewOrchestrationProgressPort {
+  report(
+    event: Readonly<
+      | { type: 'initialized'; workSlots: readonly ReviewWorkSlotPlan[] }
+      | { type: 'running'; workSlotId: string; attemptOrdinal: number }
+      | { type: 'accepted'; workSlotId: string; attemptOrdinal: number }
+      | { type: 'exhausted'; workSlotId: string }
+      | { type: 'assembling' }
+      | { type: 'publishing' }
+    >
+  ): void;
+}
 
 export class RunT0ReviewOrchestration {
   constructor(
@@ -251,9 +267,16 @@ export class RunT0ReviewOrchestration {
         compatibilityKey: command.compatibilityKey,
         planHash: command.planHash,
         workSlotsCanonicalJson: command.workSlotsCanonicalJson,
+        assignmentManifestCanonicalJson:
+          command.assignmentManifestCanonicalJson,
+        assignmentManifestHash: command.assignmentManifestHash,
         workSlots: command.workSlots,
         sourceRunId: command.sourceRunId,
         sourceRunAttempt: command.sourceRunAttempt,
+      });
+      this.dependencies.progress?.report({
+        type: 'initialized',
+        workSlots: command.workSlots,
       });
       validateRestoredExecutionContinuity(restoredExecution, execution);
       state = evolveReviewOrchestration(state, {
@@ -348,6 +371,11 @@ export class RunT0ReviewOrchestration {
             observation: outcome.observation,
             coverageManifest: outcome.coverageManifest,
           });
+          this.dependencies.progress?.report({
+            type: 'accepted',
+            workSlotId: workSlot.workSlotId,
+            attemptOrdinal: outcome.attemptOrdinal ?? 1,
+          });
         } else {
           exhaustedWorkSlotIds.push(workSlot.workSlotId);
           if (outcome.exhaustionReason) {
@@ -355,6 +383,32 @@ export class RunT0ReviewOrchestration {
               workSlot.workSlotId,
               outcome.exhaustionReason
             );
+          }
+          this.dependencies.progress?.report({
+            type: 'exhausted',
+            workSlotId: workSlot.workSlotId,
+          });
+          const terminal = terminalizeCommand(outcome.exhaustionReason);
+          if (terminal) {
+            const terminalized =
+              await this.dependencies.controlPlane.terminalizeWorkSlot({
+                authorization,
+                idempotencyKey: this.idempotencyKey('slot-terminalize', [
+                  execution.executionId,
+                  execution.generation,
+                  workSlot.workSlotId,
+                  terminal.terminalState,
+                  terminal.reasonCode,
+                ]),
+                execution,
+                reviewRevisionHash: command.reviewRevisionHash,
+                workSlotId: workSlot.workSlotId,
+                terminal,
+              });
+            execution = {
+              ...execution,
+              streamVersion: terminalized.streamVersion,
+            };
           }
         }
       }
@@ -407,6 +461,7 @@ export class RunT0ReviewOrchestration {
         exhaustedWorkSlotIds,
         reviewRevisionHash: command.reviewRevisionHash,
       });
+      this.dependencies.progress?.report({ type: 'assembling' });
       const partial =
         requiredExhaustedWorkSlotIds.length > 0 || !projection.coverageComplete;
       const partialFailureCode = derivePartialFailureCode({
@@ -496,6 +551,7 @@ export class RunT0ReviewOrchestration {
           publicationPermit: finalized.publicationPermit,
           projection,
         });
+      this.dependencies.progress?.report({ type: 'publishing' });
       if (
         publication.status ===
         ReviewPublicationRequestOutcomeStatus.FactsUnavailable
@@ -736,6 +792,7 @@ export class RunT0ReviewOrchestration {
     readonly coverageManifest?: ReviewPromptCoverageManifest;
     readonly exhaustionReason?: ReviewWorkSlotExhaustionReason;
     readonly streamVersion: string;
+    readonly attemptOrdinal?: number;
   }> {
     let streamVersion = input.execution.streamVersion;
     for (
@@ -743,6 +800,11 @@ export class RunT0ReviewOrchestration {
       attemptOrdinal <= input.workSlot.attemptBudget;
       attemptOrdinal += 1
     ) {
+      this.dependencies.progress?.report({
+        type: 'running',
+        workSlotId: input.workSlot.workSlotId,
+        attemptOrdinal,
+      });
       await this.assertRevisionCurrent(input.revision);
       input.onEvent({
         type: ReviewOrchestrationEventType.SlotLookupStarted,
@@ -776,6 +838,7 @@ export class RunT0ReviewOrchestration {
           observation: reused.observation,
           coverageManifest: authoritativeInvocation.coverageManifest,
           streamVersion: reused.streamVersion,
+          attemptOrdinal,
         };
       }
       if (input.restoredSlot.state === RestoredReviewWorkSlotState.Satisfied) {
@@ -1161,6 +1224,7 @@ export class RunT0ReviewOrchestration {
           observation,
           coverageManifest: invocation.coverageManifest,
           streamVersion,
+          attemptOrdinal,
         };
       } finally {
         await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
@@ -1676,6 +1740,33 @@ export class RunT0ReviewOrchestration {
   }
 }
 
+function terminalizeCommand(
+  reason: ReviewWorkSlotExhaustionReason | undefined
+):
+  | {
+      readonly terminalState: 'exhausted';
+      readonly reasonCode: 'attempt_budget_exhausted';
+    }
+  | {
+      readonly terminalState: 'cancelled';
+      readonly reasonCode: 'deadline_reached';
+    }
+  | null {
+  if (
+    reason === ReviewWorkSlotExhaustionReason.AttemptBudgetExhausted ||
+    reason === ReviewWorkSlotExhaustionReason.ProviderAttemptsExhausted
+  ) {
+    return {
+      terminalState: 'exhausted',
+      reasonCode: 'attempt_budget_exhausted',
+    };
+  }
+  if (reason === ReviewWorkSlotExhaustionReason.DeadlineReached) {
+    return { terminalState: 'cancelled', reasonCode: 'deadline_reached' };
+  }
+  return null;
+}
+
 function finishPublication(input: {
   readonly state: ReviewOrchestrationState;
   readonly executionId: string;
@@ -1784,6 +1875,7 @@ function validateCommand(command: RunT0ReviewOrchestrationCommand): void {
     command.reviewRevisionHash,
     command.compatibilityKey,
     command.planHash,
+    command.assignmentManifestHash,
     command.ownerIdHash,
   ]) {
     if (!/^[a-f0-9]{64}$/.test(digest)) {

@@ -11924,12 +11924,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f2;
     };
-    function addFormats2(ajv, list, fs22, exportName) {
+    function addFormats2(ajv, list, fs23, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f2 of list)
-        ajv.addFormat(f2, fs22[f2]);
+        ajv.addFormat(f2, fs23[f2]);
     }
     module2.exports = exports2 = formatsPlugin;
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -12021,7 +12021,7 @@ function escapeProperty(value) {
 }
 
 // src/main.ts
-var fs21 = __toESM(require("fs"));
+var fs22 = __toESM(require("fs"));
 
 // src/config/loader.ts
 var fs2 = __toESM(require("fs"));
@@ -25451,7 +25451,7 @@ var TrivialDetector = class {
       },
       { enabled: true, check: () => this.matchesCustomPattern(filename) }
     ];
-    return checks.some(({ enabled, check }) => enabled && check());
+    return checks.some(({ enabled: enabled2, check }) => enabled2 && check());
   }
   /**
    * Check if file is trivial based on content changes
@@ -37038,9 +37038,9 @@ var PromptGenerator = class {
    * Save prompts to a file (for CLI usage)
    */
   async saveToFile(prompts, filepath, format = this.defaultFormat) {
-    const fs22 = await import("fs/promises");
+    const fs23 = await import("fs/promises");
     const content = this.formatForIDE(prompts, format);
-    await fs22.writeFile(filepath, content, "utf8");
+    await fs23.writeFile(filepath, content, "utf8");
     logger.info(`Saved ${prompts.length} fix prompts to ${filepath}`);
   }
   /**
@@ -51097,7 +51097,7 @@ function pluralize(word, count) {
 }
 
 // src/codex-oauth/action.ts
-var fs20 = __toESM(require("fs"));
+var fs21 = __toESM(require("fs"));
 var path28 = __toESM(require("path"));
 
 // src/codex-oauth/control-plane.ts
@@ -55808,14 +55808,14 @@ var import_path2 = __toESM(require("path"));
 var manifest_default = {
   contractSourceVersion: 1,
   protocolVersion: "2",
-  schemaDigest: "996f7192c860f290a1db8f8c6133ab1d6a36bf946d825077e10f0b7c36daba27",
-  goldenFixtureDigest: "d3f9cbcc2598908070e87cd3e6b2ed8e15cc23e74ccfaf893ecfdac40b7f6f37",
-  canonicalizerDigest: "865b2cd347d1e5bade8aa921c3384b0c7cd388d275f535919ffb403286d66271",
+  schemaDigest: "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3",
+  goldenFixtureDigest: "d6d5a918ce9e5e01a14aa9714a77d6557fcaee90c68e272cbc3f925f3e4c94a4",
+  canonicalizerDigest: "95a43332ccff5c8ccf8f6f9cb67d901d5efd3e91522c047c48f83b65c70cb03a",
   extensions: [
     {
       extensionId: "review-investigation-shadow.v1",
-      schemaDigest: "8e33c5eb6c9b39a409f53df7910f00c4b025b13a4f718009c4b9e8c277be29f7",
-      canonicalizerDigest: "68e42878f54d20358ff9ce3806877a20bf9201b79e661e9e5cb53c4566d2e442",
+      schemaDigest: "9ab22a39cc983b88ae50576ece6a777d72d904d09654d3f4c51a20fc13c29003",
+      canonicalizerDigest: "20dc769dd28947fe6ee0c7770199fbb6c5cd490a7d7f71785159da99d793ff77",
       operationIds: [
         "review_investigation_open_v2",
         "review_investigation_lease_acquire",
@@ -56143,6 +56143,89 @@ var manifest_default = {
         "execution_id",
         "expected_stream_version",
         "target_revision_hash"
+      ],
+      semanticRetryClass: "same_request",
+      transportAudience: "review_action_v2",
+      defaultTimeoutMs: 1e4,
+      bodyLimitBytes: 32768,
+      successStatuses: [200],
+      statusMapping: [
+        {
+          errorCode: "invalid_request",
+          retryClass: "never",
+          httpStatus: 400
+        },
+        {
+          errorCode: "invalid_authentication",
+          retryClass: "never",
+          httpStatus: 401
+        },
+        {
+          errorCode: "forbidden",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "capability_disabled",
+          retryClass: "never",
+          httpStatus: 403
+        },
+        {
+          errorCode: "not_found",
+          retryClass: "never",
+          httpStatus: 404
+        },
+        {
+          errorCode: "idempotency_conflict",
+          retryClass: "never",
+          httpStatus: 409
+        },
+        {
+          errorCode: "resource_gone",
+          retryClass: "never",
+          httpStatus: 410
+        },
+        {
+          errorCode: "stale_precondition",
+          retryClass: "never",
+          httpStatus: 412
+        },
+        {
+          errorCode: "limit_exceeded",
+          retryClass: "never",
+          httpStatus: 413
+        },
+        {
+          errorCode: "invariant_violation",
+          retryClass: "never",
+          httpStatus: 422
+        },
+        {
+          errorCode: "capacity_limited",
+          retryClass: "same_request",
+          httpStatus: 429
+        },
+        {
+          errorCode: "ambiguous_outcome",
+          retryClass: "same_request",
+          httpStatus: 500
+        }
+      ]
+    },
+    {
+      operationId: "review_execution_work_slot_terminalize",
+      boundedContext: "review_executions",
+      method: "POST",
+      path: "/api/action/v2/review-executions/work-slots/terminalize",
+      callerAuthority: "run_authorization",
+      mutability: "command",
+      naturalIdempotencyPreimage: [
+        "execution_id",
+        "generation",
+        "review_revision_hash",
+        "work_slot_id",
+        "terminal_state",
+        "reason_code"
       ],
       semanticRetryClass: "same_request",
       transportAudience: "review_action_v2",
@@ -58630,12 +58713,12 @@ var manifest_default = {
 
 // src/control-plane/generated/review-action-v2/review-action-v2.ts
 var reviewActionV2PublishedProtocolVersion = "2";
-var reviewActionV2PublishedSchemaDigest = "996f7192c860f290a1db8f8c6133ab1d6a36bf946d825077e10f0b7c36daba27";
-var reviewActionV2CanonicalizerDigest = "865b2cd347d1e5bade8aa921c3384b0c7cd388d275f535919ffb403286d66271";
+var reviewActionV2PublishedSchemaDigest = "32bb25cd3490660dbaeecaa168f162ba97ff171e2dfab69e1bd435bc2e1cf3d3";
+var reviewActionV2CanonicalizerDigest = "95a43332ccff5c8ccf8f6f9cb67d901d5efd3e91522c047c48f83b65c70cb03a";
 var reviewInvestigationExtensionV1 = {
   extensionId: "review-investigation-shadow.v1",
-  schemaDigest: "8e33c5eb6c9b39a409f53df7910f00c4b025b13a4f718009c4b9e8c277be29f7",
-  canonicalizerDigest: "68e42878f54d20358ff9ce3806877a20bf9201b79e661e9e5cb53c4566d2e442",
+  schemaDigest: "9ab22a39cc983b88ae50576ece6a777d72d904d09654d3f4c51a20fc13c29003",
+  canonicalizerDigest: "20dc769dd28947fe6ee0c7770199fbb6c5cd490a7d7f71785159da99d793ff77",
   operationIds: [
     "review_investigation_open_v2",
     "review_investigation_lease_acquire",
@@ -58652,6 +58735,7 @@ var ReviewActionV2OperationId = /* @__PURE__ */ ((ReviewActionV2OperationId2) =>
   ReviewActionV2OperationId2["ReviewExecutionRestore"] = "review_execution_restore";
   ReviewActionV2OperationId2["ReviewExecutionStart"] = "review_execution_start";
   ReviewActionV2OperationId2["ReviewExecutionSupersede"] = "review_execution_supersede";
+  ReviewActionV2OperationId2["ReviewExecutionWorkSlotTerminalize"] = "review_execution_work_slot_terminalize";
   ReviewActionV2OperationId2["ReviewExecutionObservationAttach"] = "review_execution_observation_attach";
   ReviewActionV2OperationId2["ReviewExecutionObservationAdopt"] = "review_execution_observation_adopt";
   ReviewActionV2OperationId2["ReviewExecutionFinalize"] = "review_execution_finalize";
@@ -58894,6 +58978,14 @@ var reviewActionV2Operations = [
         type: "hash"
       },
       {
+        name: "assignmentManifestCanonicalJson",
+        type: "nullable_canonical_json"
+      },
+      {
+        name: "assignmentManifestHash",
+        type: "nullable_hash"
+      },
+      {
         name: "workSlotsCanonicalJson",
         type: "canonical_json"
       },
@@ -58906,7 +58998,9 @@ var reviewActionV2Operations = [
         type: "identifier"
       }
     ],
-    allOrNoneRequestFieldGroups: [],
+    allOrNoneRequestFieldGroups: [
+      ["assignmentManifestCanonicalJson", "assignmentManifestHash"]
+    ],
     resultStatuses: [
       "admitted",
       "restored",
@@ -58960,6 +59054,73 @@ var reviewActionV2Operations = [
       {
         name: "targetRevisionHash",
         type: "hash"
+      }
+    ],
+    allOrNoneRequestFieldGroups: [],
+    resultStatuses: ["applied", "restored", "rejected", "conflict", "missing"]
+  },
+  {
+    operationId: "review_execution_work_slot_terminalize",
+    boundedContext: "review_executions",
+    method: "POST",
+    path: "/api/action/v2/review-executions/work-slots/terminalize",
+    callerAuthority: "run_authorization" /* RunAuthorization */,
+    mutability: "command",
+    naturalIdempotencyPreimage: [
+      "execution_id",
+      "generation",
+      "review_revision_hash",
+      "work_slot_id",
+      "terminal_state",
+      "reason_code"
+    ],
+    semanticRetryClass: "same_request",
+    transportAudience: "review_action_v2",
+    defaultTimeoutMs: 1e4,
+    bodyLimitBytes: 32768,
+    successStatuses: [200],
+    errorCodes: [
+      "invalid_request",
+      "invalid_authentication",
+      "forbidden",
+      "capability_disabled",
+      "not_found",
+      "idempotency_conflict",
+      "resource_gone",
+      "stale_precondition",
+      "limit_exceeded",
+      "invariant_violation",
+      "capacity_limited",
+      "ambiguous_outcome"
+    ],
+    requestFields: [
+      {
+        name: "executionId",
+        type: "identifier"
+      },
+      {
+        name: "generation",
+        type: "decimal"
+      },
+      {
+        name: "reviewRevisionHash",
+        type: "hash"
+      },
+      {
+        name: "workSlotId",
+        type: "identifier"
+      },
+      {
+        name: "terminalState",
+        type: "enum",
+        enumTypeName: "ReviewWorkSlotTerminalState",
+        enumValues: ["exhausted", "cancelled"]
+      },
+      {
+        name: "reasonCode",
+        type: "enum",
+        enumTypeName: "ReviewWorkSlotTerminalReason",
+        enumValues: ["deadline_reached", "attempt_budget_exhausted"]
       }
     ],
     allOrNoneRequestFieldGroups: [],
@@ -70696,6 +70857,8 @@ var review_execution_start_schema_default = {
         "reviewRevisionHash",
         "compatibilityKey",
         "planHash",
+        "assignmentManifestCanonicalJson",
+        "assignmentManifestHash",
         "workSlotsCanonicalJson",
         "sourceRunId",
         "sourceRunAttempt"
@@ -70754,6 +70917,28 @@ var review_execution_start_schema_default = {
           type: "string",
           pattern: "^[a-f0-9]{64}$"
         },
+        assignmentManifestCanonicalJson: {
+          anyOf: [
+            {
+              type: "string",
+              minLength: 2
+            },
+            {
+              type: "null"
+            }
+          ]
+        },
+        assignmentManifestHash: {
+          anyOf: [
+            {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            {
+              type: "null"
+            }
+          ]
+        },
         workSlotsCanonicalJson: {
           type: "string",
           minLength: 2
@@ -70770,7 +70955,43 @@ var review_execution_start_schema_default = {
           maxLength: 256,
           pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
         }
-      }
+      },
+      allOf: [
+        {
+          oneOf: [
+            {
+              required: [
+                "assignmentManifestCanonicalJson",
+                "assignmentManifestHash"
+              ],
+              properties: {
+                assignmentManifestCanonicalJson: {
+                  type: "string",
+                  minLength: 2
+                },
+                assignmentManifestHash: {
+                  type: "string",
+                  pattern: "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            {
+              required: [
+                "assignmentManifestCanonicalJson",
+                "assignmentManifestHash"
+              ],
+              properties: {
+                assignmentManifestCanonicalJson: {
+                  type: "null"
+                },
+                assignmentManifestHash: {
+                  type: "null"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       oneOf: [
@@ -70868,6 +71089,872 @@ var review_execution_start_schema_default = {
                     {
                       type: "string",
                       minLength: 2
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_request"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invalid_authentication"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "forbidden"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capability_disabled"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "not_found"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "idempotency_conflict"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "resource_gone"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "stale_precondition"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "limit_exceeded"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "invariant_violation"
+                },
+                retryClass: {
+                  const: "never"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "capacity_limited"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "error"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            error: {
+              type: "object",
+              additionalProperties: false,
+              required: ["errorCode", "retryClass", "details"],
+              properties: {
+                errorCode: {
+                  const: "ambiguous_outcome"
+                },
+                retryClass: {
+                  const: "same_request"
+                },
+                details: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["issues"],
+                  properties: {
+                    issues: {
+                      type: "array",
+                      maxItems: 8,
+                      items: {
+                        type: "string",
+                        minLength: 1,
+                        maxLength: 160
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+};
+
+// src/control-plane/generated/review-action-v2/schemas/review_execution_work_slot_terminalize.schema.json
+var review_execution_work_slot_terminalize_schema_default = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://reviewrouter.site/schemas/action/v2/review-action.json/review_execution_work_slot_terminalize",
+  title: "review_execution_work_slot_terminalize request and response",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "protocolVersion",
+        "schemaDigest",
+        "requestId",
+        "authorizationToken",
+        "idempotencyKey",
+        "requestBodyHash",
+        "executionId",
+        "generation",
+        "reviewRevisionHash",
+        "workSlotId",
+        "terminalState",
+        "reasonCode"
+      ],
+      properties: {
+        protocolVersion: {
+          const: "2"
+        },
+        schemaDigest: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        requestId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        authorizationToken: {
+          type: "string",
+          minLength: 1,
+          maxLength: 32768,
+          pattern: "^\\S+$"
+        },
+        idempotencyKey: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        requestBodyHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        executionId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        generation: {
+          type: "string",
+          pattern: "^(0|[1-9][0-9]*)$"
+        },
+        reviewRevisionHash: {
+          type: "string",
+          pattern: "^[a-f0-9]{64}$"
+        },
+        workSlotId: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+        },
+        terminalState: {
+          enum: ["exhausted", "cancelled"]
+        },
+        reasonCode: {
+          enum: ["deadline_reached", "attempt_budget_exhausted"]
+        }
+      }
+    },
+    {
+      oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "protocolVersion",
+            "schemaDigest",
+            "requestId",
+            "serverTime",
+            "result"
+          ],
+          properties: {
+            protocolVersion: {
+              const: "2"
+            },
+            schemaDigest: {
+              type: "string",
+              pattern: "^[a-f0-9]{64}$"
+            },
+            requestId: {
+              type: "string",
+              minLength: 1,
+              maxLength: 128
+            },
+            serverTime: {
+              type: "string",
+              format: "date-time"
+            },
+            result: {
+              type: "object",
+              additionalProperties: false,
+              required: ["status"],
+              properties: {
+                status: {
+                  enum: [
+                    "applied",
+                    "restored",
+                    "rejected",
+                    "conflict",
+                    "missing"
+                  ]
+                },
+                executionId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                workSlotId: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 256,
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+                    },
+                    {
+                      type: "null"
+                    }
+                  ]
+                },
+                streamVersion: {
+                  anyOf: [
+                    {
+                      type: "string",
+                      pattern: "^(0|[1-9][0-9]*)$"
                     },
                     {
                       type: "null"
@@ -93437,6 +94524,7 @@ var responseSchemas = {
   ["review_run_renew" /* ReviewRunRenew */]: review_run_renew_schema_default,
   ["review_execution_restore" /* ReviewExecutionRestore */]: review_execution_restore_schema_default,
   ["review_execution_start" /* ReviewExecutionStart */]: review_execution_start_schema_default,
+  ["review_execution_work_slot_terminalize" /* ReviewExecutionWorkSlotTerminalize */]: review_execution_work_slot_terminalize_schema_default,
   ["review_execution_supersede" /* ReviewExecutionSupersede */]: review_execution_supersede_schema_default,
   ["review_execution_observation_attach" /* ReviewExecutionObservationAttach */]: review_execution_observation_attach_schema_default,
   ["review_execution_observation_adopt" /* ReviewExecutionObservationAdopt */]: review_execution_observation_adopt_schema_default,
@@ -94277,6 +95365,9 @@ function sha2568(value) {
 
 // src/review-orchestration/domain/stable-review-work-plan.ts
 var import_crypto24 = require("crypto");
+var assignmentManifestMaxBytes = 512 * 1024;
+var assignmentManifestMaxPaths = 4096;
+var assignmentManifestMaxPathLength = 1024;
 function createStableReviewBatchId(input) {
   if (!Object.values(ReviewTaskKind).includes(input.taskKind)) {
     throw new Error("review_batch_task_kind_invalid");
@@ -94396,23 +95487,33 @@ function createStableReviewWorkPlan(input) {
   const canonicalAssignments = [...assignments].sort(
     (left, right) => compareCodePoints5(left.workSlot.workSlotId, right.workSlot.workSlotId)
   );
+  const pathsByBatchId = new Map(
+    batches.map((batch) => [batch.batchId, canonicalPaths(batch.paths)])
+  );
+  const assignmentManifest = createStableReviewAssignmentManifest({
+    assignments: canonicalAssignments.map((assignment) => ({
+      workSlotId: assignment.workSlot.workSlotId,
+      paths: pathsByBatchId.get(assignment.batchId) ?? []
+    })),
+    eligiblePaths: input.eligiblePaths,
+    uncoveredPaths: input.uncoveredPaths,
+    excludedPaths: input.excludedPaths
+  });
   const workSlotsCanonicalJson = canonicalJson7(
     canonicalAssignments.map((assignment) => assignment.workSlot)
   );
   const planHash = sha2569(
-    `rr.review-work-plan.v1\0${canonicalJson7({
+    `rr.review-work-plan.v2\0${canonicalJson7({
+      assignmentManifestHash: assignmentManifest.assignmentManifestHash,
       compatibilityKey: input.compatibilityKey,
       reviewRevisionHash: input.reviewRevisionHash,
-      workSlots: canonicalAssignments.map((assignment) => ({
-        batchId: assignment.batchId,
-        providerName: assignment.providerName,
-        ...assignment.workSlot
-      }))
+      workSlots: canonicalAssignments.map((assignment) => assignment.workSlot)
     })}`
   );
   return Object.freeze({
     planHash,
     workSlotsCanonicalJson,
+    ...assignmentManifest,
     assignments: Object.freeze(
       assignments.map(
         (assignment) => Object.freeze({
@@ -94422,6 +95523,84 @@ function createStableReviewWorkPlan(input) {
       )
     )
   });
+}
+function createStableReviewAssignmentManifest(input) {
+  const eligiblePaths = canonicalPaths(input.eligiblePaths);
+  const uncoveredPaths = canonicalPaths(input.uncoveredPaths);
+  const excludedPaths = canonicalPaths(input.excludedPaths);
+  const eligible = new Set(eligiblePaths);
+  for (const path29 of uncoveredPaths) {
+    if (!eligible.has(path29)) {
+      throw new Error("review_assignment_manifest_uncovered_not_eligible");
+    }
+  }
+  const assignments = input.assignments.map((assignment) => {
+    requireIdentity2(assignment.workSlotId, "work_slot_id");
+    const paths = canonicalPaths(assignment.paths);
+    for (const path29 of paths) {
+      if (!eligible.has(path29)) {
+        throw new Error("review_assignment_manifest_assignment_not_eligible");
+      }
+    }
+    return { paths, workSlotId: assignment.workSlotId };
+  }).sort(
+    (left, right) => compareCodePoints5(left.workSlotId, right.workSlotId)
+  );
+  assertUnique(
+    assignments.map((assignment) => assignment.workSlotId),
+    "review_assignment_manifest_slot_duplicate"
+  );
+  const assignedPaths = new Set(
+    assignments.flatMap((assignment) => assignment.paths)
+  );
+  for (const path29 of uncoveredPaths) {
+    if (assignedPaths.has(path29)) {
+      throw new Error("review_assignment_manifest_uncovered_assigned_overlap");
+    }
+  }
+  const uncovered = new Set(uncoveredPaths);
+  for (const path29 of eligiblePaths) {
+    if (!assignedPaths.has(path29) && !uncovered.has(path29)) {
+      throw new Error("review_assignment_manifest_eligible_unaccounted");
+    }
+  }
+  for (const path29 of excludedPaths) {
+    if (eligible.has(path29)) {
+      throw new Error("review_assignment_manifest_excluded_eligible_overlap");
+    }
+  }
+  const pathCount = assignments.reduce(
+    (total, assignment) => total + assignment.paths.length,
+    0
+  ) + eligiblePaths.length + uncoveredPaths.length + excludedPaths.length;
+  if (pathCount > assignmentManifestMaxPaths) {
+    throw new Error("review_assignment_manifest_path_count_out_of_bounds");
+  }
+  const assignmentManifestCanonicalJson = canonicalJson7({
+    assignments,
+    eligiblePaths,
+    excludedPaths,
+    manifestVersion: 1,
+    uncoveredPaths
+  });
+  if (Buffer.byteLength(assignmentManifestCanonicalJson, "utf8") > assignmentManifestMaxBytes) {
+    throw new Error("review_assignment_manifest_too_large");
+  }
+  return Object.freeze({
+    assignmentManifestCanonicalJson,
+    assignmentManifestHash: sha2569(
+      `rr.review-assignment-manifest.v1\0${assignmentManifestCanonicalJson}`
+    )
+  });
+}
+function canonicalPaths(paths) {
+  for (const path29 of paths) requireNormalizedRepoPath(path29);
+  return Object.freeze([...new Set(paths)].sort(compareCodePoints5));
+}
+function requireNormalizedRepoPath(path29) {
+  if (path29.length === 0 || path29.length > assignmentManifestMaxPathLength || path29.includes("\0") || path29.includes("\\") || path29.startsWith("/") || path29.endsWith("/") || path29.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
+    throw new Error("review_assignment_manifest_path_invalid");
+  }
 }
 function canonicalJson7(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson7).join(",")}]`;
@@ -95296,9 +96475,15 @@ var RunT0ReviewOrchestration = class {
         compatibilityKey: command.compatibilityKey,
         planHash: command.planHash,
         workSlotsCanonicalJson: command.workSlotsCanonicalJson,
+        assignmentManifestCanonicalJson: command.assignmentManifestCanonicalJson,
+        assignmentManifestHash: command.assignmentManifestHash,
         workSlots: command.workSlots,
         sourceRunId: command.sourceRunId,
         sourceRunAttempt: command.sourceRunAttempt
+      });
+      this.dependencies.progress?.report({
+        type: "initialized",
+        workSlots: command.workSlots
       });
       validateRestoredExecutionContinuity(restoredExecution, execution);
       state = evolveReviewOrchestration(state, {
@@ -95379,6 +96564,11 @@ var RunT0ReviewOrchestration = class {
             observation: outcome.observation,
             coverageManifest: outcome.coverageManifest
           });
+          this.dependencies.progress?.report({
+            type: "accepted",
+            workSlotId: workSlot.workSlotId,
+            attemptOrdinal: outcome.attemptOrdinal ?? 1
+          });
         } else {
           exhaustedWorkSlotIds.push(workSlot.workSlotId);
           if (outcome.exhaustionReason) {
@@ -95386,6 +96576,31 @@ var RunT0ReviewOrchestration = class {
               workSlot.workSlotId,
               outcome.exhaustionReason
             );
+          }
+          this.dependencies.progress?.report({
+            type: "exhausted",
+            workSlotId: workSlot.workSlotId
+          });
+          const terminal = terminalizeCommand(outcome.exhaustionReason);
+          if (terminal) {
+            const terminalized = await this.dependencies.controlPlane.terminalizeWorkSlot({
+              authorization,
+              idempotencyKey: this.idempotencyKey("slot-terminalize", [
+                execution.executionId,
+                execution.generation,
+                workSlot.workSlotId,
+                terminal.terminalState,
+                terminal.reasonCode
+              ]),
+              execution,
+              reviewRevisionHash: command.reviewRevisionHash,
+              workSlotId: workSlot.workSlotId,
+              terminal
+            });
+            execution = {
+              ...execution,
+              streamVersion: terminalized.streamVersion
+            };
           }
         }
       }
@@ -95432,6 +96647,7 @@ var RunT0ReviewOrchestration = class {
         exhaustedWorkSlotIds,
         reviewRevisionHash: command.reviewRevisionHash
       });
+      this.dependencies.progress?.report({ type: "assembling" });
       const partial = requiredExhaustedWorkSlotIds.length > 0 || !projection.coverageComplete;
       const partialFailureCode = derivePartialFailureCode({
         requiredExhaustedWorkSlotIds,
@@ -95516,6 +96732,7 @@ var RunT0ReviewOrchestration = class {
         publicationPermit: finalized.publicationPermit,
         projection
       });
+      this.dependencies.progress?.report({ type: "publishing" });
       if (publication.status === "facts_unavailable" /* FactsUnavailable */) {
         state = evolveReviewOrchestration(state, {
           type: "failed" /* Failed */
@@ -95712,6 +96929,11 @@ var RunT0ReviewOrchestration = class {
   async satisfyWorkSlot(input) {
     let streamVersion = input.execution.streamVersion;
     for (let attemptOrdinal = 1; attemptOrdinal <= input.workSlot.attemptBudget; attemptOrdinal += 1) {
+      this.dependencies.progress?.report({
+        type: "running",
+        workSlotId: input.workSlot.workSlotId,
+        attemptOrdinal
+      });
       await this.assertRevisionCurrent(input.revision);
       input.onEvent({
         type: "slot_lookup_started" /* SlotLookupStarted */,
@@ -95737,7 +96959,8 @@ var RunT0ReviewOrchestration = class {
         return {
           observation: reused.observation,
           coverageManifest: authoritativeInvocation.coverageManifest,
-          streamVersion: reused.streamVersion
+          streamVersion: reused.streamVersion,
+          attemptOrdinal
         };
       }
       if (input.restoredSlot.state === "satisfied" /* Satisfied */) {
@@ -96066,7 +97289,8 @@ var RunT0ReviewOrchestration = class {
         return {
           observation,
           coverageManifest: invocation.coverageManifest,
-          streamVersion
+          streamVersion,
+          attemptOrdinal
         };
       } finally {
         await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
@@ -96445,6 +97669,18 @@ var RunT0ReviewOrchestration = class {
     return this.dependencies.identities.deterministicId(namespace, parts);
   }
 };
+function terminalizeCommand(reason) {
+  if (reason === "attempt_budget_exhausted" /* AttemptBudgetExhausted */ || reason === "provider_attempts_exhausted" /* ProviderAttemptsExhausted */) {
+    return {
+      terminalState: "exhausted",
+      reasonCode: "attempt_budget_exhausted"
+    };
+  }
+  if (reason === "deadline_reached" /* DeadlineReached */) {
+    return { terminalState: "cancelled", reasonCode: "deadline_reached" };
+  }
+  return null;
+}
 function finishPublication(input) {
   if (input.outcome.state === "terminal_unknown" /* TerminalUnknown */) {
     const state2 = evolveReviewOrchestration(input.state, {
@@ -96522,6 +97758,7 @@ function validateCommand(command) {
     command.reviewRevisionHash,
     command.compatibilityKey,
     command.planHash,
+    command.assignmentManifestHash,
     command.ownerIdHash
   ]) {
     if (!/^[a-f0-9]{64}$/.test(digest3)) {
@@ -104670,6 +105907,8 @@ var ReviewActionV2ControlPlaneAdapter = class {
         reviewRevisionHash: input.reviewRevisionHash,
         compatibilityKey: input.compatibilityKey,
         planHash: input.planHash,
+        assignmentManifestCanonicalJson: input.assignmentManifestCanonicalJson,
+        assignmentManifestHash: input.assignmentManifestHash,
         workSlotsCanonicalJson: input.workSlotsCanonicalJson,
         sourceRunId: input.sourceRunId,
         sourceRunAttempt: input.sourceRunAttempt
@@ -104679,6 +105918,31 @@ var ReviewActionV2ControlPlaneAdapter = class {
       throw new Error(`review_action_v2_execution_${result2.status}`);
     }
     return parseExecutionAdmission(result2, input);
+  }
+  async terminalizeWorkSlot(input) {
+    const result2 = await this.client.execute(
+      "review_execution_work_slot_terminalize" /* ReviewExecutionWorkSlotTerminalize */,
+      {
+        authorizationToken: input.authorization.authorizationToken,
+        idempotencyKey: input.idempotencyKey,
+        executionId: input.execution.executionId,
+        generation: input.execution.generation,
+        reviewRevisionHash: input.reviewRevisionHash,
+        workSlotId: input.workSlotId,
+        terminalState: input.terminal.terminalState === "exhausted" ? "exhausted" /* Exhausted */ : "cancelled" /* Cancelled */,
+        reasonCode: input.terminal.reasonCode === "attempt_budget_exhausted" ? "attempt_budget_exhausted" /* AttemptBudgetExhausted */ : "deadline_reached" /* DeadlineReached */
+      }
+    );
+    requireMutationApplied(result2.status, "execution_work_slot_terminalize");
+    if (requireString3(result2.executionId, "terminalize_execution_id") !== input.execution.executionId || requireString3(result2.workSlotId, "terminalize_work_slot_id") !== input.workSlotId) {
+      throw new Error("review_action_v2_terminalize_envelope_mismatch");
+    }
+    return {
+      streamVersion: requireDecimal(
+        result2.streamVersion,
+        "terminalize_stream_version"
+      )
+    };
   }
   async supersedeExecution(input) {
     const operationId = "review_execution_supersede" /* ReviewExecutionSupersede */;
@@ -110682,8 +111946,9 @@ var execFileAsync8 = (0, import_util13.promisify)(import_child_process19.execFil
 var CODEX_RETRY_POLICY_VERSION = "codex-semantic-retry.v1";
 var SCM_READ_TOKEN_EXPIRY_MARGIN_MS = 3e4;
 var ProductionT0ReviewRunner = class {
-  constructor(fetchImpl = fetch) {
+  constructor(fetchImpl = fetch, progress) {
     this.fetchImpl = fetchImpl;
+    this.progress = progress;
   }
   async run(input) {
     return withRunnerEnvironment(input, async () => {
@@ -110968,7 +112233,8 @@ var ProductionT0ReviewRunner = class {
       identities,
       clock: new SystemReviewOrchestrationClock(),
       delay: new SystemReviewOrchestrationDelay(),
-      executionDeadline
+      executionDeadline,
+      ...this.progress ? { progress: this.progress } : {}
     });
     const result2 = await useCase.executeAuthorized(
       {
@@ -110984,6 +112250,8 @@ var ProductionT0ReviewRunner = class {
         compatibilityKey,
         planHash: planned.plan.planHash,
         workSlotsCanonicalJson: planned.plan.workSlotsCanonicalJson,
+        assignmentManifestCanonicalJson: planned.plan.assignmentManifestCanonicalJson,
+        assignmentManifestHash: planned.plan.assignmentManifestHash,
         workSlots: planned.plan.assignments.map(
           (assignment) => assignment.workSlot
         ),
@@ -111252,7 +112520,7 @@ function resolveContextGatewayBundlePath() {
   );
 }
 function createProductionT0ReviewRunner(input = {}) {
-  return new ProductionT0ReviewRunner(input.fetchImpl);
+  return new ProductionT0ReviewRunner(input.fetchImpl, input.progress);
 }
 function planAssignments(input) {
   const codexLanes = input.authorization.facts.providerVoteLanes.filter(
@@ -111326,8 +112594,12 @@ function planAssignments(input) {
       batchId: batch.batchId,
       taskKind: batch.taskKind,
       required: batch.required,
+      paths: batch.files.map((file) => file.filename),
       schedulingOrdinal
     })),
+    eligiblePaths: files.map((file) => file.filename),
+    uncoveredPaths,
+    excludedPaths: [],
     maxWorkSlots: maxSlots,
     maxAttemptsPerSlot: input.authorization.limits.maxAttemptsPerSlot
   });
@@ -111470,6 +112742,286 @@ function sha25617(value) {
   return (0, import_crypto41.createHash)("sha256").update(value).digest("hex");
 }
 
+// src/codex-oauth/ci-review-progress.ts
+var fs20 = __toESM(require("fs"));
+var CI_PROGRESS_MARKER = "<!-- review-router-live-progress -->";
+function formatCiReviewProgress(snapshot) {
+  const percent = percentage(snapshot.counts.completed, snapshot.counts.total);
+  const lines = [
+    CI_PROGRESS_MARKER,
+    "## ReviewRouter",
+    "",
+    `**Phase:** ${phaseLabel(snapshot)}`,
+    "",
+    `Review units: ${snapshot.counts.completed} of ${snapshot.counts.total} complete (${percent}%)`,
+    progressBar(percent)
+  ];
+  if (snapshot.fileCoverage.valid) {
+    lines.push(
+      `Files in completed units: ${snapshot.fileCoverage.covered} of ${snapshot.fileCoverage.total}`
+    );
+  }
+  lines.push(
+    `Units currently retrying: ${snapshot.counts.retrying}`,
+    `Units recovered by retry: ${snapshot.counts.recovered}`,
+    `Units not completed after retries: ${snapshot.counts.exhausted}`,
+    "",
+    `Last update: ${snapshot.updatedAt.replace("T", " ").replace(/\.\d{3}Z$/, " UTC")}`
+  );
+  return lines.join("\n");
+}
+var CiReviewProgressPublisher = class {
+  constructor(input) {
+    this.input = input;
+  }
+  async publish(snapshot) {
+    const body = formatCiReviewProgress(snapshot);
+    if (this.input.commentEligible && this.input.github) {
+      try {
+        const comments = await this.input.github.listComments({
+          repository: this.input.repository,
+          pullRequestNumber: this.input.pullRequestNumber
+        });
+        const existing = comments.find(
+          (comment) => (comment.body ?? "").includes(CI_PROGRESS_MARKER)
+        );
+        if (existing) {
+          await this.input.github.updateComment({
+            repository: this.input.repository,
+            commentId: existing.id,
+            body
+          });
+        } else {
+          await this.input.github.createComment({
+            repository: this.input.repository,
+            pullRequestNumber: this.input.pullRequestNumber,
+            body
+          });
+        }
+        return "comment";
+      } catch (error2) {
+        this.warning(
+          `ReviewRouter CI progress comment is unavailable; using job summary: ${safeError3(error2)}`
+        );
+      }
+    } else {
+      this.info(
+        "ReviewRouter CI progress comment is unavailable; using job summary/log."
+      );
+    }
+    this.appendSummary(
+      `${body}
+
+> CI progress comment is unavailable in this run. Progress is shown in the job summary and log instead.`
+    );
+    return "summary";
+  }
+  appendSummary(body) {
+    if (this.input.summaryPath) {
+      try {
+        fs20.appendFileSync(this.input.summaryPath, `
+${body}
+`, "utf8");
+      } catch (error2) {
+        this.warning(
+          `ReviewRouter could not write job summary: ${safeError3(error2)}`
+        );
+      }
+    }
+    this.info(body);
+  }
+  info(message) {
+    (this.input.info ?? info)(message);
+  }
+  warning(message) {
+    (this.input.warning ?? warning)(message);
+  }
+};
+var CiOrchestrationProgressReporter = class {
+  constructor(publisher, now = Date.now, minimumIntervalMs = 6e4) {
+    this.publisher = publisher;
+    this.now = now;
+    this.minimumIntervalMs = minimumIntervalMs;
+  }
+  slots = /* @__PURE__ */ new Map();
+  phase = "preparing";
+  terminal = "none";
+  lastPublishedAt = 0;
+  publishChain = Promise.resolve();
+  report(event) {
+    let force = false;
+    switch (event.type) {
+      case "initialized":
+        this.initialize(event.workSlots);
+        this.phase = "reviewing";
+        force = true;
+        break;
+      case "running": {
+        const slot = this.requireSlot(event.workSlotId);
+        slot.state = "running";
+        slot.attemptOrdinal = event.attemptOrdinal;
+        break;
+      }
+      case "accepted": {
+        const slot = this.requireSlot(event.workSlotId);
+        slot.state = "accepted";
+        slot.attemptOrdinal = event.attemptOrdinal;
+        break;
+      }
+      case "exhausted":
+        this.requireSlot(event.workSlotId).state = "exhausted";
+        break;
+      case "assembling":
+        this.phase = "assembling";
+        break;
+      case "publishing":
+        this.phase = "publishing";
+        break;
+    }
+    this.queuePublish(force);
+  }
+  async finish(terminal) {
+    this.phase = "terminal";
+    this.terminal = terminal;
+    this.queuePublish(true);
+    await this.publishChain;
+  }
+  queuePublish(force) {
+    const now = this.now();
+    if (!force && now - this.lastPublishedAt < this.minimumIntervalMs) return;
+    this.lastPublishedAt = now;
+    const snapshot = this.snapshot(now);
+    this.publishChain = this.publishChain.then(() => this.publisher.publish(snapshot)).catch(() => void 0);
+  }
+  initialize(workSlots) {
+    this.slots.clear();
+    for (const slot of workSlots) {
+      this.slots.set(slot.workSlotId, {
+        required: slot.required,
+        state: "pending",
+        attemptOrdinal: 1
+      });
+    }
+  }
+  requireSlot(workSlotId) {
+    const slot = this.slots.get(workSlotId);
+    if (!slot) throw new Error("ci_progress_work_slot_unknown");
+    return slot;
+  }
+  snapshot(now) {
+    const slots = [...this.slots.values()].filter((slot) => slot.required);
+    const accepted = slots.filter((slot) => slot.state === "accepted");
+    return {
+      schemaVersion: 1,
+      generation: 0,
+      phase: this.phase,
+      terminal: this.terminal,
+      updatedAt: new Date(now).toISOString(),
+      counts: {
+        total: slots.length,
+        completed: accepted.length,
+        exhausted: slots.filter((slot) => slot.state === "exhausted").length,
+        retrying: slots.filter(
+          (slot) => slot.state === "running" && slot.attemptOrdinal > 1
+        ).length,
+        recovered: accepted.filter((slot) => slot.attemptOrdinal > 1).length
+      },
+      fileCoverage: { valid: false }
+    };
+  }
+};
+function createCiReviewProgressPublisher(input) {
+  const env = input.env ?? process.env;
+  if (!enabled(env.REVIEW_ROUTER_CI_PROGRESS_WRITES)) return null;
+  const token = env.GITHUB_TOKEN?.trim();
+  const fork = isForkPullRequest(input.eventPath ?? env.GITHUB_EVENT_PATH);
+  return new CiReviewProgressPublisher({
+    repository: input.repository,
+    pullRequestNumber: input.pullRequestNumber,
+    commentEligible: Boolean(token) && !fork,
+    ...token && !fork ? { github: new GitHubCiProgressAdapter(token) } : {},
+    summaryPath: env.GITHUB_STEP_SUMMARY
+  });
+}
+var GitHubCiProgressAdapter = class {
+  client;
+  constructor(token) {
+    this.client = new GitHubClient(token);
+  }
+  async listComments(input) {
+    const [owner, repo] = splitRepository(input.repository);
+    return this.client.octokit.paginate(
+      this.client.octokit.rest.issues.listComments,
+      { owner, repo, issue_number: input.pullRequestNumber, per_page: 100 }
+    );
+  }
+  async createComment(input) {
+    const [owner, repo] = splitRepository(input.repository);
+    await this.client.octokit.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number: input.pullRequestNumber,
+      body: input.body
+    });
+  }
+  async updateComment(input) {
+    const [owner, repo] = splitRepository(input.repository);
+    await this.client.octokit.rest.issues.updateComment({
+      owner,
+      repo,
+      comment_id: input.commentId,
+      body: input.body
+    });
+  }
+};
+function isForkPullRequest(eventPath) {
+  if (!eventPath) return false;
+  try {
+    const event = JSON.parse(fs20.readFileSync(eventPath, "utf8"));
+    return event.pull_request?.head?.repo?.fork === true || typeof event.repository?.full_name === "string" && typeof event.pull_request?.head?.repo?.full_name === "string" && event.repository.full_name !== event.pull_request.head.repo.full_name;
+  } catch {
+    return true;
+  }
+}
+function splitRepository(repository) {
+  const parts = repository.split("/");
+  if (parts.length !== 2 || parts.some((part) => !part)) {
+    throw new Error("ci_progress_repository_invalid");
+  }
+  return [parts[0], parts[1]];
+}
+function enabled(value) {
+  return /^(?:1|true|yes|on)$/i.test(value?.trim() ?? "");
+}
+function percentage(completed, total) {
+  return total === 0 ? 100 : Math.floor(completed / total * 100);
+}
+function progressBar(percent) {
+  const filled = Math.floor(percent / 10);
+  return `[${"\u25A0".repeat(filled)}${"\u25A1".repeat(10 - filled)}] ${percent}%`;
+}
+function phaseLabel(snapshot) {
+  if (snapshot.phase !== "terminal") {
+    return {
+      preparing: "Preparing review",
+      reviewing: "Reviewing changed files",
+      assembling: "Assembling findings",
+      publishing: "Publishing results"
+    }[snapshot.phase];
+  }
+  return {
+    none: "Review complete",
+    complete: "Review complete",
+    complete_with_gaps: "Review complete with gaps",
+    failed: "Review failed",
+    cancelled: "Review cancelled",
+    superseded: "Review superseded"
+  }[snapshot.terminal];
+}
+function safeError3(error2) {
+  return error2 instanceof Error ? error2.message : String(error2);
+}
+
 // src/codex-oauth/action.ts
 var CODEX_OAUTH_ROTATING_MODE = "codex-oauth-rotating";
 var SETUP_PULL_REQUEST_BRANCH = "reviewrouter/setup";
@@ -111559,6 +113111,11 @@ async function runCodexOAuthRotatingAction(options = {}) {
     runnerTempPath: process.env.RUNNER_TEMP,
     githubWorkspacePath: inputs.workspacePath
   }) : null;
+  const ciProgress = reviewActionV2Activation.mode === "t0" /* T0 */ ? createCiReviewProgressPublisher({
+    repository: inputs.repository,
+    pullRequestNumber: inputs.pullRequestNumber
+  }) : null;
+  const ciProgressReporter = ciProgress ? new CiOrchestrationProgressReporter(ciProgress) : null;
   try {
     const runtime = reviewActionV2Activation.mode === "t0" /* T0 */ ? await runCodexOAuthRotatingRuntime(
       {
@@ -111569,7 +113126,10 @@ async function runCodexOAuthRotatingAction(options = {}) {
       {
         ...sharedRuntimePorts,
         v2Review: options.v2ReviewRunner ?? createProductionT0ReviewRunner({
-          fetchImpl: options.fetchImpl
+          fetchImpl: options.fetchImpl,
+          ...ciProgressReporter ? {
+            progress: ciProgressReporter
+          } : {}
         })
       }
     ) : await runCodexOAuthRotatingRuntime(inputs, {
@@ -111613,6 +113173,7 @@ async function runCodexOAuthRotatingAction(options = {}) {
       return;
     }
     if ("v2Review" in runtime) {
+      await ciProgressReporter?.finish(progressTerminal(runtime.v2Review));
       setOutput("reviewrouter_v2_outcome", runtime.v2Review.outcome);
       if (runtime.v2Review.outcome === "completed" /* Completed */) {
         await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
@@ -111642,9 +113203,19 @@ async function runCodexOAuthRotatingAction(options = {}) {
     }
   } finally {
     if (t0WorkspacePath) {
-      fs20.rmSync(t0WorkspacePath, { recursive: true, force: true });
+      fs21.rmSync(t0WorkspacePath, { recursive: true, force: true });
     }
   }
+}
+function progressTerminal(review) {
+  if (review.outcome === "completed" /* Completed */) return "complete";
+  if (review.outcome === "partial_completed" /* PartialCompleted */) {
+    return "complete_with_gaps";
+  }
+  if (review.outcome === "superseded" /* Superseded */) {
+    return "superseded";
+  }
+  return "failed";
 }
 function buildSkippedTerminalOutcomeReport(inputs, runtime) {
   if (runtime.reason === "max_changed_lines_exceeded") {
@@ -111879,7 +113450,7 @@ function appendTerminalOutcomeStepSummary(report) {
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryPath) return;
   try {
-    fs20.appendFileSync(summaryPath, `
+    fs21.appendFileSync(summaryPath, `
 ${report.stepSummary}
 `, "utf8");
   } catch (error2) {
@@ -112137,7 +113708,7 @@ function readPullRequestEvent() {
   if (!eventPath) {
     throw new Error("codex_oauth_github_event_path_missing");
   }
-  const event = JSON.parse(fs20.readFileSync(eventPath, "utf8"));
+  const event = JSON.parse(fs21.readFileSync(eventPath, "utf8"));
   const eventName = process.env.GITHUB_EVENT_NAME || "";
   const workflowDispatch = eventName === "workflow_dispatch";
   const repository = event.repository?.full_name || process.env.GITHUB_REPOSITORY;
@@ -112505,7 +114076,7 @@ async function runInteractionPreflight(token) {
   const githubClient = new GitHubClient(token);
   const discussionHandler = createDiscussionHandler(githubClient);
   const payload = JSON.parse(
-    fs21.readFileSync(process.env.GITHUB_EVENT_PATH || "", "utf8")
+    fs22.readFileSync(process.env.GITHUB_EVENT_PATH || "", "utf8")
   );
   const body = String(payload?.comment?.body || "");
   const botComment = payload?.comment?.user?.type === "Bot" || String(payload?.comment?.user?.login || "").endsWith("[bot]");
