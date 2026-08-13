@@ -117,6 +117,28 @@ describe('TerminalOutcomePublicationUseCase', () => {
     });
   });
 
+  it('clears the current-revision terminal outcome after the server publishes a partial summary', async () => {
+    const headSha = 'a'.repeat(40);
+    const github = fakeGitHub({
+      comments: [
+        {
+          id: 211,
+          body: `<!-- reviewrouter:codex-oauth:terminal:${headSha}:partial -->`,
+        },
+        { id: 212, body: '<!-- reviewrouter:summary:v2:abc -->' },
+      ],
+    });
+    const useCase = createUseCase(github);
+
+    await useCase.clear({ reason: 'server_summary_published' });
+
+    expect(github.deletePullRequestComment).toHaveBeenCalledTimes(1);
+    expect(github.deletePullRequestComment).toHaveBeenCalledWith({
+      repository: 'Padelapp-Club/monitoring-service',
+      commentId: 211,
+    });
+  });
+
   it('does not fail the publication use-case when commit status creation fails', async () => {
     const github = fakeGitHub({
       comments: [],

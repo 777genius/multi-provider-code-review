@@ -8,7 +8,7 @@ export interface CodexOAuthTerminalOutcomeReporterPort {
 }
 
 export type CodexOAuthTerminalOutcomeClearRequest = {
-  readonly reason: 'review_completed';
+  readonly reason: 'review_completed' | 'server_summary_published';
 };
 
 export type CodexOAuthTerminalOutcomeCommitStatus = {

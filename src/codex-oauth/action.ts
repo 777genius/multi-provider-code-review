@@ -290,10 +290,23 @@ export async function runCodexOAuthRotatingAction(
       const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
       if (report) {
         appendTerminalOutcomeStepSummary(report);
-        await publishTerminalOutcomeReportSafely(
-          terminalOutcomeReporter,
-          report
-        );
+        if (
+          runtime.v2Review.outcome ===
+          CodexOAuthV2ReviewOutcome.PartialCompleted
+        ) {
+          await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
+            reason: 'server_summary_published',
+          });
+          await publishTerminalOutcomeCommitStatusSafely(
+            terminalOutcomeReporter,
+            report.commitStatus
+          );
+        } else {
+          await publishTerminalOutcomeReportSafely(
+            terminalOutcomeReporter,
+            report
+          );
+        }
       }
       const terminalFailureCode = v2TerminalFailureCode(runtime.v2Review);
       if (terminalFailureCode) {

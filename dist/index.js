@@ -50264,7 +50264,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.107",
+  version: "1.0.108",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -113187,10 +113187,20 @@ async function runCodexOAuthRotatingAction(options = {}) {
       const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
       if (report) {
         appendTerminalOutcomeStepSummary(report);
-        await publishTerminalOutcomeReportSafely(
-          terminalOutcomeReporter,
-          report
-        );
+        if (runtime.v2Review.outcome === "partial_completed" /* PartialCompleted */) {
+          await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
+            reason: "server_summary_published"
+          });
+          await publishTerminalOutcomeCommitStatusSafely(
+            terminalOutcomeReporter,
+            report.commitStatus
+          );
+        } else {
+          await publishTerminalOutcomeReportSafely(
+            terminalOutcomeReporter,
+            report
+          );
+        }
       }
       const terminalFailureCode = v2TerminalFailureCode(runtime.v2Review);
       if (terminalFailureCode) {

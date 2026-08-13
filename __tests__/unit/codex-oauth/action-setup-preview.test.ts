@@ -276,7 +276,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
     );
   });
 
-  it('reports lane-busy partial v2 reviews as a clear terminal outcome', async () => {
+  it('reports lane-busy partial v2 reviews without duplicating the server summary', async () => {
     mockedRuntime.mockResolvedValue({
       status: 'completed',
       publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
@@ -296,6 +296,8 @@ describe('Codex OAuth rotating setup PR preview', () => {
     };
     const terminalOutcomeReporter = {
       post: jest.fn(async () => undefined),
+      clear: jest.fn(async () => undefined),
+      status: jest.fn(async () => undefined),
     };
 
     await runCodexOAuthRotatingAction({
@@ -317,18 +319,15 @@ describe('Codex OAuth rotating setup PR preview', () => {
     expect(fs.readFileSync(stepSummaryPath, 'utf8')).toContain(
       'Review delayed'
     );
-    expect(terminalOutcomeReporter.post).toHaveBeenCalledWith(
-      expect.objectContaining({
-        marker:
-          '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:lane-busy -->',
-        body: expect.stringContaining('provider lanes were busy'),
-        commitStatus: {
-          state: 'failure',
-          description: 'Review delayed: provider lanes are busy.',
-          context: 'ReviewRouter',
-        },
-      })
-    );
+    expect(terminalOutcomeReporter.post).not.toHaveBeenCalled();
+    expect(terminalOutcomeReporter.clear).toHaveBeenCalledWith({
+      reason: 'server_summary_published',
+    });
+    expect(terminalOutcomeReporter.status).toHaveBeenCalledWith({
+      state: 'failure',
+      description: 'Review delayed: provider lanes are busy.',
+      context: 'ReviewRouter',
+    });
   });
 
   it('reports unavailable revision reads as a retryable delayed outcome', async () => {
@@ -482,7 +481,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
     );
   });
 
-  it('reports generic partial coverage as incomplete and never as complete', async () => {
+  it('reports generic partial coverage without duplicating the server summary', async () => {
     mockedRuntime.mockResolvedValue({
       status: 'completed',
       publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
@@ -500,6 +499,8 @@ describe('Codex OAuth rotating setup PR preview', () => {
       post: jest.fn(
         async (_report: CodexOAuthTerminalOutcomeReport) => undefined
       ),
+      clear: jest.fn(async () => undefined),
+      status: jest.fn(async () => undefined),
     };
 
     await runCodexOAuthRotatingAction({
@@ -508,20 +509,18 @@ describe('Codex OAuth rotating setup PR preview', () => {
     });
 
     expect(process.exitCode).toBe(1);
-    const report = terminalOutcomeReporter.post.mock.calls[0]?.[0];
-    expect(report).toEqual(
-      expect.objectContaining({
-        marker:
-          '<!-- reviewrouter:codex-oauth:terminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:partial -->',
-        body: expect.stringContaining('Review incomplete'),
-        commitStatus: {
-          state: 'failure',
-          description: 'Review incomplete: required coverage did not finish.',
-          context: 'ReviewRouter',
-        },
-      })
+    expect(terminalOutcomeReporter.post).not.toHaveBeenCalled();
+    expect(terminalOutcomeReporter.clear).toHaveBeenCalledWith({
+      reason: 'server_summary_published',
+    });
+    expect(terminalOutcomeReporter.status).toHaveBeenCalledWith({
+      state: 'failure',
+      description: 'Review incomplete: required coverage did not finish.',
+      context: 'ReviewRouter',
+    });
+    expect(fs.readFileSync(stepSummaryPath, 'utf8')).toContain(
+      'Review incomplete'
     );
-    expect(report?.body).not.toMatch(/Review complete(?:d)?/i);
   });
 
   it('reports superseded revisions as stale without publishing approval evidence', async () => {
