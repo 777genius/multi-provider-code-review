@@ -2,15 +2,22 @@ import sodium from 'libsodium-wrappers';
 import {
   buildCodexRotatingWritebackRequest,
   compactCodexAuthJsonBytes,
+  computeCodexAccountIdentityHash,
   computeCodexAuthGenerationHash,
+  deriveCodexStableAccountIdentityFromIdToken,
   encryptCodexAuthForGitHubSecret,
 } from '../../../src/codex-oauth/crypto';
 
 describe('Codex OAuth rotating crypto helpers', () => {
+  const idToken = createIdToken({
+    iss: 'https://auth.openai.com',
+    sub: 'user:123',
+    'https://api.openai.com/auth': { chatgpt_account_id: 'account:456' },
+  });
   const prettyAuthJson = JSON.stringify(
     {
       auth_mode: 'chatgpt',
-      tokens: { refresh_token: 'refresh-token-secret' },
+      tokens: { refresh_token: 'refresh-token-secret', id_token: idToken },
       last_refresh: '2026-05-25T00:00:00.000Z',
     },
     null,
@@ -19,6 +26,9 @@ describe('Codex OAuth rotating crypto helpers', () => {
   const salt = Buffer.from('generation-hash-salt-32-bytes!!').toString(
     'base64url'
   );
+  const accountFingerprintSalt = Buffer.from(
+    'account-fingerprint-salt-32-bytes'
+  ).toString('base64url');
 
   it('compacts auth JSON but computes generation hashes over the exact bytes given', () => {
     const compact = compactCodexAuthJsonBytes({
@@ -62,6 +72,10 @@ describe('Codex OAuth rotating crypto helpers', () => {
         providerInstanceId: 'codex-rotating:123456',
         generation: 2,
         latestGenerationHash: encrypted.latestGenerationHash,
+        accountIdentityHash: computeCodexAccountIdentityHash({
+          authJsonBytes: encrypted.compactAuthJsonBytes,
+          accountFingerprintSalt,
+        }),
         encryptedValue: encrypted.encryptedValue,
         keyId: encrypted.keyId,
         idempotencyKey: 'wrb:12345678',
@@ -70,6 +84,27 @@ describe('Codex OAuth rotating crypto helpers', () => {
       protocolVersion: 1,
       keyId: 'github-key-id',
       generation: 2,
+      accountIdentityAlgorithm: 'provider_issuer_subject_account_v1',
     });
   });
+
+  it('keeps account identity stable across token lifecycle claims', () => {
+    const renewed = createIdToken({
+      iss: 'https://auth.openai.com',
+      sub: 'user:123',
+      iat: 200,
+      exp: 300,
+      'https://api.openai.com/auth': { chatgpt_account_id: 'account:456' },
+    });
+
+    expect(deriveCodexStableAccountIdentityFromIdToken(renewed)).toEqual(
+      deriveCodexStableAccountIdentityFromIdToken(idToken)
+    );
+  });
 });
+
+function createIdToken(claims: Record<string, unknown>): string {
+  return `${Buffer.from('{}').toString('base64url')}.${Buffer.from(
+    JSON.stringify(claims)
+  ).toString('base64url')}.signature`;
+}

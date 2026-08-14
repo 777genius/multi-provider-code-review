@@ -14,6 +14,7 @@ import {
 import {
   buildCodexRotatingWritebackRequest,
   compactCodexAuthJsonBytes,
+  computeCodexAccountIdentityHash,
   computeCodexAuthGenerationHash,
   encryptCodexAuthForGitHubSecret,
 } from './crypto';
@@ -406,12 +407,17 @@ export async function runCodexOAuthRotatingRuntime(
       githubKeyId: publicKey.keyId,
       generationHashSalt: prelease.generationHashSalt,
     });
+    const accountIdentityHash = computeCodexAccountIdentityHash({
+      authJsonBytes: encrypted.compactAuthJsonBytes,
+      accountFingerprintSalt: prelease.accountFingerprintSalt,
+    });
     const writeback = await ports.controlPlane.writeback(
       buildCodexRotatingWritebackRequest({
         leaseId: prelease.leaseId,
         providerInstanceId: input.providerInstanceId,
         generation: finalized.nextGeneration,
         latestGenerationHash: encrypted.latestGenerationHash,
+        accountIdentityHash,
         encryptedValue: encrypted.encryptedValue,
         keyId: encrypted.keyId,
       })

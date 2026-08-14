@@ -65,6 +65,72 @@ export function computeCodexAuthGenerationHash(input: {
     .digest('base64url');
 }
 
+export function computeCodexAccountIdentityHash(input: {
+  authJsonBytes: string;
+  accountFingerprintSalt: string;
+}): string {
+  const auth = JSON.parse(input.authJsonBytes) as {
+    tokens?: { id_token?: unknown };
+  };
+  const idToken = auth.tokens?.id_token;
+  if (typeof idToken !== 'string') {
+    throw new Error('codex_account_identity_id_token_required');
+  }
+  const identity = deriveCodexStableAccountIdentityFromIdToken(idToken);
+  const salt = decodeAccountFingerprintSalt(input.accountFingerprintSalt);
+  if (salt.length < 16) {
+    throw new Error('codex_account_identity_salt_invalid');
+  }
+  return createHmac('sha256', salt)
+    .update(
+      JSON.stringify({
+        issuer: identity.issuer,
+        subject: identity.subject,
+        chatgptAccountId: identity.chatgptAccountId,
+      }),
+      'utf8'
+    )
+    .digest('base64url');
+}
+
+export function deriveCodexStableAccountIdentityFromIdToken(idToken: string): {
+  issuer: string;
+  subject: string;
+  chatgptAccountId: string;
+} {
+  let claims: Record<string, unknown>;
+  try {
+    const parts = idToken.split('.');
+    if (parts.length !== 3) throw new Error('jwt_shape');
+    claims = JSON.parse(
+      Buffer.from(parts[1]!, 'base64url').toString('utf8')
+    ) as Record<string, unknown>;
+  } catch {
+    throw new Error('codex_account_identity_token_invalid');
+  }
+  const auth =
+    claims['https://api.openai.com/auth'] &&
+    typeof claims['https://api.openai.com/auth'] === 'object'
+      ? (claims['https://api.openai.com/auth'] as Record<string, unknown>)
+      : {};
+  const accountIds = [
+    claims.chatgpt_account_id,
+    claims.account_id,
+    auth.chatgpt_account_id,
+    auth.account_id,
+  ].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0
+  );
+  if (new Set(accountIds).size !== 1) {
+    throw new Error('codex_account_identity_account_id_invalid');
+  }
+  return {
+    issuer: requireStableIdentityClaim(claims.iss),
+    subject: requireStableIdentityClaim(claims.sub),
+    chatgptAccountId: accountIds[0]!,
+  };
+}
+
 export async function encryptCodexAuthForGitHubSecret(input: {
   authJsonBytes: string;
   githubPublicKeyBase64: string;
@@ -101,6 +167,7 @@ export function buildCodexRotatingWritebackRequest(input: {
   providerInstanceId: string;
   generation: number;
   latestGenerationHash: string;
+  accountIdentityHash: string;
   encryptedValue: string;
   keyId: string;
   idempotencyKey?: string;
@@ -114,10 +181,30 @@ export function buildCodexRotatingWritebackRequest(input: {
     providerInstanceId: input.providerInstanceId,
     generation: input.generation,
     latestGenerationHash: input.latestGenerationHash,
+    accountIdentityHash: input.accountIdentityHash,
+    accountIdentityAlgorithm: 'provider_issuer_subject_account_v1' as const,
     encryptedValue: input.encryptedValue,
     keyId: input.keyId,
     idempotencyKey: input.idempotencyKey ?? `wrb:${randomUUID()}`,
   };
+}
+
+function requireStableIdentityClaim(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('codex_account_identity_claim_invalid');
+  }
+  return value;
+}
+
+function decodeAccountFingerprintSalt(value: string): Buffer {
+  if (!/^[A-Za-z0-9_+/=-]+$/.test(value)) {
+    throw new Error('codex_account_identity_salt_invalid');
+  }
+  try {
+    return Buffer.from(value, 'base64url');
+  } catch {
+    throw new Error('codex_account_identity_salt_invalid');
+  }
 }
 
 function assertCodexChatGptAuth(value: unknown): asserts value is {

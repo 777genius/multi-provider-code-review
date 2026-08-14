@@ -12,19 +12,29 @@ import {
 import { MergeGateConclusion } from '../../../src/review-projection/domain';
 
 describe('Codex OAuth rotating runtime', () => {
+  const idToken = `${Buffer.from('{}').toString('base64url')}.${Buffer.from(
+    JSON.stringify({
+      iss: 'https://auth.openai.com',
+      sub: 'user:123',
+      'https://api.openai.com/auth': { chatgpt_account_id: 'account:456' },
+    })
+  ).toString('base64url')}.signature`;
   const authJsonBytes = JSON.stringify({
     auth_mode: 'chatgpt',
-    tokens: { refresh_token: 'refresh-token-secret' },
+    tokens: { refresh_token: 'refresh-token-secret', id_token: idToken },
     last_refresh: '2026-05-25T00:00:00.000Z',
   });
   const refreshedAuthJsonBytes = JSON.stringify({
     auth_mode: 'chatgpt',
-    tokens: { refresh_token: 'refreshed-token-secret' },
+    tokens: { refresh_token: 'refreshed-token-secret', id_token: idToken },
     last_refresh: '2026-05-25T01:00:00.000Z',
   });
   const salt = Buffer.from('runtime-generation-hash-salt-32').toString(
     'base64url'
   );
+  const accountFingerprintSalt = Buffer.from(
+    'runtime-account-fingerprint-salt-32'
+  ).toString('base64url');
 
   let publicKey: string;
   let logSpy: jest.SpyInstance;
@@ -414,6 +424,7 @@ describe('Codex OAuth rotating runtime', () => {
             providerInstanceId: 'codex-rotating:123456',
             repository: '777genius/agent-teams-ai',
             generationHashSalt: salt,
+            accountFingerprintSalt,
             currentGeneration: 1,
             expiresAt: '2026-05-25T12:00:00.000Z',
           };
@@ -439,6 +450,10 @@ describe('Codex OAuth rotating runtime', () => {
         writeback: jest.fn(async (body) => {
           events.push('writeback');
           expect(JSON.stringify(body)).not.toContain('refreshed-token-secret');
+          expect(body).toMatchObject({
+            accountIdentityHash: expect.any(String),
+            accountIdentityAlgorithm: 'provider_issuer_subject_account_v1',
+          });
           return { protocolVersion: 1 as const, status: 'accepted' as const };
         }),
         checkoutToken: jest.fn(async () => {
