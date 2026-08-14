@@ -58,7 +58,7 @@ void main();
 
 async function main(): Promise<void> {
   if (process.argv.includes('--version')) {
-    process.stdout.write('codex-cli 0.145.0\n');
+    process.stdout.write('codex-cli 0.147.0\n');
     return;
   }
   if (!process.argv.includes('app-server')) {
@@ -78,7 +78,7 @@ async function handleRequest(message: JsonRpcRequest): Promise<void> {
   switch (message.method) {
     case 'initialize':
       await respond(message, {
-        userAgent: 'Codex Desktop/0.145.0 reviewrouter-e2e',
+        userAgent: 'Codex Desktop/0.147.0 reviewrouter-e2e',
         codexHome: process.cwd(),
         platformFamily: 'unix',
         platformOs: process.platform,
@@ -366,7 +366,7 @@ function threadRecord() {
     modelProvider: 'openai',
     path: null,
     cwd: protocolCwd,
-    cliVersion: '0.145.0',
+    cliVersion: '0.147.0',
     turns: [],
   };
 }

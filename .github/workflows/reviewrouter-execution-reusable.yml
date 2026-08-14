@@ -292,7 +292,7 @@ jobs:
       - name: Install Codex CLI
         if: ${{ steps.runtime.outputs.can_run == 'true' && steps.provider-tooling.outputs.codex_cli_needed == 'true' }}
         shell: bash
-        run: npm install -g @openai/codex@0.145.0
+        run: npm install -g @openai/codex@0.147.0
 
       - name: Install Claude Code CLI
         if: ${{ steps.runtime.outputs.can_run == 'true' && steps.provider-tooling.outputs.claude_cli_needed == 'true' }}

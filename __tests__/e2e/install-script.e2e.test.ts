@@ -581,7 +581,7 @@ describe('review-router curl installer e2e', () => {
       'GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}'
     );
     expect(workflow).not.toContain('secrets.GITHUB_TOKEN }}');
-    expect(workflow).toContain('npm install -g @openai/codex@0.145.0');
+    expect(workflow).toContain('npm install -g @openai/codex@0.147.0');
     expect(workflow).toContain(
       'CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}'
     );

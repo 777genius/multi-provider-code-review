@@ -419,7 +419,7 @@ const descriptors: Record<ReviewErrorCode, ReviewErrorDescriptor> = {
     whyItMatters:
       'The provider process could not start, so no LLM review can run.',
     nextSteps: [
-      'Verify the workflow installs `@openai/codex@0.145.0` before ReviewRouter runs.',
+      'Verify the workflow installs `@openai/codex@0.147.0` before ReviewRouter runs.',
       'Check that Node 24 setup completed successfully.',
       'Re-run after dependency installation succeeds.',
     ],

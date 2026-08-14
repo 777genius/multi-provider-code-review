@@ -6,7 +6,7 @@ import {
 } from '../application/review-agent-port';
 import type { ReviewTurnUsage } from '../domain/turn-observation';
 
-export const CODEX_APP_SERVER_VERSION = '0.145.0';
+export const CODEX_APP_SERVER_VERSION = '0.147.0';
 export const CODEX_APP_SERVER_MCP_NAME = 'reviewrouter';
 
 export type CodexAppServerReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
