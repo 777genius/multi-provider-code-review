@@ -41,6 +41,7 @@ import {
   ContextGatewayV4Recorder,
   type ContextGatewayV4Transcript,
 } from '../../context-gateway/context-gateway-v4-recorder';
+import { logger } from '../../utils/logger';
 import type {
   ContextDependencyAttestationReference,
   ReviewContextAttestationPort,
@@ -608,6 +609,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
         transcript.confinementTainted ||
         transcript.terminalFailureClass !== null
       ) {
+        logV4TranscriptRejection('terminal_state', transcript);
         throw new ReviewContextInspectionFailure(
           ReviewContextInspectionFailureReason.IncompleteTranscript
         );
@@ -630,12 +632,17 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
         this.executionProfile ===
         ContextGatewayExecutionProfile.ContextGatewayV1
       ) {
-        verifyStrictV4ProviderInspection({
-          transcript,
-          replayMaterialCanonicalJson,
-          requiredWitness: this.requiredWitness,
-          sessionId: this.serverSession.sessionId,
-        });
+        try {
+          verifyStrictV4ProviderInspection({
+            transcript,
+            replayMaterialCanonicalJson,
+            requiredWitness: this.requiredWitness,
+            sessionId: this.serverSession.sessionId,
+          });
+        } catch (error) {
+          logV4TranscriptRejection('strict_replay_validation', transcript);
+          throw error;
+        }
         const [stableTranscriptCanonicalJson, stableReplay] = await Promise.all(
           [
             readBoundedCanonicalJson(
@@ -655,6 +662,7 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
           ) ||
           stableReplay !== encryptedReplayMaterialCanonicalJson
         ) {
+          logV4TranscriptRejection('unstable_boundary', transcript);
           throw new ReviewContextInspectionFailure(
             ReviewContextInspectionFailureReason.IncompleteTranscript
           );
@@ -711,6 +719,49 @@ class ContextGatewayInvocationSession implements ContextGatewayInvocationSession
     }
     throwCleanupFailures(failures);
   }
+}
+
+function logV4TranscriptRejection(
+  phase: 'terminal_state' | 'strict_replay_validation' | 'unstable_boundary',
+  transcript: ContextGatewayV4Transcript
+): void {
+  const outcomeCounts = transcript.events.reduce(
+    (counts, event) => {
+      counts[event.outcome] += 1;
+      return counts;
+    },
+    {
+      [ContextOperationOutcomeKind.Succeeded]: 0,
+      [ContextOperationOutcomeKind.Rejected]: 0,
+      [ContextOperationOutcomeKind.Failed]: 0,
+    }
+  );
+  logger.warn('Context gateway v4 transcript rejected', {
+    phase,
+    eventCount: transcript.events.length,
+    succeededCount: outcomeCounts[ContextOperationOutcomeKind.Succeeded],
+    rejectedCount: outcomeCounts[ContextOperationOutcomeKind.Rejected],
+    failedCount: outcomeCounts[ContextOperationOutcomeKind.Failed],
+    confinementTainted: transcript.confinementTainted,
+    terminalFailureClass: transcript.terminalFailureClass,
+    failureClasses: [
+      ...new Set(
+        transcript.events
+          .map((event) => event.failureClass)
+          .filter((value): value is NonNullable<typeof value> => value !== null)
+      ),
+    ].sort(),
+    sanitizedReasons: [
+      ...new Set(
+        transcript.events
+          .map((event) => event.sanitizedReason)
+          .filter((value): value is string => value !== null)
+      ),
+    ].sort(),
+    operationKinds: [
+      ...new Set(transcript.events.map((event) => event.operationKind)),
+    ].sort(),
+  });
 }
 
 async function captureV4WitnessBoundary(input: {

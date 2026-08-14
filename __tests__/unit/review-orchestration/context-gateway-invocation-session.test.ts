@@ -36,10 +36,21 @@ import {
   type ContextGatewayPolicyVersion,
   type RequiredContextWitnessRunnerPort,
 } from '../../../src/review-orchestration/infrastructure/context-gateway-invocation-session';
+import { logger } from '../../../src/utils/logger';
 
 const execFileAsync = promisify(execFile);
 
 describe('ContextGatewayInvocationSessionFactory', () => {
+  let warning: jest.SpyInstance;
+
+  beforeEach(() => {
+    warning = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warning.mockRestore();
+  });
+
   it('rejects an unknown provider before opening runtime resources', async () => {
     const factory = new ContextGatewayInvocationSessionFactory(
       {} as ReviewContextAttestationPort,
@@ -661,6 +672,19 @@ describe('ContextGatewayInvocationSessionFactory', () => {
         stage: undefined,
       });
       expect(fixture.attestations.sealGatewaySession).not.toHaveBeenCalled();
+      expect(warning).toHaveBeenCalledWith(
+        'Context gateway v4 transcript rejected',
+        expect.objectContaining({
+          phase: 'terminal_state',
+          confinementTainted: true,
+          failureClasses: [ContextOperationFailureClass.ConfinementViolation],
+          sanitizedReasons: ['unsupported_tool'],
+          operationKinds: [
+            ContextGatewayV4OperationKind.GitFact,
+            ContextGatewayV4OperationKind.UnsupportedTool,
+          ],
+        })
+      );
     } finally {
       await fixture.dispose();
     }
