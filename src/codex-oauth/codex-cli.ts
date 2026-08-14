@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 
-export const CODEX_OAUTH_PINNED_CODEX_PACKAGE = '@openai/codex@0.145.0';
+export const CODEX_OAUTH_PINNED_CODEX_PACKAGE = '@openai/codex@0.147.0';
 
 const CODEX_OAUTH_CLI_INSTALL_TIMEOUT_MS = 300_000;
 

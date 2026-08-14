@@ -558,10 +558,10 @@ The generated workflow currently uses:
 - `actions/checkout@v6`
 - `actions/setup-node@v6` when Codex CLI is required
 - Node `24`
-- `@openai/codex@0.145.0`
+- `@openai/codex@0.147.0`
 - `actions/create-github-app-token@v3` in GitHub App mode
 
-These versions were checked on 2026-04-30 against the current package/action releases.
+These versions were checked on 2026-08-15 against the current package/action releases.
 
 ## Why no hosted App yet
 

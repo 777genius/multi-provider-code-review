@@ -21848,7 +21848,7 @@ var import_child_process3 = require("child_process");
 var fs5 = __toESM(require("fs/promises"));
 var os2 = __toESM(require("os"));
 var path4 = __toESM(require("path"));
-var CODEX_OAUTH_PINNED_CODEX_PACKAGE = "@openai/codex@0.145.0";
+var CODEX_OAUTH_PINNED_CODEX_PACKAGE = "@openai/codex@0.147.0";
 var CODEX_OAUTH_CLI_INSTALL_TIMEOUT_MS = 3e5;
 async function prepareCodexCliBeforeAuthRead(input = {}) {
   const explicit = process.env.REVIEWROUTER_CODEX_BINARY?.trim();
@@ -45183,7 +45183,7 @@ var descriptors = {
     summary: "Codex CLI is not available in CI.",
     whyItMatters: "The provider process could not start, so no LLM review can run.",
     nextSteps: [
-      "Verify the workflow installs `@openai/codex@0.145.0` before ReviewRouter runs.",
+      "Verify the workflow installs `@openai/codex@0.147.0` before ReviewRouter runs.",
       "Check that Node 24 setup completed successfully.",
       "Re-run after dependency installation succeeds."
     ],
@@ -107950,7 +107950,7 @@ var CLAUDE_NATIVE_TOOLS = Object.freeze([
 // src/review-investigation/infrastructure/codex-app-server-protocol.ts
 var import_crypto38 = require("crypto");
 var import_path6 = __toESM(require("path"));
-var CODEX_APP_SERVER_VERSION = "0.145.0";
+var CODEX_APP_SERVER_VERSION = "0.147.0";
 var CODEX_APP_SERVER_MCP_NAME = "reviewrouter";
 var OPTED_OUT_NOTIFICATIONS = Object.freeze([
   "configWarning",

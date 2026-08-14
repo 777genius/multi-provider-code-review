@@ -171,7 +171,7 @@ jobs:
         with:
           node-version: '24'
       - name: Install official Codex CLI
-        run: npm install -g @openai/codex@0.145.0
+        run: npm install -g @openai/codex@0.147.0
       - name: Restore Codex OAuth config
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}

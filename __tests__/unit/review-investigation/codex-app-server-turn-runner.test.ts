@@ -254,7 +254,7 @@ const thread = () => ({
   modelProvider: 'openai',
   path: null,
   cwd,
-  cliVersion: '0.145.0',
+  cliVersion: '0.147.0',
   turns: [],
 });
 const turn = (status) => ({ id: turnId, status, error: null, items: [] });
@@ -271,7 +271,7 @@ rl.on('line', (line) => {
   const message = JSON.parse(line);
   if (message.method === 'initialize') {
     send({ id: message.id, result: {
-      userAgent: 'Codex Desktop/0.145.0 fake',
+      userAgent: 'Codex Desktop/0.147.0 fake',
       codexHome: cwd,
       platformFamily: 'unix',
       platformOs: 'linux',

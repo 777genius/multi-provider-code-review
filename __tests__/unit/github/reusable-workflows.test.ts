@@ -306,7 +306,7 @@ describe('production reusable workflows', () => {
     expect(workflowSource).toContain(
       "appendEnv(\n            'REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS'"
     );
-    expect(workflowSource).toContain('npm install -g @openai/codex@0.145.0');
+    expect(workflowSource).toContain('npm install -g @openai/codex@0.147.0');
     expect(workflowSource).toContain(
       'curl -fsSL https://claude.ai/install.sh | bash'
     );

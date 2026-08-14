@@ -524,7 +524,7 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
-  it('accepts bounded 0.145.0 metadata notifications without changing the result', async () => {
+  it('accepts bounded 0.147.0 metadata notifications without changing the result', async () => {
     const fixture = await activeTurn();
     fixture.client.receive(
       notification('model/verification', {
