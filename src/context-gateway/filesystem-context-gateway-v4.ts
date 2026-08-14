@@ -219,7 +219,7 @@ export class FilesystemContextGatewayV4 {
   }
 
   async listDirectory(input: {
-    readonly path: string;
+    readonly path?: string;
     readonly revision?: ContextGatewayV4Revision;
     readonly maxDepth?: number;
     readonly includeHidden?: boolean;
@@ -239,7 +239,7 @@ export class FilesystemContextGatewayV4 {
       }
     );
     return this.execute(operation, replayInput, async () => {
-      const relativePath = normalizeRelativePath(input.path);
+      const relativePath = normalizeDirectoryPath(input.path);
       const revision = input.revision ?? ContextGatewayV4Revision.Head;
       const revisionSha = this.revisionSha(revision);
       const treeOid = this.revisionTreeOid(revision);
@@ -743,7 +743,7 @@ function normalizeFileReadInput(input: {
 }
 
 function normalizeDirectoryListInput(input: {
-  readonly path: string;
+  readonly path?: string;
   readonly revision?: ContextGatewayV4Revision;
   readonly maxDepth?: number;
   readonly includeHidden?: boolean;
@@ -751,7 +751,7 @@ function normalizeDirectoryListInput(input: {
   readonly cursor?: string;
 }): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    path: normalizePathForOperation(input.path),
+    path: normalizeDirectoryPathForOperation(input.path),
     revision: input.revision ?? ContextGatewayV4Revision.Head,
     maxDepth: input.maxDepth ?? 4,
     includeHidden: input.includeHidden ?? false,
@@ -796,6 +796,19 @@ function normalizePathForOperation(value: string): string {
   } catch {
     return value;
   }
+}
+
+function normalizeDirectoryPathForOperation(value: string | undefined): string {
+  try {
+    return normalizeDirectoryPath(value);
+  } catch {
+    return value ?? '.';
+  }
+}
+
+function normalizeDirectoryPath(value: string | undefined): string {
+  if (value === undefined || value === '' || value === '/') return '.';
+  return normalizeRelativePath(value);
 }
 
 function normalizeCursor(value: string | undefined): string | null {

@@ -199,7 +199,7 @@ describe('FilesystemContextGatewayV4', () => {
     }
   });
 
-  it('does not append evidence twice for an identical page retry', async () => {
+  it('canonicalizes safe virtual-root aliases without duplicating evidence', async () => {
     const fixture = await createFixture();
     try {
       const { gateway, recorder } = await createGateway(fixture);
@@ -213,12 +213,55 @@ describe('FilesystemContextGatewayV4', () => {
         maxDepth: 4,
         pageSize: 2,
       });
+      const omitted = await gateway.listDirectory({
+        maxDepth: 4,
+        pageSize: 2,
+      });
+      const empty = await gateway.listDirectory({
+        path: '',
+        maxDepth: 4,
+        pageSize: 2,
+      });
+      const virtualRoot = await gateway.listDirectory({
+        path: '/',
+        maxDepth: 4,
+        pageSize: 2,
+      });
 
       expect(retried).toEqual(first);
+      expect(omitted).toEqual(first);
+      expect(empty).toEqual(first);
+      expect(virtualRoot).toEqual(first);
       expect(recorder.snapshot().events).toHaveLength(1);
       expect(recorder.snapshot().events[0]?.sequence).toBe(1);
     } finally {
       await rm(fixture.parent, { recursive: true, force: true });
+    }
+  });
+
+  it('still rejects absolute directory paths and traversal outside the virtual root', async () => {
+    const fixture = await createFixture();
+    try {
+      const { gateway, recorder } = await createGateway(fixture);
+
+      await expect(gateway.listDirectory({ path: '/src' })).rejects.toThrow(
+        'context_gateway_path_invalid'
+      );
+      expect(recorder.snapshot().confinementTainted).toBe(true);
+    } finally {
+      await rm(fixture.parent, { recursive: true, force: true });
+    }
+
+    const traversalFixture = await createFixture();
+    try {
+      const { gateway, recorder } = await createGateway(traversalFixture);
+
+      await expect(gateway.listDirectory({ path: '../src' })).rejects.toThrow(
+        'context_gateway_path_invalid'
+      );
+      expect(recorder.snapshot().confinementTainted).toBe(true);
+    } finally {
+      await rm(traversalFixture.parent, { recursive: true, force: true });
     }
   });
 

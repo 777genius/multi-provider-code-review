@@ -15313,14 +15313,13 @@ var CONTEXT_GATEWAY_V4_TOOL_DEFINITIONS = Object.freeze([
   }),
   defineTool({
     name: "review_list_directory",
-    description: "List one authenticated page of tracked paths. Follow nextCursor until complete is true.",
+    description: 'List one authenticated page of tracked paths. Omit path or use "." for the repository root; "/" and an empty path are safe virtual-root aliases. All other paths must be repository-relative. Follow nextCursor until complete is true.',
     annotations: CONTEXT_GATEWAY_READ_ONLY_TOOL_ANNOTATIONS,
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["path"],
       properties: {
-        path: { type: "string", minLength: 1, maxLength: 1024 },
+        path: { type: "string", maxLength: 1024 },
         revision: revisionProperty,
         maxDepth: { type: "integer", minimum: 1, maximum: 32 },
         includeHidden: { type: "boolean" },
@@ -16502,7 +16501,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       }
     );
     return this.execute(operation, replayInput, async () => {
-      const relativePath = normalizeRelativePath2(input.path);
+      const relativePath = normalizeDirectoryPath(input.path);
       const revision = input.revision ?? "head" /* Head */;
       const revisionSha = this.revisionSha(revision);
       const treeOid = this.revisionTreeOid(revision);
@@ -16919,7 +16918,7 @@ function normalizeFileReadInput(input) {
 }
 function normalizeDirectoryListInput(input) {
   return Object.freeze({
-    path: normalizePathForOperation(input.path),
+    path: normalizeDirectoryPathForOperation(input.path),
     revision: input.revision ?? "head" /* Head */,
     maxDepth: input.maxDepth ?? 4,
     includeHidden: input.includeHidden ?? false,
@@ -16951,6 +16950,17 @@ function normalizePathForOperation(value) {
   } catch {
     return value;
   }
+}
+function normalizeDirectoryPathForOperation(value) {
+  try {
+    return normalizeDirectoryPath(value);
+  } catch {
+    return value ?? ".";
+  }
+}
+function normalizeDirectoryPath(value) {
+  if (value === void 0 || value === "" || value === "/") return ".";
+  return normalizeRelativePath2(value);
 }
 function normalizeCursor(value) {
   return value ? value : null;
@@ -17270,7 +17280,7 @@ async function runV4(config2, preflightOnly) {
           operationKind: "directory_list" /* DirectoryList */,
           argumentsValue: request.params.arguments,
           parse: (args) => ({
-            path: requireString(args.path, "path"),
+            path: optionalString(args.path, "path"),
             revision: optionalRevision(args.revision),
             maxDepth: optionalInteger(args.maxDepth, "maxDepth"),
             includeHidden: optionalBoolean(args.includeHidden, "includeHidden"),

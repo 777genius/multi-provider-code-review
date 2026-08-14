@@ -120,14 +120,13 @@ export const CONTEXT_GATEWAY_V4_TOOL_DEFINITIONS = Object.freeze([
   defineTool({
     name: 'review_list_directory',
     description:
-      'List one authenticated page of tracked paths. Follow nextCursor until complete is true.',
+      'List one authenticated page of tracked paths. Omit path or use "." for the repository root; "/" and an empty path are safe virtual-root aliases. All other paths must be repository-relative. Follow nextCursor until complete is true.',
     annotations: CONTEXT_GATEWAY_READ_ONLY_TOOL_ANNOTATIONS,
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['path'],
       properties: {
-        path: { type: 'string', minLength: 1, maxLength: 1_024 },
+        path: { type: 'string', maxLength: 1_024 },
         revision: revisionProperty,
         maxDepth: { type: 'integer', minimum: 1, maximum: 32 },
         includeHidden: { type: 'boolean' },

@@ -208,7 +208,7 @@ async function runV4(
           operationKind: ContextGatewayV4OperationKind.DirectoryList,
           argumentsValue: request.params.arguments,
           parse: (args) => ({
-            path: requireString(args.path, 'path'),
+            path: optionalString(args.path, 'path'),
             revision: optionalRevision(args.revision),
             maxDepth: optionalInteger(args.maxDepth, 'maxDepth'),
             includeHidden: optionalBoolean(args.includeHidden, 'includeHidden'),
