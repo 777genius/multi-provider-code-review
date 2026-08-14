@@ -7862,7 +7862,12 @@ var require_fast_uri = __commonJS({
     }
     function resolve5(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-      const resolved = resolveComponent(parse(baseURI, schemelessOptions), parse(relativeURI, schemelessOptions), schemelessOptions, true);
+      const { parsed: baseParsed, malformedAuthorityOrPort: baseMalformed } = parseWithStatus(baseURI, schemelessOptions);
+      const { parsed: relativeParsed, malformedAuthorityOrPort: relativeMalformed } = parseWithStatus(relativeURI, schemelessOptions);
+      if (baseMalformed || relativeMalformed) {
+        throw new Error(baseParsed.error || relativeParsed.error || "URI is malformed.");
+      }
+      const resolved = resolveComponent(baseParsed, relativeParsed, schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
@@ -7988,6 +7993,7 @@ var require_fast_uri = __commonJS({
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
     var AUTHORITY_PREFIX = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/;
+    var AUTHORITY_INTRODUCER_REGION = /^(?:[^#/:?]+:)?([/\\\t\n\r]*)/;
     function getParseError(parsed, matches) {
       if (matches[2] !== void 0 && parsed.path && parsed.path[0] !== "/") {
         return 'URI path must start with "/" when authority is present.';
@@ -8021,6 +8027,20 @@ var require_fast_uri = __commonJS({
       if (authorityMatch !== null && authorityMatch[1].indexOf("\\") !== -1) {
         parsed.error = "URI authority must not contain a literal backslash.";
         malformedAuthorityOrPort = true;
+      }
+      const introducerMatch = uri.match(AUTHORITY_INTRODUCER_REGION);
+      if (introducerMatch !== null) {
+        const region = introducerMatch[1];
+        const normalizedRegion = region.replace(/[\t\n\r]/g, "");
+        if (normalizedRegion.length >= 2) {
+          if (normalizedRegion.slice(0, 2) !== "//") {
+            parsed.error = parsed.error || "URI authority must not contain a literal backslash.";
+            malformedAuthorityOrPort = true;
+          } else if (region.length !== normalizedRegion.length) {
+            parsed.error = parsed.error || "URI authority introducer must not contain whitespace.";
+            malformedAuthorityOrPort = true;
+          }
+        }
       }
       const matches = uri.match(URI_PARSE);
       if (matches) {
@@ -12888,7 +12908,7 @@ function requireOmap() {
   const _toString = Object.prototype.toString;
   function resolveYamlOmap(data) {
     if (data === null) return true;
-    const objectKeys = [];
+    const objectKeys = {};
     const object = data;
     for (let index = 0, length = object.length; index < length; index += 1) {
       const pair = object[index];
@@ -12902,8 +12922,8 @@ function requireOmap() {
         }
       }
       if (!pairHasKey) return false;
-      if (objectKeys.indexOf(pairKey) === -1) objectKeys.push(pairKey);
-      else return false;
+      if (_hasOwnProperty.call(objectKeys, pairKey)) return false;
+      Object.defineProperty(objectKeys, pairKey, { value: true });
     }
     return true;
   }
@@ -42407,7 +42427,7 @@ var GraphCache = class _GraphCache {
   }
 };
 
-// node_modules/minimatch/node_modules/balanced-match/dist/esm/index.js
+// node_modules/brace-expansion/node_modules/balanced-match/dist/esm/index.js
 var balanced = (a2, b2, str2) => {
   const ma2 = a2 instanceof RegExp ? maybeMatch(a2, str2) : a2;
   const mb = b2 instanceof RegExp ? maybeMatch(b2, str2) : b2;
@@ -42460,7 +42480,7 @@ var range = (a2, b2, str2) => {
   return result2;
 };
 
-// node_modules/minimatch/node_modules/brace-expansion/dist/esm/index.js
+// node_modules/brace-expansion/dist/esm/index.js
 var escSlash = "\0SLASH" + Math.random() + "\0";
 var escOpen = "\0OPEN" + Math.random() + "\0";
 var escClose = "\0CLOSE" + Math.random() + "\0";
@@ -42548,7 +42568,7 @@ function combine(acc, pre, values, max, maxLength, dropEmpties) {
   }
   return out;
 }
-function expandSequence(body, isAlphaSequence, max) {
+function expandSequence(body, isAlphaSequence, max, maxLength) {
   const n2 = body.split(/\.\./);
   const N2 = [];
   if (n2[0] === void 0 || n2[1] === void 0) {
@@ -42565,6 +42585,7 @@ function expandSequence(body, isAlphaSequence, max) {
     test = gte;
   }
   const pad = n2.some(isPadded);
+  let length = 0;
   for (let i2 = x2; test(i2, y2) && N2.length < max; i2 += incr) {
     let c2;
     if (isAlphaSequence) {
@@ -42586,7 +42607,10 @@ function expandSequence(body, isAlphaSequence, max) {
         }
       }
     }
+    if (length + c2.length > maxLength)
+      break;
     N2.push(c2);
+    length += c2.length;
   }
   return N2;
 }
@@ -42626,7 +42650,7 @@ function expand_(str2, max, maxLength, isTop) {
     }
     let values;
     if (isSequence) {
-      values = expandSequence(m2.body, isAlphaSequence, max);
+      values = expandSequence(m2.body, isAlphaSequence, max, maxLength);
     } else {
       let n2 = parseCommaParts(m2.body);
       if (n2.length === 1 && n2[0] !== void 0) {
@@ -42639,9 +42663,26 @@ function expand_(str2, max, maxLength, isTop) {
           continue;
         }
       }
+      let dropsEmpties = dropEmpties && !m2.post.length && !pre;
+      for (let d2 = 0; dropsEmpties && d2 < acc.length; d2++) {
+        if (acc[d2]) {
+          dropsEmpties = false;
+        }
+      }
       values = [];
-      for (let j2 = 0; j2 < n2.length; j2++) {
-        values.push.apply(values, expand_(n2[j2], max, maxLength, false));
+      let valuesLength = 0;
+      outer: for (let j2 = 0; j2 < n2.length; j2++) {
+        const expanded = expand_(n2[j2], max, maxLength, false);
+        for (let k2 = 0; k2 < expanded.length; k2++) {
+          const v2 = expanded[k2];
+          if (dropsEmpties && !v2)
+            continue;
+          if (values.length >= max || valuesLength + v2.length > maxLength) {
+            break outer;
+          }
+          values.push(v2);
+          valuesLength += v2.length;
+        }
       }
     }
     acc = combine(acc, pre, values, max, maxLength, dropEmpties && !m2.post.length);
@@ -50264,7 +50305,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.110",
+  version: "1.0.111",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -50317,7 +50358,7 @@ var package_default = {
     "@octokit/rest": "^20.1.2",
     ajv: "8.20.0",
     "ajv-formats": "3.0.1",
-    "js-yaml": "4.3.0",
+    "js-yaml": "4.3.1",
     "libsodium-wrappers": "^0.8.4",
     minimatch: "^10.2.5",
     "p-queue": "^8.1.1",
@@ -50350,10 +50391,10 @@ var package_default = {
     "@babel/core": "7.29.7",
     "@hono/node-server": "2.0.11",
     "@istanbuljs/load-nyc-config": {
-      "js-yaml": "3.15.0"
+      "js-yaml": "3.15.1"
     },
-    "brace-expansion@<=1.1.15": "1.1.16",
-    "brace-expansion@>=3.0.0 <5.0.7": "5.0.8"
+    "brace-expansion@<=1.1.17": "1.1.18",
+    "brace-expansion@>=3.0.0 <5.0.9": "5.0.9"
   }
 };
 
