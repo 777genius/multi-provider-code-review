@@ -51221,10 +51221,10 @@ function isCodexRotatingPreleaseResponse(value) {
   const input = asRecord2(value);
   if (input?.protocolVersion !== 1) return false;
   if (input.status === "skipped") {
-    return input.reason === "max_changed_lines_exceeded" && isNonNegativeSafeInteger2(input.changedLines) && isNonNegativeSafeInteger2(input.maxChangedLines) && input.maxChangedLines > 0 && input.changedLines > input.maxChangedLines && isSha2563(input.decisionHash) && input.leaseId === void 0 && input.providerInstanceId === void 0 && input.repository === void 0 && input.generationHashSalt === void 0 && input.currentGeneration === void 0 && input.currentGenerationHash === void 0 && input.expiresAt === void 0;
+    return input.reason === "max_changed_lines_exceeded" && isNonNegativeSafeInteger2(input.changedLines) && isNonNegativeSafeInteger2(input.maxChangedLines) && input.maxChangedLines > 0 && input.changedLines > input.maxChangedLines && isSha2563(input.decisionHash) && input.leaseId === void 0 && input.providerInstanceId === void 0 && input.repository === void 0 && input.generationHashSalt === void 0 && input.accountFingerprintSalt === void 0 && input.currentGeneration === void 0 && input.currentGenerationHash === void 0 && input.expiresAt === void 0;
   }
   if (input.status !== void 0) return false;
-  return isNonEmptyString(input.leaseId) && isNonEmptyString(input.providerInstanceId) && isNonEmptyString(input.repository) && isNonEmptyString(input.generationHashSalt) && typeof input.currentGeneration === "number" && Number.isInteger(input.currentGeneration) && input.currentGeneration > 0 && isNonEmptyString(input.expiresAt);
+  return isNonEmptyString(input.leaseId) && isNonEmptyString(input.providerInstanceId) && isNonEmptyString(input.repository) && isNonEmptyString(input.generationHashSalt) && isNonEmptyString(input.accountFingerprintSalt) && typeof input.currentGeneration === "number" && Number.isInteger(input.currentGeneration) && input.currentGeneration > 0 && isNonEmptyString(input.expiresAt);
 }
 function isNonNegativeSafeInteger2(value) {
   return Number.isSafeInteger(value) && value >= 0;
@@ -55156,6 +55156,55 @@ function computeCodexAuthGenerationHash(input) {
   }
   return (0, import_crypto19.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
 }
+function computeCodexAccountIdentityHash(input) {
+  const auth = JSON.parse(input.authJsonBytes);
+  const idToken = auth.tokens?.id_token;
+  if (typeof idToken !== "string") {
+    throw new Error("codex_account_identity_id_token_required");
+  }
+  const identity = deriveCodexStableAccountIdentityFromIdToken(idToken);
+  const salt = decodeAccountFingerprintSalt(input.accountFingerprintSalt);
+  if (salt.length < 16) {
+    throw new Error("codex_account_identity_salt_invalid");
+  }
+  return (0, import_crypto19.createHmac)("sha256", salt).update(
+    JSON.stringify({
+      issuer: identity.issuer,
+      subject: identity.subject,
+      chatgptAccountId: identity.chatgptAccountId
+    }),
+    "utf8"
+  ).digest("base64url");
+}
+function deriveCodexStableAccountIdentityFromIdToken(idToken) {
+  let claims;
+  try {
+    const parts = idToken.split(".");
+    if (parts.length !== 3) throw new Error("jwt_shape");
+    claims = JSON.parse(
+      Buffer.from(parts[1], "base64url").toString("utf8")
+    );
+  } catch {
+    throw new Error("codex_account_identity_token_invalid");
+  }
+  const auth = claims["https://api.openai.com/auth"] && typeof claims["https://api.openai.com/auth"] === "object" ? claims["https://api.openai.com/auth"] : {};
+  const accountIds = [
+    claims.chatgpt_account_id,
+    claims.account_id,
+    auth.chatgpt_account_id,
+    auth.account_id
+  ].filter(
+    (value) => typeof value === "string" && value.length > 0
+  );
+  if (new Set(accountIds).size !== 1) {
+    throw new Error("codex_account_identity_account_id_invalid");
+  }
+  return {
+    issuer: requireStableIdentityClaim(claims.iss),
+    subject: requireStableIdentityClaim(claims.sub),
+    chatgptAccountId: accountIds[0]
+  };
+}
 async function encryptCodexAuthForGitHubSecret(input) {
   const compact = compactCodexAuthJsonBytes({
     authJsonBytes: input.authJsonBytes
@@ -55190,10 +55239,28 @@ function buildCodexRotatingWritebackRequest(input) {
     providerInstanceId: input.providerInstanceId,
     generation: input.generation,
     latestGenerationHash: input.latestGenerationHash,
+    accountIdentityHash: input.accountIdentityHash,
+    accountIdentityAlgorithm: "provider_issuer_subject_account_v1",
     encryptedValue: input.encryptedValue,
     keyId: input.keyId,
     idempotencyKey: input.idempotencyKey ?? `wrb:${(0, import_crypto19.randomUUID)()}`
   };
+}
+function requireStableIdentityClaim(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("codex_account_identity_claim_invalid");
+  }
+  return value;
+}
+function decodeAccountFingerprintSalt(value) {
+  if (!/^[A-Za-z0-9_+/=-]+$/.test(value)) {
+    throw new Error("codex_account_identity_salt_invalid");
+  }
+  try {
+    return Buffer.from(value, "base64url");
+  } catch {
+    throw new Error("codex_account_identity_salt_invalid");
+  }
 }
 function assertCodexChatGptAuth(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -55331,12 +55398,17 @@ async function runCodexOAuthRotatingRuntime(input, ports) {
       githubKeyId: publicKey.keyId,
       generationHashSalt: prelease.generationHashSalt
     });
+    const accountIdentityHash = computeCodexAccountIdentityHash({
+      authJsonBytes: encrypted.compactAuthJsonBytes,
+      accountFingerprintSalt: prelease.accountFingerprintSalt
+    });
     const writeback = await ports.controlPlane.writeback(
       buildCodexRotatingWritebackRequest({
         leaseId: prelease.leaseId,
         providerInstanceId: input.providerInstanceId,
         generation: finalized.nextGeneration,
         latestGenerationHash: encrypted.latestGenerationHash,
+        accountIdentityHash,
         encryptedValue: encrypted.encryptedValue,
         keyId: encrypted.keyId
       })

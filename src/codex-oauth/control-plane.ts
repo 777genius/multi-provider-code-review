@@ -7,6 +7,7 @@ export type CodexRotatingPreleaseResponse =
       providerInstanceId: string;
       repository: string;
       generationHashSalt: string;
+      accountFingerprintSalt: string;
       currentGeneration: number;
       currentGenerationHash?: string;
       expiresAt: string;
@@ -270,6 +271,7 @@ function isCodexRotatingPreleaseResponse(
       input.providerInstanceId === undefined &&
       input.repository === undefined &&
       input.generationHashSalt === undefined &&
+      input.accountFingerprintSalt === undefined &&
       input.currentGeneration === undefined &&
       input.currentGenerationHash === undefined &&
       input.expiresAt === undefined
@@ -281,6 +283,7 @@ function isCodexRotatingPreleaseResponse(
     isNonEmptyString(input.providerInstanceId) &&
     isNonEmptyString(input.repository) &&
     isNonEmptyString(input.generationHashSalt) &&
+    isNonEmptyString(input.accountFingerprintSalt) &&
     typeof input.currentGeneration === 'number' &&
     Number.isInteger(input.currentGeneration) &&
     input.currentGeneration > 0 &&
