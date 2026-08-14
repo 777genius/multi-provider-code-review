@@ -35,4 +35,21 @@ describe('context gateway tool annotations', () => {
     expect(readFile?.description).toContain('prior startByte plus byteCount');
     expect(readFile?.description).toContain('until eof is true');
   });
+
+  it('declares a safe optional virtual root for v4 directory listings', () => {
+    const listDirectory = CONTEXT_GATEWAY_V4_TOOL_DEFINITIONS.find(
+      (tool) => tool.name === 'review_list_directory'
+    );
+    const schema = listDirectory?.inputSchema as {
+      readonly required?: readonly string[];
+      readonly properties?: Readonly<Record<string, unknown>>;
+    };
+
+    expect(listDirectory?.description).toContain('Omit path or use "."');
+    expect(schema.required).toBeUndefined();
+    expect(schema.properties?.path).toEqual({
+      type: 'string',
+      maxLength: 1_024,
+    });
+  });
 });

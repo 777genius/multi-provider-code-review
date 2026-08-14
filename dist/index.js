@@ -23109,7 +23109,7 @@ var CodexProvider = class _CodexProvider extends Provider {
         'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.'
       ],
       "Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.",
-      "Use repository-relative paths only. Only report concrete bugs on changed lines.",
+      'Use repository-relative paths only. For review_list_directory, use "." to list the repository root; never invent a runner or workspace absolute path. Only report concrete bugs on changed lines.',
       "",
       "<deterministic_review_prompt>",
       prompt,
@@ -50305,7 +50305,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.115",
+  version: "1.0.116",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -102420,7 +102420,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       }
     );
     return this.execute(operation, replayInput, async () => {
-      const relativePath = normalizeRelativePath2(input.path);
+      const relativePath = normalizeDirectoryPath(input.path);
       const revision = input.revision ?? "head" /* Head */;
       const revisionSha = this.revisionSha(revision);
       const treeOid = this.revisionTreeOid(revision);
@@ -102837,7 +102837,7 @@ function normalizeFileReadInput(input) {
 }
 function normalizeDirectoryListInput(input) {
   return Object.freeze({
-    path: normalizePathForOperation(input.path),
+    path: normalizeDirectoryPathForOperation(input.path),
     revision: input.revision ?? "head" /* Head */,
     maxDepth: input.maxDepth ?? 4,
     includeHidden: input.includeHidden ?? false,
@@ -102869,6 +102869,17 @@ function normalizePathForOperation(value) {
   } catch {
     return value;
   }
+}
+function normalizeDirectoryPathForOperation(value) {
+  try {
+    return normalizeDirectoryPath(value);
+  } catch {
+    return value ?? ".";
+  }
+}
+function normalizeDirectoryPath(value) {
+  if (value === void 0 || value === "" || value === "/") return ".";
+  return normalizeRelativePath2(value);
 }
 function normalizeCursor(value) {
   return value ? value : null;

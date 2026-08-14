@@ -1198,7 +1198,7 @@ export class CodexProvider extends Provider {
             'If any ReviewRouter MCP tool result says "truncated": true or "complete": false, do not produce final JSON from that partial result. Narrow the path/query/range or use a smaller maxResults/maxBytes follow-up until the inspected result is complete and not truncated.',
           ]),
       'Do not attempt shell, browser, web, network, environment, credential, or filesystem access outside these tools.',
-      'Use repository-relative paths only. Only report concrete bugs on changed lines.',
+      'Use repository-relative paths only. For review_list_directory, use "." to list the repository root; never invent a runner or workspace absolute path. Only report concrete bugs on changed lines.',
       '',
       '<deterministic_review_prompt>',
       prompt,
