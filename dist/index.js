@@ -100976,6 +100976,7 @@ var ContextGatewayInvocationSession = class {
         );
       }
       if (transcript.confinementTainted || transcript.terminalFailureClass !== null) {
+        logV4TranscriptRejection("terminal_state", transcript);
         throw new ReviewContextInspectionFailure(
           "incomplete_transcript" /* IncompleteTranscript */
         );
@@ -100995,12 +100996,17 @@ var ContextGatewayInvocationSession = class {
         }
       );
       if (this.executionProfile === "context_gateway_v1" /* ContextGatewayV1 */) {
-        verifyStrictV4ProviderInspection({
-          transcript,
-          replayMaterialCanonicalJson,
-          requiredWitness: this.requiredWitness,
-          sessionId: this.serverSession.sessionId
-        });
+        try {
+          verifyStrictV4ProviderInspection({
+            transcript,
+            replayMaterialCanonicalJson,
+            requiredWitness: this.requiredWitness,
+            sessionId: this.serverSession.sessionId
+          });
+        } catch (error2) {
+          logV4TranscriptRejection("strict_replay_validation", transcript);
+          throw error2;
+        }
         const [stableTranscriptCanonicalJson, stableReplay] = await Promise.all(
           [
             readBoundedCanonicalJson(
@@ -101017,6 +101023,7 @@ var ContextGatewayInvocationSession = class {
           stableTranscriptCanonicalJson,
           transcript
         ) || stableReplay !== encryptedReplayMaterialCanonicalJson) {
+          logV4TranscriptRejection("unstable_boundary", transcript);
           throw new ReviewContextInspectionFailure(
             "incomplete_transcript" /* IncompleteTranscript */
           );
@@ -101072,6 +101079,41 @@ var ContextGatewayInvocationSession = class {
     throwCleanupFailures(failures);
   }
 };
+function logV4TranscriptRejection(phase, transcript) {
+  const outcomeCounts = transcript.events.reduce(
+    (counts, event) => {
+      counts[event.outcome] += 1;
+      return counts;
+    },
+    {
+      ["succeeded" /* Succeeded */]: 0,
+      ["rejected" /* Rejected */]: 0,
+      ["failed" /* Failed */]: 0
+    }
+  );
+  logger.warn("Context gateway v4 transcript rejected", {
+    phase,
+    eventCount: transcript.events.length,
+    succeededCount: outcomeCounts["succeeded" /* Succeeded */],
+    rejectedCount: outcomeCounts["rejected" /* Rejected */],
+    failedCount: outcomeCounts["failed" /* Failed */],
+    confinementTainted: transcript.confinementTainted,
+    terminalFailureClass: transcript.terminalFailureClass,
+    failureClasses: [
+      ...new Set(
+        transcript.events.map((event) => event.failureClass).filter((value) => value !== null)
+      )
+    ].sort(),
+    sanitizedReasons: [
+      ...new Set(
+        transcript.events.map((event) => event.sanitizedReason).filter((value) => value !== null)
+      )
+    ].sort(),
+    operationKinds: [
+      ...new Set(transcript.events.map((event) => event.operationKind))
+    ].sort()
+  });
+}
 async function captureV4WitnessBoundary(input) {
   const sessionId = requireEnvironmentValue2(
     input.runtimeEnvironment,
