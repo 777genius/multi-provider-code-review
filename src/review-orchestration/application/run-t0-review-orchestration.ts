@@ -1023,6 +1023,9 @@ export class RunT0ReviewOrchestration {
         if (
           acquire.status === ReviewInvocationLeaseAcquireOutcomeStatus.Acquired
         ) {
+          input.busyPollsByProviderLane.delete(
+            input.workSlot.providerVoteIdentityHash
+          );
           lease = acquire.lease;
           continue;
         }

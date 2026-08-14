@@ -97234,6 +97234,9 @@ var RunT0ReviewOrchestration = class {
           ownerIdHash: input.ownerIdHash
         });
         if (acquire.status === "acquired" /* Acquired */) {
+          input.busyPollsByProviderLane.delete(
+            input.workSlot.providerVoteIdentityHash
+          );
           lease = acquire.lease;
           continue;
         }
