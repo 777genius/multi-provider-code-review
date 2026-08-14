@@ -1041,9 +1041,7 @@ export class CodexProvider extends Provider {
   ): CodexPreparedRequest | Readonly<Record<string, unknown>> {
     const gateway = request.contextGateway;
     const environment = this.observablePreparedEnvironment(request);
-    const replacements = new Map<string, string>([
-      [request.binary, '<codex-binary>'],
-      [request.cwd, '<checkout-root>'],
+    const replacements = [
       ...(gateway
         ? [
             [gateway.command, '<context-gateway-command>'] as const,
@@ -1054,7 +1052,9 @@ export class CodexProvider extends Provider {
             ),
           ]
         : []),
-    ]);
+      [request.binary, '<codex-binary>'] as const,
+      [request.cwd, '<checkout-root>'] as const,
+    ].sort(([left], [right]) => right.length - left.length);
     const argsTemplate = request.argsTemplate.map((argument) => {
       let normalized = argument;
       for (const [actual, replacement] of replacements) {

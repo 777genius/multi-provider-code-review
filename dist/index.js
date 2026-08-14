@@ -22997,17 +22997,17 @@ var CodexProvider = class _CodexProvider extends Provider {
   observablePreparedRequest(request) {
     const gateway = request.contextGateway;
     const environment = this.observablePreparedEnvironment(request);
-    const replacements = new Map([
-      [request.binary, "<codex-binary>"],
-      [request.cwd, "<checkout-root>"],
+    const replacements = [
       ...gateway ? [
         [gateway.command, "<context-gateway-command>"],
         [gateway.cwd, "<checkout-root>"],
         ...gateway.args.map(
           (argument, index) => [argument, `<context-gateway-arg-${index}>`]
         )
-      ] : []
-    ]);
+      ] : [],
+      [request.binary, "<codex-binary>"],
+      [request.cwd, "<checkout-root>"]
+    ].sort(([left], [right]) => right.length - left.length);
     const argsTemplate = request.argsTemplate.map((argument) => {
       let normalized = argument;
       for (const [actual, replacement] of replacements) {

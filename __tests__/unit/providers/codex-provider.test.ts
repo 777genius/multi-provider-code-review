@@ -503,6 +503,48 @@ describe('CodexProvider', () => {
     );
   });
 
+  it('keeps planning and materialized gateway bundle paths out of semantic identity', async () => {
+    const provider = new CodexProvider('gpt-5.4-mini');
+    overridePrivate(
+      provider,
+      'resolveBinary',
+      jest.fn().mockResolvedValue('/tmp/codex-install/bin/codex')
+    );
+
+    const planningGateway = contextGatewayConfig('planning');
+    const planning = await provider.prepareInvocation(
+      'same semantic prompt',
+      1_000,
+      undefined,
+      {
+        ...planningGateway,
+        args: [
+          `${planningGateway.cwd}/.reviewrouter-runtime/dist/context-gateway.js`,
+        ],
+      }
+    );
+    const materializedGateway = contextGatewayConfig('materialized');
+    const materialized = await provider.prepareInvocation(
+      'same semantic prompt',
+      1_000,
+      undefined,
+      {
+        ...materializedGateway,
+        args: ['/tmp/reviewrouter-context-gateway-123/context-gateway.cjs'],
+      }
+    );
+
+    expect(planning.observableInputPreimage).toBe(
+      materialized.observableInputPreimage
+    );
+    expect(planning.observableInputPreimage).not.toContain(
+      '.reviewrouter-runtime/dist/context-gateway.js'
+    );
+    expect(planning.observableInputPreimage).not.toContain(
+      'reviewrouter-context-gateway-123'
+    );
+  });
+
   it('keeps ephemeral runner paths out of non-gateway semantic identity', async () => {
     const provider = new CodexProvider('gpt-5.4-mini');
     overridePrivate(
