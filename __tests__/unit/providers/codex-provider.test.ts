@@ -442,6 +442,12 @@ describe('CodexProvider', () => {
     );
     expect(prompt).toContain('until review_read_file returns "eof": true');
     expect(prompt).toContain('MUST NOT produce final JSON');
+    expect(prompt).toContain(
+      'For review_list_directory, use "." to list the repository root'
+    );
+    expect(prompt).toContain(
+      'never invent a runner or workspace absolute path'
+    );
 
     const v3Gateway = contextGatewayConfig();
     const v3Prompt = (provider as any).wrapContextGatewayReviewPrompt(
