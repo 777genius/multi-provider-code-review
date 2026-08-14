@@ -70,6 +70,9 @@ async function fakeFetch(resource, init = {}) {
           generationHashSalt: Buffer.from(
             'artifact-smoke-generation-salt-32'
           ).toString('base64url'),
+          accountFingerprintSalt: Buffer.from(
+            'artifact-smoke-account-salt-32'
+          ).toString('base64url'),
           currentGeneration: 1,
           expiresAt: '2099-01-01T00:00:00.000Z',
         });

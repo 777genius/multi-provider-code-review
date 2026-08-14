@@ -17,6 +17,15 @@ const preloadPath = path.join(
 );
 const runtimeConfigSentinel = '987654321';
 const fakeGitHubPublicKey = 'dh2I7IMEE5Gd/p1NHVbxfmU8jJlAgt9bE3uQoK5u33Q=';
+const fakeIdToken = `${Buffer.from('{}').toString('base64url')}.${Buffer.from(
+  JSON.stringify({
+    iss: 'https://auth.openai.com',
+    sub: 'artifact-smoke-user',
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: 'artifact-smoke-account',
+    },
+  })
+).toString('base64url')}.signature`;
 
 type WorkflowStep = Readonly<{
   name?: string;
@@ -171,7 +180,10 @@ describe('committed production entrypoint artifact', () => {
           INPUT_WORKFLOW_SCHEMA_VERSION: '1',
           INPUT_AUTH_JSON: JSON.stringify({
             auth_mode: 'chatgpt',
-            tokens: { refresh_token: 'fake-refresh-token' },
+            tokens: {
+              refresh_token: 'fake-refresh-token',
+              id_token: fakeIdToken,
+            },
             last_refresh: '2026-08-04T00:00:00.000Z',
           }),
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'fake-oidc-request-token',
