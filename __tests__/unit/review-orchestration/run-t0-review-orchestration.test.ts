@@ -1525,6 +1525,59 @@ describe('RunT0ReviewOrchestration', () => {
     );
   });
 
+  it('resets the shared lane busy streak after a successful acquisition', async () => {
+    const fixture = createFixture({ maxAttempts: 1 });
+    const secondSlot: ReviewWorkSlotPlan = {
+      ...fixture.command.workSlots[0]!,
+      workSlotId: 'slot-2',
+      shardKey: 'batch-2',
+    };
+    const workSlots = [...fixture.command.workSlots, secondSlot];
+    const command = {
+      ...fixture.command,
+      workSlots,
+      workSlotsCanonicalJson: canonicalizeReviewWorkSlots(workSlots),
+    };
+    jest
+      .mocked(fixture.dependencies.revisionGuard.loadCurrentRevision)
+      .mockResolvedValue(revisionOf(command));
+    fixture.controlPlane.restoreExecution
+      .mockReset()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({
+        ...restoredAdmission(command, {
+          state: RestoredReviewWorkSlotState.Pending,
+          acceptedObservationRefId: null,
+        }).restoredExecution,
+        version: '2',
+        streamVersion: '2',
+      });
+    fixture.controlPlane.acquireInvocationLease
+      .mockResolvedValueOnce({
+        status: ReviewInvocationLeaseAcquireOutcomeStatus.Busy,
+      })
+      .mockResolvedValueOnce({
+        status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
+        lease,
+      })
+      .mockResolvedValueOnce({
+        status: ReviewInvocationLeaseAcquireOutcomeStatus.Busy,
+      })
+      .mockResolvedValueOnce({
+        status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
+        lease,
+      });
+    const useCase = new RunT0ReviewOrchestration(fixture.dependencies, 30, 2);
+
+    const result = await useCase.execute(command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(fixture.controlPlane.acquireInvocationLease).toHaveBeenCalledTimes(
+      4
+    );
+    expect(fixture.dependencies.invocations.execute).toHaveBeenCalledTimes(2);
+  });
+
   it('shares the busy poll budget across required slots on one provider lane', async () => {
     const fixture = createFixture({ maxAttempts: 1 });
     const secondSlot: ReviewWorkSlotPlan = {
