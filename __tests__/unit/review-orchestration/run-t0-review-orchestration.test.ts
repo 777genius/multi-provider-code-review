@@ -1311,6 +1311,44 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.controlPlane.requestPublication).not.toHaveBeenCalled();
   });
 
+  it('cancels before scheduling another work slot when the pull request closes', async () => {
+    const fixture = createFixture();
+    jest
+      .mocked(fixture.dependencies.revisionGuard.loadCurrentRevision)
+      .mockResolvedValueOnce(revisionOf(fixture.command))
+      .mockResolvedValueOnce({
+        ...revisionOf(fixture.command),
+        pullRequestState: 'closed',
+      });
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Cancelled);
+    expect(fixture.dependencies.invocations.prepare).not.toHaveBeenCalled();
+    expect(fixture.dependencies.projectionBuilder.build).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.requestPublication).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.supersedeExecution).not.toHaveBeenCalled();
+  });
+
+  it('maps a control-plane race to cancellation when GitHub confirms the pull request closed', async () => {
+    const fixture = createFixture();
+    jest
+      .mocked(fixture.dependencies.revisionGuard.loadCurrentRevision)
+      .mockResolvedValueOnce(revisionOf(fixture.command))
+      .mockResolvedValueOnce({
+        ...revisionOf(fixture.command),
+        pullRequestState: 'closed',
+      });
+    fixture.controlPlane.renewAuthorization.mockRejectedValueOnce(
+      new Error('review_action_v2:review_run_renew:not_found')
+    );
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Cancelled);
+    expect(fixture.dependencies.invocations.prepare).not.toHaveBeenCalled();
+  });
+
   it('releases the lease and supersedes when revision moves after provider execution', async () => {
     const fixture = createFixture();
     jest
@@ -1387,6 +1425,56 @@ describe('RunT0ReviewOrchestration', () => {
       1
     );
   });
+
+  it.each(['agentic_unbounded_v1', 'context_gateway_v1'] as const)(
+    'aborts an active %s invocation when the pull request closes',
+    async (executionProfile) => {
+      const fixture = createFixture({ executionProfile });
+      let releaseRevisionPoll!: () => void;
+      jest.mocked(fixture.dependencies.delay.sleep).mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseRevisionPoll = resolve;
+          })
+      );
+      let providerStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        providerStarted = resolve;
+      });
+      let observedSignal: AbortSignal | undefined;
+      jest
+        .mocked(fixture.dependencies.invocations.execute)
+        .mockImplementation(async ({ signal }) => {
+          observedSignal = signal;
+          providerStarted();
+          return new Promise<never>((_resolve, reject) => {
+            signal.addEventListener(
+              'abort',
+              () => reject(signal.reason || new Error('aborted')),
+              { once: true }
+            );
+          });
+        });
+
+      const resultPromise = fixture.useCase.execute(fixture.command);
+      await started;
+      jest
+        .mocked(fixture.dependencies.revisionGuard.loadCurrentRevision)
+        .mockResolvedValue({
+          ...revisionOf(fixture.command),
+          pullRequestState: 'closed',
+        });
+      releaseRevisionPoll();
+      const result = await resultPromise;
+
+      expect(result.status).toBe(ReviewOrchestrationResultStatus.Cancelled);
+      expect(observedSignal?.aborted).toBe(true);
+      expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
+      expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
+        1
+      );
+    }
+  );
 
   it('drains a confined invocation and commits historical evidence after supersession', async () => {
     const fixture = createFixture({
@@ -2298,6 +2386,7 @@ function revisionOf(command: RunT0ReviewOrchestrationCommand) {
     mergeBaseSha: command.mergeBaseSha,
     headSha: command.headSha,
     reviewRevisionHash: command.reviewRevisionHash,
+    pullRequestState: 'open' as const,
   };
 }
 

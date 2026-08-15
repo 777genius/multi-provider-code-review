@@ -337,6 +337,9 @@ function progressTerminal(
   if (review.outcome === CodexOAuthV2ReviewOutcome.Superseded) {
     return 'superseded';
   }
+  if (review.outcome === CodexOAuthV2ReviewOutcome.Cancelled) {
+    return 'cancelled';
+  }
   return 'failed';
 }
 
@@ -400,6 +403,7 @@ function buildV2TerminalOutcomeReport(
   review: CodexOAuthV2ReviewResult
 ): CodexOAuthTerminalOutcomeReport | null {
   if (review.outcome === CodexOAuthV2ReviewOutcome.Completed) return null;
+  if (review.outcome === CodexOAuthV2ReviewOutcome.Cancelled) return null;
   if (review.outcome === CodexOAuthV2ReviewOutcome.Superseded) {
     return terminalOutcomeReport({
       inputs,
@@ -581,6 +585,8 @@ function v2TerminalFailureCode(
       return completedV2MergeGateFailureCode(review);
     case CodexOAuthV2ReviewOutcome.Superseded:
       return 'review_superseded_by_newer_revision';
+    case CodexOAuthV2ReviewOutcome.Cancelled:
+      return null;
     case CodexOAuthV2ReviewOutcome.PartialCompleted:
       return review.blockingFailure ?? 'required_review_coverage_incomplete';
     case CodexOAuthV2ReviewOutcome.PublicationNotApplied:

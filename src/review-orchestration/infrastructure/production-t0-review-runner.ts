@@ -185,6 +185,9 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
       throw new Error('review_action_v2_checked_out_revision_mismatch');
     }
     const currentRevision = await revisionGuard.loadCurrentRevision();
+    if (currentRevision.pullRequestState === 'closed') {
+      return { outcome: CodexOAuthV2ReviewOutcome.Cancelled };
+    }
     if (!sameAuthorizedRevision(currentRevision, authorization)) {
       return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
     }
@@ -673,6 +676,8 @@ export function mapOrchestrationResultToCodexOutcome(result: {
       };
     case ReviewOrchestrationResultStatus.Superseded:
       return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
+    case ReviewOrchestrationResultStatus.Cancelled:
+      return { outcome: CodexOAuthV2ReviewOutcome.Cancelled };
     case ReviewOrchestrationResultStatus.Failed:
       return {
         outcome: CodexOAuthV2ReviewOutcome.Failed,

@@ -46,6 +46,35 @@ describe('GitHubReviewRevisionGuard', () => {
     expect(pullsGet).toHaveBeenCalledTimes(1);
   });
 
+  it('returns the authoritative closed pull request state without changing the revision hash', async () => {
+    const baseSha = 'b'.repeat(40);
+    const headSha = 'a'.repeat(40);
+    const pullsGet = jest.fn().mockResolvedValue({
+      data: {
+        state: 'closed',
+        base: { sha: baseSha },
+        head: { sha: headSha },
+      },
+    });
+    const compare = jest.fn().mockResolvedValue({
+      data: { merge_base_commit: { sha: 'c'.repeat(40) } },
+    });
+    const guard = new GitHubReviewRevisionGuard(
+      clientWith({ pullsGet, compare }) as never,
+      scope
+    );
+
+    const revision = await guard.loadCurrentRevision();
+
+    expect(revision).toMatchObject({
+      baseSha,
+      headSha,
+      pullRequestState: 'closed',
+    });
+    expect(revision.reviewRevisionHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(pullsGet).toHaveBeenCalledTimes(2);
+  });
+
   it('normalizes invalid revision facts as a permanent guard failure', async () => {
     const client = clientWith({
       pullsGet: jest.fn().mockResolvedValue({

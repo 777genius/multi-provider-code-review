@@ -37,7 +37,11 @@ export class GitHubReviewRevisionGuard implements ReviewRevisionGuardPort {
     const before = await this.loadPointer();
     const mergeBaseSha = await this.loadMergeBase(before);
     const after = await this.loadPointer();
-    if (before.baseSha === after.baseSha && before.headSha === after.headSha) {
+    if (
+      before.baseSha === after.baseSha &&
+      before.headSha === after.headSha &&
+      before.pullRequestState === after.pullRequestState
+    ) {
       return this.toRevision(before, mergeBaseSha);
     }
 
@@ -49,6 +53,7 @@ export class GitHubReviewRevisionGuard implements ReviewRevisionGuardPort {
   private async loadPointer(): Promise<{
     readonly baseSha: string;
     readonly headSha: string;
+    readonly pullRequestState: 'open' | 'closed';
   }> {
     return await this.readGitHubRevisionFact(async () => {
       const response = await this.client.octokit.rest.pulls.get({
@@ -59,6 +64,7 @@ export class GitHubReviewRevisionGuard implements ReviewRevisionGuardPort {
       return {
         baseSha: requireCommitSha(response.data.base?.sha, 'base_sha'),
         headSha: requireCommitSha(response.data.head?.sha, 'head_sha'),
+        pullRequestState: requirePullRequestState(response.data.state),
       };
     });
   }
@@ -105,7 +111,11 @@ export class GitHubReviewRevisionGuard implements ReviewRevisionGuardPort {
   }
 
   private toRevision(
-    pointer: { readonly baseSha: string; readonly headSha: string },
+    pointer: {
+      readonly baseSha: string;
+      readonly headSha: string;
+      readonly pullRequestState: 'open' | 'closed';
+    },
     mergeBaseSha: string
   ) {
     const facts = {
@@ -119,8 +129,14 @@ export class GitHubReviewRevisionGuard implements ReviewRevisionGuardPort {
       mergeBaseSha: facts.mergeBaseSha,
       headSha: facts.headSha,
       reviewRevisionHash: sha256(canonicalJson(facts)),
+      pullRequestState: pointer.pullRequestState,
     });
   }
+}
+
+function requirePullRequestState(value: unknown): 'open' | 'closed' {
+  if (value === 'open' || value === 'closed') return value;
+  throw new Error('github_review_pull_request_state_invalid');
 }
 
 export class FreshGitHubLifecycleInventory implements CurrentLifecycleInventoryPort {

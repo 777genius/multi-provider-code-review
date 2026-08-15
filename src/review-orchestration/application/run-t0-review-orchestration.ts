@@ -63,6 +63,7 @@ export enum ReviewOrchestrationResultStatus {
   Completed = 'completed',
   PartialCompleted = 'partial_completed',
   Superseded = 'superseded',
+  Cancelled = 'cancelled',
   PublicationNotApplied = 'publication_not_applied',
   PublicationStale = 'publication_stale',
   PublicationUnavailable = 'publication_unavailable',
@@ -218,6 +219,12 @@ export class RunT0ReviewOrchestration {
 
       const admittedRevision =
         await this.dependencies.revisionGuard.loadCurrentRevision();
+      if (admittedRevision.pullRequestState === 'closed') {
+        state = evolveReviewOrchestration(state, {
+          type: ReviewOrchestrationEventType.Superseded,
+        });
+        return { status: ReviewOrchestrationResultStatus.Cancelled, state };
+      }
       if (!sameRevision(admittedRevision, command)) {
         state = evolveReviewOrchestration(state, {
           type: ReviewOrchestrationEventType.Superseded,
@@ -435,6 +442,9 @@ export class RunT0ReviewOrchestration {
 
       const publicationRevision =
         await this.dependencies.revisionGuard.loadCurrentRevision();
+      if (publicationRevision.pullRequestState === 'closed') {
+        throw new ReviewExecutionCancelledSignal();
+      }
       if (!sameRevision(publicationRevision, command)) {
         await this.dependencies.controlPlane.supersedeExecution({
           authorization,
@@ -698,6 +708,18 @@ export class RunT0ReviewOrchestration {
         failureCode: 'publication_poll_exhausted',
       };
     } catch (error) {
+      if (error instanceof ReviewExecutionCancelledSignal) {
+        if (!isTerminal(state.phase)) {
+          state = evolveReviewOrchestration(state, {
+            type: ReviewOrchestrationEventType.Superseded,
+          });
+        }
+        return {
+          status: ReviewOrchestrationResultStatus.Cancelled,
+          state,
+          ...(execution ? { executionId: execution.executionId } : {}),
+        };
+      }
       if (error instanceof ReviewExecutionSupersededSignal) {
         if (authorization && execution) {
           await this.dependencies.controlPlane.supersedeExecution({
@@ -719,6 +741,18 @@ export class RunT0ReviewOrchestration {
         }
         return {
           status: ReviewOrchestrationResultStatus.Superseded,
+          state,
+          ...(execution ? { executionId: execution.executionId } : {}),
+        };
+      }
+      if (await this.pullRequestClosedAfterFailure()) {
+        if (!isTerminal(state.phase)) {
+          state = evolveReviewOrchestration(state, {
+            type: ReviewOrchestrationEventType.Superseded,
+          });
+        }
+        return {
+          status: ReviewOrchestrationResultStatus.Cancelled,
           state,
           ...(execution ? { executionId: execution.executionId } : {}),
         };
@@ -1113,7 +1147,10 @@ export class RunT0ReviewOrchestration {
           throw new ReviewExecutionDeadlineReachedSignal();
         }
       } catch (error) {
-        if (error instanceof ReviewExecutionSupersededSignal) {
+        if (
+          error instanceof ReviewExecutionSupersededSignal ||
+          error instanceof ReviewExecutionCancelledSignal
+        ) {
           await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
           throw error;
         }
@@ -1440,10 +1477,23 @@ export class RunT0ReviewOrchestration {
   ): Promise<void> {
     const currentRevision =
       await this.dependencies.revisionGuard.loadCurrentRevision();
+    if (currentRevision.pullRequestState === 'closed') {
+      throw new ReviewExecutionCancelledSignal();
+    }
     if (!sameRevisionFacts(currentRevision, expectedRevision)) {
       throw new ReviewExecutionSupersededSignal(
         currentRevision.reviewRevisionHash
       );
+    }
+  }
+
+  private async pullRequestClosedAfterFailure(): Promise<boolean> {
+    try {
+      const currentRevision =
+        await this.dependencies.revisionGuard.loadCurrentRevision();
+      return currentRevision.pullRequestState === 'closed';
+    } catch {
+      return false;
     }
   }
 
@@ -1476,11 +1526,14 @@ export class RunT0ReviewOrchestration {
           abort.abort(new ReviewExecutionDeadlineReachedSignal());
           return;
         }
-        if (drainOnSupersession) continue;
         try {
           await this.assertRevisionCurrent(input.revision);
         } catch (error) {
-          if (error instanceof ReviewExecutionSupersededSignal) {
+          if (
+            error instanceof ReviewExecutionCancelledSignal ||
+            (!drainOnSupersession &&
+              error instanceof ReviewExecutionSupersededSignal)
+          ) {
             abort.abort(error);
             return;
           }
@@ -1493,13 +1546,17 @@ export class RunT0ReviewOrchestration {
         input,
         abort.signal
       );
-      if (abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
+      if (
+        abort.signal.reason instanceof ReviewExecutionCancelledSignal ||
+        abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal
+      ) {
         throw abort.signal.reason;
       }
       return observation;
     } catch (error) {
       if (
         abort.signal.reason instanceof ReviewExecutionSupersededSignal ||
+        abort.signal.reason instanceof ReviewExecutionCancelledSignal ||
         abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal
       ) {
         throw abort.signal.reason;
@@ -1566,7 +1623,10 @@ export class RunT0ReviewOrchestration {
           try {
             await this.assertRevisionCurrent(input.revision);
           } catch (error) {
-            if (error instanceof ReviewExecutionSupersededSignal) {
+            if (
+              error instanceof ReviewExecutionSupersededSignal ||
+              error instanceof ReviewExecutionCancelledSignal
+            ) {
               abort.abort(error);
               return;
             }
@@ -1594,6 +1654,7 @@ export class RunT0ReviewOrchestration {
       } catch (error) {
         if (
           abort.signal.reason instanceof ReviewExecutionSupersededSignal ||
+          abort.signal.reason instanceof ReviewExecutionCancelledSignal ||
           abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal
         ) {
           throw abort.signal.reason;
@@ -1605,6 +1666,7 @@ export class RunT0ReviewOrchestration {
     } catch (error) {
       if (
         error instanceof ReviewExecutionSupersededSignal ||
+        error instanceof ReviewExecutionCancelledSignal ||
         error instanceof ReviewExecutionDeadlineReachedSignal
       ) {
         throw error;
@@ -2269,6 +2331,12 @@ function isTerminal(phase: ReviewOrchestrationPhase): boolean {
 class ReviewExecutionSupersededSignal extends Error {
   constructor(readonly currentRevisionHash: string) {
     super('review_orchestration_superseded');
+  }
+}
+
+class ReviewExecutionCancelledSignal extends Error {
+  constructor() {
+    super('review_orchestration_cancelled');
   }
 }
 

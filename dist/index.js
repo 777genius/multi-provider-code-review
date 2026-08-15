@@ -96545,6 +96545,12 @@ var RunT0ReviewOrchestration = class {
         type: "authorized" /* Authorized */
       });
       const admittedRevision = await this.dependencies.revisionGuard.loadCurrentRevision();
+      if (admittedRevision.pullRequestState === "closed") {
+        state = evolveReviewOrchestration(state, {
+          type: "superseded" /* Superseded */
+        });
+        return { status: "cancelled" /* Cancelled */, state };
+      }
       if (!sameRevision(admittedRevision, command)) {
         state = evolveReviewOrchestration(state, {
           type: "superseded" /* Superseded */
@@ -96735,6 +96741,9 @@ var RunT0ReviewOrchestration = class {
         };
       }
       const publicationRevision = await this.dependencies.revisionGuard.loadCurrentRevision();
+      if (publicationRevision.pullRequestState === "closed") {
+        throw new ReviewExecutionCancelledSignal();
+      }
       if (!sameRevision(publicationRevision, command)) {
         await this.dependencies.controlPlane.supersedeExecution({
           authorization,
@@ -96977,6 +96986,18 @@ var RunT0ReviewOrchestration = class {
         failureCode: "publication_poll_exhausted"
       };
     } catch (error2) {
+      if (error2 instanceof ReviewExecutionCancelledSignal) {
+        if (!isTerminal3(state.phase)) {
+          state = evolveReviewOrchestration(state, {
+            type: "superseded" /* Superseded */
+          });
+        }
+        return {
+          status: "cancelled" /* Cancelled */,
+          state,
+          ...execution ? { executionId: execution.executionId } : {}
+        };
+      }
       if (error2 instanceof ReviewExecutionSupersededSignal) {
         if (authorization && execution) {
           await this.dependencies.controlPlane.supersedeExecution({
@@ -96998,6 +97019,18 @@ var RunT0ReviewOrchestration = class {
         }
         return {
           status: "superseded" /* Superseded */,
+          state,
+          ...execution ? { executionId: execution.executionId } : {}
+        };
+      }
+      if (await this.pullRequestClosedAfterFailure()) {
+        if (!isTerminal3(state.phase)) {
+          state = evolveReviewOrchestration(state, {
+            type: "superseded" /* Superseded */
+          });
+        }
+        return {
+          status: "cancelled" /* Cancelled */,
           state,
           ...execution ? { executionId: execution.executionId } : {}
         };
@@ -97310,7 +97343,7 @@ var RunT0ReviewOrchestration = class {
           throw new ReviewExecutionDeadlineReachedSignal();
         }
       } catch (error2) {
-        if (error2 instanceof ReviewExecutionSupersededSignal) {
+        if (error2 instanceof ReviewExecutionSupersededSignal || error2 instanceof ReviewExecutionCancelledSignal) {
           await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
           throw error2;
         }
@@ -97563,10 +97596,21 @@ var RunT0ReviewOrchestration = class {
   }
   async assertRevisionCurrent(expectedRevision) {
     const currentRevision = await this.dependencies.revisionGuard.loadCurrentRevision();
+    if (currentRevision.pullRequestState === "closed") {
+      throw new ReviewExecutionCancelledSignal();
+    }
     if (!sameRevisionFacts(currentRevision, expectedRevision)) {
       throw new ReviewExecutionSupersededSignal(
         currentRevision.reviewRevisionHash
       );
+    }
+  }
+  async pullRequestClosedAfterFailure() {
+    try {
+      const currentRevision = await this.dependencies.revisionGuard.loadCurrentRevision();
+      return currentRevision.pullRequestState === "closed";
+    } catch {
+      return false;
     }
   }
   async executeInvocationWithRevisionWatch(input) {
@@ -97590,11 +97634,10 @@ var RunT0ReviewOrchestration = class {
           abort.abort(new ReviewExecutionDeadlineReachedSignal());
           return;
         }
-        if (drainOnSupersession) continue;
         try {
           await this.assertRevisionCurrent(input.revision);
         } catch (error2) {
-          if (error2 instanceof ReviewExecutionSupersededSignal) {
+          if (error2 instanceof ReviewExecutionCancelledSignal || !drainOnSupersession && error2 instanceof ReviewExecutionSupersededSignal) {
             abort.abort(error2);
             return;
           }
@@ -97607,12 +97650,12 @@ var RunT0ReviewOrchestration = class {
         input,
         abort.signal
       );
-      if (abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
+      if (abort.signal.reason instanceof ReviewExecutionCancelledSignal || abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
         throw abort.signal.reason;
       }
       return observation;
     } catch (error2) {
-      if (abort.signal.reason instanceof ReviewExecutionSupersededSignal || abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
+      if (abort.signal.reason instanceof ReviewExecutionSupersededSignal || abort.signal.reason instanceof ReviewExecutionCancelledSignal || abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
         throw abort.signal.reason;
       }
       throw error2;
@@ -97658,7 +97701,7 @@ var RunT0ReviewOrchestration = class {
           try {
             await this.assertRevisionCurrent(input.revision);
           } catch (error2) {
-            if (error2 instanceof ReviewExecutionSupersededSignal) {
+            if (error2 instanceof ReviewExecutionSupersededSignal || error2 instanceof ReviewExecutionCancelledSignal) {
               abort.abort(error2);
               return;
             }
@@ -97682,7 +97725,7 @@ var RunT0ReviewOrchestration = class {
         }
         return { invocation, manifest, observation };
       } catch (error2) {
-        if (abort.signal.reason instanceof ReviewExecutionSupersededSignal || abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
+        if (abort.signal.reason instanceof ReviewExecutionSupersededSignal || abort.signal.reason instanceof ReviewExecutionCancelledSignal || abort.signal.reason instanceof ReviewExecutionDeadlineReachedSignal) {
           throw abort.signal.reason;
         }
         throw error2;
@@ -97690,7 +97733,7 @@ var RunT0ReviewOrchestration = class {
         stopped = true;
       }
     } catch (error2) {
-      if (error2 instanceof ReviewExecutionSupersededSignal || error2 instanceof ReviewExecutionDeadlineReachedSignal) {
+      if (error2 instanceof ReviewExecutionSupersededSignal || error2 instanceof ReviewExecutionCancelledSignal || error2 instanceof ReviewExecutionDeadlineReachedSignal) {
         throw error2;
       }
       if (error2 instanceof ReviewInvestigationLegacyFallbackSignal || recording.mode === "record_only" /* RecordOnly */) {
@@ -98075,6 +98118,11 @@ var ReviewExecutionSupersededSignal = class extends Error {
   constructor(currentRevisionHash) {
     super("review_orchestration_superseded");
     this.currentRevisionHash = currentRevisionHash;
+  }
+};
+var ReviewExecutionCancelledSignal = class extends Error {
+  constructor() {
+    super("review_orchestration_cancelled");
   }
 };
 var ReviewExecutionDeadlineReachedSignal = class extends Error {
@@ -103899,7 +103947,7 @@ var GitHubReviewRevisionGuard = class {
     const before = await this.loadPointer();
     const mergeBaseSha = await this.loadMergeBase(before);
     const after = await this.loadPointer();
-    if (before.baseSha === after.baseSha && before.headSha === after.headSha) {
+    if (before.baseSha === after.baseSha && before.headSha === after.headSha && before.pullRequestState === after.pullRequestState) {
       return this.toRevision(before, mergeBaseSha);
     }
     return this.toRevision(after, await this.loadMergeBase(after));
@@ -103913,7 +103961,8 @@ var GitHubReviewRevisionGuard = class {
       });
       return {
         baseSha: requireCommitSha(response.data.base?.sha, "base_sha"),
-        headSha: requireCommitSha(response.data.head?.sha, "head_sha")
+        headSha: requireCommitSha(response.data.head?.sha, "head_sha"),
+        pullRequestState: requirePullRequestState(response.data.state)
       };
     });
   }
@@ -103963,10 +104012,15 @@ var GitHubReviewRevisionGuard = class {
       baseSha: facts.baseSha,
       mergeBaseSha: facts.mergeBaseSha,
       headSha: facts.headSha,
-      reviewRevisionHash: sha25614(canonicalJson11(facts))
+      reviewRevisionHash: sha25614(canonicalJson11(facts)),
+      pullRequestState: pointer.pullRequestState
     });
   }
 };
+function requirePullRequestState(value) {
+  if (value === "open" || value === "closed") return value;
+  throw new Error("github_review_pull_request_state_invalid");
+}
 var FreshGitHubLifecycleInventory = class {
   constructor(client, ledger) {
     this.ledger = ledger;
@@ -112174,6 +112228,9 @@ var ProductionT0ReviewRunner = class {
       throw new Error("review_action_v2_checked_out_revision_mismatch");
     }
     const currentRevision = await revisionGuard.loadCurrentRevision();
+    if (currentRevision.pullRequestState === "closed") {
+      return { outcome: "cancelled" /* Cancelled */ };
+    }
     if (!sameAuthorizedRevision(currentRevision, authorization)) {
       return { outcome: "superseded" /* Superseded */ };
     }
@@ -112557,6 +112614,8 @@ function mapOrchestrationResultToCodexOutcome(result2) {
       };
     case "superseded" /* Superseded */:
       return { outcome: "superseded" /* Superseded */ };
+    case "cancelled" /* Cancelled */:
+      return { outcome: "cancelled" /* Cancelled */ };
     case "failed" /* Failed */:
       return {
         outcome: "failed" /* Failed */,
@@ -113394,6 +113453,9 @@ function progressTerminal(review) {
   if (review.outcome === "superseded" /* Superseded */) {
     return "superseded";
   }
+  if (review.outcome === "cancelled" /* Cancelled */) {
+    return "cancelled";
+  }
   return "failed";
 }
 function buildSkippedTerminalOutcomeReport(inputs, runtime) {
@@ -113435,6 +113497,7 @@ function buildSkippedTerminalOutcomeReport(inputs, runtime) {
 }
 function buildV2TerminalOutcomeReport(inputs, review) {
   if (review.outcome === "completed" /* Completed */) return null;
+  if (review.outcome === "cancelled" /* Cancelled */) return null;
   if (review.outcome === "superseded" /* Superseded */) {
     return terminalOutcomeReport({
       inputs,
@@ -113530,6 +113593,8 @@ function v2TerminalFailureCode(review) {
       return completedV2MergeGateFailureCode(review);
     case "superseded" /* Superseded */:
       return "review_superseded_by_newer_revision";
+    case "cancelled" /* Cancelled */:
+      return null;
     case "partial_completed" /* PartialCompleted */:
       return review.blockingFailure ?? "required_review_coverage_incomplete";
     case "publication_not_applied" /* PublicationNotApplied */:
