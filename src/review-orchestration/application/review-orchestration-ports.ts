@@ -609,8 +609,12 @@ export type ReviewRevisionFacts = {
   readonly reviewRevisionHash: string;
 };
 
+export type CurrentReviewRevisionFacts = ReviewRevisionFacts & {
+  readonly pullRequestState: 'open' | 'closed';
+};
+
 export interface ReviewRevisionGuardPort {
-  loadCurrentRevision(): Promise<ReviewRevisionFacts>;
+  loadCurrentRevision(): Promise<CurrentReviewRevisionFacts>;
 }
 
 export interface ReviewOidcTokenPort {

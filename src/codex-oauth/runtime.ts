@@ -44,6 +44,7 @@ export enum CodexOAuthV2ReviewOutcome {
   Completed = 'completed',
   PartialCompleted = 'partial_completed',
   Superseded = 'superseded',
+  Cancelled = 'cancelled',
   PublicationNotApplied = 'publication_not_applied',
   PublicationStale = 'publication_stale',
   PublicationUnavailable = 'publication_unavailable',
@@ -96,6 +97,7 @@ export type CodexOAuthV2ReviewResult =
       readonly blockingFailure?: string;
     }
   | { readonly outcome: CodexOAuthV2ReviewOutcome.Superseded }
+  | { readonly outcome: CodexOAuthV2ReviewOutcome.Cancelled }
   | {
       readonly outcome: CodexOAuthV2ReviewOutcome.PublicationNotApplied;
       readonly reason: CodexOAuthV2TerminalReason.PublicationConflict;

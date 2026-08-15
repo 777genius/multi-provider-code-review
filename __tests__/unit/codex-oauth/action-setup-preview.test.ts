@@ -557,6 +557,29 @@ describe('Codex OAuth rotating setup PR preview', () => {
     );
   });
 
+  it('finishes a closed pull request without a failure comment or failed job', async () => {
+    mockedRuntime.mockResolvedValue({
+      status: 'completed',
+      publicationMode: CodexOAuthReviewRuntimeMode.ServerPublishedV2,
+      v2Review: { outcome: CodexOAuthV2ReviewOutcome.Cancelled },
+    });
+    process.env = {
+      ...actionEnv({ eventPath, outputPath, headRef: 'feature/change' }),
+      GITHUB_STEP_SUMMARY: stepSummaryPath,
+    };
+    const terminalOutcomeReporter = {
+      post: jest.fn(async () => undefined),
+    };
+
+    await runCodexOAuthRotatingAction({
+      reviewActionV2Activation: v2Activation(),
+      terminalOutcomeReporter,
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    expect(terminalOutcomeReporter.post).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       {
