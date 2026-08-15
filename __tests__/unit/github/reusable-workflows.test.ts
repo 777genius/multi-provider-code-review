@@ -22,6 +22,7 @@ type WorkflowJob = {
     env?: Record<string, unknown>;
     if?: string;
     uses?: string;
+    with?: Record<string, unknown>;
   }>;
 };
 
@@ -391,11 +392,8 @@ describe('production reusable workflows', () => {
 
     expect(t0Run?.if).toContain("inputs.review_action_lane == 't0'");
     expect(t0Run?.if).toContain("inputs.codex_session_mode == ''");
-    expect(codexInstall?.if).toContain(
-      "steps.runtime.outputs.can_run == 'true'"
-    );
-    expect(codexInstall?.if).toContain(
-      "steps.provider-tooling.outputs.codex_cli_needed == 'true'"
+    expect(codexInstall?.if).toBe(
+      "${{ steps.runtime.outputs.can_run == 'true' && steps.provider-tooling.outputs.codex_cli_needed == 'true' }}"
     );
     expect(codexInstall?.if).not.toContain(
       "inputs.review_action_lane == 'legacy'"
@@ -421,7 +419,11 @@ describe('production reusable workflows', () => {
     expect(hostedPoolCheckout?.if).toContain(
       "inputs.codex_session_mode == 'codex_subscription_oauth_hosted_pool'"
     );
-    expect(workflowSource).toContain('path: .reviewrouter-pr');
+    expect(hostedPoolCheckout?.with).toMatchObject({
+      ref: '${{ inputs.review_head_sha }}',
+      path: '.reviewrouter-pr',
+      'persist-credentials': false,
+    });
     expect(hostedPoolRun?.if).toContain(
       "inputs.codex_session_mode == 'codex_subscription_oauth_hosted_pool'"
     );

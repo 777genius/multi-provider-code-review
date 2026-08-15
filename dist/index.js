@@ -50698,13 +50698,16 @@ function safeReason4(message) {
 }
 
 // src/control-plane/rotating-comment-token.ts
-var rotatingCommentTokenMode = "codex-oauth-rotating";
+var rotatingCommentTokenModes = /* @__PURE__ */ new Set([
+  "codex-oauth-rotating",
+  "hosted-relay"
+]);
 var tokenRefreshLeadTimeMs = 5 * 60 * 1e3;
 var tokenRefreshRetryDelayMs = 30 * 1e3;
 var tokenRequestTimeoutMs = 3e4;
 function createRotatingCommentTokenProvider(input) {
   const env = input.env ?? process.env;
-  if (env.REVIEWROUTER_COMMENT_TOKEN_MODE !== rotatingCommentTokenMode) {
+  if (!rotatingCommentTokenModes.has(env.REVIEWROUTER_COMMENT_TOKEN_MODE ?? "")) {
     return void 0;
   }
   const refreshUrl = requireEnvironmentValue(

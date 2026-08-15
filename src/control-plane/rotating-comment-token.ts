@@ -1,6 +1,9 @@
 import { GitHubTokenProvider } from '../github/token-provider';
 
-const rotatingCommentTokenMode = 'codex-oauth-rotating';
+const rotatingCommentTokenModes = new Set([
+  'codex-oauth-rotating',
+  'hosted-relay',
+]);
 const tokenRefreshLeadTimeMs = 5 * 60 * 1000;
 const tokenRefreshRetryDelayMs = 30 * 1000;
 const tokenRequestTimeoutMs = 30_000;
@@ -20,7 +23,9 @@ export function createRotatingCommentTokenProvider(input: {
   readonly onToken?: (token: string) => void;
 }): GitHubTokenProvider | undefined {
   const env = input.env ?? process.env;
-  if (env.REVIEWROUTER_COMMENT_TOKEN_MODE !== rotatingCommentTokenMode) {
+  if (
+    !rotatingCommentTokenModes.has(env.REVIEWROUTER_COMMENT_TOKEN_MODE ?? '')
+  ) {
     return undefined;
   }
 

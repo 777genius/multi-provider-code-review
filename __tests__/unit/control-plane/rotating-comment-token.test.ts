@@ -1,6 +1,7 @@
 import { createRotatingCommentTokenProvider } from '../../../src/control-plane/rotating-comment-token';
 
 const now = Date.parse('2026-07-16T12:00:00.000Z');
+const supportedModes = ['codex-oauth-rotating', 'hosted-relay'] as const;
 const baseEnv = {
   REVIEWROUTER_COMMENT_TOKEN_MODE: 'codex-oauth-rotating',
   REVIEWROUTER_COMMENT_TOKEN_REFRESH_URL:
@@ -11,6 +12,18 @@ const baseEnv = {
 };
 
 describe('rotating comment token provider', () => {
+  it('rejects unknown comment token modes', () => {
+    expect(
+      createRotatingCommentTokenProvider({
+        initialToken: 'ghs_initial',
+        env: {
+          ...baseEnv,
+          REVIEWROUTER_COMMENT_TOKEN_MODE: 'unknown-mode',
+        },
+      })
+    ).toBeUndefined();
+  });
+
   it('keeps a valid token without control-plane traffic', async () => {
     const fetchImpl = jest.fn() as jest.MockedFunction<typeof fetch>;
     const provider = createRotatingCommentTokenProvider({
@@ -27,39 +40,43 @@ describe('rotating comment token provider', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('refreshes near expiry once for concurrent callers', async () => {
-    const onToken = jest.fn();
-    const fetchImpl = jest.fn() as jest.MockedFunction<typeof fetch>;
-    fetchImpl.mockResolvedValue(
-      jsonResponse({
-        protocolVersion: 1,
-        token: 'ghs_refreshed',
-        expiresAt: '2026-07-16T14:00:00.000Z',
-        repository: '777genius/agent-teams-ai',
-      })
-    );
-    const provider = createRotatingCommentTokenProvider({
-      initialToken: 'ghs_initial',
-      env: {
-        ...baseEnv,
-        REVIEWROUTER_COMMENT_TOKEN_EXPIRES_AT: '2026-07-16T12:04:00.000Z',
-      },
-      fetchImpl,
-      now: () => now,
-      onToken,
-    })!;
+  it.each(supportedModes)(
+    'refreshes near expiry once for concurrent callers in %s mode',
+    async (mode) => {
+      const onToken = jest.fn();
+      const fetchImpl = jest.fn() as jest.MockedFunction<typeof fetch>;
+      fetchImpl.mockResolvedValue(
+        jsonResponse({
+          protocolVersion: 1,
+          token: 'ghs_refreshed',
+          expiresAt: '2026-07-16T14:00:00.000Z',
+          repository: '777genius/agent-teams-ai',
+        })
+      );
+      const provider = createRotatingCommentTokenProvider({
+        initialToken: 'ghs_initial',
+        env: {
+          ...baseEnv,
+          REVIEWROUTER_COMMENT_TOKEN_MODE: mode,
+          REVIEWROUTER_COMMENT_TOKEN_EXPIRES_AT: '2026-07-16T12:04:00.000Z',
+        },
+        fetchImpl,
+        now: () => now,
+        onToken,
+      })!;
 
-    await expect(
-      Promise.all([provider.getToken(), provider.getToken()])
-    ).resolves.toEqual(['ghs_refreshed', 'ghs_refreshed']);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(onToken).toHaveBeenCalledWith('ghs_refreshed');
-    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
-      leaseId: 'lease_123',
-      providerInstanceId: 'provider_123',
-      authCleared: true,
-    });
-  });
+      await expect(
+        Promise.all([provider.getToken(), provider.getToken()])
+      ).resolves.toEqual(['ghs_refreshed', 'ghs_refreshed']);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(onToken).toHaveBeenCalledWith('ghs_refreshed');
+      expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
+        leaseId: 'lease_123',
+        providerInstanceId: 'provider_123',
+        authCleared: true,
+      });
+    }
+  );
 
   it('keeps an unexpired token when proactive refresh is transiently unavailable', async () => {
     const fetchImpl = jest.fn() as jest.MockedFunction<typeof fetch>;
