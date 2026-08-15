@@ -97303,11 +97303,16 @@ var RunT0ReviewOrchestration = class {
           };
         }
       }
-      input.onEvent({
-        type: "slot_lease_acquired" /* SlotLeaseAcquired */,
-        workSlotId: input.workSlot.workSlotId
-      });
-      await this.assertRevisionCurrent(input.revision);
+      try {
+        input.onEvent({
+          type: "slot_lease_acquired" /* SlotLeaseAcquired */,
+          workSlotId: input.workSlot.workSlotId
+        });
+        await this.assertRevisionCurrent(input.revision);
+      } catch (error2) {
+        await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+        throw error2;
+      }
       if (!this.canStartInvocation(attemptOrdinal)) {
         await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
         input.onEvent({

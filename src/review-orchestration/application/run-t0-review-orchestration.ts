@@ -1100,12 +1100,16 @@ export class RunT0ReviewOrchestration {
           };
         }
       }
-      input.onEvent({
-        type: ReviewOrchestrationEventType.SlotLeaseAcquired,
-        workSlotId: input.workSlot.workSlotId,
-      });
-
-      await this.assertRevisionCurrent(input.revision);
+      try {
+        input.onEvent({
+          type: ReviewOrchestrationEventType.SlotLeaseAcquired,
+          workSlotId: input.workSlot.workSlotId,
+        });
+        await this.assertRevisionCurrent(input.revision);
+      } catch (error) {
+        await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
+        throw error;
+      }
       if (!this.canStartInvocation(attemptOrdinal)) {
         await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
         input.onEvent({
