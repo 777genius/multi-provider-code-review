@@ -1349,6 +1349,31 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.dependencies.invocations.prepare).not.toHaveBeenCalled();
   });
 
+  it('releases a lease acquired concurrently with pull request closure', async () => {
+    const fixture = createFixture();
+    jest
+      .mocked(fixture.dependencies.revisionGuard.loadCurrentRevision)
+      .mockImplementation(async () =>
+        fixture.controlPlane.acquireInvocationLease.mock.calls.length === 0
+          ? revisionOf(fixture.command)
+          : {
+              ...revisionOf(fixture.command),
+              pullRequestState: 'closed',
+            }
+      );
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result.status).toBe(ReviewOrchestrationResultStatus.Cancelled);
+    expect(fixture.controlPlane.acquireInvocationLease).toHaveBeenCalledTimes(
+      1
+    );
+    expect(fixture.controlPlane.releaseInvocationLease).toHaveBeenCalledTimes(
+      1
+    );
+    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+  });
+
   it('releases the lease and supersedes when revision moves after provider execution', async () => {
     const fixture = createFixture();
     jest
