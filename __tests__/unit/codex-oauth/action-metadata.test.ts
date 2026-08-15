@@ -11,6 +11,8 @@ describe('Codex OAuth rotating action metadata', () => {
     expect(action.inputs).toHaveProperty('auth-json');
     expect(action.inputs).toHaveProperty('provider-instance-id');
     expect(action.inputs).toHaveProperty('workflow-schema-version');
+    expect(action.inputs).toHaveProperty('session-binding-id');
+    expect(action.inputs).toHaveProperty('session-binding-version');
     expect(action.inputs).toHaveProperty('claude-code-oauth-token');
     expect(action.inputs).toHaveProperty('openrouter-api-key');
     expect(action.inputs?.mode).toMatchObject({
@@ -24,6 +26,12 @@ describe('Codex OAuth rotating action metadata', () => {
       required: false,
     });
     expect(action.inputs?.['provider-instance-id']).toMatchObject({
+      required: false,
+    });
+    expect(action.inputs?.['session-binding-id']).toMatchObject({
+      required: false,
+    });
+    expect(action.inputs?.['session-binding-version']).toMatchObject({
       required: false,
     });
     expect(action.inputs?.['auth-json']).toMatchObject({
@@ -49,5 +57,25 @@ describe('Codex OAuth rotating action metadata', () => {
     );
     expect(actionDist).toContain('readInput(env, "control-plane-url")');
     expect(actionDist).toContain('REVIEWROUTER_CONTROL_PLANE_URL');
+  });
+
+  it('ships the fail-closed hosted pool contract in the bundled runtime', () => {
+    const actionDist = fs.readFileSync('action-dist/index.cjs', 'utf8');
+    const hostedModeBranch = actionDist.indexOf(
+      'inputs.mode === forkAgenticSandboxHostedPoolActionMode'
+    );
+    const repositoryOwnedAuthRead = actionDist.indexOf(
+      'const authJson = readActionAuthJson(env);'
+    );
+
+    expect(actionDist).toContain('"fork-agentic-sandbox-hosted-pool"');
+    expect(actionDist).toContain(
+      'sessionBindingId: requireInput(env, "session-binding-id")'
+    );
+    expect(actionDist).toContain('"hosted_public_repository_unsupported"');
+    expect(actionDist).toContain('"hosted_fork_pull_request_unsupported"');
+    expect(actionDist).toContain('runHostedCodexRelayTransport({');
+    expect(hostedModeBranch).toBeGreaterThanOrEqual(0);
+    expect(repositoryOwnedAuthRead).toBeGreaterThan(hostedModeBranch);
   });
 });

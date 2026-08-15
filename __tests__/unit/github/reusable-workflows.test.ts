@@ -119,6 +119,8 @@ describe('production reusable workflows', () => {
     const workflowSource = readRepoFile(workflowPath);
     const workflow = parseWorkflow(workflowPath);
     const review = workflow.jobs?.review;
+    const hostedPoolReview = workflow.jobs?.['review-hosted-pool'];
+    const inputs = workflow.on?.workflow_call?.inputs;
 
     expect(review?.permissions).toEqual({
       contents: 'read',
@@ -138,6 +140,33 @@ describe('production reusable workflows', () => {
     );
     expect(review?.with).toHaveProperty('review_head_sha');
     expect(review?.with).toHaveProperty('provider_instance_id');
+    expect(inputs?.codex_session_mode?.default).toBe('');
+    expect(inputs?.session_binding_id?.default).toBe('');
+    expect(inputs?.session_binding_version?.default).toBe(0);
+    expect(review?.if).toContain(
+      "inputs.codex_session_mode != 'codex_subscription_oauth_hosted_pool'"
+    );
+    expect(review?.with).toMatchObject({
+      codex_session_mode: '${{ inputs.codex_session_mode }}',
+      session_binding_id: '${{ inputs.session_binding_id }}',
+      session_binding_version: '${{ inputs.session_binding_version }}',
+    });
+    expect(review?.secrets).toHaveProperty('CODEX_AUTH_JSON');
+    expect(hostedPoolReview?.if).toContain(
+      "inputs.codex_session_mode == 'codex_subscription_oauth_hosted_pool'"
+    );
+    expect(hostedPoolReview?.permissions).toEqual({
+      contents: 'read',
+      'pull-requests': 'read',
+      'id-token': 'write',
+    });
+    expect(hostedPoolReview?.with).toMatchObject({
+      review_action_lane: 't0',
+      codex_session_mode: '${{ inputs.codex_session_mode }}',
+      session_binding_id: '${{ inputs.session_binding_id }}',
+      session_binding_version: '${{ inputs.session_binding_version }}',
+    });
+    expect(hostedPoolReview?.secrets).toBeUndefined();
     expect(workflowSource).not.toContain('pull-requests: write');
     expect(workflowSource).not.toContain('issues: write');
     expect(workflowSource).not.toContain('REVIEW_APP_PRIVATE_KEY');
@@ -213,6 +242,12 @@ describe('production reusable workflows', () => {
       (step) => step.name === 'Prepare ReviewRouter runtime settings'
     );
     const t0Run = steps.find((step) => step.name === 'Run ReviewRouter T0');
+    const hostedPoolRun = steps.find(
+      (step) => step.name === 'Run ReviewRouter T0 hosted pool'
+    );
+    const hostedPoolCheckout = steps.find(
+      (step) => step.name === 'Checkout exact hosted pool review revision'
+    );
     const legacyRun = steps.find(
       (step) => step.name === 'Run ReviewRouter legacy'
     );
@@ -231,6 +266,9 @@ describe('production reusable workflows', () => {
     expect(workflowSource).toContain('workflow_call:');
     expect(workflowSource).toContain('runtime_ref:');
     expect(inputs?.control_plane_url?.default).toBe('');
+    expect(inputs?.codex_session_mode?.default).toBe('');
+    expect(inputs?.session_binding_id?.default).toBe('');
+    expect(inputs?.session_binding_version?.default).toBe(0);
     expect(workflow.jobs?.review?.env?.REVIEWROUTER_API_URL).toBe(
       '${{ inputs.control_plane_url || inputs.api_url }}'
     );
@@ -254,6 +292,10 @@ describe('production reusable workflows', () => {
     );
     expect(workflow.jobs?.review?.env).not.toHaveProperty('RR_WORKFLOW_SHA');
     expect(runtimePreparation?.env).toMatchObject({
+      GITHUB_HEAD_REPO_FULL_NAME:
+        "${{ github.event.pull_request.head.repo.full_name || '' }}",
+      GITHUB_REPOSITORY_PRIVATE:
+        "${{ github.event.repository.private == true && 'true' || 'false' }}",
       RR_WORKFLOW_REPOSITORY: '${{ job.workflow_repository }}',
       RR_WORKFLOW_SHA: '${{ job.workflow_sha }}',
       RR_REVIEW_TIMEOUT_MINUTES: '${{ inputs.review_timeout_minutes }}',
@@ -271,6 +313,27 @@ describe('production reusable workflows', () => {
     expect(workflowSource).toContain("node-version: '24'");
     expect(workflowSource).toContain(
       'Resolve ReviewRouter runtime provider tooling'
+    );
+    expect(workflow.jobs?.review?.env).toMatchObject({
+      RR_CODEX_SESSION_MODE: '${{ inputs.codex_session_mode }}',
+      RR_SESSION_BINDING_ID: '${{ inputs.session_binding_id }}',
+      RR_SESSION_BINDING_VERSION: '${{ inputs.session_binding_version }}',
+    });
+    expect(workflowSource).toContain("fail('Invalid codex_session_mode.');");
+    expect(workflowSource).toContain(
+      "fail('session_binding_id is required for hosted pool execution.');"
+    );
+    expect(workflowSource).toContain(
+      "fail('session_binding_version must be a positive integer for hosted pool execution.');"
+    );
+    expect(workflowSource).toContain(
+      "fail('Hosted pool execution requires pull_request_target.');"
+    );
+    expect(workflowSource).toContain(
+      "fail('Hosted pool execution requires a private repository.');"
+    );
+    expect(workflowSource).toContain(
+      "fail('Hosted pool execution requires a same-repository pull request.');"
     );
     expect(workflowSource).toContain('REVIEW_ROUTER_MODE: runtime-preflight');
     expect(workflowSource).toContain(
@@ -323,10 +386,11 @@ describe('production reusable workflows', () => {
     expect(workflowSource).toContain(
       'ReviewRouter skipped this fork pull request'
     );
-    expect(workflowSource).not.toContain('pull_request_target');
+    expect(workflow.on).not.toHaveProperty('pull_request_target');
     expect(workflowSource).not.toContain('REVIEW_ROUTER_THREAD_RESOLVE_TOKEN');
 
     expect(t0Run?.if).toContain("inputs.review_action_lane == 't0'");
+    expect(t0Run?.if).toContain("inputs.codex_session_mode == ''");
     expect(codexInstall?.if).toContain(
       "steps.runtime.outputs.can_run == 'true'"
     );
@@ -353,6 +417,40 @@ describe('production reusable workflows', () => {
       'REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN'
     );
     expect(t0Run?.env).not.toHaveProperty('REVIEW_APP_PRIVATE_KEY');
+
+    expect(hostedPoolCheckout?.if).toContain(
+      "inputs.codex_session_mode == 'codex_subscription_oauth_hosted_pool'"
+    );
+    expect(workflowSource).toContain('path: .reviewrouter-pr');
+    expect(hostedPoolRun?.if).toContain(
+      "inputs.codex_session_mode == 'codex_subscription_oauth_hosted_pool'"
+    );
+    expect(hostedPoolRun?.env).toMatchObject({
+      INPUT_MODE: 'fork-agentic-sandbox-hosted-pool',
+      INPUT_API_URL: '${{ inputs.api_url }}',
+      INPUT_CONTROL_PLANE_URL: '${{ inputs.control_plane_url }}',
+      INPUT_PROVIDER_INSTANCE_ID: '${{ inputs.provider_instance_id }}',
+      INPUT_WORKFLOW_SCHEMA_VERSION: '${{ inputs.workflow_schema_version }}',
+      INPUT_SESSION_BINDING_ID: '${{ inputs.session_binding_id }}',
+      INPUT_SESSION_BINDING_VERSION: '${{ inputs.session_binding_version }}',
+      REVIEW_ROUTER_PR_WORKSPACE: '${{ github.workspace }}/.reviewrouter-pr',
+    });
+    expect(hostedPoolRun?.env).not.toHaveProperty('INPUT_AUTH_JSON');
+    expect(hostedPoolRun?.env).not.toHaveProperty('CODEX_AUTH_JSON');
+    expect(hostedPoolRun?.env).not.toHaveProperty('CODEX_CONFIG_TOML');
+    expect(workflowSource).toContain(
+      'run: node .reviewrouter-runtime/action-dist/index.cjs'
+    );
+    expect(codexInstall?.if).not.toContain(
+      "inputs.review_action_lane == 'legacy'"
+    );
+    expect(
+      steps.find(
+        (step) => step.name === 'Resolve ReviewRouter runtime provider tooling'
+      )?.if
+    ).toContain(
+      "inputs.codex_session_mode != 'codex_subscription_oauth_hosted_pool'"
+    );
 
     expect(legacyRun?.if).toContain("inputs.review_action_lane == 'legacy'");
     expect(legacyRun?.env?.REVIEWROUTER_ACTION_V2_MODE).toBe('disabled');

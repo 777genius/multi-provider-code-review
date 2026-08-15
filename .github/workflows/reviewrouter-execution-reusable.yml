@@ -46,6 +46,18 @@ on:
       workflow_schema_version:
         required: true
         type: number
+      codex_session_mode:
+        required: false
+        type: string
+        default: ''
+      session_binding_id:
+        required: false
+        type: string
+        default: ''
+      session_binding_version:
+        required: false
+        type: number
+        default: 0
       review_timeout_minutes:
         required: true
         type: number
@@ -79,6 +91,9 @@ jobs:
       RR_REVIEW_ACTION_LANE: ${{ inputs.review_action_lane }}
       RR_RUNTIME_REF: ${{ inputs.runtime_ref }}
       RR_STATIC_RUNTIME_ENV_JSON: ${{ inputs.static_runtime_env_json }}
+      RR_CODEX_SESSION_MODE: ${{ inputs.codex_session_mode }}
+      RR_SESSION_BINDING_ID: ${{ inputs.session_binding_id }}
+      RR_SESSION_BINDING_VERSION: ${{ inputs.session_binding_version }}
       REVIEWROUTER_API_URL: ${{ inputs.control_plane_url || inputs.api_url }}
       REVIEWROUTER_CONTROL_PLANE_URL: ${{ inputs.control_plane_url || inputs.api_url }}
       REVIEWROUTER_OIDC_AUDIENCE: reviewrouter
@@ -106,6 +121,45 @@ jobs:
           const reviewActionLane = (process.env.RR_REVIEW_ACTION_LANE || '').trim();
           if (!['legacy', 't0'].includes(reviewActionLane)) {
             fail('Invalid internal Review Action execution lane.');
+          }
+
+          const eventName = process.env.GITHUB_EVENT_NAME || '';
+          const codexSessionMode = (process.env.RR_CODEX_SESSION_MODE || '').trim();
+          const hostedPoolSessionMode = 'codex_subscription_oauth_hosted_pool';
+          if (codexSessionMode !== '' && codexSessionMode !== hostedPoolSessionMode) {
+            fail('Invalid codex_session_mode.');
+          }
+          const sessionBindingId = (process.env.RR_SESSION_BINDING_ID || '').trim();
+          const sessionBindingVersion = Number(
+            process.env.RR_SESSION_BINDING_VERSION || '0'
+          );
+          if (codexSessionMode === hostedPoolSessionMode) {
+            if (reviewActionLane !== 't0') {
+              fail('Hosted pool execution requires the T0 lane.');
+            }
+            if (eventName !== 'pull_request_target') {
+              fail('Hosted pool execution requires pull_request_target.');
+            }
+            if (process.env.GITHUB_REPOSITORY_PRIVATE !== 'true') {
+              fail('Hosted pool execution requires a private repository.');
+            }
+            if (
+              !process.env.GITHUB_REPOSITORY ||
+              process.env.GITHUB_HEAD_REPO_FULL_NAME !== process.env.GITHUB_REPOSITORY
+            ) {
+              fail('Hosted pool execution requires a same-repository pull request.');
+            }
+            if (!sessionBindingId) {
+              fail('session_binding_id is required for hosted pool execution.');
+            }
+            if (
+              !Number.isSafeInteger(sessionBindingVersion) ||
+              sessionBindingVersion < 1
+            ) {
+              fail('session_binding_version must be a positive integer for hosted pool execution.');
+            }
+          } else if (sessionBindingId || sessionBindingVersion !== 0) {
+            fail('Session binding inputs are reserved for hosted pool execution.');
           }
 
           const requestedRuntimeRef = (process.env.RR_RUNTIME_REF || '').trim();
@@ -212,7 +266,6 @@ jobs:
             runtimeConfigMode === 'static' &&
             process.env.REVIEW_APP_PRIVATE_KEY_PRESENT === '1' &&
             (process.env.RR_REVIEW_APP_CLIENT_ID || '').trim().length > 0;
-          const eventName = process.env.GITHUB_EVENT_NAME || '';
           const isForkPullRequest =
             eventName === 'pull_request' &&
             process.env.GITHUB_HEAD_REPO_FULL_NAME !== process.env.GITHUB_REPOSITORY;
@@ -225,6 +278,7 @@ jobs:
           NODE
         env:
           GITHUB_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          GITHUB_REPOSITORY_PRIVATE: ${{ github.event.repository.private == true && 'true' || 'false' }}
           RR_REVIEW_APP_CLIENT_ID: ${{ inputs.review_app_client_id }}
           RR_REVIEW_TIMEOUT_MINUTES: ${{ inputs.review_timeout_minutes }}
           RR_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
@@ -241,10 +295,18 @@ jobs:
           fi
 
       - name: Checkout exact T0 review revision
-        if: ${{ inputs.review_action_lane == 't0' && steps.runtime.outputs.can_run == 'true' }}
+        if: ${{ inputs.review_action_lane == 't0' && inputs.codex_session_mode == '' && steps.runtime.outputs.can_run == 'true' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.review_head_sha }}
+          persist-credentials: false
+
+      - name: Checkout exact hosted pool review revision
+        if: ${{ inputs.review_action_lane == 't0' && inputs.codex_session_mode == 'codex_subscription_oauth_hosted_pool' && steps.runtime.outputs.can_run == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.review_head_sha }}
+          path: .reviewrouter-pr
           persist-credentials: false
 
       - name: Checkout pull request code
@@ -270,7 +332,7 @@ jobs:
 
       - name: Resolve ReviewRouter runtime provider tooling
         id: provider-tooling
-        if: ${{ steps.runtime.outputs.can_run == 'true' }}
+        if: ${{ inputs.codex_session_mode != 'codex_subscription_oauth_hosted_pool' && steps.runtime.outputs.can_run == 'true' }}
         shell: bash
         env:
           REVIEW_ROUTER_MODE: runtime-preflight
@@ -345,7 +407,7 @@ jobs:
           fi
 
       - name: Run ReviewRouter T0
-        if: ${{ inputs.review_action_lane == 't0' && steps.runtime.outputs.can_run == 'true' }}
+        if: ${{ inputs.review_action_lane == 't0' && inputs.codex_session_mode == '' && steps.runtime.outputs.can_run == 'true' }}
         shell: bash
         env:
           REVIEWROUTER_ACTION_V2_MODE: t0
@@ -366,6 +428,22 @@ jobs:
           REVIEW_ROUTER_MEMORY_BUNDLE_ENDPOINT: /api/action/v1/memory
           CODEX_CONFIG_TOML: ${{ secrets.CODEX_CONFIG_TOML }}
         run: node .reviewrouter-runtime/dist/index.js
+
+      - name: Run ReviewRouter T0 hosted pool
+        if: ${{ inputs.review_action_lane == 't0' && inputs.codex_session_mode == 'codex_subscription_oauth_hosted_pool' && steps.runtime.outputs.can_run == 'true' }}
+        shell: bash
+        env:
+          INPUT_MODE: fork-agentic-sandbox-hosted-pool
+          INPUT_API_URL: ${{ inputs.api_url }}
+          INPUT_CONTROL_PLANE_URL: ${{ inputs.control_plane_url }}
+          INPUT_PROVIDER_INSTANCE_ID: ${{ inputs.provider_instance_id }}
+          INPUT_WORKFLOW_SCHEMA_VERSION: ${{ inputs.workflow_schema_version }}
+          INPUT_SESSION_BINDING_ID: ${{ inputs.session_binding_id }}
+          INPUT_SESSION_BINDING_VERSION: ${{ inputs.session_binding_version }}
+          INPUT_MAX_CHANGED_LINES: ${{ inputs.max_changed_lines }}
+          INPUT_REVIEW_TIMEOUT_MINUTES: ${{ inputs.review_timeout_minutes }}
+          REVIEW_ROUTER_PR_WORKSPACE: ${{ github.workspace }}/.reviewrouter-pr
+        run: node .reviewrouter-runtime/action-dist/index.cjs
 
       - name: Run ReviewRouter legacy
         if: ${{ inputs.review_action_lane == 'legacy' && steps.runtime.outputs.can_run == 'true' }}
