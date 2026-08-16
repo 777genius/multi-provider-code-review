@@ -43,6 +43,21 @@ on:
         description: 'Server-registered hosted workflow schema version'
         required: true
         type: number
+      codex_session_mode:
+        description: 'Exact Codex session mode; empty preserves repository-owned execution'
+        required: false
+        type: string
+        default: ''
+      session_binding_id:
+        description: 'Exact hosted pool repository binding identity'
+        required: false
+        type: string
+        default: ''
+      session_binding_version:
+        description: 'Exact hosted pool repository binding revision'
+        required: false
+        type: number
+        default: 0
       review_timeout_minutes:
         description: 'Full review lifecycle budget, including publication reconciliation and cleanup'
         required: false
@@ -70,6 +85,7 @@ on:
 jobs:
   review:
     name: review
+    if: ${{ inputs.codex_session_mode != 'codex_subscription_oauth_hosted_pool' }}
     permissions:
       contents: read
       pull-requests: read
@@ -88,6 +104,9 @@ jobs:
       review_app_repository: ''
       provider_instance_id: ${{ inputs.provider_instance_id }}
       workflow_schema_version: ${{ inputs.workflow_schema_version }}
+      codex_session_mode: ${{ inputs.codex_session_mode }}
+      session_binding_id: ${{ inputs.session_binding_id }}
+      session_binding_version: ${{ inputs.session_binding_version }}
       review_timeout_minutes: ${{ inputs.review_timeout_minutes }}
       max_changed_lines: ${{ inputs.max_changed_lines }}
     secrets:
@@ -97,3 +116,30 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+  review-hosted-pool:
+    name: review
+    if: ${{ inputs.codex_session_mode == 'codex_subscription_oauth_hosted_pool' }}
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/reviewrouter-execution-reusable.yml
+    with:
+      review_action_lane: t0
+      runtime_ref: ${{ inputs.runtime_ref }}
+      api_url: ${{ inputs.control_plane_url || inputs.api_url }}
+      control_plane_url: ${{ inputs.control_plane_url }}
+      runtime_config_mode: ${{ inputs.runtime_config_mode }}
+      static_runtime_env_json: ${{ inputs.static_runtime_env_json }}
+      pr_number: ${{ inputs.pr_number }}
+      review_head_sha: ${{ inputs.review_head_sha }}
+      review_app_client_id: ''
+      review_app_repository: ''
+      provider_instance_id: ${{ inputs.provider_instance_id }}
+      workflow_schema_version: ${{ inputs.workflow_schema_version }}
+      codex_session_mode: ${{ inputs.codex_session_mode }}
+      session_binding_id: ${{ inputs.session_binding_id }}
+      session_binding_version: ${{ inputs.session_binding_version }}
+      review_timeout_minutes: ${{ inputs.review_timeout_minutes }}
+      max_changed_lines: ${{ inputs.max_changed_lines }}
