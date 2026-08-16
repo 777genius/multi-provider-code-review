@@ -50398,6 +50398,83 @@ var package_default = {
   }
 };
 
+// src/codex-oauth/github-actions-oidc.ts
+var GitHubActionsOidcTokenProvider = class {
+  env;
+  fetchImpl;
+  requestCredentials;
+  constructor(options = {}) {
+    this.env = options.env ?? process.env;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+  async requestToken(audience) {
+    const { requestToken, requestUrl: requestUrlValue } = this.readRequestCredentials();
+    const requestUrl = parseTrustedGitHubActionsOidcUrl(
+      requestUrlValue,
+      "codex_oauth_oidc_url_untrusted"
+    );
+    requestUrl.searchParams.set("audience", audience);
+    setSecret(requestToken);
+    const response = await this.fetchImpl(requestUrl.toString(), {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${requestToken}`
+      },
+      redirect: "error"
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        `codex_oauth_oidc_http_error:${response.status}:${safeOidcErrorCode(payload)}`
+      );
+    }
+    const token = payload && typeof payload === "object" && "value" in payload ? payload.value : void 0;
+    if (typeof token !== "string" || token.length === 0) {
+      throw new Error("codex_oauth_oidc_invalid_response");
+    }
+    setSecret(token);
+    return token;
+  }
+  readRequestCredentials() {
+    if (this.requestCredentials) return this.requestCredentials;
+    this.requestCredentials = {
+      requestToken: requireEnv(this.env, "ACTIONS_ID_TOKEN_REQUEST_TOKEN"),
+      requestUrl: requireEnv(this.env, "ACTIONS_ID_TOKEN_REQUEST_URL")
+    };
+    return this.requestCredentials;
+  }
+};
+function parseTrustedGitHubActionsOidcUrl(value, errorCode2 = "github_oidc_url_untrusted") {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(errorCode2);
+  }
+  if (parsed.protocol !== "https:" || !parsed.hostname.endsWith(".actions.githubusercontent.com") || parsed.username !== "" || parsed.password !== "" || parsed.port !== "") {
+    throw new Error(errorCode2);
+  }
+  return parsed;
+}
+function clearGitHubActionsOidcRequestEnv(env = process.env) {
+  delete env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  delete env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+}
+function requireEnv(env, key) {
+  const value = env[key];
+  if (!value) {
+    throw new Error(`codex_oauth_missing_${key}`);
+  }
+  return value;
+}
+function safeOidcErrorCode(payload) {
+  if (payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string") {
+    return "oidc_request_failed";
+  }
+  return "unknown_oidc_error";
+}
+
 // src/control-plane/runtime-config.ts
 async function applyControlPlaneRuntimeConfig(input = {}) {
   const env = input.env ?? process.env;
@@ -50406,13 +50483,13 @@ async function applyControlPlaneRuntimeConfig(input = {}) {
   }
   const fallbackEnabled = env.REVIEWROUTER_STATIC_CONFIG_FALLBACK !== "false";
   try {
-    const apiUrl = requireEnv(env, "REVIEWROUTER_API_URL");
+    const apiUrl = requireEnv2(env, "REVIEWROUTER_API_URL");
     const audience = env.REVIEWROUTER_OIDC_AUDIENCE || "reviewrouter";
-    const oidcToken = await requestGitHubOidcToken({
+    const oidc = input.oidc ?? new GitHubActionsOidcTokenProvider({
       env,
-      audience,
       fetchImpl: input.fetchImpl ?? fetch
     });
+    const oidcToken = await oidc.requestToken(audience);
     const session = await exchangeActionSession({
       apiUrl,
       audience,
@@ -50456,28 +50533,12 @@ async function applyControlPlaneRuntimeConfig(input = {}) {
       return { status: "fallback", reason: safeReason3(message) };
     }
     throw error2;
+  } finally {
+    clearGitHubActionsOidcRequestEnv(env);
   }
 }
 function resolveActionVersion(env) {
   return env.REVIEWROUTER_ACTION_VERSION?.trim() || package_default.version || "unknown";
-}
-async function requestGitHubOidcToken(input) {
-  const requestToken = requireEnv(input.env, "ACTIONS_ID_TOKEN_REQUEST_TOKEN");
-  const requestUrl = new URL(
-    requireEnv(input.env, "ACTIONS_ID_TOKEN_REQUEST_URL")
-  );
-  requestUrl.searchParams.set("audience", input.audience);
-  const response = await input.fetchImpl(requestUrl.toString(), {
-    headers: { Authorization: `Bearer ${requestToken}` }
-  });
-  if (!response.ok) {
-    throw new Error(`github_oidc_unavailable:${response.status}`);
-  }
-  const body = await response.json();
-  if (typeof body.value !== "string" || body.value.length === 0) {
-    throw new Error("github_oidc_invalid_response");
-  }
-  return body.value;
 }
 async function exchangeActionSession(input) {
   const response = await input.fetchImpl(
@@ -50591,7 +50652,7 @@ function joinApiPath3(apiUrl, path29) {
 function ensureTrailingSlash3(value) {
   return value.endsWith("/") ? value : `${value}/`;
 }
-function requireEnv(env, key) {
+function requireEnv2(env, key) {
   const value = env[key]?.trim();
   if (!value) {
     throw new Error(`missing_${key}`);
@@ -51569,8 +51630,7 @@ function clearCodexRotatingProviderSecretEnv(env = process.env) {
   delete env.OPENROUTER_API_KEY;
 }
 function clearCodexRotatingOidcRequestEnv(env = process.env) {
-  delete env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-  delete env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  clearGitHubActionsOidcRequestEnv(env);
 }
 function scrubAndAssertReviewActionV2ScmMutationEnv(env = process.env) {
   const scrubbed = REVIEW_ACTION_V2_SCM_MUTATION_ENV_NAMES.filter(
@@ -51670,69 +51730,6 @@ function assertSafeOwnerRepoPart(value, label) {
   if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
     throw new Error(`codex_oauth_invalid_repository_${label}`);
   }
-}
-
-// src/codex-oauth/github-actions-oidc.ts
-var GitHubActionsOidcTokenProvider = class {
-  env;
-  fetchImpl;
-  constructor(options = {}) {
-    this.env = options.env ?? process.env;
-    this.fetchImpl = options.fetchImpl ?? fetch;
-  }
-  async requestToken(audience) {
-    const requestToken = requireEnv2(this.env, "ACTIONS_ID_TOKEN_REQUEST_TOKEN");
-    const requestUrl = parseTrustedOidcUrl(
-      requireEnv2(this.env, "ACTIONS_ID_TOKEN_REQUEST_URL")
-    );
-    requestUrl.searchParams.set("audience", audience);
-    setSecret(requestToken);
-    const response = await this.fetchImpl(requestUrl.toString(), {
-      method: "GET",
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${requestToken}`
-      },
-      redirect: "error"
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(
-        `codex_oauth_oidc_http_error:${response.status}:${safeOidcErrorCode(payload)}`
-      );
-    }
-    const token = payload && typeof payload === "object" && "value" in payload ? payload.value : void 0;
-    if (typeof token !== "string" || token.length === 0) {
-      throw new Error("codex_oauth_oidc_invalid_response");
-    }
-    setSecret(token);
-    return token;
-  }
-};
-function parseTrustedOidcUrl(value) {
-  let parsed;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error("codex_oauth_oidc_url_untrusted");
-  }
-  if (parsed.protocol !== "https:") {
-    throw new Error("codex_oauth_oidc_url_untrusted");
-  }
-  return parsed;
-}
-function requireEnv2(env, key) {
-  const value = env[key];
-  if (!value) {
-    throw new Error(`codex_oauth_missing_${key}`);
-  }
-  return value;
-}
-function safeOidcErrorCode(payload) {
-  if (payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string") {
-    return "oidc_request_failed";
-  }
-  return "unknown_oidc_error";
 }
 
 // src/codex-oauth/crypto.ts
@@ -112195,7 +112192,10 @@ var ProductionT0ReviewRunner = class {
   async runInWorkspace(input) {
     validateInput(input);
     const authoritativeDeadlineEpochMs = process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY];
-    await applyReviewRuntimeConfig(input, this.fetchImpl);
+    const oidc = new GitHubActionsOidcTokenProvider({
+      fetchImpl: this.fetchImpl
+    });
+    await applyReviewRuntimeConfig(input, this.fetchImpl, oidc);
     if (authoritativeDeadlineEpochMs === void 0) {
       delete process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY];
     } else {
@@ -112210,9 +112210,6 @@ var ProductionT0ReviewRunner = class {
     const controlPlane = new ReviewActionV2ControlPlaneAdapter(
       reviewActionClient
     );
-    const oidc = new GitHubActionsOidcTokenProvider({
-      fetchImpl: this.fetchImpl
-    });
     const authorization = await controlPlane.authorize({
       oidcToken: await oidc.requestToken(input.audience)
     });
@@ -112889,13 +112886,14 @@ function selectCodexProvider(config) {
   }
   return selected;
 }
-async function applyReviewRuntimeConfig(input, fetchImpl) {
+async function applyReviewRuntimeConfig(input, fetchImpl, oidc) {
   process.env.REVIEWROUTER_RUNTIME_CONFIG_MODE = "oidc";
   process.env.REVIEWROUTER_API_URL = input.apiUrl;
   process.env.REVIEWROUTER_OIDC_AUDIENCE = input.audience;
   process.env.REVIEWROUTER_STATIC_CONFIG_FALLBACK = "false";
   await applyControlPlaneRuntimeConfig({
     fetchImpl,
+    oidc,
     logger: {
       info,
       warn: (message) => warning(message)

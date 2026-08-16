@@ -24034,13 +24034,17 @@ async function requestGitHubActionsOidcToken2(input) {
   if (!requestUrl || !requestToken) {
     throw new Error("github_oidc_unavailable");
   }
-  const separator = requestUrl.includes("?") ? "&" : "?";
+  const url2 = parseTrustedOidcUrl(requestUrl);
+  url2.searchParams.set("audience", input.audience);
   const { response, body } = await fetchWithRetry({
     fetchImpl: input.fetchImpl,
     label: "github_oidc",
     timeoutMs: oidcRequestTimeoutMs2,
-    url: `${requestUrl}${separator}audience=${encodeURIComponent(input.audience)}`,
-    init: { headers: { authorization: `bearer ${requestToken}` } },
+    url: url2.toString(),
+    init: {
+      headers: { authorization: `bearer ${requestToken}` },
+      redirect: "error"
+    },
     consume: async (response2) => ({
       response: response2,
       body: await response2.json()

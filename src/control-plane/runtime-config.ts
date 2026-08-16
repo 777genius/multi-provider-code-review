@@ -1,4 +1,8 @@
 import packageJson from '../../package.json';
+import {
+  clearGitHubActionsOidcRequestEnv,
+  GitHubActionsOidcTokenProvider,
+} from '../codex-oauth/github-actions-oidc';
 
 type RuntimeConfigLogger = {
   info(message: string): void;
@@ -31,6 +35,7 @@ export async function applyControlPlaneRuntimeConfig(
     readonly fetchImpl?: RuntimeConfigFetch;
     readonly logger?: RuntimeConfigLogger;
     readonly actionVersion?: string;
+    readonly oidc?: { requestToken(audience: string): Promise<string> };
   } = {}
 ): Promise<RuntimeConfigResult> {
   const env = input.env ?? process.env;
@@ -43,11 +48,13 @@ export async function applyControlPlaneRuntimeConfig(
   try {
     const apiUrl = requireEnv(env, 'REVIEWROUTER_API_URL');
     const audience = env.REVIEWROUTER_OIDC_AUDIENCE || 'reviewrouter';
-    const oidcToken = await requestGitHubOidcToken({
-      env,
-      audience,
-      fetchImpl: input.fetchImpl ?? fetch,
-    });
+    const oidc =
+      input.oidc ??
+      new GitHubActionsOidcTokenProvider({
+        env,
+        fetchImpl: input.fetchImpl ?? fetch,
+      });
+    const oidcToken = await oidc.requestToken(audience);
     const session = await exchangeActionSession({
       apiUrl,
       audience,
@@ -92,6 +99,8 @@ export async function applyControlPlaneRuntimeConfig(
       return { status: 'fallback', reason: safeReason(message) };
     }
     throw error;
+  } finally {
+    clearGitHubActionsOidcRequestEnv(env);
   }
 }
 
@@ -99,31 +108,6 @@ function resolveActionVersion(env: NodeJS.ProcessEnv): string {
   return (
     env.REVIEWROUTER_ACTION_VERSION?.trim() || packageJson.version || 'unknown'
   );
-}
-
-async function requestGitHubOidcToken(input: {
-  readonly env: NodeJS.ProcessEnv;
-  readonly audience: string;
-  readonly fetchImpl: RuntimeConfigFetch;
-}): Promise<string> {
-  const requestToken = requireEnv(input.env, 'ACTIONS_ID_TOKEN_REQUEST_TOKEN');
-  const requestUrl = new URL(
-    requireEnv(input.env, 'ACTIONS_ID_TOKEN_REQUEST_URL')
-  );
-  requestUrl.searchParams.set('audience', input.audience);
-
-  const response = await input.fetchImpl(requestUrl.toString(), {
-    headers: { Authorization: `Bearer ${requestToken}` },
-  });
-  if (!response.ok) {
-    throw new Error(`github_oidc_unavailable:${response.status}`);
-  }
-
-  const body = (await response.json()) as { value?: unknown };
-  if (typeof body.value !== 'string' || body.value.length === 0) {
-    throw new Error('github_oidc_invalid_response');
-  }
-  return body.value;
 }
 
 async function exchangeActionSession(input: {

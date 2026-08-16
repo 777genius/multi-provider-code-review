@@ -1,4 +1,5 @@
 import * as core from '../actions/core';
+import { clearGitHubActionsOidcRequestEnv } from './github-actions-oidc';
 
 export const CODEX_ROTATING_AUTH_INPUT_ENV_NAMES = [
   'INPUT_AUTH-JSON',
@@ -134,8 +135,7 @@ export function clearCodexRotatingProviderSecretEnv(
 export function clearCodexRotatingOidcRequestEnv(
   env: NodeJS.ProcessEnv = process.env
 ): void {
-  delete env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-  delete env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  clearGitHubActionsOidcRequestEnv(env);
 }
 
 export function scrubAndAssertReviewActionV2ScmMutationEnv(
