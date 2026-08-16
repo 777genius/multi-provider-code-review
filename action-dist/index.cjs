@@ -40,6 +40,7 @@ __export(github_action_exports, {
   didReviewRuntimeComplete: () => didReviewRuntimeComplete,
   extractReviewRouterRuntimeFailure: () => extractReviewRouterRuntimeFailure,
   formatTopLevelActionErrorMessage: () => formatTopLevelActionErrorMessage,
+  hostedPoolAccountFailureReason: () => hostedPoolAccountFailureReason,
   isReviewRouterTargetRevisionMismatchFailure: () => isReviewRouterTargetRevisionMismatchFailure,
   postPullRequestComment: () => postPullRequestComment,
   readActionAuthJson: () => readActionAuthJson,
@@ -49,6 +50,7 @@ __export(github_action_exports, {
   resolveCodexProxyUpstreamResponsesUrl: () => resolveCodexProxyUpstreamResponsesUrl,
   routeCodexLocalProviderRequest: () => routeCodexLocalProviderRequest,
   runCodexRotatingGitHubAction: () => runCodexRotatingGitHubAction,
+  runHostedPoolLeaseFailover: () => runHostedPoolLeaseFailover,
   runProcess: () => runProcess,
   runReviewRuntimeWithinExecutionBudget: () => runReviewRuntimeWithinExecutionBudget,
   sanitizeReviewComment: () => sanitizeReviewComment,
@@ -22298,6 +22300,7 @@ var grantRequestTimeoutMs = 3e4;
 var grantExchangeTotalTimeoutMs = 75e3;
 var grantExchangeMaxAttempts = 3;
 var grantExchangeBackoffBaseMs = 250;
+var hostedPoolMaxLeaseAttempts = 3;
 var RetryableHostedRelayExchangeError = class extends Error {
 };
 var hostedRelayGrantSchema = external_exports.object({
@@ -22347,7 +22350,9 @@ async function runHostedCodexRelayTransport(input) {
   } finally {
     await proxy.close();
     clearHostedActionCredentialEnv(input.env);
-    clearOidcRequestEnv(input.env);
+    if (!input.deferOidcRequestEnvCleanup) {
+      clearOidcRequestEnv(input.env);
+    }
   }
 }
 async function requestHostedRelayGrantWithFreshGitHubOidc(input) {
@@ -22448,7 +22453,9 @@ async function requestHostedRelayGrantWithFreshGitHubOidc(input) {
     throw lastError;
   } finally {
     clearTimeout(totalTimer);
-    clearOidcRequestEnv(input.env);
+    if (!input.deferOidcRequestEnvCleanup) {
+      clearOidcRequestEnv(input.env);
+    }
   }
 }
 async function startHostedCodexRelayProxy(input) {
@@ -23546,25 +23553,38 @@ async function runHostedForkAgenticSandboxGitHubAction(input) {
   const codexBinaryPath = await resolveCodexBinary(input.env);
   const tempCodexHome = await makeGitHubWorkspaceCodexHomeDirectory(input.env);
   try {
-    await runHostedCodexRelayTransport({
-      env: input.env,
-      fetchImpl: input.fetchImpl,
-      apiUrl: input.inputs.apiUrl,
-      providerInstanceId: input.inputs.providerInstanceId,
-      workflowSchemaVersion: input.inputs.workflowSchemaVersion,
-      bindingId,
-      bindingVersion,
-      maskSecret: (secret) => mask(input.io, secret),
-      run: async ({
-        baseUrl,
-        invocationLeaseId,
-        runtimeConfigVersion,
-        runtimeEnv: grantedRuntimeEnv,
-        repository,
-        commentToken,
-        commentTokenExpiresAt,
-        commentTokenRefreshUrl
-      }) => {
+    await runHostedPoolLeaseFailover({
+      maxAttempts: hostedPoolMaxLeaseAttempts,
+      canRetry: () => remainingReviewExecutionBudgetMs({
+        executionDeadlineEpochMs: input.executionDeadlineEpochMs,
+        nowEpochMs: input.now()
+      }) > 0,
+      onRetry: ({ attempt, maxAttempts, reason }) => {
+        notice(
+          input.io,
+          `ReviewRouter released a ${reason === "quota_exhausted" ? "quota-exhausted" : "failed"} hosted account lease and will resume from the durable checkpoint with the next eligible account (${attempt + 1}/${maxAttempts}).`
+        );
+      },
+      runAttempt: async () => runHostedCodexRelayTransport({
+        env: input.env,
+        fetchImpl: input.fetchImpl,
+        apiUrl: input.inputs.apiUrl,
+        providerInstanceId: input.inputs.providerInstanceId,
+        workflowSchemaVersion: input.inputs.workflowSchemaVersion,
+        bindingId,
+        bindingVersion,
+        deferOidcRequestEnvCleanup: true,
+        maskSecret: (secret) => mask(input.io, secret),
+        run: async ({
+          baseUrl,
+          invocationLeaseId,
+          runtimeConfigVersion,
+          runtimeEnv: grantedRuntimeEnv,
+          repository,
+          commentToken,
+          commentTokenExpiresAt,
+          commentTokenRefreshUrl
+        }) => {
         if (repository !== event.repository) {
           throw new Error("comment_token_repository_mismatch");
         }
@@ -23651,7 +23671,8 @@ async function runHostedForkAgenticSandboxGitHubAction(input) {
         } finally {
           await removeTree(reviewHome);
         }
-      }
+        }
+      })
     });
   } finally {
     clearActionAuthEnv(input.env);
@@ -23659,6 +23680,43 @@ async function runHostedForkAgenticSandboxGitHubAction(input) {
     await removeTree(tempCodexHome);
   }
   notice(input.io, "ReviewRouter hosted pool review completed.");
+}
+async function runHostedPoolLeaseFailover(input) {
+  const maxAttempts = input.maxAttempts ?? hostedPoolMaxLeaseAttempts;
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > hostedPoolMaxLeaseAttempts) {
+    throw new Error("hosted_pool_retry_budget_invalid");
+  }
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await input.runAttempt({ attempt, maxAttempts });
+    } catch (error51) {
+      const reason = hostedPoolAccountFailureReason(error51);
+      if (!reason) {
+        throw error51;
+      }
+      lastError = error51;
+      if (attempt === maxAttempts || !input.canRetry()) {
+        throw new Error("hosted_pool_capacity_exhausted", {
+          cause: lastError
+        });
+      }
+      await input.onRetry?.({ attempt, maxAttempts, reason });
+    }
+  }
+  throw new Error("hosted_pool_capacity_exhausted", { cause: lastError });
+}
+function hostedPoolAccountFailureReason(error51) {
+  const normalized = String(
+    error51 instanceof Error ? error51.message : error51
+  ).toLowerCase();
+  if (normalized === "quota_limited" || /\b(?:account[_ -]?)?(?:quota|capacity)[_ -]?(?:exhausted|depleted|limited|unavailable)\b/.test(normalized) || /\b(?:insufficient_quota|quota_exceeded|usage[_ -]?limit(?:ed| reached| exceeded)?)\b/.test(normalized)) {
+    return "quota_exhausted";
+  }
+  if (normalized === "hosted_pool_account_failed" || /\b(?:hosted[_ -]?(?:relay|pool)[_ -]?)?(?:provider[_ -]?)?account(?:[_ -]?status)?[_ -]?(?:failed|failure|unavailable)\b/.test(normalized)) {
+    return "failed";
+  }
+  return void 0;
 }
 function readActionInputs(env) {
   const mode = readInput(env, "mode") || codexRotatingRuntimeAuthMode;
@@ -26183,6 +26241,13 @@ function classifyPostWritebackCodexFailure(error51) {
   if (isReviewRouterTargetRevisionMismatchFailure(output)) {
     return new Error(stalePullRequestHeadErrorCode);
   }
+  const hostedPoolFailure = hostedPoolAccountFailureReason(output);
+  if (hostedPoolFailure === "quota_exhausted") {
+    return new Error("quota_limited");
+  }
+  if (hostedPoolFailure === "failed") {
+    return new Error("hosted_pool_account_failed");
+  }
   const reviewFailure = extractReviewRouterRuntimeFailure(output);
   if (reviewFailure) {
     return new AlreadyReportedRuntimeFailure(reviewFailure);
@@ -26214,6 +26279,8 @@ function formatTopLevelActionErrorMessage(error51) {
       return "needs_reconnect: Codex OAuth session is expired or revoked. Reconnect the Codex provider in ReviewRouter.";
     case "quota_limited":
       return "quota_limited: Codex usage, rate, or billing limit was reached. Add credits, wait for reset, or change account entitlement.";
+    case "hosted_pool_capacity_exhausted":
+      return "hosted_pool_capacity_exhausted: No eligible hosted Codex account remained after bounded failover attempts. The pool will retry accounts after their cooldowns expire.";
     case "permission_required":
       return "permission_required: Codex permission is required.";
     case "review_runtime_budget_exhausted_before_launch":
