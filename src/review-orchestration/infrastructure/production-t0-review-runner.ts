@@ -142,7 +142,10 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     validateInput(input);
     const authoritativeDeadlineEpochMs =
       process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY];
-    await applyReviewRuntimeConfig(input, this.fetchImpl);
+    const oidc = new GitHubActionsOidcTokenProvider({
+      fetchImpl: this.fetchImpl,
+    });
+    await applyReviewRuntimeConfig(input, this.fetchImpl, oidc);
     if (authoritativeDeadlineEpochMs === undefined) {
       delete process.env[REVIEW_EXECUTION_DEADLINE_ENV_KEY];
     } else {
@@ -158,9 +161,6 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     const controlPlane = new ReviewActionV2ControlPlaneAdapter(
       reviewActionClient
     );
-    const oidc = new GitHubActionsOidcTokenProvider({
-      fetchImpl: this.fetchImpl,
-    });
     const authorization = await controlPlane.authorize({
       oidcToken: await oidc.requestToken(input.audience),
     });
@@ -1054,7 +1054,8 @@ function selectCodexProvider(config: ReviewConfig): string {
 
 async function applyReviewRuntimeConfig(
   input: Parameters<CodexOAuthV2ReviewRunnerPort['run']>[0],
-  fetchImpl: typeof fetch
+  fetchImpl: typeof fetch,
+  oidc: GitHubActionsOidcTokenProvider
 ): Promise<void> {
   process.env.REVIEWROUTER_RUNTIME_CONFIG_MODE = 'oidc';
   process.env.REVIEWROUTER_API_URL = input.apiUrl;
@@ -1062,6 +1063,7 @@ async function applyReviewRuntimeConfig(
   process.env.REVIEWROUTER_STATIC_CONFIG_FALLBACK = 'false';
   await applyControlPlaneRuntimeConfig({
     fetchImpl,
+    oidc,
     logger: {
       info: core.info,
       warn: (message) => core.warning(message),

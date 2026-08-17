@@ -49,6 +49,9 @@ describe('Codex OAuth rotating review runtime config', () => {
     expect(String(fetchImpl.mock.calls[0][0])).toContain(
       'audience=reviewrouter'
     );
+    expect(fetchImpl.mock.calls[0][1]).toMatchObject({ redirect: 'error' });
+    expect(process.env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+    expect(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
   });
 
   it('fails closed instead of falling back to dynamic provider discovery', async () => {

@@ -187,7 +187,8 @@ describe('committed production entrypoint artifact', () => {
             last_refresh: '2026-08-04T00:00:00.000Z',
           }),
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'fake-oidc-request-token',
-          ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.actions.test/token',
+          ACTIONS_ID_TOKEN_REQUEST_URL:
+            'https://token.actions.githubusercontent.com/token',
           RR_ARTIFACT_SMOKE_EXPECTED_ACTION_VERSION: actionVersion,
           RR_ARTIFACT_SMOKE_EXPECTED_ARTIFACT: artifactPath,
           RR_ARTIFACT_SMOKE_EXPECTED_ARTIFACT_SHA256: artifactSha256,
@@ -233,14 +234,14 @@ describe('committed production entrypoint artifact', () => {
           (call) => `${call.method} ${call.origin}${call.pathname}`
         )
       ).toEqual([
-        'GET https://oidc.actions.test/token',
+        'GET https://token.actions.githubusercontent.com/token',
         'POST https://control-plane.reviewrouter.test/api/action/v1/codex-oauth/prelease',
         'POST https://control-plane.reviewrouter.test/api/action/v1/codex-oauth/finalize',
         'GET https://api.github.com/repos/sandbox/repository/actions/secrets/public-key',
         'POST https://control-plane.reviewrouter.test/api/action/v1/codex-oauth/writeback-preflight',
         'POST https://control-plane.reviewrouter.test/api/action/v1/codex-oauth/writeback',
         'POST https://control-plane.reviewrouter.test/api/action/v1/codex-oauth/checkout-token',
-        'GET https://oidc.actions.test/token',
+        'GET https://token.actions.githubusercontent.com/token',
         'POST https://control-plane.reviewrouter.test/api/action/v1/session/exchange',
         'GET https://control-plane.reviewrouter.test/api/action/v1/config',
       ]);

@@ -101,7 +101,11 @@ describe('Codex OAuth terminal outcome comment upsert', () => {
   it('keeps the first oversized skip comment unchanged instead of posting again', async () => {
     const fetchImpl = jest.fn(async (url, init) => {
       const urlText = String(url);
-      if (urlText.startsWith('https://oidc.actions.example/token')) {
+      if (
+        urlText.startsWith(
+          'https://token.actions.githubusercontent.com/request'
+        )
+      ) {
         expect((init?.headers as Record<string, string>).authorization).toBe(
           'Bearer runner-oidc-request-token'
         );
@@ -135,7 +139,8 @@ describe('Codex OAuth terminal outcome comment upsert', () => {
         headRef: 'feature/huge-pr',
       }),
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runner-oidc-request-token',
-      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.actions.example/token',
+      ACTIONS_ID_TOKEN_REQUEST_URL:
+        'https://token.actions.githubusercontent.com/request',
       GITHUB_STEP_SUMMARY: stepSummaryPath,
       GITHUB_RUN_ID: '123456',
       GITHUB_SERVER_URL: 'https://github.example.com',
@@ -178,7 +183,11 @@ describe('Codex OAuth terminal outcome comment upsert', () => {
     mockGitHubClientInstance.octokit.paginate.mockResolvedValueOnce([]);
     const fetchImpl = jest.fn(async (url, init) => {
       const urlText = String(url);
-      if (urlText.startsWith('https://oidc.actions.example/token')) {
+      if (
+        urlText.startsWith(
+          'https://token.actions.githubusercontent.com/request'
+        )
+      ) {
         expect((init?.headers as Record<string, string>).authorization).toBe(
           'Bearer runner-oidc-request-token'
         );
@@ -212,7 +221,8 @@ describe('Codex OAuth terminal outcome comment upsert', () => {
         headRef: 'feature/huge-pr',
       }),
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runner-oidc-request-token',
-      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.actions.example/token',
+      ACTIONS_ID_TOKEN_REQUEST_URL:
+        'https://token.actions.githubusercontent.com/request',
       GITHUB_STEP_SUMMARY: stepSummaryPath,
       GITHUB_RUN_ID: '123456',
       GITHUB_SERVER_URL: 'https://github.example.com',

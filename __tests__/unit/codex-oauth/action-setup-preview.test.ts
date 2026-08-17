@@ -220,7 +220,11 @@ describe('Codex OAuth rotating setup PR preview', () => {
     });
     const fetchImpl = jest.fn(async (url, init) => {
       const urlText = String(url);
-      if (urlText.startsWith('https://oidc.actions.example/token')) {
+      if (
+        urlText.startsWith(
+          'https://token.actions.githubusercontent.com/request'
+        )
+      ) {
         expect((init?.headers as Record<string, string>).authorization).toBe(
           'Bearer runner-oidc-request-token'
         );
@@ -256,7 +260,8 @@ describe('Codex OAuth rotating setup PR preview', () => {
         headRef: 'feature/change',
       }),
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runner-oidc-request-token',
-      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.actions.example/token',
+      ACTIONS_ID_TOKEN_REQUEST_URL:
+        'https://token.actions.githubusercontent.com/request',
       GITHUB_STEP_SUMMARY: stepSummaryPath,
     };
 
@@ -264,7 +269,9 @@ describe('Codex OAuth rotating setup PR preview', () => {
 
     expect(process.exitCode).toBeUndefined();
     expect(fetchImpl).toHaveBeenCalledWith(
-      expect.stringContaining('https://oidc.actions.example/token'),
+      expect.stringContaining(
+        'https://token.actions.githubusercontent.com/request'
+      ),
       expect.any(Object)
     );
     expect(fetchImpl).toHaveBeenCalledWith(

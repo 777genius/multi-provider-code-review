@@ -54,7 +54,7 @@ async function fakeFetch(resource, init = {}) {
   try {
     const key = `${method} ${url.origin}${url.pathname}`;
     switch (key) {
-      case 'GET https://oidc.actions.test/token':
+      case 'GET https://token.actions.githubusercontent.com/token':
         assertEqual(
           url.searchParams.get('audience'),
           'reviewrouter',

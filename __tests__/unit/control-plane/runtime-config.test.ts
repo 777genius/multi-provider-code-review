@@ -71,6 +71,11 @@ describe('applyControlPlaneRuntimeConfig', () => {
     expect(String(fetchImpl.mock.calls[0][0])).toContain(
       'audience=reviewrouter'
     );
+    expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+      redirect: 'error',
+    });
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
     expect(fetchImpl.mock.calls[2][1]?.headers).toMatchObject({
       Authorization: 'Bearer rr-session',
       'x-reviewrouter-action-version': 'v1.0.6',
@@ -93,6 +98,57 @@ describe('applyControlPlaneRuntimeConfig', () => {
     expect(result).toEqual({ status: 'fallback', reason: 'network_down' });
     expect(env.CODEX_MODEL).toBe('static-model');
     expect(warnings[0]).toContain('using static workflow config');
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+  });
+
+  it('rejects an untrusted GitHub Actions OIDC request URL before fetch', async () => {
+    const env: NodeJS.ProcessEnv = {
+      ...baseEnv,
+      REVIEWROUTER_STATIC_CONFIG_FALLBACK: 'false',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://attacker.example/oidc',
+    };
+    const fetchImpl = jest.fn<
+      Promise<Response>,
+      [RequestInfo | URL, RequestInit?]
+    >();
+
+    await expect(
+      applyControlPlaneRuntimeConfig({ env, fetchImpl })
+    ).rejects.toThrow('codex_oauth_oidc_url_untrusted');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+  });
+
+  it('blocks redirect following before an OIDC bearer can leak', async () => {
+    const env: NodeJS.ProcessEnv = {
+      ...baseEnv,
+      REVIEWROUTER_STATIC_CONFIG_FALLBACK: 'false',
+    };
+    let leakedAuthorization = false;
+    const fetchImpl = jest.fn(
+      async (
+        _url: RequestInfo | URL,
+        init?: RequestInit
+      ): Promise<Response> => {
+        if (init?.redirect !== 'error') {
+          leakedAuthorization = Boolean(
+            (init?.headers as Record<string, string> | undefined)?.authorization
+          );
+          return jsonResponse({ value: 'attacker-controlled-token' });
+        }
+        throw new TypeError('redirect mode is error');
+      }
+    );
+
+    await expect(
+      applyControlPlaneRuntimeConfig({ env, fetchImpl })
+    ).rejects.toThrow('redirect mode is error');
+    expect(leakedAuthorization).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
   });
 
   it('includes safe OIDC exchange error codes in fallback warnings', async () => {
