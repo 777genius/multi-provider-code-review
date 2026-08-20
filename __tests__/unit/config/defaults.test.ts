@@ -1,6 +1,11 @@
 import { DEFAULT_CONFIG } from '../../../src/config/defaults';
+import { ReviewDepth } from '../../../src/types';
 
 describe('DEFAULT_CONFIG', () => {
+  it('defaults review depth to balanced', () => {
+    expect(DEFAULT_CONFIG.reviewDepth).toBe(ReviewDepth.Balanced);
+  });
+
   it('should have valid default providers', () => {
     expect(Array.isArray(DEFAULT_CONFIG.providers)).toBe(true);
   });

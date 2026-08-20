@@ -3,7 +3,7 @@ import {
   ReviewOrchestrator,
   ReviewComponents,
 } from '../../src/core/orchestrator';
-import { ReviewConfig, ProviderResult } from '../../src/types';
+import { ReviewConfig, ProviderResult, ReviewDepth } from '../../src/types';
 import { PromptBuilder } from '../../src/analysis/llm/prompt-builder';
 import { LLMExecutor } from '../../src/analysis/llm/executor';
 import { Deduplicator } from '../../src/analysis/deduplicator';
@@ -118,6 +118,7 @@ class EmptyLLMExecutor extends LLMExecutor {
 
 describe('GitHub integration mock (no network)', () => {
   const config: ReviewConfig = {
+    reviewDepth: ReviewDepth.Balanced,
     providers: ['fake/model'],
     synthesisModel: 'fake/model',
     fallbackProviders: [],

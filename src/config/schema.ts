@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { isValidRegexPattern } from '../utils/regex-validator';
+import { ReviewDepth } from '../types';
 
 export const ReviewConfigSchema = z.object({
+  review_depth: z.nativeEnum(ReviewDepth).optional(),
   providers: z.array(z.string()).optional(),
   synthesis_model: z.string().optional(),
   output_language: z.string().max(60).optional(),

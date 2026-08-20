@@ -22,6 +22,7 @@ import {
   FileChange,
   ReviewResult,
   Review,
+  ReviewDepth,
 } from '../../src/types';
 import { ConsensusEngine } from '../../src/analysis/consensus';
 import { Deduplicator } from '../../src/analysis/deduplicator';
@@ -262,6 +263,7 @@ async function runBenchmark(
   cache?: CacheManager
 ): Promise<BenchmarkResult> {
   const config: ReviewConfig = {
+    reviewDepth: ReviewDepth.Balanced,
     providers: providers.map((p) => p.name),
     synthesisModel: 'mock/model',
     fallbackProviders: [],

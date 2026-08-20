@@ -9,7 +9,6 @@ import { hashIncrementalCompatibility } from '../../cache/key-builder';
 import { ConfigLoader } from '../../config/loader';
 import { applyControlPlaneRuntimeConfig } from '../../control-plane/runtime-config';
 import { ReviewActionV2Client } from '../../control-plane/review-action-v2-client';
-import { REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS } from '../../review-investigation/domain/investigation-state';
 import { CONTEXT_GATEWAY_DEFAULT_POLICY_VERSION } from '../../context-gateway/context-gateway-release-contract';
 import { BatchOrchestrator } from '../../core/batch-orchestrator';
 import { prioritizeFilesByRisk } from '../../review-execution/domain/file-risk-priority';
@@ -99,6 +98,7 @@ import {
   REVIEW_INVESTIGATION_PRODUCTION_POLICY,
   ReviewInvestigationRecordingAdapter,
   RevisionGuardInvestigationCurrencyAdapter,
+  reviewInvestigationActionBudgetForDepth,
 } from './review-investigation-recording-adapter';
 import {
   createProductionReviewInvestigationAgentSelector,
@@ -228,6 +228,7 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
         agenticContext,
         authorization,
         primaryProviderKind: ReviewExecutionProviderKind.Codex,
+        reviewDepth: config.reviewDepth,
       });
     const investigationRollout = investigationRolloutResolution.rollout;
     emitReviewInvestigationTelemetry(
@@ -393,8 +394,9 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
               ),
               certificateTtlMs: 24 * 60 * 60_000,
               minimumCapacityParkMs: 60_000,
-              maxObligationsForTurn: REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
-              maxStateTransitions: 128,
+              actionBudget: reviewInvestigationActionBudgetForDepth(
+                config.reviewDepth
+              ),
               policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
             },
             productionReviewInvestigationRecordingMode(investigationRollout),

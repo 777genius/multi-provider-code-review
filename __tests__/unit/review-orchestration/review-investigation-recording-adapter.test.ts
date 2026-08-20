@@ -20,7 +20,9 @@ import {
   reviewInvestigationCoverageContract,
   reviewInvestigationCoverageProfileHash,
   reviewInvestigationPolicyHash,
+  reviewInvestigationActionBudgetForDepth,
 } from '../../../src/review-orchestration/infrastructure/review-investigation-recording-adapter';
+import { ReviewDepth } from '../../../src/types';
 import {
   ReviewInvestigationConclusion,
   ReviewInvestigationNextAction,
@@ -942,6 +944,35 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     );
   });
 
+  it('maps balanced and thorough to bounded increasing action budgets', () => {
+    const economy = reviewInvestigationActionBudgetForDepth(
+      ReviewDepth.Economy
+    );
+    const balanced = reviewInvestigationActionBudgetForDepth(
+      ReviewDepth.Balanced
+    );
+    const thorough = reviewInvestigationActionBudgetForDepth(
+      ReviewDepth.Thorough
+    );
+
+    expect(Object.values(economy)).toEqual([0, 0, 0, 0, 0, 0]);
+    for (const key of Object.keys(balanced) as Array<keyof typeof balanced>) {
+      expect(thorough[key]).toBeGreaterThan(balanced[key]);
+    }
+    expect(thorough).toEqual({
+      maxGatewayOperations:
+        REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxReceiptsPerTurn,
+      maxOutputFindings: REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxFindings,
+      maxOutputProposals:
+        REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxProposalsPerTurn,
+      maxObligationsForTurn:
+        REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxObligations,
+      providerMaxTurns: REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxSemanticTurns,
+      maxStateTransitions:
+        REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxOperationalAttempts,
+    });
+  });
+
   it('keeps producer release identity only in the per-run open contract', () => {
     const releaseOne = reviewInvestigationCoverageContract('release-1');
     const releaseTwo = reviewInvestigationCoverageContract('release-2');
@@ -1136,8 +1167,7 @@ function options() {
     providerTimeoutMs: 600_000,
     certificateTtlMs: 86_400_000,
     minimumCapacityParkMs: 60_000,
-    maxObligationsForTurn: 64,
-    maxStateTransitions: 128,
+    actionBudget: reviewInvestigationActionBudgetForDepth(ReviewDepth.Balanced),
     policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
   } as const;
 }

@@ -26,6 +26,19 @@ Feedback learning is controlled by these environment variables:
 
 See the main [README](../README.md#configuration) for full configuration options.
 
+## Review Depth
+
+Set `review_depth` in `.github/multi-review.yml` to control Action-side review
+investigation work:
+
+```yaml
+review_depth: balanced # economy | balanced | thorough
+```
+
+`balanced` is the default. `thorough` uses larger bounded agent, tool, and state
+budgets, while the signed server policy remains the hard ceiling. `economy`
+skips investigation and critic calls. `REVIEW_DEPTH` overrides the file value.
+
 ## Tips for Effective Review
 
 ### Managing Noise

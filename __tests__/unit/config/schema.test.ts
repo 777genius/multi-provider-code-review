@@ -1,7 +1,23 @@
 import { validateConfig } from '../../../src/utils/validation';
 import { DEFAULT_CONFIG } from '../../../src/config/defaults';
+import { ReviewConfigSchema } from '../../../src/config/schema';
 
 describe('Config Schema', () => {
+  it.each(['economy', 'balanced', 'thorough'])(
+    'accepts strict review_depth profile %s',
+    (reviewDepth) => {
+      expect(
+        ReviewConfigSchema.parse({ review_depth: reviewDepth }).review_depth
+      ).toBe(reviewDepth);
+    }
+  );
+
+  it('rejects an unknown review_depth profile', () => {
+    expect(() =>
+      ReviewConfigSchema.parse({ review_depth: 'unbounded' })
+    ).toThrow();
+  });
+
   it('should validate default config', () => {
     expect(() =>
       validateConfig(DEFAULT_CONFIG as unknown as Record<string, unknown>)
