@@ -973,6 +973,12 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     });
   });
 
+  it('defaults legacy callers without review depth to balanced', () => {
+    expect(reviewInvestigationActionBudgetForDepth(undefined)).toEqual(
+      reviewInvestigationActionBudgetForDepth(ReviewDepth.Balanced)
+    );
+  });
+
   it('keeps producer release identity only in the per-run open contract', () => {
     const releaseOne = reviewInvestigationCoverageContract('release-1');
     const releaseTwo = reviewInvestigationCoverageContract('release-2');

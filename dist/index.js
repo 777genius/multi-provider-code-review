@@ -50333,7 +50333,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.122",
+  version: "1.0.123",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -111577,7 +111577,7 @@ var ACTION_BUDGET_BY_REVIEW_DEPTH = Object.freeze({
   })
 });
 function reviewInvestigationActionBudgetForDepth(reviewDepth, policy = REVIEW_INVESTIGATION_PRODUCTION_POLICY) {
-  const requested = ACTION_BUDGET_BY_REVIEW_DEPTH[reviewDepth];
+  const requested = ACTION_BUDGET_BY_REVIEW_DEPTH[reviewDepth ?? "balanced" /* Balanced */];
   return Object.freeze({
     maxGatewayOperations: Math.min(
       requested.maxGatewayOperations,
