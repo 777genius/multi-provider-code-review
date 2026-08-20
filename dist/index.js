@@ -50333,7 +50333,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.123",
+  version: "1.0.124",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -111447,10 +111447,11 @@ var REVIEW_INVESTIGATION_COVERAGE_PROFILE = Object.freeze({
 var ReviewInvestigationRecordingAdapter = class {
   constructor(createRunner, options, mode = "record_only" /* RecordOnly */, verifiedCleanEffectsEnabled = false) {
     this.createRunner = createRunner;
-    this.options = options;
     this.mode = mode;
     this.verifiedCleanEffectsEnabled = verifiedCleanEffectsEnabled;
+    this.options = normalizeReviewInvestigationRecordingOptions(options);
   }
+  options;
   supports(input) {
     const decision = reviewInvestigationRecordingSupportDecision(
       input,
@@ -111603,6 +111604,27 @@ function reviewInvestigationActionBudgetForDepth(reviewDepth, policy = REVIEW_IN
       requested.maxStateTransitions,
       policy.maxOperationalAttempts
     )
+  });
+}
+function normalizeReviewInvestigationRecordingOptions(options) {
+  if ("actionBudget" in options) {
+    return options;
+  }
+  return Object.freeze({
+    workingDirectory: options.workingDirectory,
+    leaseDurationMs: options.leaseDurationMs,
+    providerTimeoutMs: options.providerTimeoutMs,
+    certificateTtlMs: options.certificateTtlMs,
+    minimumCapacityParkMs: options.minimumCapacityParkMs,
+    policy: options.policy,
+    actionBudget: Object.freeze({
+      maxGatewayOperations: options.policy.maxReceiptsPerTurn,
+      maxOutputFindings: options.policy.maxFindings,
+      maxOutputProposals: options.policy.maxProposalsPerTurn,
+      maxObligationsForTurn: options.maxObligationsForTurn,
+      providerMaxTurns: options.policy.maxSemanticTurns,
+      maxStateTransitions: options.maxStateTransitions
+    })
   });
 }
 function isDeferred(status) {

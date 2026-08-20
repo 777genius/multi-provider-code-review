@@ -55,15 +55,32 @@ export type ReviewInvestigationRunnerFactory = (
   input: Parameters<ReviewInvestigationRecordingPort['execute']>[0]
 ) => RunInvestigationWorkSlot;
 
-export type ReviewInvestigationRecordingOptions = Readonly<{
+type ReviewInvestigationRecordingBaseOptions = Readonly<{
   workingDirectory: string;
   leaseDurationMs: number;
   providerTimeoutMs: number;
   certificateTtlMs: number;
   minimumCapacityParkMs: number;
-  actionBudget: ReviewInvestigationActionBudget;
   policy: ReviewInvestigationPolicy;
 }>;
+
+export type ReviewInvestigationRecordingOptions =
+  ReviewInvestigationRecordingBaseOptions &
+    Readonly<
+      | {
+          actionBudget: ReviewInvestigationActionBudget;
+        }
+      | {
+          maxObligationsForTurn: number;
+          maxStateTransitions: number;
+        }
+    >;
+
+type NormalizedReviewInvestigationRecordingOptions =
+  ReviewInvestigationRecordingBaseOptions &
+    Readonly<{
+      actionBudget: ReviewInvestigationActionBudget;
+    }>;
 
 export type ReviewInvestigationActionBudget = Readonly<{
   maxGatewayOperations: number;
@@ -137,12 +154,16 @@ export const REVIEW_INVESTIGATION_COVERAGE_PROFILE = Object.freeze({
 });
 
 export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationRecordingPort {
+  private readonly options: NormalizedReviewInvestigationRecordingOptions;
+
   constructor(
     private readonly createRunner: ReviewInvestigationRunnerFactory,
-    private readonly options: ReviewInvestigationRecordingOptions,
+    options: ReviewInvestigationRecordingOptions,
     readonly mode: ReviewInvestigationRecordingMode = ReviewInvestigationRecordingMode.RecordOnly,
     readonly verifiedCleanEffectsEnabled = false
-  ) {}
+  ) {
+    this.options = normalizeReviewInvestigationRecordingOptions(options);
+  }
 
   supports(input: {
     readonly workSlot: ReviewWorkSlotPlan;
@@ -321,6 +342,30 @@ export function reviewInvestigationActionBudgetForDepth(
       requested.maxStateTransitions,
       policy.maxOperationalAttempts
     ),
+  });
+}
+
+function normalizeReviewInvestigationRecordingOptions(
+  options: ReviewInvestigationRecordingOptions
+): NormalizedReviewInvestigationRecordingOptions {
+  if ('actionBudget' in options) {
+    return options;
+  }
+  return Object.freeze({
+    workingDirectory: options.workingDirectory,
+    leaseDurationMs: options.leaseDurationMs,
+    providerTimeoutMs: options.providerTimeoutMs,
+    certificateTtlMs: options.certificateTtlMs,
+    minimumCapacityParkMs: options.minimumCapacityParkMs,
+    policy: options.policy,
+    actionBudget: Object.freeze({
+      maxGatewayOperations: options.policy.maxReceiptsPerTurn,
+      maxOutputFindings: options.policy.maxFindings,
+      maxOutputProposals: options.policy.maxProposalsPerTurn,
+      maxObligationsForTurn: options.maxObligationsForTurn,
+      providerMaxTurns: options.policy.maxSemanticTurns,
+      maxStateTransitions: options.maxStateTransitions,
+    }),
   });
 }
 

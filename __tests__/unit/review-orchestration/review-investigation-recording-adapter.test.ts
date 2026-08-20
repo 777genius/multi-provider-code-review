@@ -979,6 +979,46 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     );
   });
 
+  it('preserves the legacy flat recording budget contract', async () => {
+    const terminalJson = canonicalJson({ findings: [] });
+    const execute = jest.fn(async () => ({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: terminalSnapshot(terminalJson),
+    }));
+    const adapter = new ReviewInvestigationRecordingAdapter(
+      () => ({ execute }) as never,
+      {
+        workingDirectory: '/tmp/review-investigation-fixture',
+        leaseDurationMs: 300_000,
+        providerTimeoutMs: 600_000,
+        certificateTtlMs: 86_400_000,
+        minimumCapacityParkMs: 60_000,
+        maxObligationsForTurn: 64,
+        maxStateTransitions: 32,
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      }
+    );
+
+    await adapter.execute(executionInput());
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnBudget: {
+          maxGatewayOperations:
+            REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxReceiptsPerTurn,
+          maxOutputFindings:
+            REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxFindings,
+          maxOutputProposals:
+            REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxProposalsPerTurn,
+        },
+        maxObligationsForTurn: 64,
+        providerMaxTurns:
+          REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxSemanticTurns,
+        maxStateTransitions: 32,
+      })
+    );
+  });
+
   it('keeps producer release identity only in the per-run open contract', () => {
     const releaseOne = reviewInvestigationCoverageContract('release-1');
     const releaseTwo = reviewInvestigationCoverageContract('release-2');
