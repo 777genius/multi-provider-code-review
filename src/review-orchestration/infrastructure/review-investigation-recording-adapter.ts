@@ -291,10 +291,11 @@ const ACTION_BUDGET_BY_REVIEW_DEPTH = Object.freeze({
 } satisfies Readonly<Record<ReviewDepth, ReviewInvestigationActionBudget>>);
 
 export function reviewInvestigationActionBudgetForDepth(
-  reviewDepth: ReviewDepth,
+  reviewDepth: ReviewDepth | undefined,
   policy: ReviewInvestigationPolicy = REVIEW_INVESTIGATION_PRODUCTION_POLICY
 ): ReviewInvestigationActionBudget {
-  const requested = ACTION_BUDGET_BY_REVIEW_DEPTH[reviewDepth];
+  const requested =
+    ACTION_BUDGET_BY_REVIEW_DEPTH[reviewDepth ?? ReviewDepth.Balanced];
   return Object.freeze({
     maxGatewayOperations: Math.min(
       requested.maxGatewayOperations,
