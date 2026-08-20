@@ -478,7 +478,7 @@ function createDiscussionHandler(
   githubClient: GitHubClient
 ): ReviewDiscussionHandler {
   const options = loadDiscussionOptionsFromEnv();
-  const model = process.env.CODEX_MODEL || 'gpt-5.5';
+  const model = process.env.CODEX_MODEL || 'gpt-5.6-sol';
   const timeoutSeconds = parsePositiveInteger(
     process.env.REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS,
     60

@@ -103,7 +103,7 @@ describe('seed-codex-auth.sh', () => {
       'Stored repo secret CODEX_AUTH_JSON for 777genius/example'
     );
     await expect(readFile(fixture.codexLog, 'utf8')).resolves.toContain(
-      'exec --model gpt-5.5'
+      'exec --model gpt-5.6-sol'
     );
   });
 

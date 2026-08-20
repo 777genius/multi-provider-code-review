@@ -1390,7 +1390,7 @@ var codexProviderId = "codex";
 var codexAgentId = "codex-cli";
 var codexJsonAgentId = "codex-json";
 var codexAuthJsonFormatVersion = "codex-auth-json-v1";
-var defaultCodexModel = "gpt-5.5";
+var defaultCodexModel = "gpt-5.6-sol";
 var codexEnvironmentPolicy = {
   inheritHostEnvironment: false,
   allowlist: ["PATH", "HOME", "CI", "CODEX_HOME"],
@@ -25770,7 +25770,7 @@ function forkRuntimePositiveInteger(value, defaultValue) {
 function codexModelForForkRuntime(runtimeEnv) {
   const provider = (runtimeEnv.REVIEW_PROVIDERS ?? "").split(",").map((value) => value.trim()).find((value) => value.startsWith("codex/"));
   const modelFromProvider = provider?.slice("codex/".length);
-  return modelFromProvider || runtimeEnv.CODEX_MODEL || "gpt-5.5";
+  return modelFromProvider || runtimeEnv.CODEX_MODEL || "gpt-5.6-sol";
 }
 function extractCodexAccessToken(authJson) {
   let parsed;

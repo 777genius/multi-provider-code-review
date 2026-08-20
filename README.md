@@ -258,7 +258,7 @@ Required secrets or organization selected-repo secrets:
 
 Recommended variable:
 
-- `REVIEW_CODEX_MODEL=gpt-5.5`
+- `REVIEW_CODEX_MODEL=gpt-5.6-sol`
 
 ### Codex CLI With OpenAI API Key
 
@@ -306,7 +306,7 @@ This token is not used to post comments. Review comments and summaries still use
 
 | Input                             | Default | Notes                                                                                                      |
 | --------------------------------- | ------: | ---------------------------------------------------------------------------------------------------------- |
-| `CODEX_MODEL`                     |   empty | Codex model id, for example `gpt-5.5`.                                                                     |
+| `CODEX_MODEL`                     |   empty | Codex model id, for example `gpt-5.6-sol`.                                                                 |
 | `CLAUDE_MODEL`                    |   empty | Claude Code model alias/id, for example `sonnet`.                                                          |
 | `CODEX_REASONING_EFFORT`          |   empty | Codex effort for review runs, for example `medium`.                                                        |
 | `CODEX_AGENTIC_CONTEXT`           |  `true` | Lets Codex inspect related files in read-only mode.                                                        |
