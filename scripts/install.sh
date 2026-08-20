@@ -6,7 +6,7 @@
 set -Eeuo pipefail
 
 PRODUCT_NAME="review-router"
-LATEST_RELEASE_TAG="v1.0.124"
+LATEST_RELEASE_TAG="v1.0.125"
 LATEST_MAJOR_TAG="v1"
 DEFAULT_ACTION_REF_MODE="main"
 DEFAULT_STABLE_ACTION_REF="777genius/review-router@$LATEST_MAJOR_TAG"
@@ -17,7 +17,7 @@ DEFAULT_BRANCH_NAME="review-router/setup"
 WORKFLOW_PATH=".github/workflows/reviewrouter.yml"
 INTERACTION_WORKFLOW_PATH=".github/workflows/reviewrouter-interaction.yml"
 CODEX_NPM_PACKAGE="@openai/codex@0.147.0"
-DEFAULT_CODEX_MODEL="gpt-5.5"
+DEFAULT_CODEX_MODEL="gpt-5.6-sol"
 DEFAULT_CLAUDE_MODEL="sonnet"
 DEFAULT_APP_LOGO_URL="https://i.imgur.com/Yz9XIQM.png"
 OPENROUTER_DEFAULT_PROVIDERS="openrouter/openai/gpt-oss-120b:free,openrouter/poolside/laguna-m.1:free"

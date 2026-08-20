@@ -75,7 +75,7 @@ function inferredProviderFromEnv(
       return claudeProvider || 'claude/sonnet';
     case 'codex-oauth':
     case 'openai-api':
-      return codexProvider || 'codex/gpt-5.5';
+      return codexProvider || 'codex/gpt-5.6-sol';
     default:
       return claudeProvider || codexProvider;
   }

@@ -9,7 +9,7 @@ set -euo pipefail
 #
 # Optional:
 #   REVIEW_ROUTER_E2E_BASE_BRANCH=main
-#   REVIEW_ROUTER_E2E_MODEL=gpt-5.5
+#   REVIEW_ROUTER_E2E_MODEL=gpt-5.6-sol
 #   REVIEW_ROUTER_E2E_KEEP_BRANCH=1
 
 log() { printf '[review-router e2e] %s\n' "$*"; }
@@ -23,7 +23,7 @@ repo="${REVIEW_ROUTER_E2E_REPO:-}"
 [ -n "$repo" ] || fatal "Set REVIEW_ROUTER_E2E_REPO=owner/repo"
 
 base_branch="${REVIEW_ROUTER_E2E_BASE_BRANCH:-main}"
-model="${REVIEW_ROUTER_E2E_MODEL:-gpt-5.5}"
+model="${REVIEW_ROUTER_E2E_MODEL:-gpt-5.6-sol}"
 branch="review-router/e2e-dedup-$(date +%s)"
 tmpdir="$(mktemp -d)"
 pr_number=""

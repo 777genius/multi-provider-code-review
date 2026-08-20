@@ -47,7 +47,7 @@ on:
         description: 'Codex model used for discussion replies'
         required: false
         type: string
-        default: gpt-5.5
+        default: gpt-5.6-sol
       discussion_reasoning_effort:
         description: 'Codex reasoning effort used for discussion replies'
         required: false

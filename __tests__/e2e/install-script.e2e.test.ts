@@ -333,7 +333,7 @@ describe('review-router curl installer e2e', () => {
     const workflow = workflowText(result.workflowPath);
     const staticEnv = staticRuntimeEnv(workflow);
     expect(staticEnv.REVIEW_AUTH_MODE).toBe('codex-oauth');
-    expect(staticEnv.CODEX_MODEL).toBe('gpt-5.5');
+    expect(staticEnv.CODEX_MODEL).toBe('gpt-5.6-sol');
     expect(staticEnv.CODEX_REASONING_EFFORT).toBe('medium');
     expect(staticEnv.REVIEW_PROVIDERS).toBeUndefined();
     expect(staticEnv.SYNTHESIS_MODEL).toBeUndefined();

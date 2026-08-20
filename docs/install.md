@@ -337,7 +337,7 @@ bash scripts/install.sh
 Default Codex model:
 
 ```text
-gpt-5.5
+gpt-5.6-sol
 ```
 
 The installer stores it as `REVIEW_CODEX_MODEL`, and the action converts it internally to `codex/<model>`. Override it with `REVIEW_ROUTER_CODEX_MODEL`, for example `REVIEW_ROUTER_CODEX_MODEL=gpt-5.4`.
@@ -422,7 +422,7 @@ CODEX_REASONING_EFFORT=medium
 CODEX_AGENTIC_CONTEXT=true
 REVIEW_ROUTER_DISCUSSION_MODE=suggest
 REVIEW_ROUTER_LEDGER_KEY=<generated secret>
-REVIEW_CODEX_MODEL=gpt-5.5
+REVIEW_CODEX_MODEL=gpt-5.6-sol
 REVIEW_CODEX_EFFORT=medium
 ```
 

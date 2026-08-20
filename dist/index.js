@@ -50333,7 +50333,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.124",
+  version: "1.0.125",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -51123,7 +51123,7 @@ function inferredProviderFromEnv(authMode, env) {
       return claudeProvider || "claude/sonnet";
     case "codex-oauth":
     case "openai-api":
-      return codexProvider || "codex/gpt-5.5";
+      return codexProvider || "codex/gpt-5.6-sol";
     default:
       return claudeProvider || codexProvider;
   }
@@ -114478,7 +114478,7 @@ async function runInteractionPreflight(token) {
 }
 function createDiscussionHandler(githubClient) {
   const options = loadDiscussionOptionsFromEnv();
-  const model = process.env.CODEX_MODEL || "gpt-5.5";
+  const model = process.env.CODEX_MODEL || "gpt-5.6-sol";
   const timeoutSeconds = parsePositiveInteger(
     process.env.REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS,
     60
