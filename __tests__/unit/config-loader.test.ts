@@ -52,6 +52,7 @@ describe('ConfigLoader', () => {
       'review_depth: economy\n'
     );
 
+    delete process.env.REVIEW_DEPTH;
     expect(ConfigLoader.load().reviewDepth).toBe(ReviewDepth.Economy);
 
     process.env.REVIEW_DEPTH = 'balanced';
