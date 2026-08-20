@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import { ReviewConfig } from '../types';
+import { ReviewConfig, ReviewDepth } from '../types';
 import { DEFAULT_CONFIG } from './defaults';
 import { ReviewConfigSchema, ReviewConfigFile } from './schema';
 import { validateConfig, ValidationError } from '../utils/validation';
@@ -84,6 +84,7 @@ export class ConfigLoader {
           : undefined;
 
     return {
+      reviewDepth: this.parseReviewDepth(env.REVIEW_DEPTH),
       providers,
       synthesisModel:
         env.SYNTHESIS_MODEL ||
@@ -193,6 +194,7 @@ export class ConfigLoader {
     config: ReviewConfigFile
   ): Partial<ReviewConfig> {
     return {
+      reviewDepth: config.review_depth,
       providers: config.providers,
       synthesisModel: config.synthesis_model,
       outputLanguage: config.output_language,
@@ -309,6 +311,24 @@ export class ConfigLoader {
       .split(',')
       .map((v) => v.trim())
       .filter(Boolean);
+  }
+
+  private static parseReviewDepth(value?: string): ReviewDepth | undefined {
+    if (value === undefined || value.trim().length === 0) return undefined;
+    switch (value.trim()) {
+      case ReviewDepth.Economy:
+        return ReviewDepth.Economy;
+      case ReviewDepth.Balanced:
+        return ReviewDepth.Balanced;
+      case ReviewDepth.Thorough:
+        return ReviewDepth.Thorough;
+      default:
+        throw new ValidationError(
+          'REVIEW_DEPTH has invalid value',
+          'REVIEW_DEPTH',
+          `Expected one of: ${Object.values(ReviewDepth).join(', ')}`
+        );
+    }
   }
 
   /**

@@ -1,5 +1,6 @@
 import { ConfigLoader } from '../../src/config/loader';
 import { DEFAULT_CONFIG } from '../../src/config/defaults';
+import { ReviewDepth } from '../../src/types';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -14,6 +15,7 @@ describe('ConfigLoader', () => {
   });
 
   it('merges environment overrides into defaults', () => {
+    process.env.REVIEW_DEPTH = 'thorough';
     process.env.REVIEW_PROVIDERS = 'openrouter/a,opencode/b';
     process.env.INLINE_MAX_COMMENTS = '7';
     process.env.BUDGET_MAX_USD = '1.5';
@@ -27,6 +29,7 @@ describe('ConfigLoader', () => {
     const config = ConfigLoader.load();
 
     expect(config.providers).toEqual(['openrouter/a', 'opencode/b']);
+    expect(config.reviewDepth).toBe(ReviewDepth.Thorough);
     expect(config.inlineMaxComments).toBe(7);
     expect(config.budgetMaxUsd).toBe(1.5);
     expect(config.openrouterTimeoutSeconds).toBe(240);
@@ -39,6 +42,26 @@ describe('ConfigLoader', () => {
     expect(config.updatePrDescription).toBe(false);
     expect(config.failOnSeverity).toBe('critical');
     expect(config.inlineMinSeverity).toBe(DEFAULT_CONFIG.inlineMinSeverity);
+  });
+
+  it('loads review_depth from user config and lets REVIEW_DEPTH override it', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-review-depth-'));
+    process.chdir(tmp);
+    fs.writeFileSync(
+      path.join(tmp, '.multi-review.yml'),
+      'review_depth: economy\n'
+    );
+
+    expect(ConfigLoader.load().reviewDepth).toBe(ReviewDepth.Economy);
+
+    process.env.REVIEW_DEPTH = 'balanced';
+    expect(ConfigLoader.load().reviewDepth).toBe(ReviewDepth.Balanced);
+  });
+
+  it('rejects an invalid REVIEW_DEPTH value', () => {
+    process.env.REVIEW_DEPTH = 'unbounded';
+
+    expect(() => ConfigLoader.load()).toThrow('REVIEW_DEPTH has invalid value');
   });
 
   it('maps CODEX_MODEL to a Codex provider when REVIEW_PROVIDERS is not set', () => {

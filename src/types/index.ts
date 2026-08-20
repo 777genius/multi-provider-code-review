@@ -5,6 +5,11 @@
 export type Severity = 'critical' | 'major' | 'minor';
 export type FailOnSeverity = Severity | 'off';
 export type ReviewThreadLifecycleMode = 'off' | 'report' | 'resolve';
+export enum ReviewDepth {
+  Economy = 'economy',
+  Balanced = 'balanced',
+  Thorough = 'thorough',
+}
 export type LifecycleSeverity = Severity | 'unknown';
 export type LifecycleQuorumMode = 'single-provider' | 'multi-provider';
 export type LifecycleVerdict = 'resolved' | 'still_valid' | 'uncertain';
@@ -66,6 +71,7 @@ export type LifecycleReasonCode =
  * All new fields are optional and have sensible defaults defined in src/config/defaults.ts
  */
 export interface ReviewConfig {
+  reviewDepth: ReviewDepth;
   providers: string[];
   synthesisModel: string;
   fallbackProviders: string[];
@@ -280,7 +286,8 @@ export interface SynthesizedDiffSizeLimitOmission {
 }
 
 export type PullRequestLoadOmission =
-  GitHubFileLimitOmission | SynthesizedDiffSizeLimitOmission;
+  | GitHubFileLimitOmission
+  | SynthesizedDiffSizeLimitOmission;
 
 export type PullRequestLoadCompleteness =
   | {
@@ -367,7 +374,11 @@ export interface AIAnalysis {
 }
 
 export type ReviewCoverageFileStatus =
-  'full' | 'compacted' | 'metadata-only' | 'skipped' | 'unreviewed';
+  | 'full'
+  | 'compacted'
+  | 'metadata-only'
+  | 'skipped'
+  | 'unreviewed';
 
 export interface ReviewCoverageFile {
   path: string;

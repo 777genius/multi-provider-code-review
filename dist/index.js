@@ -15105,6 +15105,14 @@ var {
   safeDump
 } = yaml;
 
+// src/types/index.ts
+var ReviewDepth = /* @__PURE__ */ ((ReviewDepth2) => {
+  ReviewDepth2["Economy"] = "economy";
+  ReviewDepth2["Balanced"] = "balanced";
+  ReviewDepth2["Thorough"] = "thorough";
+  return ReviewDepth2;
+})(ReviewDepth || {});
+
 // src/utils/logger.ts
 var LEVELS = {
   debug: 10,
@@ -15202,6 +15210,7 @@ async function getBestFreeModelsCached(count = 4, timeoutMs = 5e3) {
 
 // src/config/defaults.ts
 var DEFAULT_CONFIG = {
+  reviewDepth: "balanced" /* Balanced */,
   // Empty array triggers dynamic model discovery.
   // OpenRouter discovery prefers concrete free tool-capable models and can
   // discover OpenCode CLI models as fallback.
@@ -19433,6 +19442,7 @@ function isValidRegexPattern(pattern) {
 
 // src/config/schema.ts
 var ReviewConfigSchema = external_exports.object({
+  review_depth: external_exports.nativeEnum(ReviewDepth).optional(),
   providers: external_exports.array(external_exports.string()).optional(),
   synthesis_model: external_exports.string().optional(),
   output_language: external_exports.string().max(60).optional(),
@@ -19814,6 +19824,7 @@ var ConfigLoader = class {
     );
     const providers = explicitProviders.length > 0 ? explicitProviders : inferredProvider ? [inferredProvider] : void 0;
     return {
+      reviewDepth: this.parseReviewDepth(env.REVIEW_DEPTH),
       providers,
       synthesisModel: env.SYNTHESIS_MODEL || (explicitProviders.length === 0 ? inferredProvider : void 0),
       fallbackProviders: this.parseArray(env.FALLBACK_PROVIDERS),
@@ -19906,6 +19917,7 @@ var ConfigLoader = class {
   }
   static normalizeKeys(config) {
     return {
+      reviewDepth: config.review_depth,
       providers: config.providers,
       synthesisModel: config.synthesis_model,
       outputLanguage: config.output_language,
@@ -20012,6 +20024,23 @@ var ConfigLoader = class {
   static parseArray(value) {
     if (!value) return void 0;
     return value.split(",").map((v2) => v2.trim()).filter(Boolean);
+  }
+  static parseReviewDepth(value) {
+    if (value === void 0 || value.trim().length === 0) return void 0;
+    switch (value.trim()) {
+      case "economy" /* Economy */:
+        return "economy" /* Economy */;
+      case "balanced" /* Balanced */:
+        return "balanced" /* Balanced */;
+      case "thorough" /* Thorough */:
+        return "thorough" /* Thorough */;
+      default:
+        throw new ValidationError(
+          "REVIEW_DEPTH has invalid value",
+          "REVIEW_DEPTH",
+          `Expected one of: ${Object.values(ReviewDepth).join(", ")}`
+        );
+    }
   }
   /**
    * Sanitize a free-text language name before it reaches the model prompt.
@@ -25812,13 +25841,12 @@ function sha2562(value) {
 }
 
 // src/review-investigation/domain/semantic-risk-policy.ts
-var REVIEW_INVESTIGATION_CRITIC_POLICY_V1 = "review-investigation-critic.v1";
+var REVIEW_INVESTIGATION_CRITIC_POLICY_V2 = "review-investigation-critic.v2";
 var REVIEW_INVESTIGATION_RISK_PRIORITY = Object.freeze({
   StandardChangedPath: 5e5,
   HighRiskChangedPath: 9e5,
   InventoryWitness: 1e6
 });
-var REVIEW_INVESTIGATION_INDEPENDENT_CRITIC_RISK_PRIORITY_V1 = 8e5;
 var HIGH_RISK_PATH_TOKENS = /* @__PURE__ */ new Set([
   "acl",
   "api",
@@ -50305,7 +50333,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.121",
+  version: "1.0.122",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -95107,7 +95135,7 @@ var review_investigation_capability_v1_golden_default = {
   coverageProfile: {
     value: {
       coverageContractVersion: "review-investigation-coverage.v1",
-      criticPolicyVersion: "review-investigation-critic.v1",
+      criticPolicyVersion: "review-investigation-critic.v2",
       expansionRulesVersion: "review-investigation-expansion.v3",
       gatewayPolicyVersion: "context-gateway-v4",
       probePolicyVersion: "review-investigation-probe-policy.v1",
@@ -95115,8 +95143,8 @@ var review_investigation_capability_v1_golden_default = {
       searchPolicyVersion: "review-investigation-fixed-string-search.v1",
       turnPromptContractHash: "41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"
     },
-    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v1","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v1","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"}',
-    sha256: "d3bcd60414edeaac73973fc9c8ffa18612b1baec1755f2071192e28c3bc15714"
+    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v1","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"}',
+    sha256: "d4a8c40b4755d9a4dbe9aeeedf63ff207613f18410525ed50890160263c350aa"
   },
   policy: {
     value: {
@@ -111408,7 +111436,7 @@ var REVIEW_INVESTIGATION_PRODUCTION_POLICY = Object.freeze({
 });
 var REVIEW_INVESTIGATION_COVERAGE_PROFILE = Object.freeze({
   coverageContractVersion: "review-investigation-coverage.v1",
-  criticPolicyVersion: REVIEW_INVESTIGATION_CRITIC_POLICY_V1,
+  criticPolicyVersion: REVIEW_INVESTIGATION_CRITIC_POLICY_V2,
   expansionRulesVersion: "review-investigation-expansion.v3",
   gatewayPolicyVersion: "context-gateway-v4",
   probePolicyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
@@ -111494,17 +111522,17 @@ var ReviewInvestigationRecordingAdapter = class {
         }),
         workingDirectory: this.options.workingDirectory,
         turnBudget: {
-          maxGatewayOperations: this.options.policy.maxReceiptsPerTurn,
-          maxOutputFindings: this.options.policy.maxFindings,
-          maxOutputProposals: this.options.policy.maxProposalsPerTurn
+          maxGatewayOperations: this.options.actionBudget.maxGatewayOperations,
+          maxOutputFindings: this.options.actionBudget.maxOutputFindings,
+          maxOutputProposals: this.options.actionBudget.maxOutputProposals
         },
         leaseDurationMs: this.options.leaseDurationMs,
-        maxObligationsForTurn: this.options.maxObligationsForTurn,
+        maxObligationsForTurn: this.options.actionBudget.maxObligationsForTurn,
         providerTimeoutMs: this.options.providerTimeoutMs,
-        providerMaxTurns: this.options.policy.maxSemanticTurns,
+        providerMaxTurns: this.options.actionBudget.providerMaxTurns,
         certificateTtlMs: this.options.certificateTtlMs,
         minimumCapacityParkMs: this.options.minimumCapacityParkMs,
-        maxStateTransitions: this.options.maxStateTransitions,
+        maxStateTransitions: this.options.actionBudget.maxStateTransitions,
         signal: input.signal
       });
     } catch (error2) {
@@ -111522,6 +111550,61 @@ var ReviewInvestigationRecordingAdapter = class {
     return terminalObservation(result2.status, result2.snapshot);
   }
 };
+var ACTION_BUDGET_BY_REVIEW_DEPTH = Object.freeze({
+  ["economy" /* Economy */]: Object.freeze({
+    maxGatewayOperations: 0,
+    maxOutputFindings: 0,
+    maxOutputProposals: 0,
+    maxObligationsForTurn: 0,
+    providerMaxTurns: 0,
+    maxStateTransitions: 0
+  }),
+  ["balanced" /* Balanced */]: Object.freeze({
+    maxGatewayOperations: 128,
+    maxOutputFindings: 128,
+    maxOutputProposals: 64,
+    maxObligationsForTurn: 512,
+    providerMaxTurns: 8,
+    maxStateTransitions: 16
+  }),
+  ["thorough" /* Thorough */]: Object.freeze({
+    maxGatewayOperations: 256,
+    maxOutputFindings: 256,
+    maxOutputProposals: 128,
+    maxObligationsForTurn: 1024,
+    providerMaxTurns: 12,
+    maxStateTransitions: 24
+  })
+});
+function reviewInvestigationActionBudgetForDepth(reviewDepth, policy = REVIEW_INVESTIGATION_PRODUCTION_POLICY) {
+  const requested = ACTION_BUDGET_BY_REVIEW_DEPTH[reviewDepth];
+  return Object.freeze({
+    maxGatewayOperations: Math.min(
+      requested.maxGatewayOperations,
+      policy.maxReceiptsPerTurn
+    ),
+    maxOutputFindings: Math.min(
+      requested.maxOutputFindings,
+      policy.maxFindings
+    ),
+    maxOutputProposals: Math.min(
+      requested.maxOutputProposals,
+      policy.maxProposalsPerTurn
+    ),
+    maxObligationsForTurn: Math.min(
+      requested.maxObligationsForTurn,
+      policy.maxObligations
+    ),
+    providerMaxTurns: Math.min(
+      requested.providerMaxTurns,
+      policy.maxSemanticTurns
+    ),
+    maxStateTransitions: Math.min(
+      requested.maxStateTransitions,
+      policy.maxOperationalAttempts
+    )
+  });
+}
 function isDeferred(status) {
   return status === "parked" /* Parked */ || status === "recovery_required" /* RecoveryRequired */ || status === "transition_budget_exhausted" /* TransitionBudgetExhausted */;
 }
@@ -111756,12 +111839,23 @@ function readProductionReviewInvestigationRolloutFlags(env = process.env) {
   });
 }
 function resolveProductionReviewInvestigationRolloutResolution(input) {
+  if (input.reviewDepth === "economy" /* Economy */) {
+    return Object.freeze({
+      rollout: disabledProductionReviewInvestigationRollout(),
+      reason: "review_depth_economy" /* ReviewDepthEconomy */
+    });
+  }
   assertCanonicalRolloutDependencies(input.flags);
   const recordingDecision = resolveRecordingCapability({
     ...input,
     capability: "recording" /* Recording */
   });
   const recordingEnabled = recordingDecision === "enabled" /* Enabled */;
+  const contextCriticEnabled = recordingEnabled && input.flags.contextCriticEnabled && matchesReviewInvestigationCapability({
+    facts: input.authorization.facts,
+    providerKind: input.primaryProviderKind,
+    capability: "context_critic" /* ContextCritic */
+  });
   const rollout = Object.freeze({
     recordingEnabled,
     shadowEnabled: recordingEnabled && input.flags.shadowEnabled && matchesReviewInvestigationCapability({
@@ -111769,12 +111863,8 @@ function resolveProductionReviewInvestigationRolloutResolution(input) {
       providerKind: input.primaryProviderKind,
       capability: "shadow" /* Shadow */
     }),
-    contextCriticEnabled: recordingEnabled && input.flags.contextCriticEnabled && matchesReviewInvestigationCapability({
-      facts: input.authorization.facts,
-      providerKind: input.primaryProviderKind,
-      capability: "context_critic" /* ContextCritic */
-    }),
-    verifiedCleanEnabled: recordingEnabled && input.flags.verifiedCleanEnabled && matchesReviewInvestigationCapability({
+    contextCriticEnabled,
+    verifiedCleanEnabled: recordingEnabled && contextCriticEnabled && input.flags.verifiedCleanEnabled && matchesReviewInvestigationCapability({
       facts: input.authorization.facts,
       providerKind: input.primaryProviderKind,
       capability: "verified_clean" /* VerifiedClean */
@@ -111791,6 +111881,16 @@ function resolveProductionReviewInvestigationRolloutResolution(input) {
     })
   });
   return Object.freeze({ rollout, reason: recordingDecision });
+}
+function disabledProductionReviewInvestigationRollout() {
+  return Object.freeze({
+    recordingEnabled: false,
+    shadowEnabled: false,
+    contextCriticEnabled: false,
+    verifiedCleanEnabled: false,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: false
+  });
 }
 function createProductionReviewInvestigationInvocation(input) {
   return input.rollout.recordingEnabled ? input.create() : void 0;
@@ -111913,8 +112013,7 @@ function createProductionReviewInvestigationAgentSelector(input) {
         providerKind: critic.providerKind,
         requestedModel: critic.requestedModel
       }
-    } : {},
-    requireIndependentCriticAtOrAboveRiskPriority: REVIEW_INVESTIGATION_INDEPENDENT_CRITIC_RISK_PRIORITY_V1
+    } : {}
   });
   const primaryDelegate = createDelegate();
   const independentCriticDelegates = new Map(
@@ -112270,7 +112369,8 @@ var ProductionT0ReviewRunner = class {
       flags: readProductionReviewInvestigationRolloutFlags(),
       agenticContext,
       authorization,
-      primaryProviderKind: "codex" /* Codex */
+      primaryProviderKind: "codex" /* Codex */,
+      reviewDepth: config.reviewDepth
     });
     const investigationRollout = investigationRolloutResolution.rollout;
     emitReviewInvestigationTelemetry(
@@ -112414,8 +112514,9 @@ var ProductionT0ReviewRunner = class {
         ),
         certificateTtlMs: 24 * 60 * 6e4,
         minimumCapacityParkMs: 6e4,
-        maxObligationsForTurn: REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
-        maxStateTransitions: 128,
+        actionBudget: reviewInvestigationActionBudgetForDepth(
+          config.reviewDepth
+        ),
         policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY
       },
       productionReviewInvestigationRecordingMode(investigationRollout),

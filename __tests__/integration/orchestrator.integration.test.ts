@@ -7,6 +7,7 @@ import {
   PRContext,
   Finding,
   ProviderResult,
+  ReviewDepth,
 } from '../../src/types';
 import { ConsensusEngine } from '../../src/analysis/consensus';
 import { Deduplicator } from '../../src/analysis/deduplicator';
@@ -160,6 +161,7 @@ class StubFeedbackFilter {
 
 describe('ReviewOrchestrator integration (offline)', () => {
   const config: ReviewConfig = {
+    reviewDepth: ReviewDepth.Balanced,
     providers: ['fake/model'],
     synthesisModel: 'fake/model',
     fallbackProviders: [],

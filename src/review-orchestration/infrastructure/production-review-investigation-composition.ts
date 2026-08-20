@@ -1,4 +1,4 @@
-import type { ReviewConfig } from '../../types';
+import { ReviewDepth, type ReviewConfig } from '../../types';
 import {
   reviewInvestigationExtensionV1,
   reviewInvestigationRolloutAuthorizationV3Contract,
@@ -7,7 +7,6 @@ import {
   DeterministicReviewAgentSelector,
   InvestigationContextGatewayRuntimeConfigurationError,
   InvestigationContextGatewayRuntimeConfigurationFailureReason,
-  REVIEW_INVESTIGATION_INDEPENDENT_CRITIC_RISK_PRIORITY_V1,
   ReviewAgentExecutionError,
   ReviewAgentFailureClass,
   ReviewAgentProviderKind,
@@ -45,6 +44,7 @@ export type ProductionReviewInvestigationRollout =
 
 export enum ProductionReviewInvestigationRolloutReason {
   Enabled = 'enabled',
+  ReviewDepthEconomy = 'review_depth_economy',
   RecordingFlagDisabled = 'recording_flag_disabled',
   AgenticContextDisabled = 'agentic_context_disabled',
   AuthorizationDescriptorMissing = 'authorization_descriptor_missing',
@@ -145,7 +145,9 @@ export function resolveProductionReviewInvestigationRollout(input: {
   readonly agenticContext: boolean;
   readonly authorization: ReviewRunAuthorization;
   readonly primaryProviderKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode;
+  readonly reviewDepth?: ReviewDepth;
 }): ProductionReviewInvestigationRollout {
   return resolveProductionReviewInvestigationRolloutResolution(input).rollout;
 }
@@ -155,8 +157,16 @@ export function resolveProductionReviewInvestigationRolloutResolution(input: {
   readonly agenticContext: boolean;
   readonly authorization: ReviewRunAuthorization;
   readonly primaryProviderKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode;
+  readonly reviewDepth?: ReviewDepth;
 }): ProductionReviewInvestigationRolloutResolution {
+  if (input.reviewDepth === ReviewDepth.Economy) {
+    return Object.freeze({
+      rollout: disabledProductionReviewInvestigationRollout(),
+      reason: ProductionReviewInvestigationRolloutReason.ReviewDepthEconomy,
+    });
+  }
   assertCanonicalRolloutDependencies(input.flags);
   const recordingDecision = resolveRecordingCapability({
     ...input,
@@ -164,6 +174,14 @@ export function resolveProductionReviewInvestigationRolloutResolution(input: {
   });
   const recordingEnabled =
     recordingDecision === ProductionReviewInvestigationRolloutReason.Enabled;
+  const contextCriticEnabled =
+    recordingEnabled &&
+    input.flags.contextCriticEnabled &&
+    matchesReviewInvestigationCapability({
+      facts: input.authorization.facts,
+      providerKind: input.primaryProviderKind,
+      capability: ReviewInvestigationRolloutCapability.ContextCritic,
+    });
 
   const rollout = Object.freeze({
     recordingEnabled,
@@ -175,16 +193,10 @@ export function resolveProductionReviewInvestigationRolloutResolution(input: {
         providerKind: input.primaryProviderKind,
         capability: ReviewInvestigationRolloutCapability.Shadow,
       }),
-    contextCriticEnabled:
-      recordingEnabled &&
-      input.flags.contextCriticEnabled &&
-      matchesReviewInvestigationCapability({
-        facts: input.authorization.facts,
-        providerKind: input.primaryProviderKind,
-        capability: ReviewInvestigationRolloutCapability.ContextCritic,
-      }),
+    contextCriticEnabled,
     verifiedCleanEnabled:
       recordingEnabled &&
+      contextCriticEnabled &&
       input.flags.verifiedCleanEnabled &&
       matchesReviewInvestigationCapability({
         facts: input.authorization.facts,
@@ -211,6 +223,17 @@ export function resolveProductionReviewInvestigationRolloutResolution(input: {
   return Object.freeze({ rollout, reason: recordingDecision });
 }
 
+function disabledProductionReviewInvestigationRollout(): ProductionReviewInvestigationRollout {
+  return Object.freeze({
+    recordingEnabled: false,
+    shadowEnabled: false,
+    contextCriticEnabled: false,
+    verifiedCleanEnabled: false,
+    crossRevisionReplayEnabled: false,
+    productionEffectsEnabled: false,
+  });
+}
+
 export function createProductionReviewInvestigationInvocation<T>(input: {
   readonly rollout: ProductionReviewInvestigationRollout;
   readonly create: () => T;
@@ -223,7 +246,8 @@ function resolveRecordingCapability(input: {
   readonly agenticContext: boolean;
   readonly authorization: ReviewRunAuthorization;
   readonly primaryProviderKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode;
   readonly capability: ReviewInvestigationRolloutCapability.Recording;
 }): ProductionReviewInvestigationRolloutReason {
   if (!input.flags.recordingEnabled) {
@@ -244,7 +268,8 @@ function resolveRecordingCapability(input: {
 function reviewInvestigationCapabilityMismatchReason(input: {
   readonly facts: ReviewRunAuthorization['facts'];
   readonly providerKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode;
   readonly capability: ReviewInvestigationRolloutCapability;
 }): ProductionReviewInvestigationRolloutReason | null {
   const descriptor = input.facts.reviewInvestigation;
@@ -330,7 +355,8 @@ export function formatProductionReviewInvestigationRolloutTelemetry(
 function matchesReviewInvestigationCapability(input: {
   readonly facts: ReviewRunAuthorization['facts'];
   readonly providerKind:
-    ReviewExecutionProviderKind.Codex | ReviewExecutionProviderKind.ClaudeCode;
+    | ReviewExecutionProviderKind.Codex
+    | ReviewExecutionProviderKind.ClaudeCode;
   readonly capability: ReviewInvestigationRolloutCapability;
 }): boolean {
   return reviewInvestigationCapabilityMismatchReason(input) === null;
@@ -416,8 +442,6 @@ export function createProductionReviewInvestigationAgentSelector(input: {
             },
           }
         : {}),
-      requireIndependentCriticAtOrAboveRiskPriority:
-        REVIEW_INVESTIGATION_INDEPENDENT_CRITIC_RISK_PRIORITY_V1,
     });
   const primaryDelegate = createDelegate();
   const independentCriticDelegates = new Map(

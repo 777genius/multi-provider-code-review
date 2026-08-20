@@ -29,7 +29,11 @@ import {
   CodexOAuthV2TerminalReason,
 } from '../../../src/codex-oauth/runtime';
 import { MergeGateConclusion } from '../../../src/review-projection/domain';
-import type { PRContext, ReviewConfig } from '../../../src/types';
+import {
+  ReviewDepth,
+  type PRContext,
+  type ReviewConfig,
+} from '../../../src/types';
 import { compareCodeUnits } from '../../../src/review-orchestration/infrastructure/production-review-projection';
 import {
   reviewInvestigationCoverageProfileHash,
@@ -327,6 +331,35 @@ describe('ProductionT0ReviewRunner policy', () => {
     expect(productionReviewInvestigationRecordingMode(rollout)).toBe(
       ReviewInvestigationRecordingMode.RecordOnly
     );
+  });
+
+  it('disables all investigation work in economy and reports the depth reason', () => {
+    const resolution = resolveProductionReviewInvestigationRolloutResolution({
+      flags: rolloutFlags({
+        recordingEnabled: true,
+        contextCriticEnabled: true,
+      }),
+      agenticContext: true,
+      authorization: authorizationWithInvestigation(),
+      primaryProviderKind: ReviewExecutionProviderKind.Codex,
+      reviewDepth: ReviewDepth.Economy,
+    });
+    const create = jest.fn();
+
+    expect(
+      createProductionReviewInvestigationInvocation({
+        rollout: resolution.rollout,
+        create,
+      })
+    ).toBeUndefined();
+    expect(create).not.toHaveBeenCalled();
+    expect(resolution.rollout).toEqual(rolloutFlags());
+    expect(resolution.reason).toBe(
+      ProductionReviewInvestigationRolloutReason.ReviewDepthEconomy
+    );
+    expect(
+      formatProductionReviewInvestigationRolloutTelemetry(resolution)
+    ).toContain('reason=review_depth_economy');
   });
 
   it('creates the investigation invocation dependency for accepted config and authorization', async () => {
@@ -708,6 +741,13 @@ describe('ProductionT0ReviewRunner policy', () => {
     const enabledFlags = rolloutFlags({ recordingEnabled: true });
     const cases = [
       {
+        reason: ProductionReviewInvestigationRolloutReason.ReviewDepthEconomy,
+        flags: enabledFlags,
+        agenticContext: true,
+        authorization: negotiated,
+        reviewDepth: ReviewDepth.Economy,
+      },
+      {
         reason: ProductionReviewInvestigationRolloutReason.Enabled,
         flags: enabledFlags,
         agenticContext: true,
@@ -837,6 +877,10 @@ describe('ProductionT0ReviewRunner policy', () => {
           agenticContext: testCase.agenticContext,
           authorization: testCase.authorization,
           primaryProviderKind: ReviewExecutionProviderKind.Codex,
+          reviewDepth:
+            'reviewDepth' in testCase
+              ? testCase.reviewDepth
+              : ReviewDepth.Balanced,
         }).reason
       ).toBe(testCase.reason);
     }
@@ -1082,7 +1126,8 @@ describe('ProductionT0ReviewRunner policy', () => {
     ).toThrow('review_agent_independent_critic_unavailable');
   });
 
-  it('does not silently use the primary provider for a high-risk clean critic', () => {
+  it('allows an authorized same-provider critic for high-risk review', () => {
+    const codex = agent();
     const selector = createProductionReviewInvestigationAgentSelector({
       authorization: authorizationWithInvestigation(),
       primaryProviderKind: ReviewAgentProviderKind.Codex,
@@ -1091,19 +1136,23 @@ describe('ProductionT0ReviewRunner policy', () => {
         {
           providerKind: ReviewAgentProviderKind.Codex,
           requestedModel: 'gpt-5.6-terra',
-          agent: agent(),
+          agent: codex,
         },
       ],
     });
 
-    expect(() =>
+    expect(
       selector.resolve({
         primaryProviderKind: ReviewAgentProviderKind.Codex,
         primaryRequestedModel: 'gpt-5.6-terra',
         purpose: ReviewTurnPurpose.Critic,
         maximumSemanticRiskPriority: 900_000,
       })
-    ).toThrow('review_agent_critic_execution_authority_unavailable');
+    ).toEqual({
+      agent: codex,
+      providerKind: ReviewAgentProviderKind.Codex,
+      requestedModel: 'gpt-5.6-terra',
+    });
   });
 
   it('fails closed when authorized independent critic capacity is unavailable', () => {

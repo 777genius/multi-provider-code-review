@@ -1,5 +1,5 @@
-export const REVIEW_INVESTIGATION_CRITIC_POLICY_V1 =
-  'review-investigation-critic.v1';
+export const REVIEW_INVESTIGATION_CRITIC_POLICY_V2 =
+  'review-investigation-critic.v2';
 
 export const REVIEW_INVESTIGATION_RISK_PRIORITY = Object.freeze({
   StandardChangedPath: 500_000,

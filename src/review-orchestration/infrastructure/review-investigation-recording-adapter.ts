@@ -37,7 +37,8 @@ import {
   ReviewAgentExecutionProfile,
   ReviewAgentProviderKind,
 } from '../../review-investigation/domain/runtime-profile';
-import { REVIEW_INVESTIGATION_CRITIC_POLICY_V1 } from '../../review-investigation/domain/semantic-risk-policy';
+import { REVIEW_INVESTIGATION_CRITIC_POLICY_V2 } from '../../review-investigation/domain/semantic-risk-policy';
+import { ReviewDepth } from '../../types';
 import {
   canonicalJson,
   sha256,
@@ -60,9 +61,17 @@ export type ReviewInvestigationRecordingOptions = Readonly<{
   providerTimeoutMs: number;
   certificateTtlMs: number;
   minimumCapacityParkMs: number;
-  maxObligationsForTurn: number;
-  maxStateTransitions: number;
+  actionBudget: ReviewInvestigationActionBudget;
   policy: ReviewInvestigationPolicy;
+}>;
+
+export type ReviewInvestigationActionBudget = Readonly<{
+  maxGatewayOperations: number;
+  maxOutputFindings: number;
+  maxOutputProposals: number;
+  maxObligationsForTurn: number;
+  providerMaxTurns: number;
+  maxStateTransitions: number;
 }>;
 
 export type ReviewInvestigationPolicy = Readonly<{
@@ -118,7 +127,7 @@ export const REVIEW_INVESTIGATION_PRODUCTION_POLICY: ReviewInvestigationPolicy =
 
 export const REVIEW_INVESTIGATION_COVERAGE_PROFILE = Object.freeze({
   coverageContractVersion: 'review-investigation-coverage.v1',
-  criticPolicyVersion: REVIEW_INVESTIGATION_CRITIC_POLICY_V1,
+  criticPolicyVersion: REVIEW_INVESTIGATION_CRITIC_POLICY_V2,
   expansionRulesVersion: 'review-investigation-expansion.v3',
   gatewayPolicyVersion: 'context-gateway-v4',
   probePolicyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
@@ -225,17 +234,17 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
           }),
         workingDirectory: this.options.workingDirectory,
         turnBudget: {
-          maxGatewayOperations: this.options.policy.maxReceiptsPerTurn,
-          maxOutputFindings: this.options.policy.maxFindings,
-          maxOutputProposals: this.options.policy.maxProposalsPerTurn,
+          maxGatewayOperations: this.options.actionBudget.maxGatewayOperations,
+          maxOutputFindings: this.options.actionBudget.maxOutputFindings,
+          maxOutputProposals: this.options.actionBudget.maxOutputProposals,
         },
         leaseDurationMs: this.options.leaseDurationMs,
-        maxObligationsForTurn: this.options.maxObligationsForTurn,
+        maxObligationsForTurn: this.options.actionBudget.maxObligationsForTurn,
         providerTimeoutMs: this.options.providerTimeoutMs,
-        providerMaxTurns: this.options.policy.maxSemanticTurns,
+        providerMaxTurns: this.options.actionBudget.providerMaxTurns,
         certificateTtlMs: this.options.certificateTtlMs,
         minimumCapacityParkMs: this.options.minimumCapacityParkMs,
-        maxStateTransitions: this.options.maxStateTransitions,
+        maxStateTransitions: this.options.actionBudget.maxStateTransitions,
         signal: input.signal,
       });
     } catch (error) {
@@ -252,6 +261,66 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
     }
     return terminalObservation(result.status, result.snapshot);
   }
+}
+
+const ACTION_BUDGET_BY_REVIEW_DEPTH = Object.freeze({
+  [ReviewDepth.Economy]: Object.freeze({
+    maxGatewayOperations: 0,
+    maxOutputFindings: 0,
+    maxOutputProposals: 0,
+    maxObligationsForTurn: 0,
+    providerMaxTurns: 0,
+    maxStateTransitions: 0,
+  }),
+  [ReviewDepth.Balanced]: Object.freeze({
+    maxGatewayOperations: 128,
+    maxOutputFindings: 128,
+    maxOutputProposals: 64,
+    maxObligationsForTurn: 512,
+    providerMaxTurns: 8,
+    maxStateTransitions: 16,
+  }),
+  [ReviewDepth.Thorough]: Object.freeze({
+    maxGatewayOperations: 256,
+    maxOutputFindings: 256,
+    maxOutputProposals: 128,
+    maxObligationsForTurn: 1_024,
+    providerMaxTurns: 12,
+    maxStateTransitions: 24,
+  }),
+} satisfies Readonly<Record<ReviewDepth, ReviewInvestigationActionBudget>>);
+
+export function reviewInvestigationActionBudgetForDepth(
+  reviewDepth: ReviewDepth,
+  policy: ReviewInvestigationPolicy = REVIEW_INVESTIGATION_PRODUCTION_POLICY
+): ReviewInvestigationActionBudget {
+  const requested = ACTION_BUDGET_BY_REVIEW_DEPTH[reviewDepth];
+  return Object.freeze({
+    maxGatewayOperations: Math.min(
+      requested.maxGatewayOperations,
+      policy.maxReceiptsPerTurn
+    ),
+    maxOutputFindings: Math.min(
+      requested.maxOutputFindings,
+      policy.maxFindings
+    ),
+    maxOutputProposals: Math.min(
+      requested.maxOutputProposals,
+      policy.maxProposalsPerTurn
+    ),
+    maxObligationsForTurn: Math.min(
+      requested.maxObligationsForTurn,
+      policy.maxObligations
+    ),
+    providerMaxTurns: Math.min(
+      requested.providerMaxTurns,
+      policy.maxSemanticTurns
+    ),
+    maxStateTransitions: Math.min(
+      requested.maxStateTransitions,
+      policy.maxOperationalAttempts
+    ),
+  });
 }
 
 function isDeferred(
