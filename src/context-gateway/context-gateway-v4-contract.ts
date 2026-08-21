@@ -157,6 +157,7 @@ export function createContextGatewayV4PageReceipt<T>(input: {
   readonly secret: Buffer;
   readonly sessionId: string;
   readonly operationKind: ContextGatewayV4OperationKind;
+  readonly operationKey: string;
   readonly queryDigest: string;
   readonly treeOid: string;
   readonly pageSize: number;
@@ -168,6 +169,7 @@ export function createContextGatewayV4PageReceipt<T>(input: {
 }): ContextGatewayV4PageReceipt {
   assertSecret(input.secret);
   requireGitOid(input.treeOid, 'context_gateway_page_tree_oid');
+  requireSha256(input.operationKey, 'context_gateway_page_operation_key');
   requireSha256(input.queryDigest, 'context_gateway_page_query_digest');
   assertPageSize(input.pageSize);
   if (!Number.isSafeInteger(input.offset) || input.offset < 0) {
@@ -203,6 +205,7 @@ export function createContextGatewayV4PageReceipt<T>(input: {
   const receiptIdentity = {
     sessionId: input.sessionId,
     operationKind: input.operationKind,
+    operationKey: input.operationKey,
     queryDigest: input.queryDigest,
     treeOid: input.treeOid,
     pageSize: input.pageSize,

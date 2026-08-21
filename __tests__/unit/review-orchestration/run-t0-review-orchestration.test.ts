@@ -1572,17 +1572,38 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.dependencies.projectionBuilder.build).toHaveBeenCalledWith(
       expect.objectContaining({ exhaustedWorkSlotIds: ['slot-1'] })
     );
-    expect(fixture.controlPlane.terminalizeWorkSlot).toHaveBeenCalledWith(
-      expect.objectContaining({
-        execution: expect.objectContaining({ generation: '1' }),
-        reviewRevisionHash: fixture.command.reviewRevisionHash,
-        workSlotId: 'slot-1',
-        terminal: {
-          terminalState: 'exhausted',
-          reasonCode: 'attempt_budget_exhausted',
-        },
-      })
+    expect(fixture.controlPlane.acquireInvocationLease).toHaveBeenCalledTimes(
+      2
     );
+    expect(fixture.controlPlane.restoreExecution).toHaveBeenCalledTimes(3);
+    expect(fixture.controlPlane.terminalizeWorkSlot).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when exhaustion reconciliation becomes not runnable', async () => {
+    const fixture = createFixture();
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockRejectedValue(new Error('provider_failed'));
+    fixture.controlPlane.acquireInvocationLease
+      .mockResolvedValueOnce({
+        status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
+        lease,
+      })
+      .mockResolvedValueOnce({
+        status: ReviewInvocationLeaseAcquireOutcomeStatus.NotRunnable,
+      });
+
+    const result = await fixture.useCase.execute({
+      ...fixture.command,
+      allowPartial: true,
+    });
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode:
+        'review_orchestration_attempt_budget_reconciliation_not_runnable',
+    });
+    expect(fixture.controlPlane.terminalizeWorkSlot).not.toHaveBeenCalled();
   });
 
   it('does not consume a semantic attempt ordinal while a lease is busy', async () => {
@@ -1751,6 +1772,9 @@ describe('RunT0ReviewOrchestration', () => {
     fixture.controlPlane.acquireInvocationLease.mockResolvedValue({
       status: ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted,
     });
+    fixture.controlPlane.restoreExecution.mockResolvedValue(
+      exhaustedExecution(fixture.command)
+    );
 
     const result = await fixture.useCase.execute({
       ...fixture.command,
@@ -1766,6 +1790,7 @@ describe('RunT0ReviewOrchestration', () => {
     expect(fixture.dependencies.projectionBuilder.build).toHaveBeenCalledWith(
       expect.objectContaining({ exhaustedWorkSlotIds: ['slot-1'] })
     );
+    expect(fixture.controlPlane.terminalizeWorkSlot).not.toHaveBeenCalled();
   });
 
   it('accepts monotonic execution advancement between restore and start', async () => {
@@ -1906,12 +1931,7 @@ describe('RunT0ReviewOrchestration', () => {
     fixture.controlPlane.restoreExecution
       .mockReset()
       .mockResolvedValueOnce(null)
-      .mockResolvedValue(
-        restoredAdmission(optionalCommand, {
-          state: RestoredReviewWorkSlotState.Pending,
-          acceptedObservationRefId: null,
-        }).restoredExecution
-      );
+      .mockResolvedValue(exhaustedExecution(optionalCommand));
 
     const result = await fixture.useCase.execute(optionalCommand);
 
@@ -2088,17 +2108,37 @@ function createFixture(
     ownerIdHash: hash('owner'),
     allowPartial: options.allowPartial ?? false,
   };
+  let acquiredProviderAttempts = 0;
+  let serverExhausted = false;
+  controlPlane.acquireInvocationLease.mockImplementation(async () => {
+    if (acquiredProviderAttempts >= (options.maxAttempts ?? 1)) {
+      serverExhausted = true;
+      return {
+        status:
+          ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted,
+      };
+    }
+    acquiredProviderAttempts += 1;
+    return {
+      status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
+      lease,
+    };
+  });
   controlPlane.restoreExecution
     .mockReset()
     .mockResolvedValueOnce(null)
-    .mockResolvedValue({
-      ...restoredAdmission(command, {
-        state: RestoredReviewWorkSlotState.Pending,
-        acceptedObservationRefId: null,
-      }).restoredExecution,
-      version: '2',
-      streamVersion: '2',
-    });
+    .mockImplementation(async () =>
+      serverExhausted
+        ? exhaustedExecution(command)
+        : {
+            ...restoredAdmission(command, {
+              state: RestoredReviewWorkSlotState.Pending,
+              acceptedObservationRefId: null,
+            }).restoredExecution,
+            version: '2',
+            streamVersion: '2',
+          }
+    );
   let monotonicNowMs = 0;
   const dependencies = {
     controlPlane,
@@ -2445,6 +2485,18 @@ function restoredAdmission(
         acceptedObservationRefId: slot.acceptedObservationRefId,
       })),
     },
+  };
+}
+
+function exhaustedExecution(command: RunT0ReviewOrchestrationCommand) {
+  const restored = restoredAdmission(command, {
+    state: RestoredReviewWorkSlotState.Exhausted,
+    acceptedObservationRefId: null,
+  }).restoredExecution;
+  return {
+    ...restored,
+    version: '2',
+    streamVersion: '2',
   };
 }
 

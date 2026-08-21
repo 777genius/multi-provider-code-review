@@ -166,6 +166,7 @@ export class FilesystemContextGatewayV4 {
       const receiptIdentity = {
         sessionId: this.sessionId,
         kind: ContextGatewayV4OperationKind.FileRead,
+        operationKey: sha256(canonicalJson(operation)),
         revision,
         treeOid,
         path: relativePath,
@@ -530,6 +531,7 @@ export class FilesystemContextGatewayV4 {
         this.secret,
         canonicalJson({
           sessionId: this.sessionId,
+          operationKey: sha256(canonicalJson(operation)),
           fact: input.fact,
           resultHash,
         })
@@ -571,6 +573,7 @@ export class FilesystemContextGatewayV4 {
       secret: this.secret,
       sessionId: this.sessionId,
       operationKind: input.operationKind,
+      operationKey: sha256(canonicalJson(input.operation)),
       queryDigest: input.queryDigest,
       treeOid: input.treeOid,
       pageSize: input.pageSize,
@@ -586,6 +589,7 @@ export class FilesystemContextGatewayV4 {
           secret: this.secret,
           sessionId: this.sessionId,
           operationKind: input.operationKind,
+          operationKey: sha256(canonicalJson(input.operation)),
           queryDigest: input.queryDigest,
           treeOid: input.treeOid,
           pageSize: input.pageSize,
@@ -853,6 +857,7 @@ function withCanonicalPathWitness(input: {
   readonly secret: Buffer;
   readonly sessionId: string;
   readonly operationKind: ContextGatewayV4OperationKind;
+  readonly operationKey: string;
   readonly queryDigest: string;
   readonly treeOid: string;
   readonly pageSize: number;
@@ -880,6 +885,7 @@ function withCanonicalPathWitness(input: {
   const receiptIdentity = {
     sessionId: input.sessionId,
     operationKind: input.operationKind,
+    operationKey: input.operationKey,
     queryDigest: input.queryDigest,
     treeOid: input.treeOid,
     pageSize: input.pageSize,
