@@ -310,6 +310,31 @@ describe('FilesystemContextGatewayV4', () => {
     }
   });
 
+  it('keeps distinct receipts when different reads return the same bytes', async () => {
+    const fixture = await createFixture();
+    try {
+      const { gateway, recorder, replayMaterial } =
+        await createGateway(fixture);
+
+      const defaultRead = await gateway.readFile({
+        path: 'src/current.ts',
+      });
+      const widenedRead = await gateway.readFile({
+        path: 'src/current.ts',
+        maxBytes: 1024 * 1024,
+      });
+
+      expect(widenedRead.content).toBe(defaultRead.content);
+      expect(widenedRead.operationReceiptId).not.toBe(
+        defaultRead.operationReceiptId
+      );
+      expect(recorder.snapshot().events).toHaveLength(2);
+      expect(replayMaterial.snapshot().entries).toHaveLength(2);
+    } finally {
+      await rm(fixture.parent, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a tampered cursor, taints the session, and cannot resume evidence collection', async () => {
     const fixture = await createFixture();
     try {

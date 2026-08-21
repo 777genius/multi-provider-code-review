@@ -22205,6 +22205,7 @@ function decodeContextGatewayV4Cursor(input) {
 function createContextGatewayV4PageReceipt(input) {
   assertSecret(input.secret);
   requireGitOid(input.treeOid, "context_gateway_page_tree_oid");
+  requireSha256(input.operationKey, "context_gateway_page_operation_key");
   requireSha256(input.queryDigest, "context_gateway_page_query_digest");
   assertPageSize(input.pageSize);
   if (!Number.isSafeInteger(input.offset) || input.offset < 0) {
@@ -22233,6 +22234,7 @@ function createContextGatewayV4PageReceipt(input) {
   const receiptIdentity = {
     sessionId: input.sessionId,
     operationKind: input.operationKind,
+    operationKey: input.operationKey,
     queryDigest: input.queryDigest,
     treeOid: input.treeOid,
     pageSize: input.pageSize,
@@ -50333,7 +50335,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.125",
+  version: "1.0.126",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -97102,6 +97104,7 @@ var RunT0ReviewOrchestration = class {
   }
   async satisfyWorkSlot(input) {
     let streamVersion = input.execution.streamVersion;
+    let exhaustionManifest = null;
     for (let attemptOrdinal = 1; attemptOrdinal <= input.workSlot.attemptBudget; attemptOrdinal += 1) {
       this.dependencies.progress?.report({
         type: "running",
@@ -97196,6 +97199,7 @@ var RunT0ReviewOrchestration = class {
       const invocation = selectedInvestigationCandidate ? selectedInvestigationCandidate.invocation : authoritativeInvocation;
       const manifest = selectedInvestigationCandidate ? selectedInvestigationCandidate.manifest : authoritativeManifest;
       const precomputedObservation = selectedInvestigationCandidate ? selectedInvestigationCandidate.observation : null;
+      exhaustionManifest = manifest;
       if (selectedInvestigationCandidate) {
         const reusedInvestigation = await this.trySatisfyFromLookup({
           ...input,
@@ -97310,6 +97314,12 @@ var RunT0ReviewOrchestration = class {
           continue;
         }
         if (acquire.status === "attempt_budget_exhausted" /* AttemptBudgetExhausted */) {
+          streamVersion = await this.restoreExhaustedWorkSlot({
+            authorization: input.authorization,
+            execution: { ...input.execution, streamVersion },
+            revision: input.revision,
+            workSlot: input.workSlot
+          });
           input.onEvent({
             type: "slot_exhausted" /* SlotExhausted */,
             workSlotId: input.workSlot.workSlotId
@@ -97478,14 +97488,94 @@ var RunT0ReviewOrchestration = class {
         await this.releaseLease(lease, input.ownerIdHash, attemptOrdinal);
       }
     }
+    if (exhaustionManifest === null) {
+      throw new Error("review_orchestration_exhaustion_manifest_missing");
+    }
+    streamVersion = await this.reconcileProviderAttemptExhaustion({
+      authorization: input.authorization,
+      execution: { ...input.execution, streamVersion },
+      manifest: exhaustionManifest,
+      ownerIdHash: input.ownerIdHash,
+      revision: input.revision,
+      workSlot: input.workSlot
+    });
     input.onEvent({
       type: "slot_exhausted" /* SlotExhausted */,
       workSlotId: input.workSlot.workSlotId
     });
     return {
       streamVersion,
-      exhaustionReason: "provider_attempts_exhausted" /* ProviderAttemptsExhausted */
+      exhaustionReason: "attempt_budget_exhausted" /* AttemptBudgetExhausted */
     };
+  }
+  async reconcileProviderAttemptExhaustion(input) {
+    const acquireRequestId = this.identity("acquire-request-exhaustion", [
+      input.execution.executionId,
+      input.workSlot.workSlotId,
+      input.manifest.providerInvocationKey
+    ]);
+    for (let busyPollCount = 0; busyPollCount < this.maxBusyPollsPerProviderLane; busyPollCount += 1) {
+      await this.assertRevisionCurrent(input.revision);
+      const acquire = await this.dependencies.controlPlane.acquireInvocationLease({
+        authorization: input.authorization,
+        idempotencyKey: this.idempotencyKey("lease-acquire-exhaustion", [
+          input.execution.executionId,
+          input.workSlot.workSlotId,
+          acquireRequestId
+        ]),
+        execution: input.execution,
+        workSlot: input.workSlot,
+        manifest: input.manifest,
+        acquireRequestId,
+        ownerIdHash: input.ownerIdHash
+      });
+      if (acquire.status === "attempt_budget_exhausted" /* AttemptBudgetExhausted */) {
+        return this.restoreExhaustedWorkSlot(input);
+      }
+      if (acquire.status === "not_runnable" /* NotRunnable */) {
+        throw new Error(
+          "review_orchestration_attempt_budget_reconciliation_not_runnable"
+        );
+      }
+      if (acquire.status === "busy" /* Busy */) {
+        const delayMs = this.clampProviderDelay(
+          Math.min(5e3, 500 * 2 ** Math.min(busyPollCount, 4))
+        );
+        if (delayMs <= 0) break;
+        await this.dependencies.delay.sleep(delayMs);
+        continue;
+      }
+      if (acquire.status !== "acquired" /* Acquired */) {
+        throw new Error(
+          "review_orchestration_attempt_budget_reconciliation_status_unknown"
+        );
+      }
+      await this.releaseLease(
+        acquire.lease,
+        input.ownerIdHash,
+        input.workSlot.attemptBudget + 1
+      );
+      throw new Error(
+        "review_orchestration_attempt_budget_reconciliation_drift"
+      );
+    }
+    throw new ReviewExecutionDeadlineReachedSignal();
+  }
+  async restoreExhaustedWorkSlot(input) {
+    const restored = await this.dependencies.controlPlane.restoreExecution({
+      authorization: input.authorization,
+      reviewRevisionHash: input.revision.reviewRevisionHash
+    });
+    const refreshed = refreshExecutionAdmission(input.execution, restored);
+    const restoredSlot = refreshed.restoredExecution.workSlots.find(
+      (candidate) => candidate.workSlotId === input.workSlot.workSlotId
+    );
+    if (restoredSlot?.state !== "exhausted" /* Exhausted */) {
+      throw new Error(
+        "review_orchestration_attempt_budget_reconciliation_invalid"
+      );
+    }
+    return refreshed.streamVersion;
   }
   async trySatisfyFromLookup(input) {
     const lookup = await this.dependencies.controlPlane.lookupEvidence({
@@ -97862,12 +97952,6 @@ var RunT0ReviewOrchestration = class {
   }
 };
 function terminalizeCommand(reason) {
-  if (reason === "attempt_budget_exhausted" /* AttemptBudgetExhausted */ || reason === "provider_attempts_exhausted" /* ProviderAttemptsExhausted */) {
-    return {
-      terminalState: "exhausted",
-      reasonCode: "attempt_budget_exhausted"
-    };
-  }
   if (reason === "deadline_reached" /* DeadlineReached */) {
     return { terminalState: "cancelled", reasonCode: "deadline_reached" };
   }
@@ -102442,6 +102526,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       const receiptIdentity = {
         sessionId: this.sessionId,
         kind: "file_read" /* FileRead */,
+        operationKey: sha256(canonicalJson(operation)),
         revision,
         treeOid,
         path: relativePath,
@@ -102755,6 +102840,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         this.secret,
         canonicalJson({
           sessionId: this.sessionId,
+          operationKey: sha256(canonicalJson(operation)),
           fact: input.fact,
           resultHash
         })
@@ -102780,6 +102866,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       secret: this.secret,
       sessionId: this.sessionId,
       operationKind: input.operationKind,
+      operationKey: sha256(canonicalJson(input.operation)),
       queryDigest: input.queryDigest,
       treeOid: input.treeOid,
       pageSize: input.pageSize,
@@ -102794,6 +102881,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       secret: this.secret,
       sessionId: this.sessionId,
       operationKind: input.operationKind,
+      operationKey: sha256(canonicalJson(input.operation)),
       queryDigest: input.queryDigest,
       treeOid: input.treeOid,
       pageSize: input.pageSize,
@@ -103003,6 +103091,7 @@ function withCanonicalPathWitness(input) {
   const receiptIdentity = {
     sessionId: input.sessionId,
     operationKind: input.operationKind,
+    operationKey: input.operationKey,
     queryDigest: input.queryDigest,
     treeOid: input.treeOid,
     pageSize: input.pageSize,

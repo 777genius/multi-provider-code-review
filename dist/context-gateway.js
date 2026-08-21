@@ -14180,6 +14180,7 @@ function decodeContextGatewayV4Cursor(input) {
 function createContextGatewayV4PageReceipt(input) {
   assertSecret(input.secret);
   requireGitOid(input.treeOid, "context_gateway_page_tree_oid");
+  requireSha256(input.operationKey, "context_gateway_page_operation_key");
   requireSha256(input.queryDigest, "context_gateway_page_query_digest");
   assertPageSize(input.pageSize);
   if (!Number.isSafeInteger(input.offset) || input.offset < 0) {
@@ -14208,6 +14209,7 @@ function createContextGatewayV4PageReceipt(input) {
   const receiptIdentity = {
     sessionId: input.sessionId,
     operationKind: input.operationKind,
+    operationKey: input.operationKey,
     queryDigest: input.queryDigest,
     treeOid: input.treeOid,
     pageSize: input.pageSize,
@@ -16442,6 +16444,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       const receiptIdentity = {
         sessionId: this.sessionId,
         kind: "file_read" /* FileRead */,
+        operationKey: sha256(canonicalJson(operation)),
         revision,
         treeOid,
         path: relativePath,
@@ -16755,6 +16758,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
         this.secret,
         canonicalJson({
           sessionId: this.sessionId,
+          operationKey: sha256(canonicalJson(operation)),
           fact: input.fact,
           resultHash
         })
@@ -16780,6 +16784,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       secret: this.secret,
       sessionId: this.sessionId,
       operationKind: input.operationKind,
+      operationKey: sha256(canonicalJson(input.operation)),
       queryDigest: input.queryDigest,
       treeOid: input.treeOid,
       pageSize: input.pageSize,
@@ -16794,6 +16799,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       secret: this.secret,
       sessionId: this.sessionId,
       operationKind: input.operationKind,
+      operationKey: sha256(canonicalJson(input.operation)),
       queryDigest: input.queryDigest,
       treeOid: input.treeOid,
       pageSize: input.pageSize,
@@ -17003,6 +17009,7 @@ function withCanonicalPathWitness(input) {
   const receiptIdentity = {
     sessionId: input.sessionId,
     operationKind: input.operationKind,
+    operationKey: input.operationKey,
     queryDigest: input.queryDigest,
     treeOid: input.treeOid,
     pageSize: input.pageSize,

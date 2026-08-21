@@ -110,7 +110,6 @@ export type ReviewOrchestrationResult = {
 enum ReviewWorkSlotExhaustionReason {
   AttemptBudgetExhausted = 'attempt_budget_exhausted',
   NotRunnable = 'not_runnable',
-  ProviderAttemptsExhausted = 'provider_attempts_exhausted',
   ProviderLaneBusy = 'provider_lane_busy',
   InvestigationDeferred = 'investigation_deferred',
   RestoredTerminal = 'restored_terminal',
@@ -829,6 +828,7 @@ export class RunT0ReviewOrchestration {
     readonly attemptOrdinal?: number;
   }> {
     let streamVersion = input.execution.streamVersion;
+    let exhaustionManifest: ProviderInvocationManifest | null = null;
     for (
       let attemptOrdinal = 1;
       attemptOrdinal <= input.workSlot.attemptBudget;
@@ -951,6 +951,7 @@ export class RunT0ReviewOrchestration {
       const precomputedObservation = selectedInvestigationCandidate
         ? selectedInvestigationCandidate.observation
         : null;
+      exhaustionManifest = manifest;
 
       if (selectedInvestigationCandidate) {
         const reusedInvestigation = await this.trySatisfyFromLookup({
@@ -1075,6 +1076,12 @@ export class RunT0ReviewOrchestration {
           acquire.status ===
           ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted
         ) {
+          streamVersion = await this.restoreExhaustedWorkSlot({
+            authorization: input.authorization,
+            execution: { ...input.execution, streamVersion },
+            revision: input.revision,
+            workSlot: input.workSlot,
+          });
           input.onEvent({
             type: ReviewOrchestrationEventType.SlotExhausted,
             workSlotId: input.workSlot.workSlotId,
@@ -1275,15 +1282,120 @@ export class RunT0ReviewOrchestration {
       }
     }
 
+    if (exhaustionManifest === null) {
+      throw new Error('review_orchestration_exhaustion_manifest_missing');
+    }
+    streamVersion = await this.reconcileProviderAttemptExhaustion({
+      authorization: input.authorization,
+      execution: { ...input.execution, streamVersion },
+      manifest: exhaustionManifest,
+      ownerIdHash: input.ownerIdHash,
+      revision: input.revision,
+      workSlot: input.workSlot,
+    });
     input.onEvent({
       type: ReviewOrchestrationEventType.SlotExhausted,
       workSlotId: input.workSlot.workSlotId,
     });
     return {
       streamVersion,
-      exhaustionReason:
-        ReviewWorkSlotExhaustionReason.ProviderAttemptsExhausted,
+      exhaustionReason: ReviewWorkSlotExhaustionReason.AttemptBudgetExhausted,
     };
+  }
+
+  private async reconcileProviderAttemptExhaustion(input: {
+    readonly authorization: ReviewRunAuthorization;
+    readonly execution: ReviewExecutionAdmission;
+    readonly manifest: ProviderInvocationManifest;
+    readonly ownerIdHash: string;
+    readonly revision: ReviewRevisionFacts;
+    readonly workSlot: ReviewWorkSlotPlan;
+  }): Promise<string> {
+    const acquireRequestId = this.identity('acquire-request-exhaustion', [
+      input.execution.executionId,
+      input.workSlot.workSlotId,
+      input.manifest.providerInvocationKey,
+    ]);
+    for (
+      let busyPollCount = 0;
+      busyPollCount < this.maxBusyPollsPerProviderLane;
+      busyPollCount += 1
+    ) {
+      await this.assertRevisionCurrent(input.revision);
+      const acquire =
+        await this.dependencies.controlPlane.acquireInvocationLease({
+          authorization: input.authorization,
+          idempotencyKey: this.idempotencyKey('lease-acquire-exhaustion', [
+            input.execution.executionId,
+            input.workSlot.workSlotId,
+            acquireRequestId,
+          ]),
+          execution: input.execution,
+          workSlot: input.workSlot,
+          manifest: input.manifest,
+          acquireRequestId,
+          ownerIdHash: input.ownerIdHash,
+        });
+      if (
+        acquire.status ===
+        ReviewInvocationLeaseAcquireOutcomeStatus.AttemptBudgetExhausted
+      ) {
+        return this.restoreExhaustedWorkSlot(input);
+      }
+      if (
+        acquire.status === ReviewInvocationLeaseAcquireOutcomeStatus.NotRunnable
+      ) {
+        throw new Error(
+          'review_orchestration_attempt_budget_reconciliation_not_runnable'
+        );
+      }
+      if (acquire.status === ReviewInvocationLeaseAcquireOutcomeStatus.Busy) {
+        const delayMs = this.clampProviderDelay(
+          Math.min(5_000, 500 * 2 ** Math.min(busyPollCount, 4))
+        );
+        if (delayMs <= 0) break;
+        await this.dependencies.delay.sleep(delayMs);
+        continue;
+      }
+      if (
+        acquire.status !== ReviewInvocationLeaseAcquireOutcomeStatus.Acquired
+      ) {
+        throw new Error(
+          'review_orchestration_attempt_budget_reconciliation_status_unknown'
+        );
+      }
+      await this.releaseLease(
+        acquire.lease,
+        input.ownerIdHash,
+        input.workSlot.attemptBudget + 1
+      );
+      throw new Error(
+        'review_orchestration_attempt_budget_reconciliation_drift'
+      );
+    }
+    throw new ReviewExecutionDeadlineReachedSignal();
+  }
+
+  private async restoreExhaustedWorkSlot(input: {
+    readonly authorization: ReviewRunAuthorization;
+    readonly execution: ReviewExecutionAdmission;
+    readonly revision: ReviewRevisionFacts;
+    readonly workSlot: ReviewWorkSlotPlan;
+  }): Promise<string> {
+    const restored = await this.dependencies.controlPlane.restoreExecution({
+      authorization: input.authorization,
+      reviewRevisionHash: input.revision.reviewRevisionHash,
+    });
+    const refreshed = refreshExecutionAdmission(input.execution, restored);
+    const restoredSlot = refreshed.restoredExecution.workSlots.find(
+      (candidate) => candidate.workSlotId === input.workSlot.workSlotId
+    );
+    if (restoredSlot?.state !== RestoredReviewWorkSlotState.Exhausted) {
+      throw new Error(
+        'review_orchestration_attempt_budget_reconciliation_invalid'
+      );
+    }
+    return refreshed.streamVersion;
   }
 
   private async trySatisfyFromLookup(input: {
@@ -1811,25 +1923,10 @@ export class RunT0ReviewOrchestration {
 
 function terminalizeCommand(
   reason: ReviewWorkSlotExhaustionReason | undefined
-):
-  | {
-      readonly terminalState: 'exhausted';
-      readonly reasonCode: 'attempt_budget_exhausted';
-    }
-  | {
-      readonly terminalState: 'cancelled';
-      readonly reasonCode: 'deadline_reached';
-    }
-  | null {
-  if (
-    reason === ReviewWorkSlotExhaustionReason.AttemptBudgetExhausted ||
-    reason === ReviewWorkSlotExhaustionReason.ProviderAttemptsExhausted
-  ) {
-    return {
-      terminalState: 'exhausted',
-      reasonCode: 'attempt_budget_exhausted',
-    };
-  }
+): {
+  readonly terminalState: 'cancelled';
+  readonly reasonCode: 'deadline_reached';
+} | null {
   if (reason === ReviewWorkSlotExhaustionReason.DeadlineReached) {
     return { terminalState: 'cancelled', reasonCode: 'deadline_reached' };
   }
