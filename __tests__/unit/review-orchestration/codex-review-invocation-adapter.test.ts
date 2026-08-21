@@ -114,7 +114,7 @@ describe('Codex T0 prepared invocation', () => {
         .mockReturnValue({ PATH: '/usr/bin' }),
       prepareInvocation: jest.fn().mockResolvedValue(prepared),
     } as unknown as CodexProvider;
-    const incompleteProbePlan = createReviewInvestigationProbePlan({
+    const boundedProbePlan = createReviewInvestigationProbePlan({
       files: [
         {
           path: 'src/service.ts',
@@ -130,6 +130,19 @@ describe('Codex T0 prepared invocation', () => {
       ].join('\n'),
       limits: { maxProbesPerFile: 2, maxProbesOverall: 2 },
     });
+    const incompleteProbePlan = {
+      ...boundedProbePlan,
+      status: ReviewInvestigationProbePlanStatus.LimitExceeded,
+      probes: [],
+      exceededLimit: {
+        kind: 'per_file',
+        maximum: 2,
+        observedCount: 3,
+        sourcePath: 'src/service.ts',
+        sourcePathHash: '0'.repeat(64),
+      },
+      selectionWitness: null,
+    } as unknown as typeof boundedProbePlan;
     const gatewayFactory = {
       planningConfig: jest.fn().mockResolvedValue(gatewayConfig),
     } as unknown as ContextGatewayInvocationSessionFactoryPort;

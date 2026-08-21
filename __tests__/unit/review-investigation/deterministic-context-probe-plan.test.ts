@@ -1,8 +1,8 @@
 import {
   REVIEW_INVESTIGATION_PROBE_LIMITS,
+  REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION,
   ReviewInvestigationChangedFileStatus,
   ReviewInvestigationProbeKind,
-  ReviewInvestigationProbeLimitKind,
   ReviewInvestigationProbePlanStatus,
   createReviewInvestigationProbePlan,
   reviewInvestigationSearchOperationInputHash,
@@ -192,7 +192,7 @@ describe('deterministic context probe plan', () => {
     );
   });
 
-  it('returns no partial probes when the per-file limit is exceeded', () => {
+  it('keeps the highest-risk per-file probes with a deterministic truncation witness', () => {
     const plan = createReviewInvestigationProbePlan({
       files: [file('src/service.ts')],
       fullDiff: diff(
@@ -204,18 +204,24 @@ describe('deterministic context probe plan', () => {
     });
 
     expect(plan).toMatchObject({
-      status: ReviewInvestigationProbePlanStatus.LimitExceeded,
-      probes: [],
-      exceededLimit: {
-        kind: ReviewInvestigationProbeLimitKind.PerFile,
-        maximum: 2,
-        observedCount: 3,
-        sourcePath: 'src/service.ts',
+      status: ReviewInvestigationProbePlanStatus.Complete,
+      exceededLimit: null,
+      selectionWitness: {
+        policyVersion: REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION,
+        perFileTruncations: [
+          {
+            sourcePathHash: sha256('src/service.ts'),
+            maximum: 2,
+            discardedCandidateOccurrences: 1,
+          },
+        ],
+        overallTruncation: null,
       },
     });
+    expect(plan.probes.map((item) => item.query)).toEqual(['first', 'second']);
   });
 
-  it('returns no partial probes when the overall limit is exceeded', () => {
+  it('keeps the highest-risk global probes with a deterministic truncation witness', () => {
     const plan = createReviewInvestigationProbePlan({
       files: [file('src/a.ts'), file('src/b.ts')],
       fullDiff: [
@@ -226,15 +232,23 @@ describe('deterministic context probe plan', () => {
     });
 
     expect(plan).toMatchObject({
-      status: ReviewInvestigationProbePlanStatus.LimitExceeded,
-      probes: [],
-      exceededLimit: {
-        kind: ReviewInvestigationProbeLimitKind.Overall,
-        maximum: 3,
-        observedCount: 4,
-        sourcePath: null,
+      status: ReviewInvestigationProbePlanStatus.Complete,
+      exceededLimit: null,
+      selectionWitness: {
+        policyVersion: REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION,
+        perFileTruncations: [],
+        overallTruncation: {
+          maximum: 3,
+          discardedCandidateOccurrences: 1,
+        },
       },
     });
+    expect(plan.probes).toHaveLength(3);
+    expect(plan.probes.map((item) => item.query)).toEqual([
+      'alpha',
+      'beta',
+      'src/a.ts',
+    ]);
   });
 
   it('binds regex metacharacters as an exact fixed-string query', () => {

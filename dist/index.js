@@ -26485,8 +26485,8 @@ function requireEnum(value, enumeration, field) {
 }
 
 // src/review-investigation/domain/deterministic-context-probe-plan.ts
-var REVIEW_INVESTIGATION_PROBE_PLAN_VERSION = "review-investigation-probe-plan.v1";
-var REVIEW_INVESTIGATION_PROBE_POLICY_VERSION = "review-investigation-probe-policy.v1";
+var REVIEW_INVESTIGATION_PROBE_PLAN_VERSION = "review-investigation-probe-plan.v2";
+var REVIEW_INVESTIGATION_PROBE_POLICY_VERSION = "review-investigation-probe-policy.v2";
 var REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION = "review-investigation-fixed-string-search.v1";
 var REVIEW_INVESTIGATION_PROBE_LIMITS = Object.freeze({
   maxProbesPerFile: 48,
@@ -26579,6 +26579,7 @@ var REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   "webhooks",
   "write"
 ]);
+var REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION = "review-investigation-risk-ranked-selection.v1";
 var GENERIC_PROBE_QUERIES = new Set(
   REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST
 );
@@ -26614,6 +26615,8 @@ function createReviewInvestigationProbePlan(input) {
     )
   );
   const globalCandidates = /* @__PURE__ */ new Map();
+  const perFileTruncations = [];
+  let overallDiscardedCandidateOccurrences = 0;
   for (const file of files) {
     assertPath(file.path, "review_investigation_probe_path_invalid");
     if (file.previousPath !== null) {
@@ -26623,6 +26626,7 @@ function createReviewInvestigationProbePlan(input) {
       );
     }
     const fileCandidates = /* @__PURE__ */ new Map();
+    let discardedCandidateOccurrences = 0;
     const add = (probeKind, query) => {
       const normalized = normalizeQuery(query);
       if (normalized === null || !isSpecificProbeQuery(probeKind, normalized)) {
@@ -26634,7 +26638,13 @@ function createReviewInvestigationProbePlan(input) {
         sourcePath: file.path,
         riskPriority: candidateRiskPriority(probeKind, file.path)
       });
-      upsertCandidate(fileCandidates, candidate);
+      if (upsertBoundedCandidate(
+        fileCandidates,
+        candidate,
+        limits.maxProbesPerFile
+      )) {
+        discardedCandidateOccurrences += 1;
+      }
     };
     add(
       "basename_fallback" /* BasenameFallback */,
@@ -26655,38 +26665,21 @@ function createReviewInvestigationProbePlan(input) {
       extractStructuredRelations(file.path, line, add);
       extractRuntimeContractRelations(line, add);
       extractSideEffectRelations(line, add);
-      if (fileCandidates.size > limits.maxProbesPerFile) {
-        return incompletePlan({
-          changedPaths,
-          limits,
-          kind: "per_file" /* PerFile */,
-          maximum: limits.maxProbesPerFile,
-          observedCount: fileCandidates.size,
-          sourcePath: file.path
-        });
-      }
     }
-    if (fileCandidates.size > limits.maxProbesPerFile) {
-      return incompletePlan({
-        changedPaths,
-        limits,
-        kind: "per_file" /* PerFile */,
+    if (discardedCandidateOccurrences > 0) {
+      perFileTruncations.push({
+        sourcePathHash: sha2562(file.path),
         maximum: limits.maxProbesPerFile,
-        observedCount: fileCandidates.size,
-        sourcePath: file.path
+        discardedCandidateOccurrences
       });
     }
     for (const candidate of fileCandidates.values()) {
-      upsertCandidate(globalCandidates, candidate);
-      if (globalCandidates.size > limits.maxProbesOverall) {
-        return incompletePlan({
-          changedPaths,
-          limits,
-          kind: "overall" /* Overall */,
-          maximum: limits.maxProbesOverall,
-          observedCount: globalCandidates.size,
-          sourcePath: null
-        });
+      if (upsertBoundedCandidate(
+        globalCandidates,
+        candidate,
+        limits.maxProbesOverall
+      )) {
+        overallDiscardedCandidateOccurrences += 1;
       }
     }
   }
@@ -26701,7 +26694,19 @@ function createReviewInvestigationProbePlan(input) {
     limits,
     changedPaths,
     probes,
-    exceededLimit: null
+    exceededLimit: null,
+    selectionWitness: Object.freeze({
+      policyVersion: REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION,
+      perFileTruncations: Object.freeze(
+        perFileTruncations.sort(
+          (left, right) => compareCodeUnits(left.sourcePathHash, right.sourcePathHash)
+        ).map((item) => Object.freeze(item))
+      ),
+      overallTruncation: overallDiscardedCandidateOccurrences === 0 ? null : Object.freeze({
+        maximum: limits.maxProbesOverall,
+        discardedCandidateOccurrences: overallDiscardedCandidateOccurrences
+      })
+    })
   });
   return Object.freeze({
     ...payload,
@@ -26774,29 +26779,6 @@ function createProbe(candidate) {
     canonicalSubject,
     canonicalRequirement,
     riskPriority: candidate.riskPriority
-  });
-}
-function incompletePlan(input) {
-  const exceededLimit = Object.freeze({
-    kind: input.kind,
-    maximum: input.maximum,
-    observedCount: input.observedCount,
-    sourcePath: input.sourcePath,
-    sourcePathHash: input.sourcePath === null ? null : sha2562(input.sourcePath)
-  });
-  const payload = Object.freeze({
-    planVersion: REVIEW_INVESTIGATION_PROBE_PLAN_VERSION,
-    policyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
-    searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
-    status: "limit_exceeded" /* LimitExceeded */,
-    limits: input.limits,
-    changedPaths: input.changedPaths,
-    probes: Object.freeze([]),
-    exceededLimit
-  });
-  return Object.freeze({
-    ...payload,
-    planHash: sha2562(canonicalJson2(payload))
   });
 }
 function extractDeclarationIdentifiers(line, add) {
@@ -26984,11 +26966,27 @@ function isSpecificProbeQuery(probeKind, query) {
   }
   return query.length >= REVIEW_INVESTIGATION_MIN_IDENTIFIER_PROBE_LENGTH || query.length >= 3 && /[A-Z]/u.test(query);
 }
-function upsertCandidate(candidates, candidate) {
+function upsertBoundedCandidate(candidates, candidate, maximum) {
   const existing = candidates.get(candidate.query);
-  if (!existing || compareCandidates(candidate, existing) < 0) {
+  if (existing) {
+    if (compareCandidates(candidate, existing) < 0) {
+      candidates.set(candidate.query, candidate);
+    }
+    return false;
+  }
+  if (candidates.size < maximum) {
+    candidates.set(candidate.query, candidate);
+    return false;
+  }
+  let worst;
+  for (const retained of candidates.values()) {
+    if (!worst || compareCandidates(retained, worst) > 0) worst = retained;
+  }
+  if (worst && compareCandidates(candidate, worst) < 0) {
+    candidates.delete(worst.query);
     candidates.set(candidate.query, candidate);
   }
+  return true;
 }
 function compareCandidates(left, right) {
   return right.riskPriority - left.riskPriority || compareCodeUnits(left.sourcePath, right.sourcePath) || PROBE_KIND_PRIORITY[left.probeKind] - PROBE_KIND_PRIORITY[right.probeKind] || compareCodeUnits(left.query, right.query);
@@ -50335,7 +50333,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.126",
+  version: "1.0.127",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -95140,13 +95138,13 @@ var review_investigation_capability_v1_golden_default = {
       criticPolicyVersion: "review-investigation-critic.v2",
       expansionRulesVersion: "review-investigation-expansion.v3",
       gatewayPolicyVersion: "context-gateway-v4",
-      probePolicyVersion: "review-investigation-probe-policy.v1",
+      probePolicyVersion: "review-investigation-probe-policy.v2",
       runtimeProfileVersion: "gateway-attested-agent.v1",
       searchPolicyVersion: "review-investigation-fixed-string-search.v1",
       turnPromptContractHash: "41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"
     },
-    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v1","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"}',
-    sha256: "d4a8c40b4755d9a4dbe9aeeedf63ff207613f18410525ed50890160263c350aa"
+    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"}',
+    sha256: "a5e7cec2158b3c8ef91e51f633e51e43287c2e50deb572716f63d7007d978407"
   },
   policy: {
     value: {
