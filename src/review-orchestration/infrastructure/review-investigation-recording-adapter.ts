@@ -28,6 +28,7 @@ import {
   buildReviewInvestigationTurnPrompt,
 } from '../../review-investigation/application/review-investigation-turn-prompt';
 import {
+  REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
   ReviewInvestigationConclusion,
   ReviewInvestigationNextAction,
   ReviewInvestigationRunStatus,
@@ -297,7 +298,7 @@ const ACTION_BUDGET_BY_REVIEW_DEPTH = Object.freeze({
     maxGatewayOperations: 128,
     maxOutputFindings: 128,
     maxOutputProposals: 64,
-    maxObligationsForTurn: 512,
+    maxObligationsForTurn: REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
     providerMaxTurns: 8,
     maxStateTransitions: 16,
   }),
@@ -305,7 +306,7 @@ const ACTION_BUDGET_BY_REVIEW_DEPTH = Object.freeze({
     maxGatewayOperations: 256,
     maxOutputFindings: 256,
     maxOutputProposals: 128,
-    maxObligationsForTurn: 1_024,
+    maxObligationsForTurn: REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
     providerMaxTurns: 12,
     maxStateTransitions: 24,
   }),
@@ -332,7 +333,8 @@ export function reviewInvestigationActionBudgetForDepth(
     ),
     maxObligationsForTurn: Math.min(
       requested.maxObligationsForTurn,
-      policy.maxObligations
+      policy.maxObligations,
+      REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS
     ),
     providerMaxTurns: Math.min(
       requested.providerMaxTurns,
