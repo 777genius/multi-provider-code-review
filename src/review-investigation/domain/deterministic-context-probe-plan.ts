@@ -6,9 +6,9 @@ import {
 import { ReviewTurnObligationKind } from './turn-observation';
 
 export const REVIEW_INVESTIGATION_PROBE_PLAN_VERSION =
-  'review-investigation-probe-plan.v1' as const;
+  'review-investigation-probe-plan.v2' as const;
 export const REVIEW_INVESTIGATION_PROBE_POLICY_VERSION =
-  'review-investigation-probe-policy.v1' as const;
+  'review-investigation-probe-policy.v2' as const;
 export const REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION =
   'review-investigation-fixed-string-search.v1' as const;
 
@@ -172,12 +172,29 @@ type ReviewInvestigationProbePlanBase = Readonly<{
   planHash: string;
 }>;
 
+export const REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION =
+  'review-investigation-risk-ranked-selection.v1' as const;
+
+export type ReviewInvestigationProbeSelectionWitness = Readonly<{
+  policyVersion: typeof REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION;
+  perFileTruncations: readonly Readonly<{
+    sourcePathHash: string;
+    maximum: number;
+    discardedCandidateOccurrences: number;
+  }>[];
+  overallTruncation: Readonly<{
+    maximum: number;
+    discardedCandidateOccurrences: number;
+  }> | null;
+}>;
+
 export type CompleteReviewInvestigationProbePlan =
   ReviewInvestigationProbePlanBase &
     Readonly<{
       status: ReviewInvestigationProbePlanStatus.Complete;
       probes: readonly ReviewInvestigationContextProbe[];
       exceededLimit: null;
+      selectionWitness: ReviewInvestigationProbeSelectionWitness;
     }>;
 
 export type IncompleteReviewInvestigationProbePlan =
@@ -192,10 +209,12 @@ export type IncompleteReviewInvestigationProbePlan =
         sourcePath: string | null;
         sourcePathHash: string | null;
       }>;
+      selectionWitness: null;
     }>;
 
 export type ReviewInvestigationProbePlan =
-  CompleteReviewInvestigationProbePlan | IncompleteReviewInvestigationProbePlan;
+  | CompleteReviewInvestigationProbePlan
+  | IncompleteReviewInvestigationProbePlan;
 
 type ProbeCandidate = Readonly<{
   probeKind: ReviewInvestigationProbeKind;
@@ -254,6 +273,12 @@ export function createReviewInvestigationProbePlan(input: {
   );
 
   const globalCandidates = new Map<string, ProbeCandidate>();
+  const perFileTruncations: Array<{
+    sourcePathHash: string;
+    maximum: number;
+    discardedCandidateOccurrences: number;
+  }> = [];
+  let overallDiscardedCandidateOccurrences = 0;
   for (const file of files) {
     assertPath(file.path, 'review_investigation_probe_path_invalid');
     if (file.previousPath !== null) {
@@ -263,6 +288,7 @@ export function createReviewInvestigationProbePlan(input: {
       );
     }
     const fileCandidates = new Map<string, ProbeCandidate>();
+    let discardedCandidateOccurrences = 0;
     const add = (probeKind: ReviewInvestigationProbeKind, query: string) => {
       const normalized = normalizeQuery(query);
       if (normalized === null || !isSpecificProbeQuery(probeKind, normalized)) {
@@ -274,7 +300,15 @@ export function createReviewInvestigationProbePlan(input: {
         sourcePath: file.path,
         riskPriority: candidateRiskPriority(probeKind, file.path),
       });
-      upsertCandidate(fileCandidates, candidate);
+      if (
+        upsertBoundedCandidate(
+          fileCandidates,
+          candidate,
+          limits.maxProbesPerFile
+        )
+      ) {
+        discardedCandidateOccurrences += 1;
+      }
     };
 
     add(
@@ -300,39 +334,23 @@ export function createReviewInvestigationProbePlan(input: {
       extractStructuredRelations(file.path, line, add);
       extractRuntimeContractRelations(line, add);
       extractSideEffectRelations(line, add);
-      if (fileCandidates.size > limits.maxProbesPerFile) {
-        return incompletePlan({
-          changedPaths,
-          limits,
-          kind: ReviewInvestigationProbeLimitKind.PerFile,
-          maximum: limits.maxProbesPerFile,
-          observedCount: fileCandidates.size,
-          sourcePath: file.path,
-        });
-      }
     }
-
-    if (fileCandidates.size > limits.maxProbesPerFile) {
-      return incompletePlan({
-        changedPaths,
-        limits,
-        kind: ReviewInvestigationProbeLimitKind.PerFile,
+    if (discardedCandidateOccurrences > 0) {
+      perFileTruncations.push({
+        sourcePathHash: sha256(file.path),
         maximum: limits.maxProbesPerFile,
-        observedCount: fileCandidates.size,
-        sourcePath: file.path,
+        discardedCandidateOccurrences,
       });
     }
     for (const candidate of fileCandidates.values()) {
-      upsertCandidate(globalCandidates, candidate);
-      if (globalCandidates.size > limits.maxProbesOverall) {
-        return incompletePlan({
-          changedPaths,
-          limits,
-          kind: ReviewInvestigationProbeLimitKind.Overall,
-          maximum: limits.maxProbesOverall,
-          observedCount: globalCandidates.size,
-          sourcePath: null,
-        });
+      if (
+        upsertBoundedCandidate(
+          globalCandidates,
+          candidate,
+          limits.maxProbesOverall
+        )
+      ) {
+        overallDiscardedCandidateOccurrences += 1;
       }
     }
   }
@@ -349,6 +367,24 @@ export function createReviewInvestigationProbePlan(input: {
     changedPaths,
     probes,
     exceededLimit: null,
+    selectionWitness: Object.freeze({
+      policyVersion: REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION,
+      perFileTruncations: Object.freeze(
+        perFileTruncations
+          .sort((left, right) =>
+            compareCodeUnits(left.sourcePathHash, right.sourcePathHash)
+          )
+          .map((item) => Object.freeze(item))
+      ),
+      overallTruncation:
+        overallDiscardedCandidateOccurrences === 0
+          ? null
+          : Object.freeze({
+              maximum: limits.maxProbesOverall,
+              discardedCandidateOccurrences:
+                overallDiscardedCandidateOccurrences,
+            }),
+    }),
   });
   return Object.freeze({
     ...payload,
@@ -430,37 +466,6 @@ function createProbe(
     canonicalSubject,
     canonicalRequirement,
     riskPriority: candidate.riskPriority,
-  });
-}
-
-function incompletePlan(input: {
-  readonly changedPaths: readonly ReviewInvestigationChangedPathFact[];
-  readonly limits: ReviewInvestigationProbeLimits;
-  readonly kind: ReviewInvestigationProbeLimitKind;
-  readonly maximum: number;
-  readonly observedCount: number;
-  readonly sourcePath: string | null;
-}): IncompleteReviewInvestigationProbePlan {
-  const exceededLimit = Object.freeze({
-    kind: input.kind,
-    maximum: input.maximum,
-    observedCount: input.observedCount,
-    sourcePath: input.sourcePath,
-    sourcePathHash: input.sourcePath === null ? null : sha256(input.sourcePath),
-  });
-  const payload = Object.freeze({
-    planVersion: REVIEW_INVESTIGATION_PROBE_PLAN_VERSION,
-    policyVersion: REVIEW_INVESTIGATION_PROBE_POLICY_VERSION,
-    searchPolicyVersion: REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION,
-    status: ReviewInvestigationProbePlanStatus.LimitExceeded,
-    limits: input.limits,
-    changedPaths: input.changedPaths,
-    probes: Object.freeze([]) as readonly [],
-    exceededLimit,
-  });
-  return Object.freeze({
-    ...payload,
-    planHash: sha256(canonicalJson(payload)),
   });
 }
 
@@ -721,14 +726,32 @@ function isSpecificProbeQuery(
   );
 }
 
-function upsertCandidate(
+function upsertBoundedCandidate(
   candidates: Map<string, ProbeCandidate>,
-  candidate: ProbeCandidate
-): void {
+  candidate: ProbeCandidate,
+  maximum: number
+): boolean {
   const existing = candidates.get(candidate.query);
-  if (!existing || compareCandidates(candidate, existing) < 0) {
+  if (existing) {
+    if (compareCandidates(candidate, existing) < 0) {
+      candidates.set(candidate.query, candidate);
+    }
+    return false;
+  }
+  if (candidates.size < maximum) {
+    candidates.set(candidate.query, candidate);
+    return false;
+  }
+
+  let worst: ProbeCandidate | undefined;
+  for (const retained of candidates.values()) {
+    if (!worst || compareCandidates(retained, worst) > 0) worst = retained;
+  }
+  if (worst && compareCandidates(candidate, worst) < 0) {
+    candidates.delete(worst.query);
     candidates.set(candidate.query, candidate);
   }
+  return true;
 }
 
 function compareCandidates(

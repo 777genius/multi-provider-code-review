@@ -402,6 +402,16 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     const incompletePlan = {
       ...base.invocation.investigationProbePlan,
       status: ReviewInvestigationProbePlanStatus.LimitExceeded,
+      probes: [],
+      exceededLimit: {
+        kind: 'per_file',
+        maximum: REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxSeedProbesPerFile,
+        observedCount:
+          REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxSeedProbesPerFile + 1,
+        sourcePath: 'src/too-many.ts',
+        sourcePathHash: '0'.repeat(64),
+      },
+      selectionWitness: null,
     };
     const cases = [
       {
@@ -631,6 +641,18 @@ describe('ReviewInvestigationRecordingAdapter', () => {
             investigationProbePlan: {
               ...state.input.invocation.investigationProbePlan,
               status: ReviewInvestigationProbePlanStatus.LimitExceeded,
+              probes: [],
+              exceededLimit: {
+                kind: 'per_file',
+                maximum:
+                  REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxSeedProbesPerFile,
+                observedCount:
+                  REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxSeedProbesPerFile +
+                  1,
+                sourcePath: 'src/too-many.ts',
+                sourcePathHash: '0'.repeat(64),
+              },
+              selectionWitness: null,
             },
           }),
       },
@@ -681,22 +703,20 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       options()
     );
     const input = executionInput();
-    const incompleteProbePlan = createReviewInvestigationProbePlan({
-      files: [
-        {
-          path: 'src/too-many.ts',
-          previousPath: null,
-          status: ReviewInvestigationChangedFileStatus.Modified,
-          patch: null,
-        },
-      ],
-      fullDiff: [
-        'diff --git a/src/too-many.ts b/src/too-many.ts',
-        '+export const first = 1;',
-        '+export const second = 2;',
-      ].join('\n'),
-      limits: { maxProbesPerFile: 2, maxProbesOverall: 2 },
-    });
+    const incompleteProbePlan = {
+      ...input.invocation.investigationProbePlan,
+      status: ReviewInvestigationProbePlanStatus.LimitExceeded,
+      probes: [],
+      exceededLimit: {
+        kind: 'per_file',
+        maximum: REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxSeedProbesPerFile,
+        observedCount:
+          REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxSeedProbesPerFile + 1,
+        sourcePath: 'src/too-many.ts',
+        sourcePathHash: '0'.repeat(64),
+      },
+      selectionWitness: null,
+    } as unknown as typeof input.invocation.investigationProbePlan;
 
     expect(
       adapter.supports({
@@ -1006,8 +1026,7 @@ describe('ReviewInvestigationRecordingAdapter', () => {
         turnBudget: {
           maxGatewayOperations:
             REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxReceiptsPerTurn,
-          maxOutputFindings:
-            REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxFindings,
+          maxOutputFindings: REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxFindings,
           maxOutputProposals:
             REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxProposalsPerTurn,
         },
