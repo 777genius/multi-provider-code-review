@@ -50333,7 +50333,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.127",
+  version: "1.0.128",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -111651,7 +111651,7 @@ var ACTION_BUDGET_BY_REVIEW_DEPTH = Object.freeze({
     maxGatewayOperations: 128,
     maxOutputFindings: 128,
     maxOutputProposals: 64,
-    maxObligationsForTurn: 512,
+    maxObligationsForTurn: REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
     providerMaxTurns: 8,
     maxStateTransitions: 16
   }),
@@ -111659,7 +111659,7 @@ var ACTION_BUDGET_BY_REVIEW_DEPTH = Object.freeze({
     maxGatewayOperations: 256,
     maxOutputFindings: 256,
     maxOutputProposals: 128,
-    maxObligationsForTurn: 1024,
+    maxObligationsForTurn: REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
     providerMaxTurns: 12,
     maxStateTransitions: 24
   })
@@ -111681,7 +111681,8 @@ function reviewInvestigationActionBudgetForDepth(reviewDepth, policy = REVIEW_IN
     ),
     maxObligationsForTurn: Math.min(
       requested.maxObligationsForTurn,
-      policy.maxObligations
+      policy.maxObligations,
+      REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS
     ),
     providerMaxTurns: Math.min(
       requested.providerMaxTurns,

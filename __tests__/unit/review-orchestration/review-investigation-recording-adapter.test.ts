@@ -24,6 +24,7 @@ import {
 } from '../../../src/review-orchestration/infrastructure/review-investigation-recording-adapter';
 import { ReviewDepth } from '../../../src/types';
 import {
+  REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
   ReviewInvestigationConclusion,
   ReviewInvestigationNextAction,
   ReviewInvestigationRunStatus,
@@ -976,17 +977,29 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     );
 
     expect(Object.values(economy)).toEqual([0, 0, 0, 0, 0, 0]);
-    for (const key of Object.keys(balanced) as Array<keyof typeof balanced>) {
-      expect(thorough[key]).toBeGreaterThan(balanced[key]);
-    }
+    expect(thorough.maxGatewayOperations).toBeGreaterThan(
+      balanced.maxGatewayOperations
+    );
+    expect(thorough.maxOutputFindings).toBeGreaterThan(
+      balanced.maxOutputFindings
+    );
+    expect(thorough.maxOutputProposals).toBeGreaterThan(
+      balanced.maxOutputProposals
+    );
+    expect(thorough.providerMaxTurns).toBeGreaterThan(
+      balanced.providerMaxTurns
+    );
+    expect(thorough.maxStateTransitions).toBeGreaterThan(
+      balanced.maxStateTransitions
+    );
+    expect(thorough.maxObligationsForTurn).toBe(balanced.maxObligationsForTurn);
     expect(thorough).toEqual({
       maxGatewayOperations:
         REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxReceiptsPerTurn,
       maxOutputFindings: REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxFindings,
       maxOutputProposals:
         REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxProposalsPerTurn,
-      maxObligationsForTurn:
-        REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxObligations,
+      maxObligationsForTurn: REVIEW_INVESTIGATION_TURN_MAX_OBLIGATIONS,
       providerMaxTurns: REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxSemanticTurns,
       maxStateTransitions:
         REVIEW_INVESTIGATION_PRODUCTION_POLICY.maxOperationalAttempts,
