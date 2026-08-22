@@ -631,10 +631,16 @@ export class CodexAppServerProtocolClient {
         const id = requireIdentifier(item.id, 'item_id');
         const type = requireNonEmptyString(item.type, 'item_type');
         this.validateAllowedItem(item, 'completed');
-        const observed = this.completedItems.get(id);
-        if (!observed || snapshotItemIds.has(id) || observed.type !== type) {
+        if (snapshotItemIds.has(id)) {
           throw streamFailure();
         }
+        const observed = this.completedItems.get(id);
+        if (!observed) {
+          this.reconcileTerminalNonEffectfulItem(item, id, type);
+          snapshotItemIds.add(id);
+          continue;
+        }
+        if (observed.type !== type) throw streamFailure();
         if (
           type === 'mcpToolCall' &&
           (observed.server !== item.server || observed.tool !== item.tool)
@@ -652,6 +658,19 @@ export class CodexAppServerProtocolClient {
         throw streamFailure();
       }
     }
+  }
+
+  private reconcileTerminalNonEffectfulItem(
+    item: Record<string, unknown>,
+    id: string,
+    type: string
+  ): void {
+    if (type === 'mcpToolCall') throw streamFailure();
+    const active = this.activeItems.get(id);
+    if (active && active.type !== type) throw streamFailure();
+    this.activeItems.delete(id);
+    this.completedItems.set(id, Object.freeze({ type }));
+    if (type === 'agentMessage') this.captureFinalMessage(item);
   }
 
   private validateAllowedItem(
