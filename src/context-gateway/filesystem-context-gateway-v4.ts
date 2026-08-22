@@ -15,6 +15,7 @@ import {
 import {
   CONTEXT_GATEWAY_V4_POLICY_VERSION,
   CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS,
+  CONTEXT_GATEWAY_V4_RELATION_PATH_MAX_ITEMS,
   ContextGatewayV4OperationKind,
   ContextGatewayV4Revision,
   ContextOperationFailureClass,
@@ -411,6 +412,9 @@ export class FilesystemContextGatewayV4 {
             : value
         )
         .sort();
+      if (matchedPaths.length > CONTEXT_GATEWAY_V4_RELATION_PATH_MAX_ITEMS) {
+        throw new Error('context_gateway_relation_path_limit_exceeded');
+      }
       return this.pageResult({
         operationKind: ContextGatewayV4OperationKind.TextSearch,
         treeOid,

@@ -237,6 +237,8 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       expect(prompt).toContain(
         'Never bind an exploratory search to a deterministic_expansion obligation'
       );
+      expect(prompt).toContain('context_gateway_relation_path_limit_exceeded');
+      expect(prompt).toContain('at most 512 files');
       expect(prompt).toContain('provider-neutral obligationProposals entry');
       expect(prompt).toContain(
         'exactly kind, canonicalSubject, canonicalRequirement, and riskPriority'

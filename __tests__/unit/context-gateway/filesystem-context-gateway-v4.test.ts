@@ -233,6 +233,40 @@ describe('FilesystemContextGatewayV4', () => {
     }
   });
 
+  it('rejects searches spanning more relation paths than deterministic expansion can represent', async () => {
+    const fixture = await createWideSearchFixture();
+    try {
+      const { gateway, recorder, replayMaterial } =
+        await createGateway(fixture);
+
+      await expect(
+        gateway.searchText({ query: 'WIDE_RELATION_CANARY', paths: ['.'] })
+      ).rejects.toThrow('context_gateway_relation_path_limit_exceeded');
+
+      expect(recorder.snapshot()).toMatchObject({
+        confinementTainted: false,
+        events: [
+          expect.objectContaining({
+            outcome: 'rejected',
+            failureClass: 'budget_exceeded',
+            operationReceiptId: null,
+            sanitizedReason: 'context_gateway_relation_path_limit_exceeded',
+          }),
+        ],
+      });
+      expect(replayMaterial.snapshot().entries).toHaveLength(0);
+
+      await expect(
+        gateway.searchText({
+          query: 'SENSITIVE_QUERY_CANARY',
+          paths: ['src'],
+        })
+      ).resolves.toMatchObject({ complete: true });
+    } finally {
+      await rm(fixture.parent, { recursive: true, force: true });
+    }
+  });
+
   it('canonicalizes safe virtual-root aliases without duplicating evidence', async () => {
     const fixture = await createFixture();
     try {
@@ -490,6 +524,30 @@ async function createFixture() {
   const headSha = await gitText(root, ['rev-parse', 'HEAD']);
   const headTreeOid = await gitText(root, ['rev-parse', `${headSha}^{tree}`]);
   return { parent, root, mergeBaseSha, headSha, headTreeOid };
+}
+
+async function createWideSearchFixture() {
+  const fixture = await createFixture();
+  await Promise.all(
+    Array.from({ length: 513 }, async (_, index) => {
+      await writeFile(
+        path.join(
+          fixture.root,
+          'docs',
+          `wide-${String(index).padStart(3, '0')}.md`
+        ),
+        'WIDE_RELATION_CANARY\n'
+      );
+    })
+  );
+  await git(fixture.root, ['add', '.']);
+  await git(fixture.root, ['commit', '-qm', 'wide relation fixture']);
+  const headSha = await gitText(fixture.root, ['rev-parse', 'HEAD']);
+  const headTreeOid = await gitText(fixture.root, [
+    'rev-parse',
+    `${headSha}^{tree}`,
+  ]);
+  return { ...fixture, headSha, headTreeOid };
 }
 
 async function initializeRepo(root: string) {
