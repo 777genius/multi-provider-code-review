@@ -102422,7 +102422,7 @@ var MAX_FILE_TOTAL_BYTES = 32 * 1024 * 1024;
 var MAX_DIRECTORY_RESULTS = 25e4;
 var MAX_SEARCH_RESULTS2 = 1e5;
 var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
-  constructor(root, sessionId, mergeBaseSha, headSha, mergeBaseTreeOid, headTreeOid, secret, recorder, replayMaterial, now) {
+  constructor(root, sessionId, mergeBaseSha, headSha, mergeBaseTreeOid, headTreeOid, secret, recorder, replayMaterial, cursorIssuedAtMs, now) {
     this.root = root;
     this.sessionId = sessionId;
     this.mergeBaseSha = mergeBaseSha;
@@ -102432,6 +102432,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     this.secret = secret;
     this.recorder = recorder;
     this.replayMaterial = replayMaterial;
+    this.cursorIssuedAtMs = cursorIssuedAtMs;
     this.now = now;
   }
   inventoryPromise = null;
@@ -102461,6 +102462,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     if (normalizedHeadTreeOid !== input.checkoutTreeOid) {
       throw new Error("context_gateway_checkout_tree_mismatch");
     }
+    const now = input.now ?? Date.now;
     return new _FilesystemContextGatewayV4(
       root,
       input.sessionId,
@@ -102471,7 +102473,8 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       input.secret,
       input.recorder,
       input.replayMaterial ?? null,
-      input.now ?? Date.now
+      now(),
+      now
     );
   }
   async readFile(input) {
@@ -102872,7 +102875,7 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       allItems: input.allItems,
       cursorInputHash: input.cursorInputHash,
       allItemPathHashes: input.allPathHashes ?? [],
-      nowMs: this.now()
+      nowMs: this.cursorIssuedAtMs
     });
     const receipt = input.pathHashesThroughItem ? withCanonicalPathWitness({
       base: baseReceipt,
@@ -109942,7 +109945,7 @@ var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
     });
     let output;
     try {
-      output = parseReviewAgentTurnOutput(JSON.parse(result2.finalMessage));
+      output = parseReviewAgentTurnOutput(parseFinalJson(result2.finalMessage));
     } catch (error2) {
       throw schemaFailure(error2);
     }
@@ -110011,6 +110014,30 @@ var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
     return Object.freeze(args);
   }
 };
+function parseFinalJson(message) {
+  const trimmed = message.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch (error2) {
+    const extracted = extractSingleJsonPayload(trimmed);
+    if (extracted === null) throw error2;
+    return JSON.parse(extracted);
+  }
+}
+function extractSingleJsonPayload(message) {
+  const fenced = message.match(/^```(?:json)?\s*\n([\s\S]*?)\n```\s*$/iu);
+  if (fenced) {
+    const payload = fenced[1];
+    return typeof payload === "string" ? payload.trim() : null;
+  }
+  const start = message.indexOf("{");
+  const end = message.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  const prefix = message.slice(0, start).trim();
+  const suffix = message.slice(end + 1).trim();
+  if (prefix || suffix) return null;
+  return message.slice(start, end + 1);
+}
 function tomlString2(value) {
   return JSON.stringify(value);
 }
