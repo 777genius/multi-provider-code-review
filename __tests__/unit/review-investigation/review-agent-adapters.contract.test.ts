@@ -275,6 +275,28 @@ describe.each([
     });
   });
 
+  it('accepts exactly one schema-valid JSON payload surrounded by provider prose', async () => {
+    const { adapter, runner, request } = fixture(ReviewAgentProviderKind.Codex);
+    runner.rawCodexOutput = `Completed review.\n${JSON.stringify(turnOutput)}\nEnd of review.`;
+
+    await expect(adapter.executeTurn(request)).resolves.toMatchObject({
+      outputVersion: 2,
+      findings: turnOutput.findings,
+    });
+  });
+
+  it('rejects ambiguous provider prose containing multiple valid payloads', async () => {
+    const { adapter, runner, request } = fixture(ReviewAgentProviderKind.Codex);
+    runner.rawCodexOutput = `${JSON.stringify(turnOutput)}\n${JSON.stringify({
+      ...turnOutput,
+      findings: [],
+    })}`;
+
+    await expect(adapter.executeTurn(request)).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.SchemaInvalidOutput,
+    });
+  });
+
   it('fails malformed provider output as schema-invalid', async () => {
     const { adapter, runner, request } = fixture(providerKind);
     runner.output = { ...turnOutput, authoritativeClean: true };

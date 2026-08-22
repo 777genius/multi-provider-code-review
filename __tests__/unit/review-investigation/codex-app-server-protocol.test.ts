@@ -1238,7 +1238,22 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
-  it('rejects an unseen allowed terminal snapshot item as protocol drift', async () => {
+  it('reconciles an unseen non-effectful item from the terminal snapshot', async () => {
+    const fixture = await activeTurn();
+    const item = agentMessageItem(
+      'terminal-only',
+      'final_answer',
+      '{"ok":true}'
+    );
+    completeUsage(fixture.client);
+    completeTurn(fixture.client, [item]);
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it('rejects an unseen MCP item from the terminal snapshot', async () => {
     const fixture = await activeTurn();
     fixture.client.receive(
       notification('turn/completed', {
@@ -1247,13 +1262,14 @@ describe('CodexAppServerProtocolClient', () => {
           id: turnId,
           status: 'completed',
           error: null,
-          items: [agentMessageItem('unseen', 'final_answer', '{"ok":true}')],
+          items: [mcpToolCallItem('terminal-only', successfulMcpOutcome())],
         },
       })
     );
 
     await expect(fixture.result).rejects.toMatchObject({
       failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_turn_completed',
     });
   });
 

@@ -108598,10 +108598,16 @@ var CodexAppServerProtocolClient = class {
         const id = requireIdentifier2(item.id, "item_id");
         const type2 = requireNonEmptyString(item.type, "item_type");
         this.validateAllowedItem(item, "completed");
-        const observed = this.completedItems.get(id);
-        if (!observed || snapshotItemIds.has(id) || observed.type !== type2) {
+        if (snapshotItemIds.has(id)) {
           throw streamFailure2();
         }
+        const observed = this.completedItems.get(id);
+        if (!observed) {
+          this.reconcileTerminalNonEffectfulItem(item, id, type2);
+          snapshotItemIds.add(id);
+          continue;
+        }
+        if (observed.type !== type2) throw streamFailure2();
         if (type2 === "mcpToolCall" && (observed.server !== item.server || observed.tool !== item.tool)) {
           throw confinementFailure("mcp_tool_identity_changed");
         }
@@ -108613,6 +108619,14 @@ var CodexAppServerProtocolClient = class {
         throw streamFailure2();
       }
     }
+  }
+  reconcileTerminalNonEffectfulItem(item, id, type2) {
+    if (type2 === "mcpToolCall") throw streamFailure2();
+    const active = this.activeItems.get(id);
+    if (active && active.type !== type2) throw streamFailure2();
+    this.activeItems.delete(id);
+    this.completedItems.set(id, Object.freeze({ type: type2 }));
+    if (type2 === "agentMessage") this.captureFinalMessage(item);
   }
   validateAllowedItem(item, lifecycle) {
     const type2 = requireNonEmptyString(item.type, "item_type");
@@ -109945,7 +109959,7 @@ var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
     });
     let output;
     try {
-      output = parseReviewAgentTurnOutput(parseFinalJson(result2.finalMessage));
+      output = parseFinalTurnOutput(result2.finalMessage);
     } catch (error2) {
       throw schemaFailure(error2);
     }
@@ -110014,29 +110028,56 @@ var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
     return Object.freeze(args);
   }
 };
-function parseFinalJson(message) {
+function parseFinalTurnOutput(message) {
   const trimmed = message.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch (error2) {
-    const extracted = extractSingleJsonPayload(trimmed);
-    if (extracted === null) throw error2;
-    return JSON.parse(extracted);
+  const valid = /* @__PURE__ */ new Map();
+  for (const candidate of extractJsonPayloadCandidates(trimmed)) {
+    try {
+      const output = parseReviewAgentTurnOutput(JSON.parse(candidate));
+      valid.set(JSON.stringify(output), output);
+    } catch {
+    }
   }
+  if (valid.size !== 1) throw new Error("review_agent_output_invalid");
+  return [...valid.values()][0];
 }
-function extractSingleJsonPayload(message) {
-  const fenced = message.match(/^```(?:json)?\s*\n([\s\S]*?)\n```\s*$/iu);
-  if (fenced) {
-    const payload = fenced[1];
-    return typeof payload === "string" ? payload.trim() : null;
+function extractJsonPayloadCandidates(message) {
+  const candidates = /* @__PURE__ */ new Set();
+  if (message) candidates.add(message);
+  const fencedPattern = /```(?:json)?\s*\n([\s\S]*?)\n```/giu;
+  for (const match2 of message.matchAll(fencedPattern)) {
+    const payload = match2[1]?.trim();
+    if (payload) candidates.add(payload);
   }
-  const start = message.indexOf("{");
-  const end = message.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  const prefix = message.slice(0, start).trim();
-  const suffix = message.slice(end + 1).trim();
-  if (prefix || suffix) return null;
-  return message.slice(start, end + 1);
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < message.length; index += 1) {
+    const character = message[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"' && depth > 0) {
+      inString = true;
+      continue;
+    }
+    if (character === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (character !== "}" || depth === 0) continue;
+    depth -= 1;
+    if (depth === 0 && start >= 0) {
+      candidates.add(message.slice(start, index + 1));
+      start = -1;
+    }
+  }
+  return Object.freeze([...candidates]);
 }
 function tomlString2(value) {
   return JSON.stringify(value);

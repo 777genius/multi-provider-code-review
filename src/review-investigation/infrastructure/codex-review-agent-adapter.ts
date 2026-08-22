@@ -11,6 +11,7 @@ import {
 import {
   buildReviewAgentTurnOutputSchema,
   parseReviewAgentTurnOutput,
+  type ReviewAgentTurnOutput,
   type ReviewTurnObservation,
 } from '../domain/turn-observation';
 import {
@@ -97,7 +98,7 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
 
     let output;
     try {
-      output = parseReviewAgentTurnOutput(parseFinalJson(result.finalMessage));
+      output = parseFinalTurnOutput(result.finalMessage);
     } catch (error) {
       throw schemaFailure(error);
     }
@@ -171,31 +172,61 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
   }
 }
 
-function parseFinalJson(message: string): unknown {
+function parseFinalTurnOutput(message: string): ReviewAgentTurnOutput {
   const trimmed = message.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch (error) {
-    const extracted = extractSingleJsonPayload(trimmed);
-    if (extracted === null) throw error;
-    return JSON.parse(extracted);
+  const valid = new Map<string, ReviewAgentTurnOutput>();
+  for (const candidate of extractJsonPayloadCandidates(trimmed)) {
+    try {
+      const output = parseReviewAgentTurnOutput(JSON.parse(candidate));
+      valid.set(JSON.stringify(output), output);
+    } catch {
+      // Provider prose and malformed JSON are ignored unless no unique
+      // schema-valid payload remains.
+    }
   }
+  if (valid.size !== 1) throw new Error('review_agent_output_invalid');
+  return [...valid.values()][0]!;
 }
 
-function extractSingleJsonPayload(message: string): string | null {
-  const fenced = message.match(/^```(?:json)?\s*\n([\s\S]*?)\n```\s*$/iu);
-  if (fenced) {
-    const payload = fenced[1];
-    return typeof payload === 'string' ? payload.trim() : null;
+function extractJsonPayloadCandidates(message: string): readonly string[] {
+  const candidates = new Set<string>();
+  if (message) candidates.add(message);
+
+  const fencedPattern = /```(?:json)?\s*\n([\s\S]*?)\n```/giu;
+  for (const match of message.matchAll(fencedPattern)) {
+    const payload = match[1]?.trim();
+    if (payload) candidates.add(payload);
   }
 
-  const start = message.indexOf('{');
-  const end = message.lastIndexOf('}');
-  if (start < 0 || end <= start) return null;
-  const prefix = message.slice(0, start).trim();
-  const suffix = message.slice(end + 1).trim();
-  if (prefix || suffix) return null;
-  return message.slice(start, end + 1);
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < message.length; index += 1) {
+    const character = message[index]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"' && depth > 0) {
+      inString = true;
+      continue;
+    }
+    if (character === '{') {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (character !== '}' || depth === 0) continue;
+    depth -= 1;
+    if (depth === 0 && start >= 0) {
+      candidates.add(message.slice(start, index + 1));
+      start = -1;
+    }
+  }
+  return Object.freeze([...candidates]);
 }
 
 function tomlString(value: string): string {
