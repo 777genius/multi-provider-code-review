@@ -22141,6 +22141,7 @@ var import_crypto2 = require("crypto");
 var CONTEXT_GATEWAY_V4_POLICY_VERSION = "context-gateway-v4";
 var CONTEXT_GATEWAY_V4_CURSOR_VERSION = 1;
 var CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS = 2e3;
+var CONTEXT_GATEWAY_V4_RELATION_PATH_MAX_ITEMS = 512;
 var CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS = 15 * 60 * 1e3;
 var CONTEXT_GATEWAY_V4_ENABLED_TOOLS = Object.freeze([
   "review_read_file",
@@ -95141,10 +95142,10 @@ var review_investigation_capability_v1_golden_default = {
       probePolicyVersion: "review-investigation-probe-policy.v2",
       runtimeProfileVersion: "gateway-attested-agent.v1",
       searchPolicyVersion: "review-investigation-fixed-string-search.v1",
-      turnPromptContractHash: "41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"
+      turnPromptContractHash: "87996321aa77575ce5c434a555d238c57fe319cd4131b8cac412c9fa6bf08feb"
     },
-    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"}',
-    sha256: "a5e7cec2158b3c8ef91e51f633e51e43287c2e50deb572716f63d7007d978407"
+    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"87996321aa77575ce5c434a555d238c57fe319cd4131b8cac412c9fa6bf08feb"}',
+    sha256: "064b245d9ac5b710a70ec2e3c1efdefa8f5b2de0efd73332a413f846c08783db"
   },
   policy: {
     value: {
@@ -99251,7 +99252,7 @@ function compareCodeUnits3(left, right) {
 }
 
 // src/review-investigation/application/review-investigation-turn-prompt.ts
-var REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT = "review_investigation_turn_prompt.v2";
+var REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT = "review_investigation_turn_prompt.v3";
 var TURN_INSTRUCTIONS = Object.freeze([
   "REVIEW INVESTIGATION TURN CONTRACT:",
   "Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.",
@@ -99259,6 +99260,7 @@ var TURN_INSTRUCTIONS = Object.freeze([
   "For a typed complete_page_chain obligation, put its complete receipt chain in closureClaims only. The control plane derives its discovery evidence; do not duplicate that chain in operationBackedDiscoveryClaims.",
   "For a typed complete_relation_context obligation, rerun its hydrated query and include the complete matching text_search receipt chain plus complete file_read receipts for exactly every requiredPathHashes entry. Never include unrelated search or directory receipts.",
   "During discovery turns, use operationBackedDiscoveryClaims only for additional exploratory text-search chains. Bind each chain to the coverage_contract changed_content obligation that directly motivated the search, copy the exact query passed to the tool, and include every operationReceiptId from the chain.",
+  "If an exploratory text search reports context_gateway_relation_path_limit_exceeded, do not claim that rejected search. Narrow the literal query and/or paths until each accepted search covers at most 512 files, or leave the related obligation open when no sound bounded query exists.",
   "Never bind an exploratory search to a deterministic_expansion obligation. If no changed_content source directly motivated it, omit the advisory discovery claim and leave related obligations open.",
   "When inspected evidence reveals additional review scope, add a provider-neutral obligationProposals entry instead of silently broadening an existing obligation.",
   "Each obligation proposal must contain exactly kind, canonicalSubject, canonicalRequirement, and riskPriority. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.",
@@ -102728,6 +102730,9 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       )).map(
         (value) => value.startsWith(`${revisionSha}:`) ? value.slice(revisionSha.length + 1) : value
       ).sort();
+      if (matchedPaths.length > CONTEXT_GATEWAY_V4_RELATION_PATH_MAX_ITEMS) {
+        throw new Error("context_gateway_relation_path_limit_exceeded");
+      }
       return this.pageResult({
         operationKind: "text_search" /* TextSearch */,
         treeOid,

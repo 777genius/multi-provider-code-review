@@ -14111,6 +14111,7 @@ var import_crypto2 = require("crypto");
 var CONTEXT_GATEWAY_V4_POLICY_VERSION = "context-gateway-v4";
 var CONTEXT_GATEWAY_V4_CURSOR_VERSION = 1;
 var CONTEXT_GATEWAY_V4_PAGE_MAX_ITEMS = 2e3;
+var CONTEXT_GATEWAY_V4_RELATION_PATH_MAX_ITEMS = 512;
 var CONTEXT_GATEWAY_V4_CURSOR_MAX_LIFETIME_MS = 15 * 60 * 1e3;
 var CONTEXT_GATEWAY_V4_ENABLED_TOOLS = Object.freeze([
   "review_read_file",
@@ -14309,10 +14310,10 @@ var review_investigation_capability_v1_golden_default = {
       probePolicyVersion: "review-investigation-probe-policy.v2",
       runtimeProfileVersion: "gateway-attested-agent.v1",
       searchPolicyVersion: "review-investigation-fixed-string-search.v1",
-      turnPromptContractHash: "41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"
+      turnPromptContractHash: "87996321aa77575ce5c434a555d238c57fe319cd4131b8cac412c9fa6bf08feb"
     },
-    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"41ad2e193eb96dfe8d091a76051652d4db4eb90a48560a33d07b31ef7f46b3d0"}',
-    sha256: "a5e7cec2158b3c8ef91e51f633e51e43287c2e50deb572716f63d7007d978407"
+    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"87996321aa77575ce5c434a555d238c57fe319cd4131b8cac412c9fa6bf08feb"}',
+    sha256: "064b245d9ac5b710a70ec2e3c1efdefa8f5b2de0efd73332a413f846c08783db"
   },
   policy: {
     value: {
@@ -16648,6 +16649,9 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       )).map(
         (value) => value.startsWith(`${revisionSha}:`) ? value.slice(revisionSha.length + 1) : value
       ).sort();
+      if (matchedPaths.length > CONTEXT_GATEWAY_V4_RELATION_PATH_MAX_ITEMS) {
+        throw new Error("context_gateway_relation_path_limit_exceeded");
+      }
       return this.pageResult({
         operationKind: "text_search" /* TextSearch */,
         treeOid,
