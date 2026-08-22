@@ -265,6 +265,16 @@ describe.each([
     });
   });
 
+  it('accepts fenced JSON from the Codex app-server terminal message', async () => {
+    const { adapter, runner, request } = fixture(ReviewAgentProviderKind.Codex);
+    runner.rawCodexOutput = `\`\`\`json\n${JSON.stringify(turnOutput)}\n\`\`\``;
+
+    await expect(adapter.executeTurn(request)).resolves.toMatchObject({
+      outputVersion: 2,
+      findings: turnOutput.findings,
+    });
+  });
+
   it('fails malformed provider output as schema-invalid', async () => {
     const { adapter, runner, request } = fixture(providerKind);
     runner.output = { ...turnOutput, authoritativeClean: true };

@@ -48,6 +48,7 @@ export class FilesystemContextGatewayV4 {
     private readonly secret: Buffer,
     private readonly recorder: ContextGatewayV4Recorder,
     private readonly replayMaterial: ContextGatewayV4ReplayMaterialRecorder | null,
+    private readonly cursorIssuedAtMs: number,
     private readonly now: () => number
   ) {}
 
@@ -87,6 +88,7 @@ export class FilesystemContextGatewayV4 {
     if (normalizedHeadTreeOid !== input.checkoutTreeOid) {
       throw new Error('context_gateway_checkout_tree_mismatch');
     }
+    const now = input.now ?? Date.now;
     return new FilesystemContextGatewayV4(
       root,
       input.sessionId,
@@ -97,7 +99,8 @@ export class FilesystemContextGatewayV4 {
       input.secret,
       input.recorder,
       input.replayMaterial ?? null,
-      input.now ?? Date.now
+      now(),
+      now
     );
   }
 
@@ -581,7 +584,7 @@ export class FilesystemContextGatewayV4 {
       allItems: input.allItems,
       cursorInputHash: input.cursorInputHash,
       allItemPathHashes: input.allPathHashes ?? [],
-      nowMs: this.now(),
+      nowMs: this.cursorIssuedAtMs,
     });
     const receipt = input.pathHashesThroughItem
       ? withCanonicalPathWitness({

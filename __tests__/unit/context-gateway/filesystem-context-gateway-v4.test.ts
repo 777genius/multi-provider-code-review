@@ -121,6 +121,40 @@ describe('FilesystemContextGatewayV4', () => {
     }
   });
 
+  it('keeps repeated page receipts stable when session time advances', async () => {
+    const fixture = await createFixture();
+    let nowMs = 10_000;
+    try {
+      const { gateway, transcriptPath } = await createGateway(
+        fixture,
+        () => nowMs
+      );
+      const first = await gateway.searchText({
+        query: 'SENSITIVE_QUERY_CANARY',
+        paths: ['.'],
+        pageSize: 1,
+      });
+      nowMs += 5_000;
+      const repeated = await gateway.searchText({
+        query: 'SENSITIVE_QUERY_CANARY',
+        paths: ['.'],
+        pageSize: 1,
+      });
+
+      expect(repeated.operationReceiptId).toBe(first.operationReceiptId);
+      expect(repeated.nextCursor).toBe(first.nextCursor);
+      const parsed = JSON.parse(await readFile(transcriptPath, 'utf8'));
+      expect(
+        parsed.events.filter(
+          (event: { operationKind: string }) =>
+            event.operationKind === 'text_search'
+        )
+      ).toHaveLength(1);
+    } finally {
+      await rm(fixture.parent, { recursive: true, force: true });
+    }
+  });
+
   it('reads exact base/head objects and bounded byte ranges without using the worktree', async () => {
     const fixture = await createFixture();
     try {
@@ -372,7 +406,8 @@ async function collectPages(
 }
 
 async function createGateway(
-  fixture: Awaited<ReturnType<typeof createFixture>>
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  now: () => number = () => 10_000
 ) {
   const transcriptPath = path.join(
     fixture.parent,
@@ -389,7 +424,7 @@ async function createGateway(
     gatewayBinaryHash: sha256('binary'),
     checkoutTreeOid: fixture.headTreeOid,
     eventChainSeedHash: sha256('seed'),
-    now: () => 10_000,
+    now,
   });
   await recorder.initialize();
   const replayMaterial = new ContextGatewayV4ReplayMaterialRecorder({
@@ -407,7 +442,7 @@ async function createGateway(
     secret,
     recorder,
     replayMaterial,
-    now: () => 10_000,
+    now,
   });
   return { gateway, recorder, replayMaterial, transcriptPath };
 }

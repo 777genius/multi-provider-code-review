@@ -97,7 +97,7 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
 
     let output;
     try {
-      output = parseReviewAgentTurnOutput(JSON.parse(result.finalMessage));
+      output = parseReviewAgentTurnOutput(parseFinalJson(result.finalMessage));
     } catch (error) {
       throw schemaFailure(error);
     }
@@ -169,6 +169,33 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
     );
     return Object.freeze(args);
   }
+}
+
+function parseFinalJson(message: string): unknown {
+  const trimmed = message.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch (error) {
+    const extracted = extractSingleJsonPayload(trimmed);
+    if (extracted === null) throw error;
+    return JSON.parse(extracted);
+  }
+}
+
+function extractSingleJsonPayload(message: string): string | null {
+  const fenced = message.match(/^```(?:json)?\s*\n([\s\S]*?)\n```\s*$/iu);
+  if (fenced) {
+    const payload = fenced[1];
+    return typeof payload === 'string' ? payload.trim() : null;
+  }
+
+  const start = message.indexOf('{');
+  const end = message.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  const prefix = message.slice(0, start).trim();
+  const suffix = message.slice(end + 1).trim();
+  if (prefix || suffix) return null;
+  return message.slice(start, end + 1);
 }
 
 function tomlString(value: string): string {
