@@ -85,6 +85,7 @@ import {
   ReviewInvestigationControlPlaneFailureClass,
   ReviewInvestigationLegacyFallbackSignal,
   ReviewAgentProviderKind,
+  ReviewAgentProcessTermination,
   ReviewActionV2InvestigationAdapter,
   ReviewActionV2InvestigationLeaseAdapter,
   ReplayInvestigationOnRevision,
@@ -612,6 +613,44 @@ function codexCredentialEnvironment(): Readonly<NodeJS.ProcessEnv> {
   );
 }
 
+function publicInvestigationProcessDiagnostic(stderr: string): Readonly<{
+  stderrByteCount: number;
+  stderrDigest: string;
+  diagnosticKinds: readonly string[];
+}> {
+  const diagnosticKinds = [
+    [
+      /(?:stream|disconnect|connection reset|broken pipe|unexpected eof)/iu,
+      'stream',
+    ],
+    [
+      /(?:context length|too many tokens|maximum context|max(?:imum)? tokens)/iu,
+      'context_limit',
+    ],
+    [/(?:invalid.*schema|json schema|structured output)/iu, 'schema'],
+    [/(?:\bmcp\b|tool transport|tool call)/iu, 'transport'],
+    [/(?:rate limit|\b429\b|overloaded|capacity)/iu, 'capacity'],
+    [
+      /(?:\b401\b|\b403\b|oauth|authentication|refresh token|not logged in)/iu,
+      'authentication',
+    ],
+    [/(?:killed|signal|out of memory|\boom\b)/iu, 'resource'],
+    [/(?:panic|fatal|internal error)/iu, 'internal'],
+  ] as const;
+  return Object.freeze({
+    stderrByteCount: Buffer.byteLength(stderr, 'utf8'),
+    stderrDigest: createHash('sha256')
+      .update(stderr)
+      .digest('hex')
+      .slice(0, 16),
+    diagnosticKinds: Object.freeze(
+      diagnosticKinds
+        .filter(([pattern]) => pattern.test(stderr))
+        .map(([, kind]) => kind)
+    ),
+  });
+}
+
 function createConfiguredProductionInvestigationAgents(input: {
   readonly codexModel: string;
   readonly codexBinaryPath: string | undefined;
@@ -627,6 +666,20 @@ function createConfiguredProductionInvestigationAgents(input: {
         providerCredentialEnvironment: codexCredentialEnvironment,
         ...(input.codexBinaryPath ? { binary: input.codexBinaryPath } : {}),
         reasoningEffort: 'xhigh',
+        processResultObserver: (result) => {
+          if (
+            result.termination === ReviewAgentProcessTermination.Exited &&
+            result.exitCode === 0
+          ) {
+            return;
+          }
+          logger.warn('Review investigation app-server process failed', {
+            termination: result.termination,
+            exitCode: result.exitCode,
+            durationMs: result.durationMs,
+            ...publicInvestigationProcessDiagnostic(result.stderr),
+          });
+        },
       }),
     },
   ] satisfies readonly ConfiguredProductionReviewAgent[]);
