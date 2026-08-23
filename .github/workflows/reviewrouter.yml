@@ -2,223 +2,55 @@ name: ReviewRouter
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
-    # SECURITY: pull_request trigger (not pull_request_target) prevents fork PRs
-    # from accessing repository secrets (OPENROUTER_API_KEY, etc.) by default.
-    # GitHub runs fork PR workflows with empty secrets UNLESS the repository
-    # setting "Send secrets to workflows from pull requests" is enabled.
-    #
-    # CRITICAL ASSUMPTION: This workflow requires that "Send secrets to workflows
-    # from pull requests" is DISABLED in repository settings (default/recommended).
-    # If enabled, fork PRs could access secrets, which is a security risk.
-    # See: Settings → Actions → General → Fork pull request workflows
-    #
-    # Additional security layers in this workflow:
-    # - Explicit fork detection and secret validation (line 97-110)
-    # - Conditional job execution that skips fork PRs (line 132)
-    # - Provider allowlist validation for user-supplied model names
-  # Note: pull_request_review trigger removed to prevent duplicate runs
-  # when the bot posts its own review comment
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'Pull request number to review'
+        description: Pull request number to review
         required: true
-      review_providers:
-        description: 'Comma-separated list of model providers (validated against allowed patterns)'
-        required: false
+        type: string
+      review_head_sha:
+        description: Exact pull request head SHA
+        required: true
         type: string
 
-# Preserve an active confined invocation so its evidence can be sealed and
-# replayed. GitHub keeps only the latest pending run for each pull request.
 concurrency:
   group: review-router-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
   cancel-in-progress: false
 
-# Permissions: Principle of least privilege
-# Only grant the minimum permissions required for code review functionality
-# Security rationale:
-# - contents: read - Required to checkout code and read PR diffs (minimal read access)
-# - pull-requests: write - Required to post review comments and inline suggestions (no merge access)
-# - actions: read - Required for concurrency control to prevent duplicate reviews (read-only)
-# NOT granted: contents: write (cannot modify code), issues: write (cannot create issues)
-permissions:
-  contents: read # Read repository code and PR diffs
-  pull-requests: write # Post review comments and summaries
-  actions: read # Check workflow status (for concurrency control)
+permissions: {}
 
 jobs:
   review:
-    runs-on: ubuntu-latest
-    env:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0 # Fetch full history for incremental review git diff
-          persist-credentials: false
-      - name: Resolve PR number
-        id: resolve-pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: ${{ github.ref_name }}
-        run: |
-          pr="${{ github.event.pull_request.number || '' }}"
-          if [ -n "$pr" ]; then
-            echo "pr=$pr" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          pr="${{ inputs.pr_number || '' }}"
-          if [ -n "$pr" ]; then
-            echo "pr=$pr" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "${{ github.event_name }}" = "push" ]; then
-            pr=$(gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number')
-            if [ -n "$pr" ]; then
-              echo "pr=$pr" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          echo "No PR found for this event/branch; skipping review."
-          echo "pr=" >> "$GITHUB_OUTPUT"
-      - name: Validate Review Providers Input
-        # Only validate if providers are explicitly specified (not empty and not null)
-        # GitHub Actions treats missing inputs as empty string, so this condition is correct
-        if: ${{ inputs.review_providers != '' && inputs.review_providers != null }}
-        run: node scripts/validate-providers.js "${{ inputs.review_providers }}"
-      - name: Validate Secrets and Configuration
-        run: |
-          # SECURITY: Check for fork PRs with unexpected secret access
-          # If a fork PR has OPENROUTER_API_KEY, the repository setting
-          # "Send secrets to workflows from pull requests" is likely enabled (security risk)
-          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
-            if [ -z "$OPENROUTER_API_KEY" ]; then
-              echo "✅ Fork PR detected without OPENROUTER_API_KEY (expected behavior)."
-              echo "   Fork PR review steps will be skipped for security (see job condition at line 142)."
-            else
-              echo "🔴 SECURITY ALERT: Fork PR has access to OPENROUTER_API_KEY!"
-              echo "   This indicates 'Send secrets to workflows from pull requests' is enabled."
-              echo "   This is a security risk. Failing workflow to prevent secret exposure."
-              echo "   To fix: Settings → Actions → General → Disable 'Send secrets to workflows from pull requests'"
-              exit 1
-            fi
-          fi
-
-          if [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "⚠️  Warning: OPENROUTER_API_KEY not set. OpenRouter providers will be skipped; free OpenCode providers will be used."
-          else
-            echo "✅ OPENROUTER_API_KEY available - full provider access enabled"
-          fi
-
-          # Log provider discovery strategy
-          if [ -n "${{ inputs.review_providers }}" ]; then
-            echo "📋 Using explicit providers: ${{ inputs.review_providers }}"
-          else
-            echo "🔍 Using dynamic provider discovery (see workflow comments for fallback chain)"
-          fi
-      - name: Install CLI Tools
-        # Version pinning strategy:
-        # - Pin to latest published npm version known-good for CLI commands
-        # - Update strategy: Test quarterly (Jan, Apr, Jul, Oct) with full suite + smoke tests
-        run: |
-          npm install -g opencode-ai@1.1.40
-          npm install -g @google/gemini-cli
-          npm install -g codex-cli
-          curl -fsSL https://claude.ai/install.sh | bash
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Setup CLI Configuration Files
-        # Create legacy CLI configuration files where required.
-        # Claude Code subscription OAuth is passed as CLAUDE_CODE_OAUTH_TOKEN
-        # and must not be converted into ANTHROPIC_API_KEY or credentials.json.
-        id: setup-cli-configs
-        run: |
-          # Validate Claude Code subscription token presence
-          if [ -n "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" ]; then
-            echo "✅ Claude Code OAuth token configured"
-          else
-            echo "⚠️  CLAUDE_CODE_OAUTH_TOKEN not set, Claude providers will be skipped"
-          fi
-
-          # Setup Codex credentials
-          if [ -n "${{ secrets.CODEX_AUTH_JSON }}" ]; then
-            mkdir -p ~/.codex
-            echo '${{ secrets.CODEX_AUTH_JSON }}' > ~/.codex/auth.json
-            chmod 600 ~/.codex/auth.json
-            # Create config.toml if provided
-            if [ -n "${{ secrets.CODEX_CONFIG_TOML }}" ]; then
-              echo '${{ secrets.CODEX_CONFIG_TOML }}' > ~/.codex/config.toml
-              chmod 600 ~/.codex/config.toml
-            fi
-            # Also set environment variable as fallback
-            CODEX_TOKEN=$(echo '${{ secrets.CODEX_AUTH_JSON }}' | jq -r '.tokens.access_token // empty')
-            if [ -n "$CODEX_TOKEN" ]; then
-              echo "OPENAI_API_KEY=$CODEX_TOKEN" >> $GITHUB_ENV
-              echo "::add-mask::$CODEX_TOKEN"
-            fi
-            echo "✅ Codex credentials configured"
-          else
-            echo "⚠️  CODEX_AUTH_JSON not set, Codex providers will be skipped"
-          fi
-
-          # Setup Gemini credentials
-          if [ -n "${{ secrets.GEMINI_OAUTH_CREDS }}" ]; then
-            mkdir -p ~/.gemini
-            echo '${{ secrets.GEMINI_OAUTH_CREDS }}' > ~/.gemini/oauth_creds.json
-            chmod 600 ~/.gemini/oauth_creds.json
-            # Create settings.json if provided, otherwise create minimal one
-            if [ -n "${{ secrets.GEMINI_SETTINGS }}" ]; then
-              echo '${{ secrets.GEMINI_SETTINGS }}' > ~/.gemini/settings.json
-            else
-              # Create minimal settings.json pointing to oauth_creds.json
-              echo "{\"oauth_credentials_path\": \"$HOME/.gemini/oauth_creds.json\"}" > ~/.gemini/settings.json
-            fi
-            chmod 600 ~/.gemini/settings.json
-            # Also set environment variable as fallback
-            GEMINI_TOKEN=$(echo '${{ secrets.GEMINI_OAUTH_CREDS }}' | jq -r '.access_token // empty')
-            if [ -n "$GEMINI_TOKEN" ]; then
-              echo "GEMINI_API_KEY=$GEMINI_TOKEN" >> $GITHUB_ENV
-              echo "::add-mask::$GEMINI_TOKEN"
-            fi
-            echo "✅ Gemini credentials configured"
-          else
-            echo "⚠️  GEMINI_OAUTH_CREDS not set, Gemini providers will be skipped"
-          fi
-
-      - name: ReviewRouter
-        # Run if PR number resolved AND (not a fork PR OR not a pull_request event)
-        # Cross-repository detection uses repository identity, not the repository fork flag.
-        # A same-repository PR must run even when this repository is itself a GitHub fork.
-        # - For push: Always run (no fork concept, secrets available)
-        # - For workflow_dispatch: Always run (manually triggered, secrets available)
-        # This prevents fork PRs from running without secrets while allowing push/dispatch events
-        if: steps.resolve-pr.outputs.pr != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: ./
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.resolve-pr.outputs.pr }}
-          REVIEW_PROVIDERS: ${{ inputs.review_providers || vars.REVIEW_PROVIDERS }}
-          # Dynamic Model Discovery:
-          # By default (when REVIEW_PROVIDERS is empty or not set), the system automatically
-          # discovers and selects the best available free models through a multi-tier fallback:
-          # 1. OpenRouter API (if OPENROUTER_API_KEY is set)
-          # 2. OpenCode CLI free models (if opencode-ai is installed)
-          # 3. Hardcoded fallback providers (see src/config/defaults.ts)
-          #
-          # OAuth CLI Providers (when credentials are configured):
-          # If you have OAuth CLI credentials configured as secrets, you can use:
-          # - claude/sonnet, claude/opus, claude/haiku (Claude Code CLI)
-          # - codex/gpt-5.5 (Codex CLI)
-          # - gemini/gemini-2.0-flash, gemini/gemini-1.5-pro (Gemini CLI)
-          #
-          # To use specific providers instead of auto-discovery:
-          # - Set inputs.review_providers for workflow_dispatch
-          # - Set REVIEW_PROVIDERS environment variable in your fork/config
-          # - Create .review-router.json in your repository
-          # See docs/CI_SETUP.md for provider configuration
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
-          GEMINI_API_KEY: ${{ env.GEMINI_API_KEY }}
+    name: review
+    if: >-
+      ${{
+        vars.REVIEW_ROUTER_HOSTED_POOL_ENABLED == 'true' &&
+        (
+          github.event_name == 'workflow_dispatch' ||
+          (
+            github.event.pull_request.draft == false &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.event.pull_request.user.type != 'Bot'
+          )
+        )
+      }}
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/reviewrouter-t0-reusable.yml
+    with:
+      runtime_ref: ${{ github.event.pull_request.head.sha || inputs.review_head_sha }}
+      api_url: https://api.reviewrouter.site
+      control_plane_url: https://api.reviewrouter.site
+      runtime_config_mode: oidc
+      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
+      review_head_sha: ${{ github.event.pull_request.head.sha || inputs.review_head_sha }}
+      provider_instance_id: ${{ vars.REVIEW_ROUTER_PROVIDER_INSTANCE_ID }}
+      workflow_schema_version: 1
+      codex_session_mode: codex_subscription_oauth_hosted_pool
+      session_binding_id: ${{ vars.REVIEW_ROUTER_SESSION_BINDING_ID }}
+      session_binding_version: ${{ fromJSON(vars.REVIEW_ROUTER_SESSION_BINDING_VERSION || '0') }}
+      review_timeout_minutes: 240
+      max_changed_lines: '0'
