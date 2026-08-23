@@ -111861,6 +111861,7 @@ function normalizeReviewInvestigationRecordingOptions(options) {
     workingDirectory: options.workingDirectory,
     leaseDurationMs: options.leaseDurationMs,
     providerTimeoutMs: options.providerTimeoutMs,
+    ...options.investigationTimeoutMs === void 0 ? {} : { investigationTimeoutMs: options.investigationTimeoutMs },
     certificateTtlMs: options.certificateTtlMs,
     minimumCapacityParkMs: options.minimumCapacityParkMs,
     policy: options.policy,

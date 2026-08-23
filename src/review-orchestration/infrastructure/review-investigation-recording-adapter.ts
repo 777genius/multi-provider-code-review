@@ -377,6 +377,9 @@ function normalizeReviewInvestigationRecordingOptions(
     workingDirectory: options.workingDirectory,
     leaseDurationMs: options.leaseDurationMs,
     providerTimeoutMs: options.providerTimeoutMs,
+    ...(options.investigationTimeoutMs === undefined
+      ? {}
+      : { investigationTimeoutMs: options.investigationTimeoutMs }),
     certificateTtlMs: options.certificateTtlMs,
     minimumCapacityParkMs: options.minimumCapacityParkMs,
     policy: options.policy,

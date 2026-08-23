@@ -941,8 +941,15 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     const adapter = new ReviewInvestigationRecordingAdapter(
       () => ({ execute }) as never,
       {
-        ...options(),
+        workingDirectory: '/tmp/review-investigation-fixture',
+        leaseDurationMs: 300_000,
+        providerTimeoutMs: 600_000,
         investigationTimeoutMs: 25,
+        certificateTtlMs: 86_400_000,
+        minimumCapacityParkMs: 60_000,
+        maxObligationsForTurn: 64,
+        maxStateTransitions: 32,
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
       }
     );
 
