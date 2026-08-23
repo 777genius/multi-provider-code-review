@@ -99,6 +99,17 @@ function runInteractionRuntimePreparation(reviewWorkflowFile: string) {
 }
 
 describe('production reusable workflows', () => {
+  it('distinguishes same-repository PRs when the repository itself is a fork', () => {
+    const workflowSource = readRepoFile('.github/workflows/reviewrouter.yml');
+
+    expect(workflowSource).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository'
+    );
+    expect(workflowSource).not.toContain(
+      'github.event.pull_request.head.repo.fork'
+    );
+  });
+
   it('ships every runtime bundle required by the immutable action checkout', () => {
     const contextGatewayBundle = 'dist/context-gateway.js';
 
