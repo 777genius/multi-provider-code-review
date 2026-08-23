@@ -69,6 +69,7 @@ function contextGatewayConfig(
       REVIEWROUTER_CONTEXT_BASE_SHA: 'd'.repeat(40),
       REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: 'f'.repeat(40),
       REVIEWROUTER_CONTEXT_HEAD_SHA: 'e'.repeat(40),
+      REVIEWROUTER_CONTEXT_GATEWAY_MAX_OPERATIONS: '128',
     },
   };
 }
