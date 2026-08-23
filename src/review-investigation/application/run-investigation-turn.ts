@@ -76,6 +76,7 @@ export class RunInvestigationTurn {
     readonly workingDirectory: string;
     readonly timeoutMs: number;
     readonly maxTurns: number;
+    readonly maxGatewayOperations: number;
     readonly minimumCapacityParkMs: number;
     readonly snapshot: ReviewInvestigationSnapshot;
     readonly currentLease: () => ReviewInvestigationLease;
@@ -129,6 +130,7 @@ export class RunInvestigationTurn {
         reviewRevisionHash: input.reviewRevisionHash,
         investigationId: input.snapshot.investigationId,
         turnId: turn.turnId,
+        maxOperations: input.maxGatewayOperations,
         currentLease: input.currentLease,
       });
     } catch (error) {

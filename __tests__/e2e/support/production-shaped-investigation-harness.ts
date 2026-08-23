@@ -247,6 +247,7 @@ export async function createInvestigationHarness(
       maxObligationsForTurn: 64,
       providerTimeoutMs: 60_000,
       providerMaxTurns: 12,
+      maxGatewayOperations: 1_500,
       certificateTtlMs: 3_600_000,
       minimumCapacityParkMs: 60_000,
       maxStateTransitions: input.maxStateTransitions ?? 32,

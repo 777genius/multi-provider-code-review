@@ -233,6 +233,37 @@ describe('FilesystemContextGatewayV4', () => {
     }
   });
 
+  it('enforces the per-session operation budget and records one bounded rejection', async () => {
+    const fixture = await createFixture();
+    try {
+      const { gateway, recorder } = await createGateway(
+        fixture,
+        () => 10_000,
+        2
+      );
+
+      await gateway.readFile({ path: 'src/current.ts' });
+      await gateway.gitFact({ fact: 'merge_base' });
+
+      expect(gateway.remainingOperations()).toBe(0);
+      await expect(gateway.readFile({ path: 'src/search.ts' })).rejects.toThrow(
+        'context_gateway_operation_budget_exceeded'
+      );
+      await expect(gateway.readFile({ path: 'src/search.ts' })).rejects.toThrow(
+        'context_gateway_operation_budget_exceeded'
+      );
+
+      expect(recorder.snapshot().events).toHaveLength(3);
+      expect(recorder.snapshot().events.at(-1)).toMatchObject({
+        outcome: 'rejected',
+        failureClass: 'budget_exceeded',
+        sanitizedReason: 'context_gateway_operation_budget_exceeded',
+      });
+    } finally {
+      await rm(fixture.parent, { recursive: true, force: true });
+    }
+  });
+
   it('rejects searches spanning more relation paths than deterministic expansion can represent', async () => {
     const fixture = await createWideSearchFixture();
     try {
@@ -441,7 +472,8 @@ async function collectPages(
 
 async function createGateway(
   fixture: Awaited<ReturnType<typeof createFixture>>,
-  now: () => number = () => 10_000
+  now: () => number = () => 10_000,
+  maxOperations?: number
 ) {
   const transcriptPath = path.join(
     fixture.parent,
@@ -477,6 +509,7 @@ async function createGateway(
     recorder,
     replayMaterial,
     now,
+    ...(maxOperations === undefined ? {} : { maxOperations }),
   });
   return { gateway, recorder, replayMaterial, transcriptPath };
 }

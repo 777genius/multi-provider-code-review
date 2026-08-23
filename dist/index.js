@@ -95142,10 +95142,10 @@ var review_investigation_capability_v1_golden_default = {
       probePolicyVersion: "review-investigation-probe-policy.v2",
       runtimeProfileVersion: "gateway-attested-agent.v1",
       searchPolicyVersion: "review-investigation-fixed-string-search.v1",
-      turnPromptContractHash: "87996321aa77575ce5c434a555d238c57fe319cd4131b8cac412c9fa6bf08feb"
+      turnPromptContractHash: "0e22e292499206ff51a93a52ace638e902cca8f89fb1b3d7b32bd2a317b7ac2e"
     },
-    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"87996321aa77575ce5c434a555d238c57fe319cd4131b8cac412c9fa6bf08feb"}',
-    sha256: "064b245d9ac5b710a70ec2e3c1efdefa8f5b2de0efd73332a413f846c08783db"
+    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"0e22e292499206ff51a93a52ace638e902cca8f89fb1b3d7b32bd2a317b7ac2e"}',
+    sha256: "28323b59ad09d33c483641ab92f4395771f4e51b05274ecdceb5fd7d83f5e575"
   },
   policy: {
     value: {
@@ -95915,6 +95915,7 @@ var RunInvestigationTurn = class {
         reviewRevisionHash: input.reviewRevisionHash,
         investigationId: input.snapshot.investigationId,
         turnId: turn.turnId,
+        maxOperations: input.maxGatewayOperations,
         currentLease: input.currentLease
       });
     } catch (error2) {
@@ -96362,6 +96363,7 @@ var RunInvestigationWorkSlot = class {
             workingDirectory: input.workingDirectory,
             timeoutMs: input.providerTimeoutMs,
             maxTurns: input.providerMaxTurns,
+            maxGatewayOperations: input.maxGatewayOperations,
             minimumCapacityParkMs: input.minimumCapacityParkMs,
             snapshot,
             currentLease,
@@ -99256,6 +99258,7 @@ var REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT = "review_investigation_turn_promp
 var TURN_INSTRUCTIONS = Object.freeze([
   "REVIEW INVESTIGATION TURN CONTRACT:",
   "Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.",
+  "Every successful Context Gateway result reports operationBudget.remainingOperations. Conclude with the best evidence-backed result before it reaches zero; do not retry after a budget-exceeded response.",
   'For typed search requirements, execute the exact literal query with paths=["."], revision="head", caseSensitive=true, and pageSize=500, then follow every cursor to completion.',
   "For a typed complete_page_chain obligation, put its complete receipt chain in closureClaims only. The control plane derives its discovery evidence; do not duplicate that chain in operationBackedDiscoveryClaims.",
   "For a typed complete_relation_context obligation, rerun its hydrated query and include the complete matching text_search receipt chain plus complete file_read receipts for exactly every requiredPathHashes entry. Never include unrelated search or directory receipts.",
@@ -99272,12 +99275,16 @@ var REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT_HASH = sha2562(
   canonicalJson2({
     contract: REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT,
     instructions: TURN_INSTRUCTIONS,
-    turnBriefEncoding: "REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:<canonical-json-base64url>"
+    turnBriefEncoding: "REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:<canonical-json-base64url>",
+    operationBudgetEncoding: "REVIEWROUTER_CONTEXT_OPERATION_BUDGET:<positive-integer>"
   })
 );
 function buildReviewInvestigationTurnPrompt(input) {
   if (!input.reviewContextPrompt.trim()) {
     throw new Error("review_investigation_context_prompt_missing");
+  }
+  if (!Number.isSafeInteger(input.maxGatewayOperations) || input.maxGatewayOperations < 1) {
+    throw new Error("review_investigation_operation_budget_invalid");
   }
   const encodedBrief = Buffer.from(
     canonicalJson2(input.turnBrief),
@@ -99287,6 +99294,7 @@ function buildReviewInvestigationTurnPrompt(input) {
     input.reviewContextPrompt,
     "",
     ...TURN_INSTRUCTIONS,
+    `REVIEWROUTER_CONTEXT_OPERATION_BUDGET:${input.maxGatewayOperations}`,
     `REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:${encodedBrief}`
   ].join("\n");
 }
@@ -100913,7 +100921,10 @@ var ContextGatewayInvocationSessionFactory = class {
       ...revisionTreeOids,
       transcriptPath,
       replayMaterialPath,
-      gatewayBundlePath
+      gatewayBundlePath,
+      maxOperations: requireContextGatewayMaxOperations(
+        input.maxOperations ?? CONTEXT_GATEWAY_MAX_OPERATIONS
+      )
     });
     try {
       if (secret.byteLength < 32) {
@@ -100972,7 +100983,12 @@ var ContextGatewayInvocationSessionFactory = class {
         REVIEWROUTER_CONTEXT_EVENT_CHAIN_SEED_HASH: input.eventChainSeedHash,
         REVIEWROUTER_CONTEXT_BASE_SHA: input.revision.baseSha,
         REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: input.revision.mergeBaseSha,
-        REVIEWROUTER_CONTEXT_HEAD_SHA: input.revision.headSha
+        REVIEWROUTER_CONTEXT_HEAD_SHA: input.revision.headSha,
+        REVIEWROUTER_CONTEXT_GATEWAY_MAX_OPERATIONS: String(
+          requireContextGatewayMaxOperations(
+            input.maxOperations ?? CONTEXT_GATEWAY_MAX_OPERATIONS
+          )
+        )
       })
     });
   }
@@ -101557,6 +101573,12 @@ function requireExecutionProfile(value) {
     default:
       throw new Error("context_gateway_execution_profile_invalid");
   }
+}
+function requireContextGatewayMaxOperations(value) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > CONTEXT_GATEWAY_MAX_OPERATIONS) {
+    throw new Error("context_gateway_max_operations_invalid");
+  }
+  return value;
 }
 function sha25613(value) {
   return (0, import_crypto30.createHash)("sha256").update(value).digest("hex");
@@ -102424,7 +102446,7 @@ var MAX_FILE_TOTAL_BYTES = 32 * 1024 * 1024;
 var MAX_DIRECTORY_RESULTS = 25e4;
 var MAX_SEARCH_RESULTS2 = 1e5;
 var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
-  constructor(root, sessionId, mergeBaseSha, headSha, mergeBaseTreeOid, headTreeOid, secret, recorder, replayMaterial, cursorIssuedAtMs, now) {
+  constructor(root, sessionId, mergeBaseSha, headSha, mergeBaseTreeOid, headTreeOid, secret, recorder, replayMaterial, maxOperations, cursorIssuedAtMs, now) {
     this.root = root;
     this.sessionId = sessionId;
     this.mergeBaseSha = mergeBaseSha;
@@ -102434,10 +102456,13 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     this.secret = secret;
     this.recorder = recorder;
     this.replayMaterial = replayMaterial;
+    this.maxOperations = maxOperations;
     this.cursorIssuedAtMs = cursorIssuedAtMs;
     this.now = now;
   }
   inventoryPromise = null;
+  operationsStarted = 0;
+  budgetExhaustionRecorded = false;
   static async create(input) {
     const root = await (0, import_promises6.realpath)(input.root);
     requireGitOid(
@@ -102465,6 +102490,10 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       throw new Error("context_gateway_checkout_tree_mismatch");
     }
     const now = input.now ?? Date.now;
+    const maxOperations = input.maxOperations ?? CONTEXT_GATEWAY_MAX_OPERATIONS;
+    if (!Number.isSafeInteger(maxOperations) || maxOperations < 1 || maxOperations > CONTEXT_GATEWAY_MAX_OPERATIONS) {
+      throw new Error("context_gateway_v4_max_operations_invalid");
+    }
     return new _FilesystemContextGatewayV4(
       root,
       input.sessionId,
@@ -102475,9 +102504,13 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       input.secret,
       input.recorder,
       input.replayMaterial ?? null,
+      maxOperations,
       now(),
       now
     );
+  }
+  remainingOperations() {
+    return Math.max(0, this.maxOperations - this.operationsStarted);
   }
   async readFile(input) {
     const replayInput = normalizeFileReadInput(input);
@@ -102945,6 +102978,22 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     return Object.freeze({ kind, ...facts });
   }
   async execute(operation, replayInput, action) {
+    if (this.operationsStarted >= this.maxOperations) {
+      const error2 = new Error("context_gateway_operation_budget_exceeded");
+      if (!this.budgetExhaustionRecorded) {
+        this.budgetExhaustionRecorded = true;
+        try {
+          await this.recorder.recordRejected({
+            operation,
+            failureClass: "budget_exceeded" /* BudgetExceeded */,
+            sanitizedReason: error2.message
+          });
+        } catch {
+        }
+      }
+      throw error2;
+    }
+    this.operationsStarted += 1;
     try {
       const completed = await action();
       const event = await this.recorder.recordSucceeded({
@@ -103922,6 +103971,9 @@ function classifySafeInvestigationFailureReason(error2) {
   if (error2 instanceof ReviewInvestigationLegacyFallbackSignal) {
     if (error2.reason === "capability_disabled_before_open" /* CapabilityDisabledBeforeOpen */) {
       return "capability_disabled_before_open";
+    }
+    if (error2.reason === "record_only_budget_exhausted" /* RecordOnlyBudgetExhausted */) {
+      return "investigation_budget_exhausted";
     }
     return error2.deferredStatus === null ? "investigation_record_only_deferred" : `investigation_${error2.deferredStatus}`;
   }
@@ -111398,6 +111450,7 @@ var ContextGatewayV4InvestigationAdapter = class {
         providerInvocationKey: this.executionAuthority.providerInvocationKey,
         toolPolicyHash: this.executionAuthority.toolPolicyHash,
         openingIntentDiscriminator: `${input.investigationId}:${input.turnId}`,
+        maxOperations: input.maxOperations,
         revision: this.context.revision
       });
     } catch (error2) {
@@ -111644,6 +111697,10 @@ var ReviewInvestigationRecordingAdapter = class {
       throw new Error("review_investigation_recording_revision_mismatch");
     }
     let result2;
+    const investigationTimeoutMs = requirePositiveTimeout2(
+      this.options.investigationTimeoutMs ?? this.options.providerTimeoutMs
+    );
+    const deadline = linkedDeadline(input.signal, investigationTimeoutMs);
     try {
       result2 = await this.createRunner(input).execute({
         authorizationToken: input.authorization.authorizationToken,
@@ -111693,7 +111750,8 @@ var ReviewInvestigationRecordingAdapter = class {
           reviewContextPrompt: requireInvestigationContextPrompt(
             input.invocation
           ),
-          turnBrief: requireTurnBrief2(snapshot)
+          turnBrief: requireTurnBrief2(snapshot),
+          maxGatewayOperations: this.options.actionBudget.maxGatewayOperations
         }),
         workingDirectory: this.options.workingDirectory,
         turnBudget: {
@@ -111705,13 +111763,26 @@ var ReviewInvestigationRecordingAdapter = class {
         maxObligationsForTurn: this.options.actionBudget.maxObligationsForTurn,
         providerTimeoutMs: this.options.providerTimeoutMs,
         providerMaxTurns: this.options.actionBudget.providerMaxTurns,
+        maxGatewayOperations: this.options.actionBudget.maxGatewayOperations,
         certificateTtlMs: this.options.certificateTtlMs,
         minimumCapacityParkMs: this.options.minimumCapacityParkMs,
         maxStateTransitions: this.options.actionBudget.maxStateTransitions,
-        signal: input.signal
+        signal: deadline.signal
       });
     } catch (error2) {
+      if (deadline.expired()) {
+        if (this.mode === "record_only" /* RecordOnly */) {
+          throw new ReviewInvestigationLegacyFallbackSignal(
+            "record_only_budget_exhausted" /* RecordOnlyBudgetExhausted */
+          );
+        }
+        throw new ReviewInvestigationDeferredSignal(
+          "recovery_required" /* RecoveryRequired */
+        );
+      }
       throw mapInvestigationGatewayConfigurationFailure(error2) ?? error2;
+    } finally {
+      deadline.dispose();
     }
     if (isDeferred(result2.status)) {
       if (this.mode === "record_only" /* RecordOnly */) {
@@ -111800,6 +111871,32 @@ function normalizeReviewInvestigationRecordingOptions(options) {
       providerMaxTurns: options.policy.maxSemanticTurns,
       maxStateTransitions: options.maxStateTransitions
     })
+  });
+}
+function requirePositiveTimeout2(value) {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error("review_investigation_timeout_invalid");
+  }
+  return value;
+}
+function linkedDeadline(parent, timeoutMs) {
+  const controller = new AbortController();
+  let deadlineExpired = false;
+  const abortFromParent = () => controller.abort(parent?.reason);
+  parent?.addEventListener("abort", abortFromParent, { once: true });
+  if (parent?.aborted) abortFromParent();
+  const timer = setTimeout(() => {
+    deadlineExpired = true;
+    controller.abort(new Error("review_investigation_deadline_exceeded"));
+  }, timeoutMs);
+  timer.unref();
+  return Object.freeze({
+    signal: controller.signal,
+    expired: () => deadlineExpired,
+    dispose: () => {
+      clearTimeout(timer);
+      parent?.removeEventListener("abort", abortFromParent);
+    }
   });
 }
 function isDeferred(status) {

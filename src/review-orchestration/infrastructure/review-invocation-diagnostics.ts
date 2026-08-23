@@ -68,6 +68,12 @@ export function classifySafeInvestigationFailureReason(error: unknown): string {
     ) {
       return 'capability_disabled_before_open';
     }
+    if (
+      error.reason ===
+      ReviewInvestigationLegacyFallbackReason.RecordOnlyBudgetExhausted
+    ) {
+      return 'investigation_budget_exhausted';
+    }
     return error.deferredStatus === null
       ? 'investigation_record_only_deferred'
       : `investigation_${error.deferredStatus}`;

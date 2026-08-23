@@ -163,5 +163,12 @@ describe('review invocation diagnostics', () => {
         )
       )
     ).toBe('investigation_recovery_required');
+    expect(
+      classifySafeInvestigationFailureReason(
+        new ReviewInvestigationLegacyFallbackSignal(
+          ReviewInvestigationLegacyFallbackReason.RecordOnlyBudgetExhausted
+        )
+      )
+    ).toBe('investigation_budget_exhausted');
   });
 });

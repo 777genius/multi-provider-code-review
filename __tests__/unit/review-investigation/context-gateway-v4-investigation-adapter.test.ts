@@ -119,6 +119,7 @@ describe('ContextGatewayV4InvestigationAdapter', () => {
         reviewRevisionHash: hash,
         investigationId: 'investigation-1',
         turnId: 'turn-1',
+        maxOperations: 32,
         currentLease: () => lease,
       })
     ).rejects.toMatchObject({
@@ -170,6 +171,7 @@ describe('ContextGatewayV4InvestigationAdapter', () => {
       reviewRevisionHash: hash,
       investigationId: 'investigation-1',
       turnId: 'turn-2',
+      maxOperations: 64,
       currentLease: () => lease,
     });
 
@@ -187,6 +189,7 @@ describe('ContextGatewayV4InvestigationAdapter', () => {
         executionProfile: ReviewAgentExecutionProfile.InvestigationGatewayV1,
         providerInvocationKey: 'critic-invocation',
         openingIntentDiscriminator: 'investigation-1:turn-2',
+        maxOperations: 64,
       })
     );
     expect(opened).not.toHaveProperty('providerConfig');

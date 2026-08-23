@@ -14310,10 +14310,10 @@ var review_investigation_capability_v1_golden_default = {
       probePolicyVersion: "review-investigation-probe-policy.v2",
       runtimeProfileVersion: "gateway-attested-agent.v1",
       searchPolicyVersion: "review-investigation-fixed-string-search.v1",
-      turnPromptContractHash: "87996321aa77575ce5c434a555d238c57fe319cd4131b8cac412c9fa6bf08feb"
+      turnPromptContractHash: "0e22e292499206ff51a93a52ace638e902cca8f89fb1b3d7b32bd2a317b7ac2e"
     },
-    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"87996321aa77575ce5c434a555d238c57fe319cd4131b8cac412c9fa6bf08feb"}',
-    sha256: "064b245d9ac5b710a70ec2e3c1efdefa8f5b2de0efd73332a413f846c08783db"
+    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"0e22e292499206ff51a93a52ace638e902cca8f89fb1b3d7b32bd2a317b7ac2e"}',
+    sha256: "28323b59ad09d33c483641ab92f4395771f4e51b05274ecdceb5fd7d83f5e575"
   },
   policy: {
     value: {
@@ -16343,7 +16343,7 @@ var MAX_FILE_TOTAL_BYTES = 32 * 1024 * 1024;
 var MAX_DIRECTORY_RESULTS = 25e4;
 var MAX_SEARCH_RESULTS2 = 1e5;
 var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
-  constructor(root, sessionId, mergeBaseSha, headSha, mergeBaseTreeOid, headTreeOid, secret, recorder, replayMaterial, cursorIssuedAtMs, now) {
+  constructor(root, sessionId, mergeBaseSha, headSha, mergeBaseTreeOid, headTreeOid, secret, recorder, replayMaterial, maxOperations, cursorIssuedAtMs, now) {
     this.root = root;
     this.sessionId = sessionId;
     this.mergeBaseSha = mergeBaseSha;
@@ -16353,10 +16353,13 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     this.secret = secret;
     this.recorder = recorder;
     this.replayMaterial = replayMaterial;
+    this.maxOperations = maxOperations;
     this.cursorIssuedAtMs = cursorIssuedAtMs;
     this.now = now;
   }
   inventoryPromise = null;
+  operationsStarted = 0;
+  budgetExhaustionRecorded = false;
   static async create(input) {
     const root = await (0, import_promises5.realpath)(input.root);
     requireGitOid(
@@ -16384,6 +16387,10 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       throw new Error("context_gateway_checkout_tree_mismatch");
     }
     const now = input.now ?? Date.now;
+    const maxOperations = input.maxOperations ?? CONTEXT_GATEWAY_MAX_OPERATIONS;
+    if (!Number.isSafeInteger(maxOperations) || maxOperations < 1 || maxOperations > CONTEXT_GATEWAY_MAX_OPERATIONS) {
+      throw new Error("context_gateway_v4_max_operations_invalid");
+    }
     return new _FilesystemContextGatewayV4(
       root,
       input.sessionId,
@@ -16394,9 +16401,13 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
       input.secret,
       input.recorder,
       input.replayMaterial ?? null,
+      maxOperations,
       now(),
       now
     );
+  }
+  remainingOperations() {
+    return Math.max(0, this.maxOperations - this.operationsStarted);
   }
   async readFile(input) {
     const replayInput = normalizeFileReadInput(input);
@@ -16864,6 +16875,22 @@ var FilesystemContextGatewayV4 = class _FilesystemContextGatewayV4 {
     return Object.freeze({ kind, ...facts });
   }
   async execute(operation, replayInput, action) {
+    if (this.operationsStarted >= this.maxOperations) {
+      const error2 = new Error("context_gateway_operation_budget_exceeded");
+      if (!this.budgetExhaustionRecorded) {
+        this.budgetExhaustionRecorded = true;
+        try {
+          await this.recorder.recordRejected({
+            operation,
+            failureClass: "budget_exceeded" /* BudgetExceeded */,
+            sanitizedReason: error2.message
+          });
+        } catch {
+        }
+      }
+      throw error2;
+    }
+    this.operationsStarted += 1;
     try {
       const completed = await action();
       const event = await this.recorder.recordSucceeded({
@@ -17248,7 +17275,8 @@ async function runV4(config2, preflightOnly) {
     headSha: config2.headSha,
     secret,
     recorder,
-    replayMaterial
+    replayMaterial,
+    ...preflightOnly ? {} : { maxOperations: config2.maxOperations }
   });
   if (preflightOnly) {
     let cursor;
@@ -17286,7 +17314,10 @@ async function runV4(config2, preflightOnly) {
             maxBytes: optionalInteger(args.maxBytes, "maxBytes")
           })
         });
-        return response(await gateway.readFile(requestInput));
+        return budgetedResponse(
+          await gateway.readFile(requestInput),
+          gateway.remainingOperations()
+        );
       }
       case "review_list_directory": {
         const requestInput = await parseContextGatewayV4Request({
@@ -17302,7 +17333,10 @@ async function runV4(config2, preflightOnly) {
             cursor: optionalString(args.cursor, "cursor")
           })
         });
-        return response(await gateway.listDirectory(requestInput));
+        return budgetedResponse(
+          await gateway.listDirectory(requestInput),
+          gateway.remainingOperations()
+        );
       }
       case "review_search_text": {
         const requestInput = await parseContextGatewayV4Request({
@@ -17318,7 +17352,10 @@ async function runV4(config2, preflightOnly) {
             cursor: optionalString(args.cursor, "cursor")
           })
         });
-        return response(await gateway.searchText(requestInput));
+        return budgetedResponse(
+          await gateway.searchText(requestInput),
+          gateway.remainingOperations()
+        );
       }
       case "review_canonical_inventory": {
         const requestInput = await parseContextGatewayV4Request({
@@ -17330,7 +17367,10 @@ async function runV4(config2, preflightOnly) {
             cursor: optionalString(args.cursor, "cursor")
           })
         });
-        return response(await gateway.canonicalInventory(requestInput));
+        return budgetedResponse(
+          await gateway.canonicalInventory(requestInput),
+          gateway.remainingOperations()
+        );
       }
       case "review_git_fact": {
         const requestInput = await parseContextGatewayV4Request({
@@ -17339,7 +17379,10 @@ async function runV4(config2, preflightOnly) {
           argumentsValue: request.params.arguments,
           parse: (args) => ({ fact: requireGitFact(args.fact) })
         });
-        return response(await gateway.gitFact(requestInput));
+        return budgetedResponse(
+          await gateway.gitFact(requestInput),
+          gateway.remainingOperations()
+        );
       }
       default:
         await recorder.recordRejected({
@@ -17369,6 +17412,13 @@ function response(value) {
   return {
     content: [{ type: "text", text: JSON.stringify(value) }]
   };
+}
+function budgetedResponse(value, remainingOperations) {
+  const payload = requireRecord(value);
+  return response({
+    ...payload,
+    operationBudget: { remainingOperations }
+  });
 }
 function readConfig() {
   const config2 = {
@@ -17405,12 +17455,27 @@ function readConfig() {
     headSha: requireGitOid(
       requiredEnv("REVIEWROUTER_CONTEXT_HEAD_SHA"),
       "head_sha"
+    ),
+    maxOperations: requiredPositiveIntegerEnv(
+      "REVIEWROUTER_CONTEXT_GATEWAY_MAX_OPERATIONS",
+      2e3
     )
   };
   if (Buffer.from(config2.secret, "base64url").byteLength < 32) {
     throw new Error("context_gateway_secret_invalid");
   }
   return config2;
+}
+function requiredPositiveIntegerEnv(name, maximum) {
+  const raw = requiredEnv(name);
+  if (!/^[1-9][0-9]*$/u.test(raw)) {
+    throw new Error("context_gateway_max_operations_invalid");
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value > maximum) {
+    throw new Error("context_gateway_max_operations_invalid");
+  }
+  return value;
 }
 function readPolicyVersion(value) {
   if (value === void 0) {

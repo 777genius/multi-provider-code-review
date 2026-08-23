@@ -1462,6 +1462,7 @@ function runInput() {
     maxObligationsForTurn: 16,
     providerTimeoutMs: 600_000,
     providerMaxTurns: 8,
+    maxGatewayOperations: 32,
     certificateTtlMs: 3_600_000,
     minimumCapacityParkMs: 60_000,
     maxStateTransitions: 8,
