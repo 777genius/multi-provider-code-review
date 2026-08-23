@@ -147,6 +147,12 @@ describe.each([
       expect(runner.requests[0].environment).not.toHaveProperty(
         'REVIEWROUTER_CONTEXT_GATEWAY_SECRET'
       );
+    } else {
+      expect(runner.requests[0]).toMatchObject({
+        maxEventStreamBytes: 128 * 1024 * 1024,
+        maxEventBytes: 8 * 1024 * 1024,
+        maxFinalOutputBytes: 4 * 1024 * 1024,
+      });
     }
   });
 
@@ -654,6 +660,9 @@ class FakeRunner implements ReviewAgentProcessRunnerPort {
     readonly stdin: string;
     readonly environment: Readonly<NodeJS.ProcessEnv>;
     readonly outputSchema?: Readonly<Record<string, unknown>>;
+    readonly maxEventStreamBytes?: number;
+    readonly maxEventBytes?: number;
+    readonly maxFinalOutputBytes?: number;
   }> = [];
   readonly cancellations: Array<{
     invocationId: string;
@@ -757,6 +766,9 @@ class FakeRunner implements ReviewAgentProcessRunnerPort {
       stdin: request.protocol.prompt,
       environment: request.environment,
       outputSchema: request.protocol.outputSchema,
+      maxEventStreamBytes: request.maxEventStreamBytes,
+      maxEventBytes: request.maxEventBytes,
+      maxFinalOutputBytes: request.protocol.maxOutputBytes,
     });
     if (this.forcedResult) {
       if (this.forcedResult.exitCode !== 0) {

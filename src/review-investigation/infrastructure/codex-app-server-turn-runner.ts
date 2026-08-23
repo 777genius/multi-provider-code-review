@@ -24,7 +24,8 @@ export type CodexAppServerTurnRequest = Readonly<{
   cwd: string;
   environment: Readonly<NodeJS.ProcessEnv>;
   timeoutMs: number;
-  maxOutputBytes: number;
+  maxEventStreamBytes: number;
+  maxEventBytes: number;
   signal?: AbortSignal;
   protocol: CodexAppServerProtocolRequest;
 }>;
@@ -285,7 +286,7 @@ class CodexAppServerChildTurn {
   private readonly protocolRun: Promise<CodexAppServerProtocolResult>;
   private stdoutBuffer = Buffer.alloc(0);
   private stderr = Buffer.alloc(0);
-  private outputBytes = 0;
+  private eventStreamBytes = 0;
   private closed = false;
   private settled = false;
   private forcedTermination: ReviewAgentProcessTermination | null = null;
@@ -367,7 +368,11 @@ class CodexAppServerChildTurn {
   }
 
   private onStdout(chunk: Buffer): void {
-    if (this.closed || this.settled || !this.collectBytes(chunk.byteLength)) {
+    if (
+      this.closed ||
+      this.settled ||
+      !this.collectEventStreamBytes(chunk.byteLength)
+    ) {
       return;
     }
     this.stdoutBuffer = Buffer.concat([this.stdoutBuffer, chunk]);
@@ -377,16 +382,22 @@ class CodexAppServerChildTurn {
         let line = this.stdoutBuffer.subarray(0, newline);
         this.stdoutBuffer = this.stdoutBuffer.subarray(newline + 1);
         if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
+        if (!this.acceptEvent(line.byteLength)) return;
         this.receiveLine(line);
         newline = this.stdoutBuffer.indexOf(0x0a);
       }
+      if (!this.acceptEvent(this.stdoutBuffer.byteLength)) return;
     } catch (error) {
       this.onProtocolFailure(error);
     }
   }
 
   private onStderr(chunk: Buffer): void {
-    if (this.closed || this.settled || !this.collectBytes(chunk.byteLength)) {
+    if (
+      this.closed ||
+      this.settled ||
+      !this.collectEventStreamBytes(chunk.byteLength)
+    ) {
       return;
     }
     if (this.stderr.byteLength < MAX_DIAGNOSTIC_BYTES) {
@@ -397,9 +408,20 @@ class CodexAppServerChildTurn {
     }
   }
 
-  private collectBytes(bytes: number): boolean {
-    this.outputBytes += bytes;
-    if (this.outputBytes <= this.input.request.maxOutputBytes) return true;
+  private collectEventStreamBytes(bytes: number): boolean {
+    this.eventStreamBytes += bytes;
+    if (this.eventStreamBytes <= this.input.request.maxEventStreamBytes) {
+      return true;
+    }
+    return this.exceedOutputLimit();
+  }
+
+  private acceptEvent(bytes: number): boolean {
+    if (bytes <= this.input.request.maxEventBytes) return true;
+    return this.exceedOutputLimit();
+  }
+
+  private exceedOutputLimit(): false {
     this.forcedTermination = ReviewAgentProcessTermination.OutputLimitExceeded;
     this.terminalError = processFailure();
     this.killProcessGroup();
@@ -485,7 +507,11 @@ class CodexAppServerChildTurn {
     this.input.request.signal?.removeEventListener('abort', this.onAbort);
 
     try {
-      if (this.stdoutBuffer.byteLength > 0) {
+      if (
+        this.forcedTermination === null &&
+        this.terminalError === null &&
+        this.stdoutBuffer.byteLength > 0
+      ) {
         let line = this.stdoutBuffer;
         if (line.at(-1) === 0x0d) line = line.subarray(0, -1);
         this.receiveLine(line);
@@ -576,8 +602,11 @@ function validateRequest(request: CodexAppServerTurnRequest): void {
     !request.cwd ||
     !Number.isSafeInteger(request.timeoutMs) ||
     request.timeoutMs < 1 ||
-    !Number.isSafeInteger(request.maxOutputBytes) ||
-    request.maxOutputBytes < 1
+    !Number.isSafeInteger(request.maxEventStreamBytes) ||
+    request.maxEventStreamBytes < 1 ||
+    !Number.isSafeInteger(request.maxEventBytes) ||
+    request.maxEventBytes < 1 ||
+    request.maxEventBytes > request.maxEventStreamBytes
   ) {
     throw processFailure();
   }

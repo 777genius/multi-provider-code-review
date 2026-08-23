@@ -103,6 +103,103 @@ describe('NodeCodexAppServerTurnRunner', () => {
     ).resolves.toMatchObject({ finalMessage: '{"outputVersion":2}' });
   }, 15_000);
 
+  it('allows a bounded event stream larger than the final output budget', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'rr-app-server-test-'));
+    const server = path.join(root, 'large-stream-app-server.cjs');
+    await writeFile(
+      server,
+      fakeAppServer(
+        '',
+        `const largeReasoning = {
+          type: 'reasoning', id: 'large-reasoning',
+          summary: ['x'.repeat(5_000)], content: [],
+        };
+        notify('item/started', {
+          threadId, turnId, startedAtMs: 1, item: largeReasoning,
+        });
+        notify('item/completed', {
+          threadId, turnId, completedAtMs: 2, item: largeReasoning,
+        });`
+      ),
+      'utf8'
+    );
+    const runner = new NodeCodexAppServerTurnRunner({
+      versionProbe: { assertSupported: async () => undefined },
+    });
+
+    await expect(
+      runner.executeTurn({
+        ...request(root, server),
+        maxEventStreamBytes: 100_000,
+        maxEventBytes: 10_000,
+        protocol: {
+          ...request(root, server).protocol,
+          maxOutputBytes: 100,
+        },
+      })
+    ).resolves.toMatchObject({ finalMessage: '{"outputVersion":2}' });
+  }, 15_000);
+
+  it('terminates a single oversized unterminated event', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'rr-app-server-test-'));
+    const server = path.join(root, 'oversized-event-app-server.cjs');
+    await writeFile(
+      server,
+      "process.stdin.once('data',()=>{process.stdout.write('x'.repeat(2_000));});setTimeout(()=>{},10000);",
+      'utf8'
+    );
+    const observed = jest.fn();
+    const runner = new NodeCodexAppServerTurnRunner({
+      versionProbe: { assertSupported: async () => undefined },
+      processResultObserver: observed,
+    });
+
+    await expect(
+      runner.executeTurn({
+        ...request(root, server),
+        maxEventStreamBytes: 10_000,
+        maxEventBytes: 1_000,
+      })
+    ).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.ProcessFailure,
+    });
+    expect(observed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        termination: 'output_limit_exceeded',
+      })
+    );
+  }, 15_000);
+
+  it('keeps the cumulative event stream bounded', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'rr-app-server-test-'));
+    const server = path.join(root, 'oversized-stream-app-server.cjs');
+    await writeFile(
+      server,
+      "process.stdin.once('data',()=>{for(let i=0;i<20;i+=1)process.stdout.write(JSON.stringify({id:i,padding:'x'.repeat(100)})+'\\n');});setTimeout(()=>{},10000);",
+      'utf8'
+    );
+    const observed = jest.fn();
+    const runner = new NodeCodexAppServerTurnRunner({
+      versionProbe: { assertSupported: async () => undefined },
+      processResultObserver: observed,
+    });
+
+    await expect(
+      runner.executeTurn({
+        ...request(root, server),
+        maxEventStreamBytes: 1_000,
+        maxEventBytes: 500,
+      })
+    ).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.ProcessFailure,
+    });
+    expect(observed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        termination: 'output_limit_exceeded',
+      })
+    );
+  }, 15_000);
+
   it('classifies an official terminal error notification paired with a failed turn', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'rr-app-server-test-'));
     const server = path.join(root, 'terminal-error-app-server.cjs');
@@ -217,7 +314,8 @@ function request(root: string, script: string): CodexAppServerTurnRequest {
     cwd: root,
     environment: { PATH: process.env.PATH ?? '', RR_TEST_CWD: root },
     timeoutMs: 10_000,
-    maxOutputBytes: 1_000_000,
+    maxEventStreamBytes: 1_000_000,
+    maxEventBytes: 100_000,
     protocol: {
       cwd: root,
       prompt: 'Review through the gateway.',

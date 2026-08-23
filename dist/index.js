@@ -109647,7 +109647,7 @@ var CodexAppServerChildTurn = class {
   protocolRun;
   stdoutBuffer = Buffer.alloc(0);
   stderr = Buffer.alloc(0);
-  outputBytes = 0;
+  eventStreamBytes = 0;
   closed = false;
   settled = false;
   forcedTermination = null;
@@ -109685,7 +109685,7 @@ var CodexAppServerChildTurn = class {
     });
   }
   onStdout(chunk) {
-    if (this.closed || this.settled || !this.collectBytes(chunk.byteLength)) {
+    if (this.closed || this.settled || !this.collectEventStreamBytes(chunk.byteLength)) {
       return;
     }
     this.stdoutBuffer = Buffer.concat([this.stdoutBuffer, chunk]);
@@ -109695,15 +109695,17 @@ var CodexAppServerChildTurn = class {
         let line = this.stdoutBuffer.subarray(0, newline);
         this.stdoutBuffer = this.stdoutBuffer.subarray(newline + 1);
         if (line.at(-1) === 13) line = line.subarray(0, -1);
+        if (!this.acceptEvent(line.byteLength)) return;
         this.receiveLine(line);
         newline = this.stdoutBuffer.indexOf(10);
       }
+      if (!this.acceptEvent(this.stdoutBuffer.byteLength)) return;
     } catch (error2) {
       this.onProtocolFailure(error2);
     }
   }
   onStderr(chunk) {
-    if (this.closed || this.settled || !this.collectBytes(chunk.byteLength)) {
+    if (this.closed || this.settled || !this.collectEventStreamBytes(chunk.byteLength)) {
       return;
     }
     if (this.stderr.byteLength < MAX_DIAGNOSTIC_BYTES) {
@@ -109713,9 +109715,18 @@ var CodexAppServerChildTurn = class {
       ]);
     }
   }
-  collectBytes(bytes) {
-    this.outputBytes += bytes;
-    if (this.outputBytes <= this.input.request.maxOutputBytes) return true;
+  collectEventStreamBytes(bytes) {
+    this.eventStreamBytes += bytes;
+    if (this.eventStreamBytes <= this.input.request.maxEventStreamBytes) {
+      return true;
+    }
+    return this.exceedOutputLimit();
+  }
+  acceptEvent(bytes) {
+    if (bytes <= this.input.request.maxEventBytes) return true;
+    return this.exceedOutputLimit();
+  }
+  exceedOutputLimit() {
     this.forcedTermination = "output_limit_exceeded" /* OutputLimitExceeded */;
     this.terminalError = processFailure2();
     this.killProcessGroup();
@@ -109787,7 +109798,7 @@ var CodexAppServerChildTurn = class {
     if (this.killTimer) clearTimeout(this.killTimer);
     this.input.request.signal?.removeEventListener("abort", this.onAbort);
     try {
-      if (this.stdoutBuffer.byteLength > 0) {
+      if (this.forcedTermination === null && this.terminalError === null && this.stdoutBuffer.byteLength > 0) {
         let line = this.stdoutBuffer;
         if (line.at(-1) === 13) line = line.subarray(0, -1);
         this.receiveLine(line);
@@ -109855,7 +109866,7 @@ var CodexAppServerChildTurn = class {
   }
 };
 function validateRequest2(request) {
-  if (!request.invocationId || !request.fencingToken || !request.binary || !request.cwd || !Number.isSafeInteger(request.timeoutMs) || request.timeoutMs < 1 || !Number.isSafeInteger(request.maxOutputBytes) || request.maxOutputBytes < 1) {
+  if (!request.invocationId || !request.fencingToken || !request.binary || !request.cwd || !Number.isSafeInteger(request.timeoutMs) || request.timeoutMs < 1 || !Number.isSafeInteger(request.maxEventStreamBytes) || request.maxEventStreamBytes < 1 || !Number.isSafeInteger(request.maxEventBytes) || request.maxEventBytes < 1 || request.maxEventBytes > request.maxEventStreamBytes) {
     throw processFailure2();
   }
 }
@@ -109917,6 +109928,8 @@ function deferred2() {
 }
 
 // src/review-investigation/infrastructure/codex-review-agent-adapter.ts
+var CODEX_APP_SERVER_EVENT_STREAM_OUTPUT_MULTIPLIER = 32;
+var CODEX_APP_SERVER_SINGLE_EVENT_OUTPUT_MULTIPLIER = 2;
 var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
   constructor(runner, options) {
     super(
@@ -109947,7 +109960,8 @@ var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
       cwd: execution.gateway.cwd,
       environment: this.executionEnvironment(execution),
       timeoutMs: request.timeoutMs,
-      maxOutputBytes: this.profile.maxOutputBytes * 3,
+      maxEventStreamBytes: this.profile.maxOutputBytes * CODEX_APP_SERVER_EVENT_STREAM_OUTPUT_MULTIPLIER,
+      maxEventBytes: this.profile.maxOutputBytes * CODEX_APP_SERVER_SINGLE_EVENT_OUTPUT_MULTIPLIER,
       signal: request.signal,
       protocol: {
         cwd: execution.gateway.cwd,

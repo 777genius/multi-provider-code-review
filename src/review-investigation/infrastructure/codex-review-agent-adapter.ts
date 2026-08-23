@@ -38,6 +38,9 @@ export type CodexReviewAgentAdapterOptions = Readonly<{
   processResultObserver?: (result: ReviewAgentProcessResult) => void;
 }>;
 
+const CODEX_APP_SERVER_EVENT_STREAM_OUTPUT_MULTIPLIER = 32;
+const CODEX_APP_SERVER_SINGLE_EVENT_OUTPUT_MULTIPLIER = 2;
+
 export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
   private readonly appServerRunner: CodexAppServerTurnRunnerPort;
 
@@ -80,7 +83,12 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
       cwd: execution.gateway.cwd,
       environment: this.executionEnvironment(execution),
       timeoutMs: request.timeoutMs,
-      maxOutputBytes: this.profile.maxOutputBytes * 3,
+      maxEventStreamBytes:
+        this.profile.maxOutputBytes *
+        CODEX_APP_SERVER_EVENT_STREAM_OUTPUT_MULTIPLIER,
+      maxEventBytes:
+        this.profile.maxOutputBytes *
+        CODEX_APP_SERVER_SINGLE_EVENT_OUTPUT_MULTIPLIER,
       signal: request.signal,
       protocol: {
         cwd: execution.gateway.cwd,
