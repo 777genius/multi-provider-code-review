@@ -73,6 +73,7 @@ export interface InvestigationContextGatewayRuntimeFactoryPort {
     readonly providerInvocationKey: string;
     readonly toolPolicyHash: string;
     readonly openingIntentDiscriminator: string;
+    readonly maxOperations: number;
     readonly revision: ReviewInvestigationGatewayRevision;
   }): Promise<InvestigationContextGatewayRuntimeSessionPort>;
 }
@@ -166,6 +167,7 @@ export class ContextGatewayV4InvestigationAdapter
         providerInvocationKey: this.executionAuthority.providerInvocationKey,
         toolPolicyHash: this.executionAuthority.toolPolicyHash,
         openingIntentDiscriminator: `${input.investigationId}:${input.turnId}`,
+        maxOperations: input.maxOperations,
         revision: this.context.revision,
       });
     } catch (error) {

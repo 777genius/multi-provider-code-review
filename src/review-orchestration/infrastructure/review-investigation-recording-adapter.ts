@@ -60,6 +60,7 @@ type ReviewInvestigationRecordingBaseOptions = Readonly<{
   workingDirectory: string;
   leaseDurationMs: number;
   providerTimeoutMs: number;
+  investigationTimeoutMs?: number;
   certificateTtlMs: number;
   minimumCapacityParkMs: number;
   policy: ReviewInvestigationPolicy;
@@ -198,6 +199,10 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
       throw new Error('review_investigation_recording_revision_mismatch');
     }
     let result;
+    const investigationTimeoutMs = requirePositiveTimeout(
+      this.options.investigationTimeoutMs ?? this.options.providerTimeoutMs
+    );
+    const deadline = linkedDeadline(input.signal, investigationTimeoutMs);
     try {
       result = await this.createRunner(input).execute({
         authorizationToken: input.authorization.authorizationToken,
@@ -253,6 +258,8 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
               input.invocation
             ),
             turnBrief: requireTurnBrief(snapshot),
+            maxGatewayOperations:
+              this.options.actionBudget.maxGatewayOperations,
           }),
         workingDirectory: this.options.workingDirectory,
         turnBudget: {
@@ -264,13 +271,26 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
         maxObligationsForTurn: this.options.actionBudget.maxObligationsForTurn,
         providerTimeoutMs: this.options.providerTimeoutMs,
         providerMaxTurns: this.options.actionBudget.providerMaxTurns,
+        maxGatewayOperations: this.options.actionBudget.maxGatewayOperations,
         certificateTtlMs: this.options.certificateTtlMs,
         minimumCapacityParkMs: this.options.minimumCapacityParkMs,
         maxStateTransitions: this.options.actionBudget.maxStateTransitions,
-        signal: input.signal,
+        signal: deadline.signal,
       });
     } catch (error) {
+      if (deadline.expired()) {
+        if (this.mode === ReviewInvestigationRecordingMode.RecordOnly) {
+          throw new ReviewInvestigationLegacyFallbackSignal(
+            ReviewInvestigationLegacyFallbackReason.RecordOnlyBudgetExhausted
+          );
+        }
+        throw new ReviewInvestigationDeferredSignal(
+          ReviewInvestigationRunStatus.RecoveryRequired
+        );
+      }
       throw mapInvestigationGatewayConfigurationFailure(error) ?? error;
+    } finally {
+      deadline.dispose();
     }
     if (isDeferred(result.status)) {
       if (this.mode === ReviewInvestigationRecordingMode.RecordOnly) {
@@ -357,6 +377,9 @@ function normalizeReviewInvestigationRecordingOptions(
     workingDirectory: options.workingDirectory,
     leaseDurationMs: options.leaseDurationMs,
     providerTimeoutMs: options.providerTimeoutMs,
+    ...(options.investigationTimeoutMs === undefined
+      ? {}
+      : { investigationTimeoutMs: options.investigationTimeoutMs }),
     certificateTtlMs: options.certificateTtlMs,
     minimumCapacityParkMs: options.minimumCapacityParkMs,
     policy: options.policy,
@@ -368,6 +391,34 @@ function normalizeReviewInvestigationRecordingOptions(
       providerMaxTurns: options.policy.maxSemanticTurns,
       maxStateTransitions: options.maxStateTransitions,
     }),
+  });
+}
+
+function requirePositiveTimeout(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error('review_investigation_timeout_invalid');
+  }
+  return value;
+}
+
+function linkedDeadline(parent: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  let deadlineExpired = false;
+  const abortFromParent = () => controller.abort(parent?.reason);
+  parent?.addEventListener('abort', abortFromParent, { once: true });
+  if (parent?.aborted) abortFromParent();
+  const timer = setTimeout(() => {
+    deadlineExpired = true;
+    controller.abort(new Error('review_investigation_deadline_exceeded'));
+  }, timeoutMs);
+  timer.unref();
+  return Object.freeze({
+    signal: controller.signal,
+    expired: () => deadlineExpired,
+    dispose: () => {
+      clearTimeout(timer);
+      parent?.removeEventListener('abort', abortFromParent);
+    },
   });
 }
 

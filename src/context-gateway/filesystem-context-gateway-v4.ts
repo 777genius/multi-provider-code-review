@@ -7,6 +7,7 @@ import {
   type CanonicalInventoryEntry,
 } from './canonical-git-inventory';
 import {
+  CONTEXT_GATEWAY_MAX_OPERATIONS,
   canonicalJson,
   keyedSha256,
   requireGitOid,
@@ -38,6 +39,8 @@ export class FilesystemContextGatewayV4 {
   private inventoryPromise: ReturnType<
     typeof buildCanonicalGitInventory
   > | null = null;
+  private operationsStarted = 0;
+  private budgetExhaustionRecorded = false;
 
   private constructor(
     private readonly root: string,
@@ -49,6 +52,7 @@ export class FilesystemContextGatewayV4 {
     private readonly secret: Buffer,
     private readonly recorder: ContextGatewayV4Recorder,
     private readonly replayMaterial: ContextGatewayV4ReplayMaterialRecorder | null,
+    private readonly maxOperations: number,
     private readonly cursorIssuedAtMs: number,
     private readonly now: () => number
   ) {}
@@ -62,6 +66,7 @@ export class FilesystemContextGatewayV4 {
     readonly secret: Buffer;
     readonly recorder: ContextGatewayV4Recorder;
     readonly replayMaterial?: ContextGatewayV4ReplayMaterialRecorder;
+    readonly maxOperations?: number;
     readonly now?: () => number;
   }): Promise<FilesystemContextGatewayV4> {
     const root = await realpath(input.root);
@@ -90,6 +95,14 @@ export class FilesystemContextGatewayV4 {
       throw new Error('context_gateway_checkout_tree_mismatch');
     }
     const now = input.now ?? Date.now;
+    const maxOperations = input.maxOperations ?? CONTEXT_GATEWAY_MAX_OPERATIONS;
+    if (
+      !Number.isSafeInteger(maxOperations) ||
+      maxOperations < 1 ||
+      maxOperations > CONTEXT_GATEWAY_MAX_OPERATIONS
+    ) {
+      throw new Error('context_gateway_v4_max_operations_invalid');
+    }
     return new FilesystemContextGatewayV4(
       root,
       input.sessionId,
@@ -100,9 +113,14 @@ export class FilesystemContextGatewayV4 {
       input.secret,
       input.recorder,
       input.replayMaterial ?? null,
+      maxOperations,
       now(),
       now
     );
+  }
+
+  remainingOperations(): number {
+    return Math.max(0, this.maxOperations - this.operationsStarted);
   }
 
   async readFile(input: {
@@ -675,6 +693,23 @@ export class FilesystemContextGatewayV4 {
       readonly operationReceiptId: string;
     }>
   ): Promise<T> {
+    if (this.operationsStarted >= this.maxOperations) {
+      const error = new Error('context_gateway_operation_budget_exceeded');
+      if (!this.budgetExhaustionRecorded) {
+        this.budgetExhaustionRecorded = true;
+        try {
+          await this.recorder.recordRejected({
+            operation,
+            failureClass: ContextOperationFailureClass.BudgetExceeded,
+            sanitizedReason: error.message,
+          });
+        } catch {
+          // The original deterministic budget failure remains authoritative.
+        }
+      }
+      throw error;
+    }
+    this.operationsStarted += 1;
     try {
       const completed = await action();
       const event = await this.recorder.recordSucceeded({

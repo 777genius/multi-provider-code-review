@@ -69,10 +69,12 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     const first = buildReviewInvestigationTurnPrompt({
       reviewContextPrompt,
       turnBrief: firstBrief,
+      maxGatewayOperations: 32,
     });
     const second = buildReviewInvestigationTurnPrompt({
       reviewContextPrompt,
       turnBrief: secondBrief,
+      maxGatewayOperations: 32,
     });
 
     for (const prompt of [first, second]) {
@@ -82,6 +84,7 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       );
       expect(prompt).toContain('literal FINAL OUTPUT CONTRACT marker');
       expect(prompt.match(/TURN_BRIEF_V1_BASE64URL:/g)).toHaveLength(1);
+      expect(prompt).toContain('REVIEWROUTER_CONTEXT_OPERATION_BUDGET:32');
     }
     expect(first).not.toBe(second);
   });
@@ -922,6 +925,39 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       name: 'ReviewInvestigationDeferredSignal',
       status: ReviewInvestigationRunStatus.Parked,
     } satisfies Partial<ReviewInvestigationDeferredSignal>);
+  });
+
+  it('bounds the complete record-only investigation instead of multiplying per-turn timeouts', async () => {
+    const execute = jest.fn(
+      ({ signal }: { signal: AbortSignal }) =>
+        new Promise<never>((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(new Error('provider_cancelled_after_deadline')),
+            { once: true }
+          );
+        })
+    );
+    const adapter = new ReviewInvestigationRecordingAdapter(
+      () => ({ execute }) as never,
+      {
+        workingDirectory: '/tmp/review-investigation-fixture',
+        leaseDurationMs: 300_000,
+        providerTimeoutMs: 600_000,
+        investigationTimeoutMs: 25,
+        certificateTtlMs: 86_400_000,
+        minimumCapacityParkMs: 60_000,
+        maxObligationsForTurn: 64,
+        maxStateTransitions: 32,
+        policy: REVIEW_INVESTIGATION_PRODUCTION_POLICY,
+      }
+    );
+
+    await expect(adapter.execute(executionInput())).rejects.toMatchObject({
+      name: 'ReviewInvestigationLegacyFallbackSignal',
+      reason: ReviewInvestigationLegacyFallbackReason.RecordOnlyBudgetExhausted,
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it('maps fatal investigation gateway drift back to orchestration configuration failure', async () => {

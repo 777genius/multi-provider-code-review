@@ -162,6 +162,7 @@ async function runV4(
     secret,
     recorder,
     replayMaterial,
+    ...(preflightOnly ? {} : { maxOperations: config.maxOperations }),
   });
   if (preflightOnly) {
     let cursor: string | undefined;
@@ -200,7 +201,10 @@ async function runV4(
             maxBytes: optionalInteger(args.maxBytes, 'maxBytes'),
           }),
         });
-        return response(await gateway.readFile(requestInput));
+        return budgetedResponse(
+          await gateway.readFile(requestInput),
+          gateway.remainingOperations()
+        );
       }
       case 'review_list_directory': {
         const requestInput = await parseContextGatewayV4Request({
@@ -216,7 +220,10 @@ async function runV4(
             cursor: optionalString(args.cursor, 'cursor'),
           }),
         });
-        return response(await gateway.listDirectory(requestInput));
+        return budgetedResponse(
+          await gateway.listDirectory(requestInput),
+          gateway.remainingOperations()
+        );
       }
       case 'review_search_text': {
         const requestInput = await parseContextGatewayV4Request({
@@ -232,7 +239,10 @@ async function runV4(
             cursor: optionalString(args.cursor, 'cursor'),
           }),
         });
-        return response(await gateway.searchText(requestInput));
+        return budgetedResponse(
+          await gateway.searchText(requestInput),
+          gateway.remainingOperations()
+        );
       }
       case 'review_canonical_inventory': {
         const requestInput = await parseContextGatewayV4Request({
@@ -244,7 +254,10 @@ async function runV4(
             cursor: optionalString(args.cursor, 'cursor'),
           }),
         });
-        return response(await gateway.canonicalInventory(requestInput));
+        return budgetedResponse(
+          await gateway.canonicalInventory(requestInput),
+          gateway.remainingOperations()
+        );
       }
       case 'review_git_fact': {
         const requestInput = await parseContextGatewayV4Request({
@@ -253,7 +266,10 @@ async function runV4(
           argumentsValue: request.params.arguments,
           parse: (args) => ({ fact: requireGitFact(args.fact) }),
         });
-        return response(await gateway.gitFact(requestInput));
+        return budgetedResponse(
+          await gateway.gitFact(requestInput),
+          gateway.remainingOperations()
+        );
       }
       default:
         await recorder.recordRejected({
@@ -293,6 +309,14 @@ function response(value: unknown) {
   };
 }
 
+function budgetedResponse(value: unknown, remainingOperations: number) {
+  const payload = requireRecord(value);
+  return response({
+    ...payload,
+    operationBudget: { remainingOperations },
+  });
+}
+
 function readConfig() {
   const config = {
     policyVersion: readPolicyVersion(
@@ -329,11 +353,27 @@ function readConfig() {
       requiredEnv('REVIEWROUTER_CONTEXT_HEAD_SHA'),
       'head_sha'
     ),
+    maxOperations: requiredPositiveIntegerEnv(
+      'REVIEWROUTER_CONTEXT_GATEWAY_MAX_OPERATIONS',
+      2_000
+    ),
   };
   if (Buffer.from(config.secret, 'base64url').byteLength < 32) {
     throw new Error('context_gateway_secret_invalid');
   }
   return config;
+}
+
+function requiredPositiveIntegerEnv(name: string, maximum: number): number {
+  const raw = requiredEnv(name);
+  if (!/^[1-9][0-9]*$/u.test(raw)) {
+    throw new Error('context_gateway_max_operations_invalid');
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value > maximum) {
+    throw new Error('context_gateway_max_operations_invalid');
+  }
+  return value;
 }
 
 function readPolicyVersion(

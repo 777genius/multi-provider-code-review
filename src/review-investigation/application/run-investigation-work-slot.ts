@@ -28,6 +28,7 @@ import type { ReviewAgentProviderKind } from '../domain/runtime-profile';
 export enum ReviewInvestigationLegacyFallbackReason {
   CapabilityDisabledBeforeOpen = 'capability_disabled_before_open',
   RecordOnlyDeferred = 'record_only_deferred',
+  RecordOnlyBudgetExhausted = 'record_only_budget_exhausted',
 }
 
 export class ReviewInvestigationLegacyFallbackSignal extends Error {
@@ -75,6 +76,7 @@ export class RunInvestigationWorkSlot {
       readonly maxObligationsForTurn: number;
       readonly providerTimeoutMs: number;
       readonly providerMaxTurns: number;
+      readonly maxGatewayOperations: number;
       readonly certificateTtlMs: number;
       readonly minimumCapacityParkMs: number;
       readonly maxStateTransitions: number;
@@ -209,6 +211,7 @@ export class RunInvestigationWorkSlot {
               workingDirectory: input.workingDirectory,
               timeoutMs: input.providerTimeoutMs,
               maxTurns: input.providerMaxTurns,
+              maxGatewayOperations: input.maxGatewayOperations,
               minimumCapacityParkMs: input.minimumCapacityParkMs,
               snapshot,
               currentLease,

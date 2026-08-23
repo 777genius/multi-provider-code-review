@@ -18,6 +18,7 @@ import {
 import {
   ChangedPathsWitnessStatus,
   CONTEXT_GATEWAY_POLICY_VERSION,
+  CONTEXT_GATEWAY_MAX_OPERATIONS,
   canonicalJson,
   changedPathsWitnessStatus,
   CONTEXT_GATEWAY_V3_ENABLED_TOOLS,
@@ -104,6 +105,7 @@ export type OpenContextGatewayInvocationInput = Readonly<{
   providerInvocationKey: string;
   toolPolicyHash: string;
   openingIntentDiscriminator?: string;
+  maxOperations?: number;
   revision: ContextGatewayRevision;
 }>;
 
@@ -324,6 +326,9 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
       transcriptPath,
       replayMaterialPath,
       gatewayBundlePath,
+      maxOperations: requireContextGatewayMaxOperations(
+        input.maxOperations ?? CONTEXT_GATEWAY_MAX_OPERATIONS
+      ),
     });
     try {
       if (secret.byteLength < 32) {
@@ -376,6 +381,7 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
     readonly transcriptPath: string;
     readonly replayMaterialPath: string;
     readonly gatewayBundlePath: string;
+    readonly maxOperations?: number;
   }): ContextGatewayInvocationConfig {
     const policyVersion = this.policyVersion();
     return Object.freeze({
@@ -401,6 +407,11 @@ export class ContextGatewayInvocationSessionFactory implements ContextGatewayInv
         REVIEWROUTER_CONTEXT_BASE_SHA: input.revision.baseSha,
         REVIEWROUTER_CONTEXT_MERGE_BASE_SHA: input.revision.mergeBaseSha,
         REVIEWROUTER_CONTEXT_HEAD_SHA: input.revision.headSha,
+        REVIEWROUTER_CONTEXT_GATEWAY_MAX_OPERATIONS: String(
+          requireContextGatewayMaxOperations(
+            input.maxOperations ?? CONTEXT_GATEWAY_MAX_OPERATIONS
+          )
+        ),
       }),
     });
   }
@@ -1170,6 +1181,17 @@ function requireExecutionProfile(
     default:
       throw new Error('context_gateway_execution_profile_invalid');
   }
+}
+
+function requireContextGatewayMaxOperations(value: number): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > CONTEXT_GATEWAY_MAX_OPERATIONS
+  ) {
+    throw new Error('context_gateway_max_operations_invalid');
+  }
+  return value;
 }
 
 function sha256(value: string | Buffer): string {

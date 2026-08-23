@@ -31,6 +31,7 @@ export type ReviewInvestigationGatewayOpenInput = Readonly<{
   reviewRevisionHash: string;
   investigationId: string;
   turnId: string;
+  maxOperations: number;
   currentLease: () => ReviewInvestigationLease;
 }>;
 

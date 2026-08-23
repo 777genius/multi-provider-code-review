@@ -7,6 +7,7 @@ export const REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT =
 const TURN_INSTRUCTIONS = Object.freeze([
   'REVIEW INVESTIGATION TURN CONTRACT:',
   'Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.',
+  'Every successful Context Gateway result reports operationBudget.remainingOperations. Conclude with the best evidence-backed result before it reaches zero; do not retry after a budget-exceeded response.',
   'For typed search requirements, execute the exact literal query with paths=["."], revision="head", caseSensitive=true, and pageSize=500, then follow every cursor to completion.',
   'For a typed complete_page_chain obligation, put its complete receipt chain in closureClaims only. The control plane derives its discovery evidence; do not duplicate that chain in operationBackedDiscoveryClaims.',
   'For a typed complete_relation_context obligation, rerun its hydrated query and include the complete matching text_search receipt chain plus complete file_read receipts for exactly every requiredPathHashes entry. Never include unrelated search or directory receipts.',
@@ -26,15 +27,24 @@ export const REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT_HASH = sha256(
     instructions: TURN_INSTRUCTIONS,
     turnBriefEncoding:
       'REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:<canonical-json-base64url>',
+    operationBudgetEncoding:
+      'REVIEWROUTER_CONTEXT_OPERATION_BUDGET:<positive-integer>',
   })
 );
 
 export function buildReviewInvestigationTurnPrompt(input: {
   readonly reviewContextPrompt: string;
   readonly turnBrief: ReviewInvestigationTurnBrief;
+  readonly maxGatewayOperations: number;
 }): string {
   if (!input.reviewContextPrompt.trim()) {
     throw new Error('review_investigation_context_prompt_missing');
+  }
+  if (
+    !Number.isSafeInteger(input.maxGatewayOperations) ||
+    input.maxGatewayOperations < 1
+  ) {
+    throw new Error('review_investigation_operation_budget_invalid');
   }
   const encodedBrief = Buffer.from(
     canonicalJson(input.turnBrief),
@@ -44,6 +54,7 @@ export function buildReviewInvestigationTurnPrompt(input: {
     input.reviewContextPrompt,
     '',
     ...TURN_INSTRUCTIONS,
+    `REVIEWROUTER_CONTEXT_OPERATION_BUDGET:${input.maxGatewayOperations}`,
     `REVIEWROUTER_INVESTIGATION_TURN_BRIEF_V1_BASE64URL:${encodedBrief}`,
   ].join('\n');
 }
