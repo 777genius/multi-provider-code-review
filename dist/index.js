@@ -112850,6 +112850,34 @@ function codexCredentialEnvironment() {
     )
   );
 }
+function publicInvestigationProcessDiagnostic(stderr) {
+  const diagnosticKinds = [
+    [
+      /(?:stream|disconnect|connection reset|broken pipe|unexpected eof)/iu,
+      "stream"
+    ],
+    [
+      /(?:context length|too many tokens|maximum context|max(?:imum)? tokens)/iu,
+      "context_limit"
+    ],
+    [/(?:invalid.*schema|json schema|structured output)/iu, "schema"],
+    [/(?:\bmcp\b|tool transport|tool call)/iu, "transport"],
+    [/(?:rate limit|\b429\b|overloaded|capacity)/iu, "capacity"],
+    [
+      /(?:\b401\b|\b403\b|oauth|authentication|refresh token|not logged in)/iu,
+      "authentication"
+    ],
+    [/(?:killed|signal|out of memory|\boom\b)/iu, "resource"],
+    [/(?:panic|fatal|internal error)/iu, "internal"]
+  ];
+  return Object.freeze({
+    stderrByteCount: Buffer.byteLength(stderr, "utf8"),
+    stderrDigest: (0, import_crypto41.createHash)("sha256").update(stderr).digest("hex").slice(0, 16),
+    diagnosticKinds: Object.freeze(
+      diagnosticKinds.filter(([pattern]) => pattern.test(stderr)).map(([, kind]) => kind)
+    )
+  });
+}
 function createConfiguredProductionInvestigationAgents(input) {
   const processRunner = new NodeReviewAgentProcessRunner();
   return Object.freeze([
@@ -112860,7 +112888,18 @@ function createConfiguredProductionInvestigationAgents(input) {
         executionSessions: input.executionSessions,
         providerCredentialEnvironment: codexCredentialEnvironment,
         ...input.codexBinaryPath ? { binary: input.codexBinaryPath } : {},
-        reasoningEffort: "xhigh"
+        reasoningEffort: "xhigh",
+        processResultObserver: (result2) => {
+          if (result2.termination === "exited" /* Exited */ && result2.exitCode === 0) {
+            return;
+          }
+          logger.warn("Review investigation app-server process failed", {
+            termination: result2.termination,
+            exitCode: result2.exitCode,
+            durationMs: result2.durationMs,
+            ...publicInvestigationProcessDiagnostic(result2.stderr)
+          });
+        }
       })
     }
   ]);
