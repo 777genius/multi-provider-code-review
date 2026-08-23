@@ -849,6 +849,7 @@ class FakeExecutionSessions implements ReviewAgentExecutionSessionResolverPort {
     enabledTools: REVIEW_INVESTIGATION_GATEWAY_TOOLS,
     runtimeEnvironment: Object.freeze({
       REVIEWROUTER_CONTEXT_SESSION_ID: 'session-1',
+      REVIEWROUTER_CONTEXT_GATEWAY_MAX_OPERATIONS: '32',
     }),
     credentialEnvironment: Object.freeze({
       REVIEWROUTER_CONTEXT_GATEWAY_SECRET: 'gateway-secret',
