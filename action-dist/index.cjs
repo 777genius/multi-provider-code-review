@@ -46,11 +46,13 @@ __export(github_action_exports, {
   postPullRequestComment: () => postPullRequestComment,
   readActionAuthJson: () => readActionAuthJson,
   readActionInputs: () => readActionInputs,
+  requestHostedRelayGrantWithFreshGitHubOidc: () => requestHostedRelayGrantWithFreshGitHubOidc,
   requireRemainingReviewExecutionBudgetMs: () => requireRemainingReviewExecutionBudgetMs,
   resolveCodexBinary: () => resolveCodexBinary,
   resolveCodexProxyUpstreamResponsesUrl: () => resolveCodexProxyUpstreamResponsesUrl,
   routeCodexLocalProviderRequest: () => routeCodexLocalProviderRequest,
   runCodexRotatingGitHubAction: () => runCodexRotatingGitHubAction,
+  runHostedCodexRelayTransport: () => runHostedCodexRelayTransport,
   runHostedPoolLeaseFailover: () => runHostedPoolLeaseFailover,
   runProcess: () => runProcess,
   runReviewRuntimeWithinExecutionBudget: () => runReviewRuntimeWithinExecutionBudget,
@@ -60,7 +62,8 @@ __export(github_action_exports, {
   shouldSuppressTopLevelActionError: () => shouldSuppressTopLevelActionError,
   shouldUseSubscriptionRuntimeCodex: () => shouldUseSubscriptionRuntimeCodex,
   signalProcessTree: () => signalProcessTree,
-  startCodexLocalProviderProxy: () => startCodexLocalProviderProxy
+  startCodexLocalProviderProxy: () => startCodexLocalProviderProxy,
+  startHostedCodexRelayProxy: () => startHostedCodexRelayProxy
 });
 module.exports = __toCommonJS(github_action_exports);
 var import_node_child_process2 = require("node:child_process");
@@ -26472,11 +26475,13 @@ if (shouldAutoRunCodexRotatingAction({ env: process.env, argv: process.argv })) 
   postPullRequestComment,
   readActionAuthJson,
   readActionInputs,
+  requestHostedRelayGrantWithFreshGitHubOidc,
   requireRemainingReviewExecutionBudgetMs,
   resolveCodexBinary,
   resolveCodexProxyUpstreamResponsesUrl,
   routeCodexLocalProviderRequest,
   runCodexRotatingGitHubAction,
+  runHostedCodexRelayTransport,
   runHostedPoolLeaseFailover,
   runProcess,
   runReviewRuntimeWithinExecutionBudget,
@@ -26486,5 +26491,6 @@ if (shouldAutoRunCodexRotatingAction({ env: process.env, argv: process.argv })) 
   shouldSuppressTopLevelActionError,
   shouldUseSubscriptionRuntimeCodex,
   signalProcessTree,
-  startCodexLocalProviderProxy
+  startCodexLocalProviderProxy,
+  startHostedCodexRelayProxy
 });
