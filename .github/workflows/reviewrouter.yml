@@ -92,7 +92,7 @@ jobs:
           # SECURITY: Check for fork PRs with unexpected secret access
           # If a fork PR has OPENROUTER_API_KEY, the repository setting
           # "Send secrets to workflows from pull requests" is likely enabled (security risk)
-          if [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
             if [ -z "$OPENROUTER_API_KEY" ]; then
               echo "✅ Fork PR detected without OPENROUTER_API_KEY (expected behavior)."
               echo "   Fork PR review steps will be skipped for security (see job condition at line 142)."
@@ -188,12 +188,12 @@ jobs:
 
       - name: ReviewRouter
         # Run if PR number resolved AND (not a fork PR OR not a pull_request event)
-        # Fork detection: github.event.pull_request.head.repo.fork only exists for pull_request events
-        # - For pull_request: Skip if fork (github.event.pull_request.head.repo.fork == true)
+        # Cross-repository detection uses repository identity, not the repository fork flag.
+        # A same-repository PR must run even when this repository is itself a GitHub fork.
         # - For push: Always run (no fork concept, secrets available)
         # - For workflow_dispatch: Always run (manually triggered, secrets available)
         # This prevents fork PRs from running without secrets while allowing push/dispatch events
-        if: steps.resolve-pr.outputs.pr != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true)
+        if: steps.resolve-pr.outputs.pr != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: ./
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
