@@ -88,6 +88,13 @@ const ALLOWED_ITEM_TYPES = new Set([
   'contextCompaction',
 ]);
 
+const TERMINAL_SUMMARY_OMITTABLE_NON_EFFECTFUL_ITEM_TYPES = new Set([
+  'userMessage',
+  'agentMessage',
+  'reasoning',
+  'contextCompaction',
+]);
+
 const FORBIDDEN_ITEM_TYPES = new Set([
   'hookPrompt',
   'plan',
@@ -675,8 +682,15 @@ export class CodexAppServerProtocolClient {
 
   private reconcileItemsOmittedFromTerminalSummary(): void {
     for (const active of this.activeItems.values()) {
+      if (active.type !== 'mcpToolCall') {
+        if (
+          !TERMINAL_SUMMARY_OMITTABLE_NON_EFFECTFUL_ITEM_TYPES.has(active.type)
+        ) {
+          throw streamFailure();
+        }
+        continue;
+      }
       if (
-        active.type !== 'mcpToolCall' ||
         active.server !== CODEX_APP_SERVER_MCP_NAME ||
         active.tool === undefined ||
         !this.allowedTools.has(active.tool)

@@ -1358,49 +1358,115 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
-  it('does not reconcile an active non-MCP item from a terminal summary', async () => {
-    const fixture = await activeTurn();
-    fixture.client.receive(
-      notification('item/started', {
-        threadId,
-        turnId,
-        startedAtMs: 1,
-        item: {
-          id: 'reasoning',
-          type: 'reasoning',
-          summary: [],
-          content: [],
-        },
-      })
-    );
-    const finalMessage = agentMessageItem(
-      'final',
-      'final_answer',
-      '{"ok":true}'
-    );
-    completeMessage(
-      fixture.client,
-      finalMessage.id,
-      finalMessage.phase,
-      finalMessage.text
-    );
-    completeUsage(fixture.client);
-    fixture.client.receive(
-      notification('turn/completed', {
-        threadId,
-        turn: {
-          ...turn('completed'),
-          items: [finalMessage],
-          itemsView: 'summary',
-        },
-      })
-    );
+  it('reconciles active non-effectful items omitted from a terminal summary', async () => {
+    const omittedItems = [
+      {
+        id: 'user-message',
+        type: 'userMessage',
+        clientId: 'client-turn-1',
+        content: [
+          {
+            type: 'text',
+            text: 'Review through the gateway.',
+            text_elements: [],
+          },
+        ],
+      },
+      agentMessageItem('commentary', null, 'Inspecting relevant context.'),
+      {
+        id: 'reasoning',
+        type: 'reasoning',
+        summary: [],
+        content: [],
+      },
+      { id: 'compaction', type: 'contextCompaction' },
+    ];
 
-    await expect(fixture.result).rejects.toMatchObject({
-      failureClass: ReviewAgentFailureClass.StreamIncomplete,
-      message: 'review_agent_stream_incomplete_turn_completed',
-    });
+    for (const omittedItem of omittedItems) {
+      const fixture = await activeTurn();
+      fixture.client.receive(
+        notification('item/started', {
+          threadId,
+          turnId,
+          startedAtMs: 1,
+          item: omittedItem,
+        })
+      );
+      const finalMessage = agentMessageItem(
+        'final',
+        'final_answer',
+        '{"ok":true}'
+      );
+      completeMessage(
+        fixture.client,
+        finalMessage.id,
+        finalMessage.phase,
+        finalMessage.text
+      );
+      completeUsage(fixture.client);
+      fixture.client.receive(
+        notification('turn/completed', {
+          threadId,
+          turn: {
+            ...turn('completed'),
+            items: [finalMessage],
+            itemsView: 'summary',
+          },
+        })
+      );
+
+      await expect(fixture.result).resolves.toMatchObject({
+        finalMessage: '{"ok":true}',
+      });
+    }
   });
+
+  it.each([undefined, 'notLoaded', 'future'])(
+    'does not reconcile an active item from terminal view %s',
+    async (itemsView) => {
+      const fixture = await activeTurn();
+      fixture.client.receive(
+        notification('item/started', {
+          threadId,
+          turnId,
+          startedAtMs: 1,
+          item: {
+            id: 'reasoning',
+            type: 'reasoning',
+            summary: [],
+            content: [],
+          },
+        })
+      );
+      const finalMessage = agentMessageItem(
+        'final',
+        'final_answer',
+        '{"ok":true}'
+      );
+      completeMessage(
+        fixture.client,
+        finalMessage.id,
+        finalMessage.phase,
+        finalMessage.text
+      );
+      completeUsage(fixture.client);
+      fixture.client.receive(
+        notification('turn/completed', {
+          threadId,
+          turn: {
+            ...turn('completed'),
+            items: [finalMessage],
+            ...(itemsView === undefined ? {} : { itemsView }),
+          },
+        })
+      );
+
+      await expect(fixture.result).rejects.toMatchObject({
+        failureClass: ReviewAgentFailureClass.StreamIncomplete,
+        message: 'review_agent_stream_incomplete_turn_completed',
+      });
+    }
+  );
 
   it('preserves a forbidden terminal snapshot item confinement reason', async () => {
     const fixture = await activeTurn();

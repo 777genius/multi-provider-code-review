@@ -108281,6 +108281,12 @@ var ALLOWED_ITEM_TYPES = /* @__PURE__ */ new Set([
   "mcpToolCall",
   "contextCompaction"
 ]);
+var TERMINAL_SUMMARY_OMITTABLE_NON_EFFECTFUL_ITEM_TYPES = /* @__PURE__ */ new Set([
+  "userMessage",
+  "agentMessage",
+  "reasoning",
+  "contextCompaction"
+]);
 var FORBIDDEN_ITEM_TYPES = /* @__PURE__ */ new Set([
   "hookPrompt",
   "plan",
@@ -108754,7 +108760,13 @@ var CodexAppServerProtocolClient = class {
   }
   reconcileItemsOmittedFromTerminalSummary() {
     for (const active of this.activeItems.values()) {
-      if (active.type !== "mcpToolCall" || active.server !== CODEX_APP_SERVER_MCP_NAME || active.tool === void 0 || !this.allowedTools.has(active.tool)) {
+      if (active.type !== "mcpToolCall") {
+        if (!TERMINAL_SUMMARY_OMITTABLE_NON_EFFECTFUL_ITEM_TYPES.has(active.type)) {
+          throw streamFailure2();
+        }
+        continue;
+      }
+      if (active.server !== CODEX_APP_SERVER_MCP_NAME || active.tool === void 0 || !this.allowedTools.has(active.tool)) {
         throw streamFailure2();
       }
     }
