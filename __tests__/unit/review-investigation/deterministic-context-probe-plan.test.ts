@@ -220,6 +220,25 @@ describe('deterministic context probe plan', () => {
     );
   });
 
+  it('preserves explicit authorization declarations and imports', () => {
+    const path = 'src/auth/roles.ts';
+    const fullDiff = diff(
+      path,
+      '+export class Owner {}',
+      '+export interface Member {}',
+      '+export type Role = Owner | Member;',
+      '+export { Role as WorkspaceRole };'
+    );
+    const plan = createReviewInvestigationProbePlan({
+      files: [file(path)],
+      fullDiff,
+    });
+
+    expect(plan.probes.map((item) => item.query)).toEqual(
+      expect.arrayContaining(['Owner', 'Member', 'Role', 'WorkspaceRole'])
+    );
+  });
+
   it('keeps the highest-risk per-file probes with a deterministic truncation witness', () => {
     const plan = createReviewInvestigationProbePlan({
       files: [file('src/service.ts')],

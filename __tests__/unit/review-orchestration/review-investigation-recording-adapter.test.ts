@@ -911,12 +911,16 @@ describe('ReviewInvestigationRecordingAdapter', () => {
   );
 
   it('surfaces authoritative parked work as a typed deferral', async () => {
+    const nextEligibleAt = '2026-08-24T17:05:00.000Z';
     const adapter = new ReviewInvestigationRecordingAdapter(
       () =>
         ({
           execute: jest.fn(async () => ({
             status: ReviewInvestigationRunStatus.Parked,
-            snapshot: activeSnapshot(),
+            snapshot: Object.freeze({
+              ...activeSnapshot(),
+              nextEligibleAt,
+            }),
           })),
         }) as never,
       options(),
@@ -926,6 +930,7 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     await expect(adapter.execute(executionInput())).rejects.toMatchObject({
       name: 'ReviewInvestigationDeferredSignal',
       status: ReviewInvestigationRunStatus.Parked,
+      nextEligibleAt,
     } satisfies Partial<ReviewInvestigationDeferredSignal>);
   });
 

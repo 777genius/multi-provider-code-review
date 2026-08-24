@@ -26588,12 +26588,10 @@ var REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   "keys",
   "load",
   "main",
-  "member",
   "name",
   "notify",
   "null",
   "options",
-  "owner",
   "patch",
   "permission",
   "permissions",
@@ -26606,8 +26604,6 @@ var REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   "required",
   "response",
   "result",
-  "role",
-  "roles",
   "rollback",
   "route",
   "routes",
@@ -26633,9 +26629,13 @@ var REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   "webhooks",
   "write"
 ]);
+var REVIEW_INVESTIGATION_GENERIC_AUTHORIZATION_PROBE_DENYLIST = Object.freeze(["member", "owner", "role", "roles"]);
 var REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION = "review-investigation-risk-ranked-selection.v1";
 var GENERIC_PROBE_QUERIES = new Set(
   REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST
+);
+var GENERIC_AUTHORIZATION_PROBE_QUERIES = new Set(
+  REVIEW_INVESTIGATION_GENERIC_AUTHORIZATION_PROBE_DENYLIST
 );
 var PROBE_KIND_PRIORITY = Object.freeze({
   ["side_effect_identifier" /* SideEffectIdentifier */]: 0,
@@ -27010,7 +27010,11 @@ function normalizeQuery(value) {
   return query;
 }
 function isSpecificProbeQuery(probeKind, query) {
-  if (GENERIC_PROBE_QUERIES.has(query.toLowerCase())) return false;
+  const normalizedQuery = query.toLowerCase();
+  if (GENERIC_PROBE_QUERIES.has(normalizedQuery)) return false;
+  if (probeKind === "runtime_contract_identifier" /* RuntimeContractIdentifier */ && GENERIC_AUTHORIZATION_PROBE_QUERIES.has(normalizedQuery)) {
+    return false;
+  }
   if (/^\d+$/u.test(query)) return query.length >= 8;
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(query)) {
     return query.length >= 2;

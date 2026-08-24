@@ -62,12 +62,10 @@ export const REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   'keys',
   'load',
   'main',
-  'member',
   'name',
   'notify',
   'null',
   'options',
-  'owner',
   'patch',
   'permission',
   'permissions',
@@ -80,8 +78,6 @@ export const REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   'required',
   'response',
   'result',
-  'role',
-  'roles',
   'rollback',
   'route',
   'routes',
@@ -107,6 +103,8 @@ export const REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   'webhooks',
   'write',
 ]);
+export const REVIEW_INVESTIGATION_GENERIC_AUTHORIZATION_PROBE_DENYLIST =
+  Object.freeze(['member', 'owner', 'role', 'roles']);
 
 export enum ReviewInvestigationChangedFileStatus {
   Added = 'added',
@@ -229,6 +227,9 @@ type ProbeCandidate = Readonly<{
 
 const GENERIC_PROBE_QUERIES = new Set(
   REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST
+);
+const GENERIC_AUTHORIZATION_PROBE_QUERIES = new Set(
+  REVIEW_INVESTIGATION_GENERIC_AUTHORIZATION_PROBE_DENYLIST
 );
 
 const PROBE_KIND_PRIORITY: Readonly<
@@ -713,7 +714,14 @@ function isSpecificProbeQuery(
   probeKind: ReviewInvestigationProbeKind,
   query: string
 ): boolean {
-  if (GENERIC_PROBE_QUERIES.has(query.toLowerCase())) return false;
+  const normalizedQuery = query.toLowerCase();
+  if (GENERIC_PROBE_QUERIES.has(normalizedQuery)) return false;
+  if (
+    probeKind === ReviewInvestigationProbeKind.RuntimeContractIdentifier &&
+    GENERIC_AUTHORIZATION_PROBE_QUERIES.has(normalizedQuery)
+  ) {
+    return false;
+  }
   if (/^\d+$/u.test(query)) return query.length >= 8;
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(query)) {
     return query.length >= 2;
