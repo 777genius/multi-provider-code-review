@@ -1273,6 +1273,135 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('reconciles an authorized active MCP item omitted from a terminal summary', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('item/started', {
+        threadId,
+        turnId,
+        startedAtMs: 1,
+        item: mcpToolCallItem('mcp-call', {
+          status: 'inProgress',
+          result: null,
+          error: null,
+        }),
+      })
+    );
+    const finalMessage = agentMessageItem(
+      'final',
+      'final_answer',
+      '{"ok":true}'
+    );
+    completeMessage(
+      fixture.client,
+      finalMessage.id,
+      finalMessage.phase,
+      finalMessage.text
+    );
+    completeUsage(fixture.client);
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          ...turn('completed'),
+          items: [finalMessage],
+          itemsView: 'summary',
+        },
+      })
+    );
+
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
+    });
+  });
+
+  it('does not reconcile an active MCP item from a full terminal view', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('item/started', {
+        threadId,
+        turnId,
+        startedAtMs: 1,
+        item: mcpToolCallItem('mcp-call', {
+          status: 'inProgress',
+          result: null,
+          error: null,
+        }),
+      })
+    );
+    const finalMessage = agentMessageItem(
+      'final',
+      'final_answer',
+      '{"ok":true}'
+    );
+    completeMessage(
+      fixture.client,
+      finalMessage.id,
+      finalMessage.phase,
+      finalMessage.text
+    );
+    completeUsage(fixture.client);
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          ...turn('completed'),
+          items: [finalMessage],
+          itemsView: 'full',
+        },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_turn_completed',
+    });
+  });
+
+  it('does not reconcile an active non-MCP item from a terminal summary', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('item/started', {
+        threadId,
+        turnId,
+        startedAtMs: 1,
+        item: {
+          id: 'reasoning',
+          type: 'reasoning',
+          summary: [],
+          content: [],
+        },
+      })
+    );
+    const finalMessage = agentMessageItem(
+      'final',
+      'final_answer',
+      '{"ok":true}'
+    );
+    completeMessage(
+      fixture.client,
+      finalMessage.id,
+      finalMessage.phase,
+      finalMessage.text
+    );
+    completeUsage(fixture.client);
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          ...turn('completed'),
+          items: [finalMessage],
+          itemsView: 'summary',
+        },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_turn_completed',
+    });
+  });
+
   it('preserves a forbidden terminal snapshot item confinement reason', async () => {
     const fixture = await activeTurn();
     fixture.client.receive(

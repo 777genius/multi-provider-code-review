@@ -673,6 +673,25 @@ export class CodexAppServerProtocolClient {
     if (type === 'agentMessage') this.captureFinalMessage(item);
   }
 
+  private reconcileItemsOmittedFromTerminalSummary(): void {
+    for (const active of this.activeItems.values()) {
+      if (
+        active.type !== 'mcpToolCall' ||
+        active.server !== CODEX_APP_SERVER_MCP_NAME ||
+        active.tool === undefined ||
+        !this.allowedTools.has(active.tool)
+      ) {
+        throw streamFailure();
+      }
+    }
+
+    // Codex 0.147.0 intentionally emits only the last agent message in a
+    // successful summary turn. The gateway is read-only and independently
+    // sealed, so already-authorized items omitted from that summary are safe
+    // to retire without inventing an unobserved item/completed payload.
+    this.activeItems.clear();
+  }
+
   private validateAllowedItem(
     item: Record<string, unknown>,
     lifecycle: 'started' | 'completed'
@@ -885,13 +904,13 @@ export class CodexAppServerProtocolClient {
     const turnError = turn.error ?? null;
     switch (turn.status) {
       case 'completed':
-        if (
-          turnError !== null ||
-          this.retainedTerminalError !== null ||
-          this.activeItems.size !== 0
-        ) {
+        if (turnError !== null || this.retainedTerminalError !== null) {
           throw streamFailure();
         }
+        if (this.activeItems.size !== 0 && turn.itemsView === 'summary') {
+          this.reconcileItemsOmittedFromTerminalSummary();
+        }
+        if (this.activeItems.size !== 0) throw streamFailure();
         this.turnCompleted = true;
         this.maybeComplete();
         return;

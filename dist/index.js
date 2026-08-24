@@ -108752,6 +108752,14 @@ var CodexAppServerProtocolClient = class {
     this.completedItems.set(id, Object.freeze({ type: type2 }));
     if (type2 === "agentMessage") this.captureFinalMessage(item);
   }
+  reconcileItemsOmittedFromTerminalSummary() {
+    for (const active of this.activeItems.values()) {
+      if (active.type !== "mcpToolCall" || active.server !== CODEX_APP_SERVER_MCP_NAME || active.tool === void 0 || !this.allowedTools.has(active.tool)) {
+        throw streamFailure2();
+      }
+    }
+    this.activeItems.clear();
+  }
   validateAllowedItem(item, lifecycle) {
     const type2 = requireNonEmptyString(item.type, "item_type");
     if (FORBIDDEN_ITEM_TYPES.has(type2)) {
@@ -108903,9 +108911,13 @@ var CodexAppServerProtocolClient = class {
     const turnError = turn.error ?? null;
     switch (turn.status) {
       case "completed":
-        if (turnError !== null || this.retainedTerminalError !== null || this.activeItems.size !== 0) {
+        if (turnError !== null || this.retainedTerminalError !== null) {
           throw streamFailure2();
         }
+        if (this.activeItems.size !== 0 && turn.itemsView === "summary") {
+          this.reconcileItemsOmittedFromTerminalSummary();
+        }
+        if (this.activeItems.size !== 0) throw streamFailure2();
         this.turnCompleted = true;
         this.maybeComplete();
         return;
