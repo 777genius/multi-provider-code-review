@@ -676,12 +676,12 @@ export class CodexAppServerProtocolClient {
   private reconcileItemsOmittedFromTerminalSummary(): void {
     for (const active of this.activeItems.values()) {
       if (
-        active.type === 'mcpToolCall' &&
-        (active.server !== CODEX_APP_SERVER_MCP_NAME ||
-          active.tool === undefined ||
-          !this.allowedTools.has(active.tool))
+        active.type !== 'mcpToolCall' ||
+        active.server !== CODEX_APP_SERVER_MCP_NAME ||
+        active.tool === undefined ||
+        !this.allowedTools.has(active.tool)
       ) {
-        throw confinementFailure('mcp_tool_authority');
+        throw streamFailure();
       }
     }
 

@@ -1358,6 +1358,50 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
+  it('does not reconcile an active non-MCP item from a terminal summary', async () => {
+    const fixture = await activeTurn();
+    fixture.client.receive(
+      notification('item/started', {
+        threadId,
+        turnId,
+        startedAtMs: 1,
+        item: {
+          id: 'reasoning',
+          type: 'reasoning',
+          summary: [],
+          content: [],
+        },
+      })
+    );
+    const finalMessage = agentMessageItem(
+      'final',
+      'final_answer',
+      '{"ok":true}'
+    );
+    completeMessage(
+      fixture.client,
+      finalMessage.id,
+      finalMessage.phase,
+      finalMessage.text
+    );
+    completeUsage(fixture.client);
+    fixture.client.receive(
+      notification('turn/completed', {
+        threadId,
+        turn: {
+          ...turn('completed'),
+          items: [finalMessage],
+          itemsView: 'summary',
+        },
+      })
+    );
+
+    await expect(fixture.result).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.StreamIncomplete,
+      message: 'review_agent_stream_incomplete_turn_completed',
+    });
+  });
+
   it('preserves a forbidden terminal snapshot item confinement reason', async () => {
     const fixture = await activeTurn();
     fixture.client.receive(
