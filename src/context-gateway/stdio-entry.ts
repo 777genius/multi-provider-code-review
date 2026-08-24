@@ -26,6 +26,10 @@ import { ContextGatewayV4Recorder } from './context-gateway-v4-recorder';
 import { ContextGatewayV4ReplayMaterialRecorder } from './context-gateway-v4-replay-material';
 import { parseContextGatewayV4Request } from './context-gateway-v4-request';
 import {
+  ContextGatewayV4CursorHandles,
+  exposeContextGatewayV4Cursor,
+} from './context-gateway-v4-cursor-handles';
+import {
   CONTEXT_GATEWAY_TOOL_DEFINITIONS,
   CONTEXT_GATEWAY_V4_TOOL_DEFINITIONS,
 } from './context-gateway-tool-definitions';
@@ -176,6 +180,7 @@ async function runV4(
     await gateway.gitFact({ fact: 'merge_base' });
     return;
   }
+  const cursorHandles = new ContextGatewayV4CursorHandles();
 
   const server = new Server(
     {
@@ -217,11 +222,16 @@ async function runV4(
             maxDepth: optionalInteger(args.maxDepth, 'maxDepth'),
             includeHidden: optionalBoolean(args.includeHidden, 'includeHidden'),
             pageSize: optionalInteger(args.pageSize, 'pageSize'),
-            cursor: optionalString(args.cursor, 'cursor'),
+            cursor: cursorHandles.resolve(
+              optionalString(args.cursor, 'cursor')
+            ),
           }),
         });
         return budgetedResponse(
-          await gateway.listDirectory(requestInput),
+          exposeContextGatewayV4Cursor(
+            await gateway.listDirectory(requestInput),
+            cursorHandles
+          ),
           gateway.remainingOperations()
         );
       }
@@ -236,11 +246,16 @@ async function runV4(
             revision: optionalRevision(args.revision),
             caseSensitive: optionalBoolean(args.caseSensitive, 'caseSensitive'),
             pageSize: optionalInteger(args.pageSize, 'pageSize'),
-            cursor: optionalString(args.cursor, 'cursor'),
+            cursor: cursorHandles.resolve(
+              optionalString(args.cursor, 'cursor')
+            ),
           }),
         });
         return budgetedResponse(
-          await gateway.searchText(requestInput),
+          exposeContextGatewayV4Cursor(
+            await gateway.searchText(requestInput),
+            cursorHandles
+          ),
           gateway.remainingOperations()
         );
       }
@@ -251,11 +266,16 @@ async function runV4(
           argumentsValue: request.params.arguments,
           parse: (args) => ({
             pageSize: optionalInteger(args.pageSize, 'pageSize'),
-            cursor: optionalString(args.cursor, 'cursor'),
+            cursor: cursorHandles.resolve(
+              optionalString(args.cursor, 'cursor')
+            ),
           }),
         });
         return budgetedResponse(
-          await gateway.canonicalInventory(requestInput),
+          exposeContextGatewayV4Cursor(
+            await gateway.canonicalInventory(requestInput),
+            cursorHandles
+          ),
           gateway.remainingOperations()
         );
       }

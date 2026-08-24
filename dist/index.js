@@ -26536,7 +26536,7 @@ function requireEnum(value, enumeration, field) {
 
 // src/review-investigation/domain/deterministic-context-probe-plan.ts
 var REVIEW_INVESTIGATION_PROBE_PLAN_VERSION = "review-investigation-probe-plan.v2";
-var REVIEW_INVESTIGATION_PROBE_POLICY_VERSION = "review-investigation-probe-policy.v2";
+var REVIEW_INVESTIGATION_PROBE_POLICY_VERSION = "review-investigation-probe-policy.v3";
 var REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION = "review-investigation-fixed-string-search.v1";
 var REVIEW_INVESTIGATION_PROBE_LIMITS = Object.freeze({
   maxProbesPerFile: 48,
@@ -26629,9 +26629,13 @@ var REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   "webhooks",
   "write"
 ]);
+var REVIEW_INVESTIGATION_GENERIC_AUTHORIZATION_PROBE_DENYLIST = Object.freeze(["member", "owner", "role", "roles"]);
 var REVIEW_INVESTIGATION_PROBE_SELECTION_POLICY_VERSION = "review-investigation-risk-ranked-selection.v1";
 var GENERIC_PROBE_QUERIES = new Set(
   REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST
+);
+var GENERIC_AUTHORIZATION_PROBE_QUERIES = new Set(
+  REVIEW_INVESTIGATION_GENERIC_AUTHORIZATION_PROBE_DENYLIST
 );
 var PROBE_KIND_PRIORITY = Object.freeze({
   ["side_effect_identifier" /* SideEffectIdentifier */]: 0,
@@ -27006,7 +27010,11 @@ function normalizeQuery(value) {
   return query;
 }
 function isSpecificProbeQuery(probeKind, query) {
-  if (GENERIC_PROBE_QUERIES.has(query.toLowerCase())) return false;
+  const normalizedQuery = query.toLowerCase();
+  if (GENERIC_PROBE_QUERIES.has(normalizedQuery)) return false;
+  if (probeKind === "runtime_contract_identifier" /* RuntimeContractIdentifier */ && GENERIC_AUTHORIZATION_PROBE_QUERIES.has(normalizedQuery)) {
+    return false;
+  }
   if (/^\d+$/u.test(query)) return query.length >= 8;
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(query)) {
     return query.length >= 2;
@@ -95188,13 +95196,13 @@ var review_investigation_capability_v1_golden_default = {
       criticPolicyVersion: "review-investigation-critic.v2",
       expansionRulesVersion: "review-investigation-expansion.v3",
       gatewayPolicyVersion: "context-gateway-v4",
-      probePolicyVersion: "review-investigation-probe-policy.v2",
+      probePolicyVersion: "review-investigation-probe-policy.v3",
       runtimeProfileVersion: "gateway-attested-agent.v1",
       searchPolicyVersion: "review-investigation-fixed-string-search.v1",
       turnPromptContractHash: "a185e50ee887e3351d1c1eccb135a2d48030fe56ef5ec2e1411002d4c1a76ef6"
     },
-    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"a185e50ee887e3351d1c1eccb135a2d48030fe56ef5ec2e1411002d4c1a76ef6"}',
-    sha256: "4841db451fdebc1366979c6295b27450c23e96c8f635cab416d72cc1ad0f7adc"
+    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v3","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"a185e50ee887e3351d1c1eccb135a2d48030fe56ef5ec2e1411002d4c1a76ef6"}',
+    sha256: "86a68eda454aff14d596da321ad635c7e67b3d6f18b990c2c1e02dfb3f9298b8"
   },
   policy: {
     value: {
@@ -96298,9 +96306,10 @@ var ReviewInvestigationLegacyFallbackSignal = class extends Error {
   }
 };
 var ReviewInvestigationDeferredSignal = class extends Error {
-  constructor(status) {
+  constructor(status, nextEligibleAt = null) {
     super(`review_investigation_deferred:${status}`);
     this.status = status;
+    this.nextEligibleAt = nextEligibleAt;
     this.name = "ReviewInvestigationDeferredSignal";
   }
 };
@@ -96442,6 +96451,15 @@ var RunInvestigationWorkSlot = class {
         } catch {
         }
       }
+    }
+    if (isSuperseded(snapshot)) {
+      return { status: "superseded" /* Superseded */, snapshot };
+    }
+    if (snapshot.nextAction === "terminal" /* Terminal */ || isTerminal2(snapshot)) {
+      return { status: "completed" /* Completed */, snapshot };
+    }
+    if (snapshot.nextAction === "await_capacity" /* AwaitCapacity */) {
+      return { status: "parked" /* Parked */, snapshot };
     }
     return {
       status: "transition_budget_exhausted" /* TransitionBudgetExhausted */,
@@ -97235,7 +97253,6 @@ var RunT0ReviewOrchestration = class {
           attemptOrdinal,
           error: error2
         });
-        if (attemptOrdinal < input.workSlot.attemptBudget) continue;
         input.onEvent({
           type: "slot_exhausted" /* SlotExhausted */,
           workSlotId: input.workSlot.workSlotId
@@ -111915,7 +111932,10 @@ var ReviewInvestigationRecordingAdapter = class {
           result2.status
         );
       }
-      throw new ReviewInvestigationDeferredSignal(result2.status);
+      throw new ReviewInvestigationDeferredSignal(
+        result2.status,
+        result2.snapshot.nextEligibleAt
+      );
     }
     return terminalObservation(result2.status, result2.snapshot);
   }

@@ -52,4 +52,26 @@ describe('context gateway tool annotations', () => {
       maxLength: 1_024,
     });
   });
+
+  it('exposes only process-local opaque pagination handles to providers', () => {
+    for (const toolName of [
+      'review_list_directory',
+      'review_search_text',
+      'review_canonical_inventory',
+    ]) {
+      const tool = CONTEXT_GATEWAY_V4_TOOL_DEFINITIONS.find(
+        (candidate) => candidate.name === toolName
+      );
+      const schema = tool?.inputSchema as {
+        readonly properties?: Readonly<Record<string, unknown>>;
+      };
+
+      expect(schema.properties?.cursor).toEqual({
+        type: 'string',
+        pattern: '^rrc_[1-9][0-9]*$',
+        maxLength: 64,
+      });
+      expect(tool?.description).toContain('short opaque cursor handle');
+    }
+  });
 });
