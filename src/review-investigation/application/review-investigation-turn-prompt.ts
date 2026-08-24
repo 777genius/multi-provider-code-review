@@ -2,7 +2,7 @@ import type { ReviewInvestigationTurnBrief } from '../domain/investigation-state
 import { canonicalJson, sha256 } from '../domain/canonical-json';
 
 export const REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT =
-  'review_investigation_turn_prompt.v3' as const;
+  'review_investigation_turn_prompt.v4' as const;
 
 const TURN_INSTRUCTIONS = Object.freeze([
   'REVIEW INVESTIGATION TURN CONTRACT:',
@@ -15,7 +15,7 @@ const TURN_INSTRUCTIONS = Object.freeze([
   'If an exploratory text search reports context_gateway_relation_path_limit_exceeded, do not claim that rejected search. Narrow the literal query and/or paths until each accepted search covers at most 512 files, or leave the related obligation open when no sound bounded query exists.',
   'Never bind an exploratory search to a deterministic_expansion obligation. If no changed_content source directly motivated it, omit the advisory discovery claim and leave related obligations open.',
   'When inspected evidence reveals additional review scope, add a provider-neutral obligationProposals entry instead of silently broadening an existing obligation.',
-  'Each obligation proposal must contain exactly kind, canonicalSubject, canonicalRequirement, and riskPriority. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.',
+  'Each obligation proposal must contain exactly kind, path, revision, and riskPriority. Use the repository-relative path and either head or merge_base revision; the control plane derives canonical identities and hashes. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.',
   'Obligation proposals are non-authoritative and remain open until the control plane validates and independently closes them with accepted evidence.',
   'Do not close an obligation without complete operation receipt evidence.',
   'Set criticDecision to null during discovery turns. During critic turns, set it to exactly accept, veto, or abstain.',

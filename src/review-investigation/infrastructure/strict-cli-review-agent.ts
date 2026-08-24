@@ -92,6 +92,11 @@ const SAFE_AGENT_ERROR_CODES = new Set([
   'review_agent_gateway_credential_environment_invalid',
   'review_agent_input_tokens_invalid',
   'review_agent_output_invalid',
+  'review_agent_output_invalid_claims',
+  'review_agent_output_invalid_critic',
+  'review_agent_output_invalid_finding',
+  'review_agent_output_invalid_obligation_proposal',
+  'review_agent_output_invalid_shape',
   'review_agent_output_tokens_invalid',
   'review_agent_process_cancelled',
   'review_agent_process_failure',
@@ -395,10 +400,20 @@ export function requireObservedModel(models: ReadonlySet<string>): string {
 }
 
 export function schemaFailure(error: unknown): ReviewAgentExecutionError {
-  return safeAgentError(
-    error,
+  if (error instanceof ReviewAgentExecutionError) {
+    return safeAgentError(
+      error,
+      ReviewAgentFailureClass.SchemaInvalidOutput,
+      'review_agent_output_invalid'
+    );
+  }
+  return new ReviewAgentExecutionError(
     ReviewAgentFailureClass.SchemaInvalidOutput,
-    'review_agent_output_invalid'
+    null,
+    safeErrorCode(
+      error instanceof Error ? error.message : 'review_agent_output_invalid',
+      ReviewAgentFailureClass.SchemaInvalidOutput
+    )
   );
 }
 

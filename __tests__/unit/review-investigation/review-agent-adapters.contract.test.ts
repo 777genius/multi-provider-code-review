@@ -311,6 +311,53 @@ describe.each([
     });
   });
 
+  it('keeps rejected proposal diagnostics provider-safe', async () => {
+    const { adapter, runner, request } = fixture(ReviewAgentProviderKind.Codex);
+    runner.output = {
+      ...turnOutput,
+      obligationProposals: [
+        {
+          ...turnOutput.obligationProposals[0],
+          canonicalSubject: 'invalid',
+        },
+      ],
+    };
+
+    const execution = expect(adapter.executeTurn(request)).rejects;
+    if (providerKind === ReviewAgentProviderKind.Codex) {
+      await execution.toMatchObject({
+        failureClass: ReviewAgentFailureClass.SchemaInvalidOutput,
+        message: 'review_agent_output_invalid_obligation_proposal',
+      });
+    } else {
+      await execution.toMatchObject({
+        failureClass: ReviewAgentFailureClass.SchemaInvalidOutput,
+      });
+    }
+  });
+
+  it('classifies malformed Codex provider proposal fields safely', async () => {
+    if (providerKind !== ReviewAgentProviderKind.Codex) return;
+    const { adapter, runner, request } = fixture(providerKind);
+    runner.output = {
+      ...turnOutput,
+      obligationProposals: [
+        {
+          kind: ReviewTurnObligationKind.DirectCaller,
+          path: 'src/service.ts',
+          revision: 'head',
+          riskPriority: 800_000,
+          extra: true,
+        },
+      ],
+    };
+
+    await expect(adapter.executeTurn(request)).rejects.toMatchObject({
+      failureClass: ReviewAgentFailureClass.SchemaInvalidOutput,
+      message: 'review_agent_output_invalid_obligation_proposal',
+    });
+  });
+
   it('rejects an oversized Codex output file before JSON parsing', async () => {
     const { adapter, runner, request } = fixture(ReviewAgentProviderKind.Codex);
     runner.rawCodexOutput = Buffer.alloc(4 * 1024 * 1024 + 1, 97);

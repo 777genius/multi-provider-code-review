@@ -204,30 +204,24 @@ export function buildReviewAgentTurnOutputSchema(
         items: {
           type: 'object',
           additionalProperties: false,
-          required: [
-            'kind',
-            'canonicalSubject',
-            'canonicalRequirement',
-            'riskPriority',
-          ],
+          required: ['kind', 'path', 'revision', 'riskPriority'],
           properties: {
             kind: {
               type: 'string',
               enum: REVIEW_TURN_PROVIDER_PROPOSABLE_OBLIGATION_KINDS,
             },
-            canonicalSubject: {
+            path: {
               type: 'string',
               minLength: 1,
-              maxLength: MAX_CANONICAL_SUBJECT_LENGTH,
+              maxLength: MAX_PROPOSAL_PATH_LENGTH,
               description:
-                'Canonical JSON file_read subject derived from canonicalRequirement pathHash and revision.',
+                'Repository-relative path requiring additional complete-file review evidence.',
             },
-            canonicalRequirement: {
+            revision: {
               type: 'string',
-              minLength: 1,
-              maxLength: MAX_CANONICAL_REQUIREMENT_LENGTH,
+              enum: Object.values(ReviewTurnProposalRevision),
               description:
-                'Canonical JSON complete_file requirement. pathHash must be SHA-256 of the UTF-8 path.',
+                'Repository revision from which the complete file must be read.',
             },
             riskPriority: {
               type: 'integer',
@@ -452,6 +446,12 @@ function parseReviewTurnObligationProposal(
   value: unknown
 ): ReviewTurnObligationProposal {
   const record = requireRecord(value, 'obligation_proposal');
+  if (
+    !Object.prototype.hasOwnProperty.call(record, 'canonicalSubject') &&
+    !Object.prototype.hasOwnProperty.call(record, 'canonicalRequirement')
+  ) {
+    return normalizeProviderObligationProposal(record);
+  }
   requireExactKeys(record, [
     'kind',
     'canonicalSubject',
@@ -491,6 +491,70 @@ function parseReviewTurnObligationProposal(
       MAX_RISK_PRIORITY
     ),
   });
+}
+
+function normalizeProviderObligationProposal(
+  record: Record<string, unknown>
+): ReviewTurnObligationProposal {
+  requireExactKeysForField(
+    record,
+    ['kind', 'path', 'revision', 'riskPriority'],
+    'obligation_proposal'
+  );
+  const kind = requireProviderProposableObligationKind(record.kind);
+  const path = requireRepositoryRelativePath(
+    record.path,
+    'obligation_requirement_path',
+    MAX_PROPOSAL_PATH_LENGTH
+  );
+  const revision = requireEnum(
+    record.revision,
+    ReviewTurnProposalRevision,
+    'obligation_requirement_revision'
+  );
+  const pathHash = sha256(path);
+  return Object.freeze({
+    kind,
+    canonicalSubject: canonicalJson({
+      kind: FILE_READ_SUBJECT_KIND,
+      pathHash,
+      revision,
+      subjectVersion: FILE_READ_SUBJECT_VERSION,
+    }),
+    canonicalRequirement: canonicalJson({
+      kind: COMPLETE_FILE_REQUIREMENT_KIND,
+      path,
+      pathHash,
+      requirementVersion: COMPLETE_FILE_REQUIREMENT_VERSION,
+      revision,
+    }),
+    riskPriority: requireBoundedInteger(
+      record.riskPriority,
+      'risk_priority',
+      0,
+      MAX_RISK_PRIORITY
+    ),
+  });
+}
+
+function requireRepositoryRelativePath(
+  value: unknown,
+  field: string,
+  maxLength: number
+): string {
+  const path = requireString(value, field, maxLength);
+  const segments = path.split('/');
+  if (
+    path.startsWith('/') ||
+    /^[A-Za-z]:[\\/]/u.test(path) ||
+    path.includes('\\') ||
+    segments.some(
+      (segment) => segment === '' || segment === '.' || segment === '..'
+    )
+  ) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return path;
 }
 
 function parseCanonicalCompleteFileRequirement(value: string): Readonly<{

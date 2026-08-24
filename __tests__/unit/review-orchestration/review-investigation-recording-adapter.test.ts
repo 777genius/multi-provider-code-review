@@ -244,8 +244,9 @@ describe('ReviewInvestigationRecordingAdapter', () => {
       expect(prompt).toContain('at most 512 files');
       expect(prompt).toContain('provider-neutral obligationProposals entry');
       expect(prompt).toContain(
-        'exactly kind, canonicalSubject, canonicalRequirement, and riskPriority'
+        'exactly kind, path, revision, and riskPriority'
       );
+      expect(prompt).toContain('control plane derives canonical identities');
       expect(prompt).toContain('never provide an obligation ID');
       expect(prompt).toContain(
         'Set criticDecision to null during discovery turns'
