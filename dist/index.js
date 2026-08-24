@@ -26081,28 +26081,22 @@ function buildReviewAgentTurnOutputSchema(allowedObligationIds) {
         items: {
           type: "object",
           additionalProperties: false,
-          required: [
-            "kind",
-            "canonicalSubject",
-            "canonicalRequirement",
-            "riskPriority"
-          ],
+          required: ["kind", "path", "revision", "riskPriority"],
           properties: {
             kind: {
               type: "string",
               enum: REVIEW_TURN_PROVIDER_PROPOSABLE_OBLIGATION_KINDS
             },
-            canonicalSubject: {
+            path: {
               type: "string",
               minLength: 1,
-              maxLength: MAX_CANONICAL_SUBJECT_LENGTH,
-              description: "Canonical JSON file_read subject derived from canonicalRequirement pathHash and revision."
+              maxLength: MAX_PROPOSAL_PATH_LENGTH,
+              description: "Repository-relative path requiring additional complete-file review evidence."
             },
-            canonicalRequirement: {
+            revision: {
               type: "string",
-              minLength: 1,
-              maxLength: MAX_CANONICAL_REQUIREMENT_LENGTH,
-              description: "Canonical JSON complete_file requirement. pathHash must be SHA-256 of the UTF-8 path."
+              enum: Object.values(ReviewTurnProposalRevision),
+              description: "Repository revision from which the complete file must be read."
             },
             riskPriority: {
               type: "integer",
@@ -26313,6 +26307,9 @@ function parseReviewTurnObligationProposals(value) {
 }
 function parseReviewTurnObligationProposal(value) {
   const record = requireRecord(value, "obligation_proposal");
+  if (Object.prototype.hasOwnProperty.call(record, "path") || Object.prototype.hasOwnProperty.call(record, "revision")) {
+    return normalizeProviderObligationProposal(record);
+  }
   requireExactKeys(record, [
     "kind",
     "canonicalSubject",
@@ -26344,6 +26341,43 @@ function parseReviewTurnObligationProposal(value) {
     kind,
     canonicalSubject: expectedSubject,
     canonicalRequirement,
+    riskPriority: requireBoundedInteger(
+      record.riskPriority,
+      "risk_priority",
+      0,
+      MAX_RISK_PRIORITY
+    )
+  });
+}
+function normalizeProviderObligationProposal(record) {
+  requireExactKeys(record, ["kind", "path", "revision", "riskPriority"]);
+  const kind = requireProviderProposableObligationKind(record.kind);
+  const path29 = requireString(
+    record.path,
+    "obligation_requirement_path",
+    MAX_PROPOSAL_PATH_LENGTH
+  );
+  const revision = requireEnum(
+    record.revision,
+    ReviewTurnProposalRevision,
+    "obligation_requirement_revision"
+  );
+  const pathHash = sha2562(path29);
+  return Object.freeze({
+    kind,
+    canonicalSubject: canonicalJson2({
+      kind: FILE_READ_SUBJECT_KIND,
+      pathHash,
+      revision,
+      subjectVersion: FILE_READ_SUBJECT_VERSION
+    }),
+    canonicalRequirement: canonicalJson2({
+      kind: COMPLETE_FILE_REQUIREMENT_KIND,
+      path: path29,
+      pathHash,
+      requirementVersion: COMPLETE_FILE_REQUIREMENT_VERSION,
+      revision
+    }),
     riskPriority: requireBoundedInteger(
       record.riskPriority,
       "risk_priority",
@@ -95143,10 +95177,10 @@ var review_investigation_capability_v1_golden_default = {
       probePolicyVersion: "review-investigation-probe-policy.v2",
       runtimeProfileVersion: "gateway-attested-agent.v1",
       searchPolicyVersion: "review-investigation-fixed-string-search.v1",
-      turnPromptContractHash: "0e22e292499206ff51a93a52ace638e902cca8f89fb1b3d7b32bd2a317b7ac2e"
+      turnPromptContractHash: "a185e50ee887e3351d1c1eccb135a2d48030fe56ef5ec2e1411002d4c1a76ef6"
     },
-    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"0e22e292499206ff51a93a52ace638e902cca8f89fb1b3d7b32bd2a317b7ac2e"}',
-    sha256: "28323b59ad09d33c483641ab92f4395771f4e51b05274ecdceb5fd7d83f5e575"
+    canonicalJson: '{"coverageContractVersion":"review-investigation-coverage.v1","criticPolicyVersion":"review-investigation-critic.v2","expansionRulesVersion":"review-investigation-expansion.v3","gatewayPolicyVersion":"context-gateway-v4","probePolicyVersion":"review-investigation-probe-policy.v2","runtimeProfileVersion":"gateway-attested-agent.v1","searchPolicyVersion":"review-investigation-fixed-string-search.v1","turnPromptContractHash":"a185e50ee887e3351d1c1eccb135a2d48030fe56ef5ec2e1411002d4c1a76ef6"}',
+    sha256: "4841db451fdebc1366979c6295b27450c23e96c8f635cab416d72cc1ad0f7adc"
   },
   policy: {
     value: {
@@ -99255,7 +99289,7 @@ function compareCodeUnits3(left, right) {
 }
 
 // src/review-investigation/application/review-investigation-turn-prompt.ts
-var REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT = "review_investigation_turn_prompt.v3";
+var REVIEW_INVESTIGATION_TURN_PROMPT_CONTRACT = "review_investigation_turn_prompt.v4";
 var TURN_INSTRUCTIONS = Object.freeze([
   "REVIEW INVESTIGATION TURN CONTRACT:",
   "Use only the reviewrouter Context Gateway tools. Investigate every obligation in the authenticated turn brief.",
@@ -99267,7 +99301,7 @@ var TURN_INSTRUCTIONS = Object.freeze([
   "If an exploratory text search reports context_gateway_relation_path_limit_exceeded, do not claim that rejected search. Narrow the literal query and/or paths until each accepted search covers at most 512 files, or leave the related obligation open when no sound bounded query exists.",
   "Never bind an exploratory search to a deterministic_expansion obligation. If no changed_content source directly motivated it, omit the advisory discovery claim and leave related obligations open.",
   "When inspected evidence reveals additional review scope, add a provider-neutral obligationProposals entry instead of silently broadening an existing obligation.",
-  "Each obligation proposal must contain exactly kind, canonicalSubject, canonicalRequirement, and riskPriority. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.",
+  "Each obligation proposal must contain exactly kind, path, revision, and riskPriority. Use the repository-relative path and either head or merge_base revision; the control plane derives canonical identities and hashes. Use only schema-listed kinds; never provide an obligation ID, state, authority decision, or receipt claim.",
   "Obligation proposals are non-authoritative and remain open until the control plane validates and independently closes them with accepted evidence.",
   "Do not close an obligation without complete operation receipt evidence.",
   "Set criticDecision to null during discovery turns. During critic turns, set it to exactly accept, veto, or abstain."
@@ -107861,6 +107895,11 @@ var SAFE_AGENT_ERROR_CODES = /* @__PURE__ */ new Set([
   "review_agent_gateway_credential_environment_invalid",
   "review_agent_input_tokens_invalid",
   "review_agent_output_invalid",
+  "review_agent_output_invalid_claims",
+  "review_agent_output_invalid_critic",
+  "review_agent_output_invalid_finding",
+  "review_agent_output_invalid_obligation_proposal",
+  "review_agent_output_invalid_shape",
   "review_agent_output_tokens_invalid",
   "review_agent_process_cancelled",
   "review_agent_process_failure",
@@ -108033,10 +108072,20 @@ function assertTurnObligationClaimsAllowed(request, output) {
   }
 }
 function schemaFailure(error2) {
-  return safeAgentError(
-    error2,
+  if (error2 instanceof ReviewAgentExecutionError) {
+    return safeAgentError(
+      error2,
+      "schema_invalid_output" /* SchemaInvalidOutput */,
+      "review_agent_output_invalid"
+    );
+  }
+  return new ReviewAgentExecutionError(
     "schema_invalid_output" /* SchemaInvalidOutput */,
-    "review_agent_output_invalid"
+    null,
+    safeErrorCode2(
+      error2 instanceof Error ? error2.message : "review_agent_output_invalid",
+      "schema_invalid_output" /* SchemaInvalidOutput */
+    )
   );
 }
 function assertSuccessfulProcess(result2) {
@@ -110104,15 +110153,48 @@ var CodexReviewAgentAdapter = class extends StrictCliReviewAgent {
 function parseFinalTurnOutput(message) {
   const trimmed = message.trim();
   const valid = /* @__PURE__ */ new Map();
+  const validationFailures = /* @__PURE__ */ new Set();
+  let parsedPayloads = 0;
   for (const candidate of extractJsonPayloadCandidates(trimmed)) {
+    let parsed;
     try {
-      const output = parseReviewAgentTurnOutput(JSON.parse(candidate));
-      valid.set(JSON.stringify(output), output);
+      parsed = JSON.parse(candidate);
+      parsedPayloads += 1;
     } catch {
+      continue;
+    }
+    try {
+      const output = parseReviewAgentTurnOutput(parsed);
+      valid.set(JSON.stringify(output), output);
+    } catch (error2) {
+      validationFailures.add(classifyOutputValidationFailure(error2));
     }
   }
-  if (valid.size !== 1) throw new Error("review_agent_output_invalid");
+  if (valid.size !== 1) {
+    if (valid.size === 0 && parsedPayloads === 1 && validationFailures.size === 1) {
+      throw new Error([...validationFailures][0]);
+    }
+    throw new Error("review_agent_output_invalid");
+  }
   return [...valid.values()][0];
+}
+function classifyOutputValidationFailure(error2) {
+  const message = error2 instanceof Error ? error2.message : "";
+  if (/obligation_(?:kind|proposal|requirement|subject)|risk_priority/u.test(
+    message
+  )) {
+    return "review_agent_output_invalid_obligation_proposal";
+  }
+  if (/finding/u.test(message)) {
+    return "review_agent_output_invalid_finding";
+  }
+  if (/critic/u.test(message)) {
+    return "review_agent_output_invalid_critic";
+  }
+  if (/closure|discovery|receipt|unresolvable|obligation_id/u.test(message)) {
+    return "review_agent_output_invalid_claims";
+  }
+  return "review_agent_output_invalid_shape";
 }
 function extractJsonPayloadCandidates(message) {
   const candidates = /* @__PURE__ */ new Set();

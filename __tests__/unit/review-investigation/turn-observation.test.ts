@@ -43,18 +43,15 @@ describe('review agent turn observation v2', () => {
       maxItems: REVIEW_TURN_MAX_OBLIGATION_PROPOSALS,
       items: {
         additionalProperties: false,
-        required: [
-          'kind',
-          'canonicalSubject',
-          'canonicalRequirement',
-          'riskPriority',
-        ],
+        required: ['kind', 'path', 'revision', 'riskPriority'],
         properties: {
           kind: {
             enum: REVIEW_TURN_PROVIDER_PROPOSABLE_OBLIGATION_KINDS,
           },
-          canonicalSubject: { minLength: 1, maxLength: 4_096 },
-          canonicalRequirement: { minLength: 1, maxLength: 64_000 },
+          path: { minLength: 1, maxLength: 2_000 },
+          revision: {
+            enum: Object.values(ReviewTurnProposalRevision),
+          },
           riskPriority: { minimum: 0, maximum: 1_000_000 },
         },
       },
@@ -165,6 +162,11 @@ describe('review agent turn observation v2', () => {
         type: 'string',
       },
       {
+        path: '$.properties.obligationProposals.items.properties.revision',
+        keyword: 'enum',
+        type: 'string',
+      },
+      {
         path: '$.properties.criticDecision.anyOf[1]',
         keyword: 'enum',
         type: 'string',
@@ -264,18 +266,8 @@ describe('review agent turn observation v2', () => {
       {
         path: '$.properties.obligationProposals.items',
         additionalProperties: false,
-        required: [
-          'kind',
-          'canonicalSubject',
-          'canonicalRequirement',
-          'riskPriority',
-        ],
-        propertyNames: [
-          'kind',
-          'canonicalSubject',
-          'canonicalRequirement',
-          'riskPriority',
-        ],
+        required: ['kind', 'path', 'revision', 'riskPriority'],
+        propertyNames: ['kind', 'path', 'revision', 'riskPriority'],
       },
       {
         path: '$.properties.closureClaims.items',
@@ -456,6 +448,28 @@ describe('review agent turn observation v2', () => {
     });
 
     expect(output.obligationProposals).toEqual([head, mergeBase]);
+  });
+
+  it('derives canonical proposal identities from the provider wire fields', () => {
+    const proposal = completeFileProposal({
+      kind: ReviewTurnObligationKind.DirectCaller,
+      path: 'src/\u00e9vidence.ts',
+      revision: ReviewTurnProposalRevision.MergeBase,
+    });
+
+    const output = parseReviewAgentTurnOutput({
+      ...validOutput(),
+      obligationProposals: [
+        {
+          kind: proposal.kind,
+          path: 'src/\u00e9vidence.ts',
+          revision: ReviewTurnProposalRevision.MergeBase,
+          riskPriority: proposal.riskPriority,
+        },
+      ],
+    });
+
+    expect(output.obligationProposals).toEqual([proposal]);
   });
 
   it.each([

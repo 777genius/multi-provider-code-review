@@ -183,17 +183,55 @@ export class CodexReviewAgentAdapter extends StrictCliReviewAgent {
 function parseFinalTurnOutput(message: string): ReviewAgentTurnOutput {
   const trimmed = message.trim();
   const valid = new Map<string, ReviewAgentTurnOutput>();
+  const validationFailures = new Set<string>();
+  let parsedPayloads = 0;
   for (const candidate of extractJsonPayloadCandidates(trimmed)) {
+    let parsed: unknown;
     try {
-      const output = parseReviewAgentTurnOutput(JSON.parse(candidate));
-      valid.set(JSON.stringify(output), output);
+      parsed = JSON.parse(candidate);
+      parsedPayloads += 1;
     } catch {
-      // Provider prose and malformed JSON are ignored unless no unique
-      // schema-valid payload remains.
+      continue;
+    }
+    try {
+      const output = parseReviewAgentTurnOutput(parsed);
+      valid.set(JSON.stringify(output), output);
+    } catch (error) {
+      validationFailures.add(classifyOutputValidationFailure(error));
     }
   }
-  if (valid.size !== 1) throw new Error('review_agent_output_invalid');
+  if (valid.size !== 1) {
+    if (
+      valid.size === 0 &&
+      parsedPayloads === 1 &&
+      validationFailures.size === 1
+    ) {
+      throw new Error([...validationFailures][0]!);
+    }
+    throw new Error('review_agent_output_invalid');
+  }
   return [...valid.values()][0]!;
+}
+
+function classifyOutputValidationFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  if (
+    /obligation_(?:kind|proposal|requirement|subject)|risk_priority/u.test(
+      message
+    )
+  ) {
+    return 'review_agent_output_invalid_obligation_proposal';
+  }
+  if (/finding/u.test(message)) {
+    return 'review_agent_output_invalid_finding';
+  }
+  if (/critic/u.test(message)) {
+    return 'review_agent_output_invalid_critic';
+  }
+  if (/closure|discovery|receipt|unresolvable|obligation_id/u.test(message)) {
+    return 'review_agent_output_invalid_claims';
+  }
+  return 'review_agent_output_invalid_shape';
 }
 
 function extractJsonPayloadCandidates(message: string): readonly string[] {
