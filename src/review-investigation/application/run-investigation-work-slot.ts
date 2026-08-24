@@ -47,7 +47,10 @@ export type ReviewInvestigationDeferredRunStatus =
   | ReviewInvestigationRunStatus.TransitionBudgetExhausted;
 
 export class ReviewInvestigationDeferredSignal extends Error {
-  constructor(readonly status: ReviewInvestigationDeferredRunStatus) {
+  constructor(
+    readonly status: ReviewInvestigationDeferredRunStatus,
+    readonly nextEligibleAt: string | null = null
+  ) {
     super(`review_investigation_deferred:${status}`);
     this.name = 'ReviewInvestigationDeferredSignal';
   }
@@ -242,6 +245,18 @@ export class RunInvestigationWorkSlot {
           // The fenced turn mutation is durable; lease expiry is the cleanup fallback.
         }
       }
+    }
+    if (isSuperseded(snapshot)) {
+      return { status: ReviewInvestigationRunStatus.Superseded, snapshot };
+    }
+    if (
+      snapshot.nextAction === ReviewInvestigationNextAction.Terminal ||
+      isTerminal(snapshot)
+    ) {
+      return { status: ReviewInvestigationRunStatus.Completed, snapshot };
+    }
+    if (snapshot.nextAction === ReviewInvestigationNextAction.AwaitCapacity) {
+      return { status: ReviewInvestigationRunStatus.Parked, snapshot };
     }
     return {
       status: ReviewInvestigationRunStatus.TransitionBudgetExhausted,

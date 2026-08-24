@@ -35,6 +35,7 @@ import {
 import {
   ReviewInvestigationDeferredSignal,
   ReviewInvestigationLegacyFallbackSignal,
+  type ReviewInvestigationDeferredRunStatus,
 } from '../../../src/review-investigation/application/run-investigation-work-slot';
 import { ReviewInvestigationRunStatus } from '../../../src/review-investigation/domain/investigation-state';
 import { MergeGateConclusion } from '../../../src/review-projection/domain';
@@ -1266,30 +1267,35 @@ describe('RunT0ReviewOrchestration', () => {
     );
   });
 
-  it('bounds authoritative deferred retries to one work slot', async () => {
-    const fixture = createFixture({
-      maxAttempts: 2,
-      allowPartial: true,
-      executionProfile: 'context_gateway_v1',
-      investigationMode: ReviewInvestigationRecordingMode.Authoritative,
-      investigationError: new ReviewInvestigationDeferredSignal(
-        ReviewInvestigationRunStatus.Parked
-      ),
-    });
+  it.each([
+    ReviewInvestigationRunStatus.Parked,
+    ReviewInvestigationRunStatus.RecoveryRequired,
+    ReviewInvestigationRunStatus.TransitionBudgetExhausted,
+  ] satisfies readonly ReviewInvestigationDeferredRunStatus[])(
+    'does not replenish investigation budgets after authoritative %s',
+    async (status) => {
+      const fixture = createFixture({
+        maxAttempts: 2,
+        allowPartial: true,
+        executionProfile: 'context_gateway_v1',
+        investigationMode: ReviewInvestigationRecordingMode.Authoritative,
+        investigationError: new ReviewInvestigationDeferredSignal(status),
+      });
 
-    const result = await fixture.useCase.execute(fixture.command);
+      const result = await fixture.useCase.execute(fixture.command);
 
-    expect(result).toMatchObject({
-      status: ReviewOrchestrationResultStatus.PartialCompleted,
-      failureCode: 'required_investigation_deferred',
-    });
-    expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(2);
-    expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
-    expect(
-      fixture.dependencies.investigationDiagnostics!.record
-    ).toHaveBeenCalledTimes(2);
-    expect(fixture.controlPlane.requestPublication).toHaveBeenCalledTimes(1);
-  });
+      expect(result).toMatchObject({
+        status: ReviewOrchestrationResultStatus.PartialCompleted,
+        failureCode: 'required_investigation_deferred',
+      });
+      expect(fixture.investigationRecording?.execute).toHaveBeenCalledTimes(1);
+      expect(fixture.dependencies.invocations.execute).not.toHaveBeenCalled();
+      expect(
+        fixture.dependencies.investigationDiagnostics!.record
+      ).toHaveBeenCalledTimes(1);
+      expect(fixture.controlPlane.requestPublication).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('supersedes before scheduling stale work and never projects it', async () => {
     const fixture = createFixture();

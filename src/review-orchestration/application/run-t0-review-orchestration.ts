@@ -919,7 +919,6 @@ export class RunT0ReviewOrchestration {
           attemptOrdinal,
           error,
         });
-        if (attemptOrdinal < input.workSlot.attemptBudget) continue;
         input.onEvent({
           type: ReviewOrchestrationEventType.SlotExhausted,
           workSlotId: input.workSlot.workSlotId,

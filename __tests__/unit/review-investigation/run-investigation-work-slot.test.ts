@@ -147,6 +147,31 @@ describe('RunInvestigationWorkSlot', () => {
     expect(agent.executeTurn).not.toHaveBeenCalled();
   });
 
+  it('recognizes a terminal snapshot produced by the final transition', async () => {
+    const pending = Object.freeze({
+      ...plannedSnapshot(),
+      state: ReviewInvestigationState.Inconclusive,
+      nextAction: ReviewInvestigationNextAction.Conclude,
+      turn: null,
+    });
+    const terminal = terminalSnapshot(4);
+    const controlPlane = controlPlaneFixture(pending);
+    controlPlane.conclude.mockImplementation(async () => {
+      controlPlane.current = terminal;
+      return terminal;
+    });
+
+    const result = await runnerFixture(
+      controlPlane,
+      agentFixture(observation())
+    ).execute({ ...runInput(), maxStateTransitions: 1 });
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.Completed,
+      snapshot: terminal,
+    });
+  });
+
   it('refreshes a restored active-turn capability before provider execution', async () => {
     const restored = Object.freeze({
       ...plannedSnapshot(),

@@ -192,6 +192,34 @@ describe('deterministic context probe plan', () => {
     );
   });
 
+  it('keeps canary symbols without scheduling generic authorization literals', () => {
+    const path = 'src/reviewrouter-e2e/workspace-access.ts';
+    const fullDiff = diff(
+      path,
+      '+export type WorkspaceRole = "owner" | "member";',
+      '+export const reviewFixtureRevision = 7;',
+      '+export function canDeleteWorkspace(role: WorkspaceRole): boolean {',
+      '+  if (role === "owner") return false;',
+      '+  return true;',
+      '+}'
+    );
+    const plan = createReviewInvestigationProbePlan({
+      files: [file(path)],
+      fullDiff,
+    });
+
+    expect(plan.probes.map((item) => item.query)).toEqual(
+      expect.arrayContaining([
+        'WorkspaceRole',
+        'reviewFixtureRevision',
+        'canDeleteWorkspace',
+      ])
+    );
+    expect(plan.probes.map((item) => item.query)).not.toEqual(
+      expect.arrayContaining(['role', 'roles', 'owner', 'member'])
+    );
+  });
+
   it('keeps the highest-risk per-file probes with a deterministic truncation witness', () => {
     const plan = createReviewInvestigationProbePlan({
       files: [file('src/service.ts')],

@@ -300,7 +300,10 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
           result.status
         );
       }
-      throw new ReviewInvestigationDeferredSignal(result.status);
+      throw new ReviewInvestigationDeferredSignal(
+        result.status,
+        result.snapshot.nextEligibleAt
+      );
     }
     return terminalObservation(result.status, result.snapshot);
   }

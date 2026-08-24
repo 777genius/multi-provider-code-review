@@ -8,7 +8,7 @@ import { ReviewTurnObligationKind } from './turn-observation';
 export const REVIEW_INVESTIGATION_PROBE_PLAN_VERSION =
   'review-investigation-probe-plan.v2' as const;
 export const REVIEW_INVESTIGATION_PROBE_POLICY_VERSION =
-  'review-investigation-probe-policy.v2' as const;
+  'review-investigation-probe-policy.v3' as const;
 export const REVIEW_INVESTIGATION_SEARCH_POLICY_VERSION =
   'review-investigation-fixed-string-search.v1' as const;
 
@@ -62,10 +62,12 @@ export const REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   'keys',
   'load',
   'main',
+  'member',
   'name',
   'notify',
   'null',
   'options',
+  'owner',
   'patch',
   'permission',
   'permissions',
@@ -78,6 +80,8 @@ export const REVIEW_INVESTIGATION_GENERIC_PROBE_DENYLIST = Object.freeze([
   'required',
   'response',
   'result',
+  'role',
+  'roles',
   'rollback',
   'route',
   'routes',
