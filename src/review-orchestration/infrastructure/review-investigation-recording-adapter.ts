@@ -82,6 +82,7 @@ type NormalizedReviewInvestigationRecordingOptions =
   ReviewInvestigationRecordingBaseOptions &
     Readonly<{
       actionBudget: ReviewInvestigationActionBudget;
+      investigationTimeoutMs: number;
     }>;
 
 export type ReviewInvestigationActionBudget = Readonly<{
@@ -199,10 +200,10 @@ export class ReviewInvestigationRecordingAdapter implements ReviewInvestigationR
       throw new Error('review_investigation_recording_revision_mismatch');
     }
     let result;
-    const investigationTimeoutMs = requirePositiveTimeout(
-      this.options.investigationTimeoutMs ?? this.options.providerTimeoutMs
+    const deadline = linkedDeadline(
+      input.signal,
+      this.options.investigationTimeoutMs
     );
-    const deadline = linkedDeadline(input.signal, investigationTimeoutMs);
     try {
       result = await this.createRunner(input).execute({
         authorizationToken: input.authorization.authorizationToken,
@@ -370,28 +371,50 @@ export function reviewInvestigationActionBudgetForDepth(
 function normalizeReviewInvestigationRecordingOptions(
   options: ReviewInvestigationRecordingOptions
 ): NormalizedReviewInvestigationRecordingOptions {
-  if ('actionBudget' in options) {
-    return options;
-  }
+  const actionBudget =
+    'actionBudget' in options
+      ? options.actionBudget
+      : Object.freeze({
+          maxGatewayOperations: options.policy.maxReceiptsPerTurn,
+          maxOutputFindings: options.policy.maxFindings,
+          maxOutputProposals: options.policy.maxProposalsPerTurn,
+          maxObligationsForTurn: options.maxObligationsForTurn,
+          providerMaxTurns: options.policy.maxSemanticTurns,
+          maxStateTransitions: options.maxStateTransitions,
+        });
   return Object.freeze({
     workingDirectory: options.workingDirectory,
     leaseDurationMs: options.leaseDurationMs,
     providerTimeoutMs: options.providerTimeoutMs,
-    ...(options.investigationTimeoutMs === undefined
-      ? {}
-      : { investigationTimeoutMs: options.investigationTimeoutMs }),
+    investigationTimeoutMs: requirePositiveTimeout(
+      options.investigationTimeoutMs ??
+        reviewInvestigationTimeoutMsForBudget(
+          options.providerTimeoutMs,
+          actionBudget.maxStateTransitions
+        )
+    ),
     certificateTtlMs: options.certificateTtlMs,
     minimumCapacityParkMs: options.minimumCapacityParkMs,
     policy: options.policy,
-    actionBudget: Object.freeze({
-      maxGatewayOperations: options.policy.maxReceiptsPerTurn,
-      maxOutputFindings: options.policy.maxFindings,
-      maxOutputProposals: options.policy.maxProposalsPerTurn,
-      maxObligationsForTurn: options.maxObligationsForTurn,
-      providerMaxTurns: options.policy.maxSemanticTurns,
-      maxStateTransitions: options.maxStateTransitions,
-    }),
+    actionBudget,
   });
+}
+
+const MAX_NODE_TIMER_MS = 2_147_483_647;
+
+export function reviewInvestigationTimeoutMsForBudget(
+  providerTimeoutMs: number,
+  maxStateTransitions: number
+): number {
+  const turnTimeoutMs = requirePositiveTimeout(providerTimeoutMs);
+  if (!Number.isSafeInteger(maxStateTransitions) || maxStateTransitions < 0) {
+    throw new Error('review_investigation_transition_budget_invalid');
+  }
+  // Planning and executing one semantic turn require at least two state
+  // transitions. Keep the whole investigation bounded without truncating the
+  // multi-turn budget to the timeout of a single provider invocation.
+  const maximumProviderTurns = Math.max(1, Math.ceil(maxStateTransitions / 2));
+  return Math.min(MAX_NODE_TIMER_MS, turnTimeoutMs * maximumProviderTurns);
 }
 
 function requirePositiveTimeout(value: number): number {

@@ -69,6 +69,59 @@ describe('RunInvestigationWorkSlot', () => {
     jest.useRealTimers();
   });
 
+  it('does not open or retry investigation work after parent cancellation', async () => {
+    const controlPlane = controlPlaneFixture(plannedSnapshot());
+    const agent = agentFixture(observation());
+    const controller = new AbortController();
+    controller.abort(new Error('review_investigation_deadline_exceeded'));
+
+    await expect(
+      runnerFixture(controlPlane, agent).execute({
+        ...runInput(),
+        signal: controller.signal,
+      })
+    ).rejects.toThrow('review_investigation_deadline_exceeded');
+
+    expect(controlPlane.open).not.toHaveBeenCalled();
+    expect(agent.executeTurn).not.toHaveBeenCalled();
+  });
+
+  it('does not start another turn when the parent cancels active provider work', async () => {
+    const controller = new AbortController();
+    const controlPlane = controlPlaneFixture(plannedSnapshot());
+    controlPlane.abortTurn.mockImplementation(async () => {
+      const next = Object.freeze({
+        ...plannedSnapshot(),
+        version: 3,
+        turn: Object.freeze({
+          ...plannedSnapshot().turn!,
+          turnId: 'turn-2',
+        }),
+      });
+      controlPlane.current = next;
+      return next;
+    });
+    const agent = agentFixture(observation());
+    agent.executeTurn.mockImplementation(async () => {
+      controller.abort(new Error('review_investigation_deadline_exceeded'));
+      throw new ReviewAgentExecutionError(
+        ReviewAgentFailureClass.Cancelled,
+        null,
+        'review_agent_process_cancelled'
+      );
+    });
+
+    await expect(
+      runnerFixture(controlPlane, agent).execute({
+        ...runInput(),
+        signal: controller.signal,
+      })
+    ).rejects.toThrow('review_investigation_deadline_exceeded');
+
+    expect(agent.executeTurn).toHaveBeenCalledTimes(1);
+    expect(controlPlane.abortTurn).toHaveBeenCalledTimes(1);
+  });
+
   it('concludes an inconclusive aggregate before treating it as terminal', async () => {
     const pending = Object.freeze({
       ...plannedSnapshot(),

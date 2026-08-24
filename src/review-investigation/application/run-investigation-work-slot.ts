@@ -85,6 +85,7 @@ export class RunInvestigationWorkSlot {
       readonly targetScope?: ReviewInvestigationTargetScope;
     }
   ): Promise<ReviewInvestigationRunResult> {
+    throwIfAborted(input.signal);
     let replayed: ReviewInvestigationSnapshot | null = null;
     if (this.dependencies.replay) {
       if (
@@ -125,6 +126,7 @@ export class RunInvestigationWorkSlot {
       transition < input.maxStateTransitions;
       transition += 1
     ) {
+      throwIfAborted(input.signal);
       if (isSuperseded(snapshot)) {
         return { status: ReviewInvestigationRunStatus.Superseded, snapshot };
       }

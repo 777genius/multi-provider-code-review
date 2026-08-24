@@ -96309,6 +96309,7 @@ var RunInvestigationWorkSlot = class {
     this.dependencies = dependencies;
   }
   async execute(input) {
+    throwIfAborted(input.signal);
     let replayed = null;
     if (this.dependencies.replay) {
       if (!input.targetRevision || !input.targetScope || !input.providerManifestCanonicalJson || !input.providerManifestHash) {
@@ -96336,6 +96337,7 @@ var RunInvestigationWorkSlot = class {
       }
     }
     for (let transition = 0; transition < input.maxStateTransitions; transition += 1) {
+      throwIfAborted(input.signal);
       if (isSuperseded(snapshot)) {
         return { status: "superseded" /* Superseded */, snapshot };
       }
@@ -111795,10 +111797,10 @@ var ReviewInvestigationRecordingAdapter = class {
       throw new Error("review_investigation_recording_revision_mismatch");
     }
     let result2;
-    const investigationTimeoutMs = requirePositiveTimeout2(
-      this.options.investigationTimeoutMs ?? this.options.providerTimeoutMs
+    const deadline = linkedDeadline(
+      input.signal,
+      this.options.investigationTimeoutMs
     );
-    const deadline = linkedDeadline(input.signal, investigationTimeoutMs);
     try {
       result2 = await this.createRunner(input).execute({
         authorizationToken: input.authorization.authorizationToken,
@@ -111951,26 +111953,38 @@ function reviewInvestigationActionBudgetForDepth(reviewDepth, policy = REVIEW_IN
   });
 }
 function normalizeReviewInvestigationRecordingOptions(options) {
-  if ("actionBudget" in options) {
-    return options;
-  }
+  const actionBudget = "actionBudget" in options ? options.actionBudget : Object.freeze({
+    maxGatewayOperations: options.policy.maxReceiptsPerTurn,
+    maxOutputFindings: options.policy.maxFindings,
+    maxOutputProposals: options.policy.maxProposalsPerTurn,
+    maxObligationsForTurn: options.maxObligationsForTurn,
+    providerMaxTurns: options.policy.maxSemanticTurns,
+    maxStateTransitions: options.maxStateTransitions
+  });
   return Object.freeze({
     workingDirectory: options.workingDirectory,
     leaseDurationMs: options.leaseDurationMs,
     providerTimeoutMs: options.providerTimeoutMs,
-    ...options.investigationTimeoutMs === void 0 ? {} : { investigationTimeoutMs: options.investigationTimeoutMs },
+    investigationTimeoutMs: requirePositiveTimeout2(
+      options.investigationTimeoutMs ?? reviewInvestigationTimeoutMsForBudget(
+        options.providerTimeoutMs,
+        actionBudget.maxStateTransitions
+      )
+    ),
     certificateTtlMs: options.certificateTtlMs,
     minimumCapacityParkMs: options.minimumCapacityParkMs,
     policy: options.policy,
-    actionBudget: Object.freeze({
-      maxGatewayOperations: options.policy.maxReceiptsPerTurn,
-      maxOutputFindings: options.policy.maxFindings,
-      maxOutputProposals: options.policy.maxProposalsPerTurn,
-      maxObligationsForTurn: options.maxObligationsForTurn,
-      providerMaxTurns: options.policy.maxSemanticTurns,
-      maxStateTransitions: options.maxStateTransitions
-    })
+    actionBudget
   });
+}
+var MAX_NODE_TIMER_MS = 2147483647;
+function reviewInvestigationTimeoutMsForBudget(providerTimeoutMs, maxStateTransitions) {
+  const turnTimeoutMs = requirePositiveTimeout2(providerTimeoutMs);
+  if (!Number.isSafeInteger(maxStateTransitions) || maxStateTransitions < 0) {
+    throw new Error("review_investigation_transition_budget_invalid");
+  }
+  const maximumProviderTurns = Math.max(1, Math.ceil(maxStateTransitions / 2));
+  return Math.min(MAX_NODE_TIMER_MS, turnTimeoutMs * maximumProviderTurns);
 }
 function requirePositiveTimeout2(value) {
   if (!Number.isSafeInteger(value) || value < 1) {
