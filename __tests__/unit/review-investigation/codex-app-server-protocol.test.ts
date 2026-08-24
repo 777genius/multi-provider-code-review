@@ -1358,7 +1358,7 @@ describe('CodexAppServerProtocolClient', () => {
     });
   });
 
-  it('does not reconcile an active non-MCP item from a terminal summary', async () => {
+  it('reconciles active reasoning omitted from a terminal summary', async () => {
     const fixture = await activeTurn();
     fixture.client.receive(
       notification('item/started', {
@@ -1396,9 +1396,8 @@ describe('CodexAppServerProtocolClient', () => {
       })
     );
 
-    await expect(fixture.result).rejects.toMatchObject({
-      failureClass: ReviewAgentFailureClass.StreamIncomplete,
-      message: 'review_agent_stream_incomplete_turn_completed',
+    await expect(fixture.result).resolves.toMatchObject({
+      finalMessage: '{"ok":true}',
     });
   });
 
