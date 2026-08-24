@@ -447,8 +447,8 @@ function parseReviewTurnObligationProposal(
 ): ReviewTurnObligationProposal {
   const record = requireRecord(value, 'obligation_proposal');
   if (
-    Object.prototype.hasOwnProperty.call(record, 'path') ||
-    Object.prototype.hasOwnProperty.call(record, 'revision')
+    !Object.prototype.hasOwnProperty.call(record, 'canonicalSubject') &&
+    !Object.prototype.hasOwnProperty.call(record, 'canonicalRequirement')
   ) {
     return normalizeProviderObligationProposal(record);
   }
@@ -496,9 +496,13 @@ function parseReviewTurnObligationProposal(
 function normalizeProviderObligationProposal(
   record: Record<string, unknown>
 ): ReviewTurnObligationProposal {
-  requireExactKeys(record, ['kind', 'path', 'revision', 'riskPriority']);
+  requireExactKeysForField(
+    record,
+    ['kind', 'path', 'revision', 'riskPriority'],
+    'obligation_proposal'
+  );
   const kind = requireProviderProposableObligationKind(record.kind);
-  const path = requireString(
+  const path = requireRepositoryRelativePath(
     record.path,
     'obligation_requirement_path',
     MAX_PROPOSAL_PATH_LENGTH
@@ -531,6 +535,26 @@ function normalizeProviderObligationProposal(
       MAX_RISK_PRIORITY
     ),
   });
+}
+
+function requireRepositoryRelativePath(
+  value: unknown,
+  field: string,
+  maxLength: number
+): string {
+  const path = requireString(value, field, maxLength);
+  const segments = path.split('/');
+  if (
+    path.startsWith('/') ||
+    /^[A-Za-z]:[\\/]/u.test(path) ||
+    path.includes('\\') ||
+    segments.some(
+      (segment) => segment === '' || segment === '.' || segment === '..'
+    )
+  ) {
+    throw new Error(`review_agent_${field}_invalid`);
+  }
+  return path;
 }
 
 function parseCanonicalCompleteFileRequirement(value: string): Readonly<{

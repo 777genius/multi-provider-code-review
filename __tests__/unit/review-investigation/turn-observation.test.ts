@@ -357,7 +357,7 @@ describe('review agent turn observation v2', () => {
         ...valid,
         obligationProposals: [{}],
       })
-    ).toThrow('review_agent_output_fields_invalid');
+    ).toThrow('review_agent_obligation_proposal_invalid');
     expect(() =>
       parseReviewAgentTurnOutput({
         ...valid,
@@ -470,6 +470,29 @@ describe('review agent turn observation v2', () => {
     });
 
     expect(output.obligationProposals).toEqual([proposal]);
+  });
+
+  it.each([
+    '/etc/passwd',
+    'C:/Windows/System32/config',
+    'src\\outside.ts',
+    './src/service.ts',
+    'src/../outside.ts',
+    'src//service.ts',
+  ])('rejects non-repository-relative provider path %p', (path) => {
+    expect(() =>
+      parseReviewAgentTurnOutput({
+        ...validOutput(),
+        obligationProposals: [
+          {
+            kind: ReviewTurnObligationKind.DirectCaller,
+            path,
+            revision: ReviewTurnProposalRevision.Head,
+            riskPriority: 800_000,
+          },
+        ],
+      })
+    ).toThrow('review_agent_obligation_requirement_path_invalid');
   });
 
   it.each([
