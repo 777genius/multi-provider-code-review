@@ -21,6 +21,7 @@ import {
   reviewInvestigationCoverageProfileHash,
   reviewInvestigationPolicyHash,
   reviewInvestigationActionBudgetForDepth,
+  reviewInvestigationTimeoutMsForBudget,
 } from '../../../src/review-orchestration/infrastructure/review-investigation-recording-adapter';
 import { ReviewDepth } from '../../../src/types';
 import {
@@ -1049,6 +1050,48 @@ describe('ReviewInvestigationRecordingAdapter', () => {
     expect(reviewInvestigationActionBudgetForDepth(undefined)).toEqual(
       reviewInvestigationActionBudgetForDepth(ReviewDepth.Balanced)
     );
+  });
+
+  it('budgets the complete investigation for every possible provider turn', () => {
+    expect(reviewInvestigationTimeoutMsForBudget(600_000, 16)).toBe(4_800_000);
+    expect(reviewInvestigationTimeoutMsForBudget(600_000, 24)).toBe(7_200_000);
+    expect(reviewInvestigationTimeoutMsForBudget(600_000, 0)).toBe(600_000);
+  });
+
+  it('does not apply one provider timeout as the default whole-investigation timeout', async () => {
+    jest.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const execute = jest.fn(
+      ({ signal: executionSignal }: { signal: AbortSignal }) =>
+        new Promise<never>((_resolve, reject) => {
+          signal = executionSignal;
+          executionSignal.addEventListener(
+            'abort',
+            () => reject(executionSignal.reason),
+            { once: true }
+          );
+        })
+    );
+    const balanced = reviewInvestigationActionBudgetForDepth(
+      ReviewDepth.Balanced
+    );
+    const adapter = new ReviewInvestigationRecordingAdapter(
+      () => ({ execute }) as never,
+      {
+        ...options(),
+        providerTimeoutMs: 25,
+        actionBudget: { ...balanced, maxStateTransitions: 4 },
+      }
+    );
+    const running = adapter.execute(executionInput());
+    const rejected = expect(running).rejects.toMatchObject({
+      reason: ReviewInvestigationLegacyFallbackReason.RecordOnlyBudgetExhausted,
+    });
+
+    await jest.advanceTimersByTimeAsync(25);
+    expect(signal?.aborted).toBe(false);
+    await jest.advanceTimersByTimeAsync(25);
+    await rejected;
   });
 
   it('preserves the legacy flat recording budget contract', async () => {
