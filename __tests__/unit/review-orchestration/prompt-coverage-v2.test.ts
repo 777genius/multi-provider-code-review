@@ -47,6 +47,32 @@ describe('prepared review prompt v2 coverage', () => {
     ).toBe(true);
   });
 
+  it('keeps mixed source and generated Dart coverage complete', async () => {
+    const prepared = await builder({
+      smartDiffCompaction: true,
+      maxFullDiffFileBytes: 10_000,
+      diffMaxBytes: 50_000,
+      skipTrivialChanges: true,
+      skipBuildArtifacts: true,
+    }).buildPreparedV2(
+      pr([file('lib/service.dart', 2), file('lib/service.g.dart', 2)], 2)
+    );
+
+    expect(prepared.pathCoverage).toEqual([
+      expect.objectContaining({
+        path: 'lib/service.dart',
+        kind: ReviewPromptPathCoverageKind.FullPatch,
+      }),
+      expect.objectContaining({
+        path: 'lib/service.g.dart',
+        kind: ReviewPromptPathCoverageKind.PolicyExcluded,
+      }),
+    ]);
+    expect(
+      isReviewPromptCoverageComplete(manifest(prepared.pathCoverage))
+    ).toBe(true);
+  });
+
   it('keeps compacted documentation blocking when trivial skipping is disabled', async () => {
     const prepared = await builder({
       smartDiffCompaction: true,
