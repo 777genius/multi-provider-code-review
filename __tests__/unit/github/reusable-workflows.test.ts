@@ -396,6 +396,9 @@ describe('production reusable workflows', () => {
     expect(workflowSource).toContain('REVIEW_ROUTER_MEMORY_BUNDLE_ENDPOINT');
     expect(workflowSource).toContain('reseed auth.json');
     expect(workflowSource).toContain(
+      `printf 'CODEX_HOME=%s\\n' "$CODEX_HOME" >> "$GITHUB_ENV"`
+    );
+    expect(workflowSource).toContain(
       'ReviewRouter skipped this fork pull request'
     );
     expect(workflow.on).not.toHaveProperty('pull_request_target');
