@@ -1,10 +1,21 @@
 import {
+  isReviewPathShardRequested,
   isPathInReviewShard,
   readReviewPathShard,
   reviewPathShardIndex,
 } from '../../../src/review-execution/domain';
 
 describe('review path sharding', () => {
+  it('reports whether either path-shard variable was requested', () => {
+    expect(isReviewPathShardRequested({})).toBe(false);
+    expect(
+      isReviewPathShardRequested({ REVIEWROUTER_PATH_SHARD_INDEX: '0' })
+    ).toBe(true);
+    expect(
+      isReviewPathShardRequested({ REVIEWROUTER_PATH_SHARD_COUNT: '4' })
+    ).toBe(true);
+  });
+
   it('is disabled when both inputs are absent', () => {
     expect(readReviewPathShard({})).toBeNull();
   });

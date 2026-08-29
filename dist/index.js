@@ -31515,10 +31515,15 @@ function asRecord(value) {
 // src/review-execution/domain/review-path-shard.ts
 var import_crypto7 = require("crypto");
 var MAX_REVIEW_PATH_SHARDS = 64;
+function isReviewPathShardRequested(env = process.env) {
+  return Boolean(
+    env.REVIEWROUTER_PATH_SHARD_INDEX?.trim() || env.REVIEWROUTER_PATH_SHARD_COUNT?.trim()
+  );
+}
 function readReviewPathShard(env = process.env) {
   const rawIndex = env.REVIEWROUTER_PATH_SHARD_INDEX?.trim() ?? "";
   const rawCount = env.REVIEWROUTER_PATH_SHARD_COUNT?.trim() ?? "";
-  if (rawIndex === "" && rawCount === "") return null;
+  if (!isReviewPathShardRequested(env)) return null;
   if (rawIndex === "" || rawCount === "") {
     throw new Error("review_path_shard_configuration_incomplete");
   }
@@ -114765,9 +114770,11 @@ async function run() {
   let githubTokenProvider;
   let prNumber;
   let runtimeConfig;
+  let pathShardRequested = false;
   const startedAt = /* @__PURE__ */ new Date();
   try {
     syncEnvFromInputs();
+    pathShardRequested = isReviewPathShardRequested();
     const reviewActionV2Activation = resolveReviewActionV2Activation({
       env: process.env
     });
@@ -114850,10 +114857,16 @@ async function run() {
     const review = await orchestrator.execute(prNumber);
     if (!review) {
       info("Review skipped");
-      await clearReviewFailureSummaries(
-        await currentGitHubToken(token, githubTokenProvider),
-        prNumber
-      );
+      if (pathShardRequested) {
+        info(
+          "Skipping shared failure-summary cleanup for isolated review path shard"
+        );
+      } else {
+        await clearReviewFailureSummaries(
+          await currentGitHubToken(token, githubTokenProvider),
+          prNumber
+        );
+      }
       await reportControlPlaneActionHealth({
         runtimeConfig,
         review,
@@ -114865,10 +114878,16 @@ async function run() {
       });
       return;
     }
-    await clearReviewFailureSummaries(
-      await currentGitHubToken(token, githubTokenProvider),
-      prNumber
-    );
+    if (pathShardRequested) {
+      info(
+        "Skipping shared failure-summary cleanup for isolated review path shard"
+      );
+    } else {
+      await clearReviewFailureSummaries(
+        await currentGitHubToken(token, githubTokenProvider),
+        prNumber
+      );
+    }
     const previousStillValidCounts = countPreviousStillValidBySeverity(
       review.threadLifecycle
     );
@@ -114918,11 +114937,17 @@ async function run() {
 ${formatValidationError(error2)}`) : error2;
     const normalizedError = normalizeReviewError(presentableError);
     setFailed(formatActionError(normalizedError));
-    await postReviewFailureSummary(
-      normalizedError,
-      await currentGitHubToken(token, githubTokenProvider),
-      prNumber
-    );
+    if (pathShardRequested) {
+      info(
+        "Skipping shared failure-summary publication for isolated review path shard"
+      );
+    } else {
+      await postReviewFailureSummary(
+        normalizedError,
+        await currentGitHubToken(token, githubTokenProvider),
+        prNumber
+      );
+    }
     await reportControlPlaneActionHealth({
       runtimeConfig,
       error: normalizedError,

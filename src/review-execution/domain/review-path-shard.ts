@@ -7,13 +7,22 @@ export interface ReviewPathShard {
   readonly count: number;
 }
 
+export function isReviewPathShardRequested(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return Boolean(
+    env.REVIEWROUTER_PATH_SHARD_INDEX?.trim() ||
+    env.REVIEWROUTER_PATH_SHARD_COUNT?.trim()
+  );
+}
+
 export function readReviewPathShard(
   env: NodeJS.ProcessEnv = process.env
 ): ReviewPathShard | null {
   const rawIndex = env.REVIEWROUTER_PATH_SHARD_INDEX?.trim() ?? '';
   const rawCount = env.REVIEWROUTER_PATH_SHARD_COUNT?.trim() ?? '';
 
-  if (rawIndex === '' && rawCount === '') return null;
+  if (!isReviewPathShardRequested(env)) return null;
   if (rawIndex === '' || rawCount === '') {
     throw new Error('review_path_shard_configuration_incomplete');
   }
