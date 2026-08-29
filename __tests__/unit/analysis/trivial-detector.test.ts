@@ -256,6 +256,23 @@ describe('TrivialDetector', () => {
       expect(result.isTrivial).toBe(true);
     });
 
+    it('should detect generated Dart files as trivial', () => {
+      const detector = new TrivialDetector(createDefaultTrivialConfig());
+      const files = [
+        createFile('lib/models/user.g.dart'),
+        createFile('lib/models/user.freezed.dart'),
+      ];
+
+      const result = detector.detect(files);
+
+      expect(result.isTrivial).toBe(true);
+      expect(result.trivialFiles).toEqual([
+        'lib/models/user.g.dart',
+        'lib/models/user.freezed.dart',
+      ]);
+      expect(result.reason).toContain('build artifact');
+    });
+
     it('should not skip if disabled in config', () => {
       const config = createDefaultTrivialConfig();
       config.skipBuildArtifacts = false;

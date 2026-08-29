@@ -106,6 +106,31 @@ Binary files a/img/logo.png and b/img/logo.png differ
 });
 
 describe('compactDiffForPrompt', () => {
+  it.each(['lib/models/user.g.dart', 'lib/models/user.freezed.dart'])(
+    'summarizes generated Dart path %s',
+    (filename) => {
+      const diff = `diff --git a/${filename} b/${filename}\n--- a/${filename}\n+++ b/${filename}\n@@\n+class Generated {}`;
+
+      const result = compactDiffForPrompt(
+        diff,
+        [
+          {
+            filename,
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+          },
+        ],
+        { enabled: true }
+      );
+
+      expect(result.summaryOnlyFiles).toEqual([
+        expect.objectContaining({ filename, reason: 'generated file' }),
+      ]);
+    }
+  );
+
   it('keeps source diffs and summarizes large generated files', () => {
     const diff = `diff --git a/src/billing.ts b/src/billing.ts
 --- a/src/billing.ts

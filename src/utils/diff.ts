@@ -590,7 +590,7 @@ export function getSummaryOnlyDiffReason(
   const lower = filename.toLowerCase();
 
   if (isDependencyLockPath(lower)) return 'dependency lock file';
-  if (isGeneratedPath(lower)) return 'generated file';
+  if (isGeneratedPath(filename)) return 'generated file';
   if (bytes > maxFullFileBytes)
     return `large diff over ${maxFullFileBytes} bytes`;
   if (changes > maxFullFileChanges)
@@ -605,9 +605,16 @@ function isDependencyLockPath(lower: string): boolean {
   );
 }
 
-function isGeneratedPath(lower: string): boolean {
+/**
+ * Identify generated artifacts for prompt compaction and trivial-change policy.
+ */
+export function isGeneratedPath(filename: string): boolean {
+  const lower = filename.replace(/\\/g, '/').toLowerCase();
+
   return (
+    lower.startsWith('generated/') ||
     lower.includes('/generated/') ||
+    lower.startsWith('generated_') ||
     lower.includes('/generated_') ||
     /\.(g|freezed|pb|pbenum|pbjson|pbserver)\.dart$/.test(lower) ||
     /\.generated\.[jt]sx?$/.test(lower) ||

@@ -1,4 +1,5 @@
 import { FileChange, type ReviewConfig } from '../types';
+import { isGeneratedPath } from '../utils/diff';
 import { logger } from '../utils/logger';
 import { isValidRegexPattern } from '../utils/regex-validator';
 
@@ -262,8 +263,9 @@ export class TrivialDetector {
    * Check if file is a build artifact
    */
   private isBuildArtifact(filename: string): boolean {
-    return this.BUILD_ARTIFACT_PATTERNS.some((pattern) =>
-      pattern.test(filename)
+    return (
+      isGeneratedPath(filename) ||
+      this.BUILD_ARTIFACT_PATTERNS.some((pattern) => pattern.test(filename))
     );
   }
 
