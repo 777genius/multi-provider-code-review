@@ -1674,7 +1674,9 @@ export class ReviewOrchestrator {
       }
 
       const markdown = this.components.formatter.format(review);
-      await this.updatePullRequestDescription(pr);
+      if (!pr.pathShard) {
+        await this.updatePullRequestDescription(pr);
+      }
 
       // Detect and record suggestion acceptances (positive feedback)
       if (
@@ -1696,7 +1698,18 @@ export class ReviewOrchestrator {
       );
 
       let shouldReplaceProgressWithCleanSummary = false;
-      if (this.shouldPostReviewOutput(review, inlineFiltered)) {
+      if (pr.pathShard) {
+        logger.info(
+          `Publishing inline-only output for review path shard ${pr.pathShard.index + 1}/${pr.pathShard.count}`
+        );
+        await this.components.commentPoster.postInline(
+          pr.number,
+          inlineFiltered,
+          pr.files,
+          pr.headSha,
+          lifecycleMode !== 'off' ? lifecycleDedupeComments : undefined
+        );
+      } else if (this.shouldPostReviewOutput(review, inlineFiltered)) {
         let summaryPostedViaProgress = false;
         if (progressTracker) {
           summaryPostedViaProgress = await progressTracker.replaceWith(

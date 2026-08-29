@@ -30842,15 +30842,810 @@ function runGit(args, cwd) {
   });
 }
 
+// src/review-execution/domain/capacity-signal.ts
+var STRUCTURED_OUTPUT_ERROR = /\b(?:structured\s+(?:json|output|response)|(?:invalid|malformed)\s+json|json\s+(?:schema|parse|parsing|validation)|(?:parse|parsing|validate)\s+(?:structured\s+)?json|failed\s+to\s+(?:parse|validate).*json)\b/i;
+var CAPACITY_MESSAGE = /(?:\bcapacity[\s_-]*unavailable\b|\brate[\s_-]*limit(?:ed|ing)?\b|\bratelimit(?:ed|ing)?\b|\busage[\s_-]*limit(?:ed|[\s_-]*(?:reached|exceeded|exhausted))?\b|\bbilling[\s_-]*limit(?:ed|[\s_-]*(?:reached|exceeded))?\b|\binsufficient[\s_-]*quota\b|\btoo many requests\b|\b429\b|\bquota(?:[\s_-]*(?:exceeded|exhausted|unavailable|limited))?\b)/i;
+var DEFINITIVE_CAPACITY_CODE = /^(?:429|capacity[_-]?unavailable|rate[_-]?limit(?:ed|_exceeded)?|usage[_-]?limit(?:ed|_reached|_exceeded|_exhausted)?|billing[_-]?limit(?:ed|_reached|_exceeded)?|insufficient[_-]?quota|too[_-]?many[_-]?requests|quota[_-]?(?:exceeded|exhausted|unavailable|limited)|resource[_-]?exhausted)$/i;
+function messageFromError(error2) {
+  if (typeof error2 === "string") return error2;
+  if (typeof error2 === "object" && error2 !== null) {
+    try {
+      const record = error2;
+      const serialized = JSON.stringify({
+        ...record,
+        ..."message" in record && typeof record.message === "string" ? { message: record.message } : error2 instanceof Error ? { message: error2.message } : {}
+      });
+      if (serialized !== "{}") return serialized;
+    } catch {
+    }
+    if (error2 instanceof Error) return error2.message;
+    if ("message" in error2 && typeof error2.message === "string") {
+      return error2.message;
+    }
+  }
+  return void 0;
+}
+function capacityFieldsFromJson(message) {
+  const trimmed = message.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return void 0;
+  try {
+    const parsed = JSON.parse(trimmed);
+    const evidence = collectKnownCapacityFields(parsed);
+    return {
+      fields: evidence.values.join(" "),
+      definitive: evidence.definitive
+    };
+  } catch {
+    return void 0;
+  }
+}
+function collectKnownCapacityFields(value, depth = 0) {
+  if (depth > 2 || typeof value !== "object" || value === null) {
+    return { values: [], definitive: false };
+  }
+  if (Array.isArray(value)) {
+    return value.reduce(
+      (combined, item) => {
+        const nested = collectKnownCapacityFields(item, depth + 1);
+        combined.values.push(...nested.values);
+        combined.definitive ||= nested.definitive;
+        return combined;
+      },
+      { values: [], definitive: false }
+    );
+  }
+  const record = value;
+  const fields = [];
+  let definitive = false;
+  for (const key of ["error", "status", "message", "code"]) {
+    const field = record[key];
+    if (typeof field === "string" || typeof field === "number") {
+      const normalized = String(field);
+      fields.push(normalized);
+      if ((key === "status" || key === "code") && DEFINITIVE_CAPACITY_CODE.test(normalized)) {
+        definitive = true;
+      }
+    } else if (typeof field === "object" && field !== null) {
+      const nested = collectKnownCapacityFields(field, depth + 1);
+      fields.push(...nested.values);
+      definitive ||= nested.definitive;
+    }
+  }
+  return { values: fields, definitive };
+}
+function hasCapacityMessage(message) {
+  if (message === void 0) return false;
+  const jsonFields = capacityFieldsFromJson(message);
+  if (jsonFields !== void 0) {
+    return jsonFields.definitive || !STRUCTURED_OUTPUT_ERROR.test(jsonFields.fields) && CAPACITY_MESSAGE.test(jsonFields.fields);
+  }
+  if (STRUCTURED_OUTPUT_ERROR.test(message)) return false;
+  return CAPACITY_MESSAGE.test(message);
+}
+function classifyOne(result2) {
+  const status = typeof result2.status === "string" ? result2.status : void 0;
+  if (hasCapacityMessage(status) || hasCapacityMessage(messageFromError(result2.error))) {
+    return "capacity_pressure" /* CapacityPressure */;
+  }
+  if (status?.toLowerCase() === "success") return "healthy" /* Healthy */;
+  return "neutral" /* Neutral */;
+}
+function classifyProviderCapacitySignal(result2) {
+  const results = Array.isArray(result2) ? result2 : [result2];
+  if (results.length === 0) return "neutral" /* Neutral */;
+  const signals = results.map(classifyOne);
+  if (signals.includes("capacity_pressure" /* CapacityPressure */)) {
+    return "capacity_pressure" /* CapacityPressure */;
+  }
+  return signals.every((signal) => signal === "healthy" /* Healthy */) ? "healthy" /* Healthy */ : "neutral" /* Neutral */;
+}
+
+// src/review-execution/domain/execution-deadline.ts
+var SYSTEM_CLOCK = {
+  now: () => Date.now()
+};
+function requireNonNegativeFinite(value, field) {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${field} must be a non-negative finite number`);
+  }
+}
+var ExecutionDeadline = class {
+  constructor(deadlineEpochMs, windows, clock = SYSTEM_CLOCK) {
+    this.deadlineEpochMs = deadlineEpochMs;
+    this.windows = windows;
+    this.clock = clock;
+    if (deadlineEpochMs !== void 0) {
+      requireNonNegativeFinite(deadlineEpochMs, "deadlineEpochMs");
+    }
+    requireNonNegativeFinite(
+      windows.completionReserveMs,
+      "completionReserveMs"
+    );
+    requireNonNegativeFinite(
+      windows.minimumBatchStartWindowMs,
+      "minimumBatchStartWindowMs"
+    );
+    requireNonNegativeFinite(
+      windows.minimumOptionalRetryStartWindowMs,
+      "minimumOptionalRetryStartWindowMs"
+    );
+  }
+  remainingMs() {
+    if (this.deadlineEpochMs === void 0) return Number.POSITIVE_INFINITY;
+    return Math.max(0, this.deadlineEpochMs - this.clock.now());
+  }
+  canStartBatch() {
+    return this.remainingMs() >= this.windows.completionReserveMs + this.windows.minimumBatchStartWindowMs;
+  }
+  canStartInitialInvocation() {
+    return this.canStartBatch();
+  }
+  clampProviderTimeout(requestedTimeoutMs) {
+    requireNonNegativeFinite(requestedTimeoutMs, "requestedTimeoutMs");
+    if (this.deadlineEpochMs === void 0) return requestedTimeoutMs;
+    const usableTime = Math.max(
+      0,
+      this.remainingMs() - this.windows.completionReserveMs
+    );
+    return Math.min(requestedTimeoutMs, usableTime);
+  }
+  canStartOptionalRetry() {
+    return this.remainingMs() >= this.windows.completionReserveMs + this.windows.minimumOptionalRetryStartWindowMs;
+  }
+};
+
+// src/review-execution/domain/file-risk-priority.ts
+var TIER_ORDER = {
+  ["security" /* Security */]: 0,
+  ["migration" /* Migration */]: 1,
+  ["persistence" /* Persistence */]: 2,
+  ["public_contract" /* PublicContract */]: 3,
+  ["normal" /* Normal */]: 4
+};
+var SECURITY_TOKENS = /* @__PURE__ */ new Set([
+  "access",
+  "auth",
+  "authentication",
+  "authorization",
+  "authenticator",
+  "authn",
+  "authz",
+  "crypto",
+  "cryptography",
+  "jwt",
+  "oauth",
+  "security",
+  "session",
+  "sessions"
+]);
+var SENSITIVE_TOKEN_CONTEXT = /* @__PURE__ */ new Set([
+  "access",
+  "api",
+  "bearer",
+  "credential",
+  "credentials",
+  "csrf",
+  "identity",
+  "keyring",
+  "manager",
+  "refresh",
+  "secret",
+  "signing",
+  "storage",
+  "store",
+  "vault"
+]);
+var MIGRATION_TOKENS = /* @__PURE__ */ new Set([
+  "migration",
+  "migrations",
+  "schema",
+  "schemas"
+]);
+var PERSISTENCE_TOKENS = /* @__PURE__ */ new Set([
+  "database",
+  "datastore",
+  "db",
+  "persistence",
+  "persistent",
+  "repositories",
+  "repository",
+  "storage"
+]);
+var PUBLIC_CONTRACT_TOKENS = /* @__PURE__ */ new Set([
+  "api",
+  "apis",
+  "contract",
+  "contracts"
+]);
+function pathTokens(filename) {
+  return filename.replace(/([a-z0-9])([A-Z])/g, "$1/$2").toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 0);
+}
+function includesToken(tokens, candidates) {
+  return tokens.some((token) => candidates.has(token));
+}
+function isSensitiveTokenPath(tokens) {
+  return (tokens.includes("token") || tokens.includes("tokens")) && includesToken(tokens, SENSITIVE_TOKEN_CONTEXT);
+}
+function isActionManifest(filename, tokens) {
+  const basename3 = filename.split("/").at(-1)?.toLowerCase();
+  if (basename3 === "action.yml" || basename3 === "action.yaml") return true;
+  return tokens.includes("manifest") && (tokens.includes("action") || tokens.includes("actions"));
+}
+function classifyFileRisk(filename) {
+  const tokens = pathTokens(filename);
+  if (includesToken(tokens, SECURITY_TOKENS) || isSensitiveTokenPath(tokens)) {
+    return "security" /* Security */;
+  }
+  if (includesToken(tokens, MIGRATION_TOKENS)) return "migration" /* Migration */;
+  if (includesToken(tokens, PERSISTENCE_TOKENS)) {
+    return "persistence" /* Persistence */;
+  }
+  if (includesToken(tokens, PUBLIC_CONTRACT_TOKENS) || isActionManifest(filename, tokens)) {
+    return "public_contract" /* PublicContract */;
+  }
+  return "normal" /* Normal */;
+}
+function prioritizeFilesByRisk(files) {
+  return files.map((file, originalIndex) => ({
+    file,
+    originalIndex,
+    tier: classifyFileRisk(file.filename)
+  })).sort((left, right) => {
+    const tierDifference = TIER_ORDER[left.tier] - TIER_ORDER[right.tier];
+    return tierDifference !== 0 ? tierDifference : left.originalIndex - right.originalIndex;
+  }).map(({ file }) => file);
+}
+
+// src/review-execution/domain/review-batch-plan.ts
+var import_crypto6 = require("crypto");
+function compareCodePoints2(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+function requireNonEmpty(value, field) {
+  if (value.trim().length === 0) {
+    throw new Error(`${field} must not be empty`);
+  }
+}
+function canonicalFile(file) {
+  return {
+    filename: file.filename,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    changes: file.changes,
+    patch: file.patch ?? null,
+    previousFilename: file.previousFilename ?? null,
+    language: file.language ?? null
+  };
+}
+function cloneFile(file) {
+  return Object.freeze({ ...file });
+}
+function createReviewBatchPlan(input) {
+  requireNonEmpty(input.baseSha, "baseSha");
+  requireNonEmpty(input.headSha, "headSha");
+  requireNonEmpty(input.compatibilityKey, "compatibilityKey");
+  input.providerNames.forEach((name) => requireNonEmpty(name, "providerName"));
+  const providerNames = Object.freeze(
+    [...input.providerNames].sort(compareCodePoints2)
+  );
+  const canonicalBatches = input.batches.map(
+    (batch) => batch.map(canonicalFile)
+  );
+  const payload = {
+    version: "v1" /* V1 */,
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    compatibilityKey: input.compatibilityKey,
+    providerNames,
+    batches: canonicalBatches
+  };
+  const planHash = (0, import_crypto6.createHash)("sha256").update(JSON.stringify(payload)).digest("hex");
+  const batches = Object.freeze(
+    input.batches.map((batch, index) => {
+      const id = (0, import_crypto6.createHash)("sha256").update(
+        JSON.stringify({
+          version: "v1" /* V1 */,
+          planHash,
+          index,
+          files: canonicalBatches[index]
+        })
+      ).digest("hex");
+      return Object.freeze({
+        id,
+        index,
+        files: Object.freeze(batch.map(cloneFile))
+      });
+    })
+  );
+  return Object.freeze({
+    version: "v1" /* V1 */,
+    planHash,
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    compatibilityKey: input.compatibilityKey,
+    providerNames,
+    batches
+  });
+}
+
+// src/review-execution/domain/review-checkpoint.ts
+var REVIEW_CHECKPOINT_PROTOCOL_VERSION = 1;
+var REVIEW_CHECKPOINT_MAX_REQUEST_BYTES = 128 * 1024;
+var REVIEW_CHECKPOINT_MAX_AGGREGATE_BYTES = 2 * 1024 * 1024;
+var GIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
+var HASH_PATTERN = /^[a-f0-9]{64}$/i;
+var MAX_FILE_PATHS = 200;
+var MAX_PLANNED_WORK_KEYS = 200;
+var MAX_FINDINGS = 500;
+var MAX_PROVIDER_RESULTS = 50;
+var MAX_LIFECYCLE_TARGETS = 200;
+var MAX_REVALIDATIONS = 200;
+var MAX_REVALIDATION_EVIDENCE = 20;
+var MAX_DURATION_MS = 24 * 60 * 60 * 1e3;
+var MAX_TOKEN_COUNT = 1e9;
+var ReviewCheckpointProviderStatus = /* @__PURE__ */ ((ReviewCheckpointProviderStatus2) => {
+  ReviewCheckpointProviderStatus2["Success"] = "success";
+  ReviewCheckpointProviderStatus2["Error"] = "error";
+  ReviewCheckpointProviderStatus2["Timeout"] = "timeout";
+  ReviewCheckpointProviderStatus2["RateLimited"] = "rate_limited";
+  return ReviewCheckpointProviderStatus2;
+})(ReviewCheckpointProviderStatus || {});
+var ReviewCheckpointFindingSeverity = /* @__PURE__ */ ((ReviewCheckpointFindingSeverity2) => {
+  ReviewCheckpointFindingSeverity2["Critical"] = "critical";
+  ReviewCheckpointFindingSeverity2["Major"] = "major";
+  ReviewCheckpointFindingSeverity2["Minor"] = "minor";
+  return ReviewCheckpointFindingSeverity2;
+})(ReviewCheckpointFindingSeverity || {});
+var ReviewCheckpointLifecycleVerdict = /* @__PURE__ */ ((ReviewCheckpointLifecycleVerdict2) => {
+  ReviewCheckpointLifecycleVerdict2["Resolved"] = "resolved";
+  ReviewCheckpointLifecycleVerdict2["StillValid"] = "still_valid";
+  ReviewCheckpointLifecycleVerdict2["Uncertain"] = "uncertain";
+  return ReviewCheckpointLifecycleVerdict2;
+})(ReviewCheckpointLifecycleVerdict || {});
+var reviewCheckpointPlanIdentitySchema = external_exports.object({
+  pullRequestNumber: external_exports.number().int().positive(),
+  baseSha: external_exports.string().regex(GIT_SHA_PATTERN),
+  headSha: external_exports.string().regex(GIT_SHA_PATTERN),
+  compatibilityKey: external_exports.string().regex(HASH_PATTERN),
+  planHash: external_exports.string().regex(HASH_PATTERN),
+  workKeys: external_exports.array(external_exports.string().regex(HASH_PATTERN)).max(MAX_PLANNED_WORK_KEYS)
+}).strict().superRefine((value, context) => {
+  if (new Set(value.workKeys.map((key) => key.toLowerCase())).size !== value.workKeys.length) {
+    context.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      message: "Checkpoint work keys must be unique",
+      path: ["workKeys"]
+    });
+  }
+});
+var checkpointFindingSchema = external_exports.object({
+  file: external_exports.string().min(1).max(4096),
+  startLine: external_exports.number().int().positive().optional(),
+  line: external_exports.number().int().positive(),
+  endLine: external_exports.number().int().positive().optional(),
+  severity: external_exports.nativeEnum(ReviewCheckpointFindingSeverity),
+  title: external_exports.string().min(1).max(1e3),
+  message: external_exports.string().min(1).max(2e4),
+  provider: external_exports.string().min(1).max(500).optional(),
+  providers: external_exports.array(external_exports.string().min(1).max(500)).max(50).optional(),
+  actualModel: external_exports.string().min(1).max(500).optional(),
+  providerVoteKeys: external_exports.array(external_exports.string().min(1).max(500)).max(50).optional(),
+  providerPoolSize: external_exports.number().int().positive().optional(),
+  confidence: external_exports.number().min(0).max(1).optional(),
+  category: external_exports.string().min(1).max(500).optional(),
+  hasConsensus: external_exports.boolean().optional()
+}).strict();
+var lifecycleEvidenceSchema = external_exports.object({
+  path: external_exports.string().min(1).max(4096),
+  startLine: external_exports.number().int().positive().optional(),
+  endLine: external_exports.number().int().positive().optional(),
+  reason: external_exports.string().min(1).max(2e3)
+}).strict();
+var lifecycleRevalidationSchema = external_exports.object({
+  targetId: external_exports.string().min(1).max(500),
+  fingerprint: external_exports.string().min(1).max(500).optional(),
+  verdict: external_exports.nativeEnum(ReviewCheckpointLifecycleVerdict),
+  confidence: external_exports.number().min(0).max(1).optional(),
+  evidence: external_exports.array(lifecycleEvidenceSchema).max(MAX_REVALIDATION_EVIDENCE).optional(),
+  rationale: external_exports.string().min(1).max(2e3).optional()
+}).strict();
+var checkpointProviderResultSchema = external_exports.object({
+  name: external_exports.string().min(1).max(500),
+  status: external_exports.nativeEnum(ReviewCheckpointProviderStatus),
+  durationMs: external_exports.number().int().min(0).max(MAX_DURATION_MS),
+  errorMessage: external_exports.string().min(1).max(1e3).optional(),
+  actualModel: external_exports.string().min(1).max(500).optional(),
+  aiLikelihood: external_exports.number().min(0).max(1).optional(),
+  usage: external_exports.object({
+    promptTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT),
+    completionTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT),
+    totalTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT)
+  }).strict().optional(),
+  lifecycleAssignedTargetIds: external_exports.array(external_exports.string().min(1).max(500)).max(MAX_LIFECYCLE_TARGETS).refine((items) => new Set(items).size === items.length).optional(),
+  lifecycleRevalidations: external_exports.array(lifecycleRevalidationSchema).max(MAX_REVALIDATIONS).optional()
+}).strict();
+var reviewCheckpointBatchPayloadSchema = external_exports.object({
+  filePaths: external_exports.array(external_exports.string().min(1).max(4096)).max(MAX_FILE_PATHS).refine((items) => new Set(items).size === items.length),
+  findings: external_exports.array(checkpointFindingSchema).max(MAX_FINDINGS),
+  providerResults: external_exports.array(checkpointProviderResultSchema).max(MAX_PROVIDER_RESULTS)
+}).strict();
+var reviewCheckpointFinalizationMarkerSchema = external_exports.object({
+  protocolVersion: external_exports.literal(REVIEW_CHECKPOINT_PROTOCOL_VERSION),
+  pullRequestNumber: external_exports.number().int().positive(),
+  headSha: external_exports.string().regex(GIT_SHA_PATTERN),
+  planHash: external_exports.string().regex(HASH_PATTERN),
+  expectedVersion: external_exports.number().int().nonnegative(),
+  snapshotAdvancementRequired: external_exports.boolean()
+}).strict();
+function createReviewCheckpointPlanIdentity(input) {
+  const parsed = reviewCheckpointPlanIdentitySchema.parse(input);
+  return Object.freeze({
+    ...parsed,
+    baseSha: parsed.baseSha.toLowerCase(),
+    headSha: parsed.headSha.toLowerCase(),
+    compatibilityKey: parsed.compatibilityKey.toLowerCase(),
+    planHash: parsed.planHash.toLowerCase(),
+    workKeys: parsed.workKeys.map((key) => key.toLowerCase())
+  });
+}
+function normalizeReviewCheckpointBatchPayload(input) {
+  const record = asRecord(input);
+  const rawProviderResults = Array.isArray(input) ? input : Array.isArray(record?.providerResults) ? record.providerResults : [];
+  assertCollectionWithinLimit(
+    rawProviderResults,
+    MAX_PROVIDER_RESULTS,
+    "providerResults"
+  );
+  const providerResults = rawProviderResults.map(normalizeProviderResult).map((result2) => requireNormalized(result2, "providerResult"));
+  const rawFindings = Array.isArray(record?.findings) ? record.findings : rawProviderResults.flatMap((providerResult) => {
+    const provider = asRecord(providerResult);
+    const result2 = asRecord(provider?.result);
+    return Array.isArray(result2?.findings) ? result2.findings : [];
+  });
+  assertCollectionWithinLimit(rawFindings, MAX_FINDINGS, "findings");
+  return reviewCheckpointBatchPayloadSchema.parse({
+    filePaths: normalizeFilePaths(record),
+    findings: rawFindings.map(normalizeFinding2).map((finding) => requireNormalized(finding, "finding")),
+    providerResults
+  });
+}
+function parseReviewCheckpointFinalizationMarker(input) {
+  const value = typeof input === "string" ? JSON.parse(input) : input;
+  return reviewCheckpointFinalizationMarkerSchema.parse(value);
+}
+function checkpointPlansMatch(left, right) {
+  return left.pullRequestNumber === right.pullRequestNumber && left.baseSha === right.baseSha && left.headSha === right.headSha && left.compatibilityKey === right.compatibilityKey && left.planHash === right.planHash && left.workKeys.length === right.workKeys.length && left.workKeys.every((workKey, index) => workKey === right.workKeys[index]);
+}
+function checkpointPayloadsMatch(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function normalizeFilePaths(record) {
+  const explicitPaths = Array.isArray(record?.filePaths) ? record.filePaths : [];
+  const fileObjects = Array.isArray(record?.files) ? record.files : [];
+  const values = [
+    ...explicitPaths,
+    ...fileObjects.map((file) => asRecord(file)?.filename)
+  ];
+  const paths = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const path29 = normalizeText2(value, 4096);
+    if (!path29 || seen.has(path29)) continue;
+    seen.add(path29);
+    paths.push(path29);
+    if (paths.length > MAX_FILE_PATHS) {
+      throw new Error("review_checkpoint_filePaths_limit_exceeded");
+    }
+  }
+  return paths;
+}
+function normalizeFinding2(value) {
+  const finding = asRecord(value);
+  if (!finding) return null;
+  const parsed = checkpointFindingSchema.safeParse({
+    file: normalizeRequiredText(finding.file, 4096),
+    ...finding.startLine !== void 0 ? { startLine: finding.startLine } : {},
+    line: finding.line,
+    ...finding.endLine !== void 0 ? { endLine: finding.endLine } : {},
+    severity: finding.severity,
+    title: normalizeRequiredText(finding.title, 1e3),
+    message: normalizeRequiredText(finding.message, 2e4),
+    ...typeof finding.provider === "string" ? { provider: normalizeText2(finding.provider, 500) } : {},
+    ...Array.isArray(finding.providers) ? { providers: normalizeStringArray(finding.providers, 50, 500) } : {},
+    ...typeof finding.actualModel === "string" ? { actualModel: normalizeText2(finding.actualModel, 500) } : {},
+    ...Array.isArray(finding.providerVoteKeys) ? {
+      providerVoteKeys: normalizeStringArray(
+        finding.providerVoteKeys,
+        50,
+        500
+      )
+    } : {},
+    ...finding.providerPoolSize !== void 0 ? { providerPoolSize: finding.providerPoolSize } : {},
+    ...finding.confidence !== void 0 ? { confidence: finding.confidence } : {},
+    ...typeof finding.category === "string" ? { category: normalizeText2(finding.category, 500) } : {},
+    ...finding.hasConsensus !== void 0 ? { hasConsensus: finding.hasConsensus } : {}
+  });
+  return parsed.success ? parsed.data : null;
+}
+function normalizeProviderResult(value) {
+  const provider = asRecord(value);
+  if (!provider || typeof provider.name !== "string") return null;
+  const result2 = asRecord(provider.result);
+  const errorMessage2 = messageFromUnknown(
+    provider.errorMessage ?? provider.error
+  );
+  const parsed = checkpointProviderResultSchema.safeParse({
+    name: normalizeText2(provider.name, 500),
+    status: normalizeProviderStatus(provider.status),
+    durationMs: normalizeDurationMs(provider),
+    ...errorMessage2 ? { errorMessage: normalizeText2(errorMessage2, 1e3) } : {},
+    ...typeof (provider.actualModel ?? result2?.actualModel) === "string" ? {
+      actualModel: normalizeText2(
+        provider.actualModel ?? result2?.actualModel,
+        500
+      )
+    } : {},
+    ...isProbability(provider.aiLikelihood ?? result2?.aiLikelihood) ? { aiLikelihood: provider.aiLikelihood ?? result2?.aiLikelihood } : {},
+    ...normalizeProviderUsage(provider, result2),
+    ...Array.isArray(provider.lifecycleAssignedTargetIds) ? {
+      lifecycleAssignedTargetIds: normalizeStringArray(
+        provider.lifecycleAssignedTargetIds,
+        MAX_LIFECYCLE_TARGETS,
+        500
+      )
+    } : {},
+    ...normalizeProviderRevalidations(provider, result2)
+  });
+  return parsed.success ? parsed.data : null;
+}
+function normalizeProviderUsage(provider, result2) {
+  const usage = asRecord(provider.usage) ?? asRecord(result2?.usage);
+  if (!usage) return {};
+  const parsed = external_exports.object({
+    promptTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT),
+    completionTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT),
+    totalTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT)
+  }).strict().safeParse(usage);
+  return parsed.success ? { usage: parsed.data } : {};
+}
+function normalizeProviderRevalidations(provider, result2) {
+  const raw = Array.isArray(provider.lifecycleRevalidations) ? provider.lifecycleRevalidations : Array.isArray(result2?.lifecycleRevalidations) ? result2.lifecycleRevalidations : Array.isArray(result2?.revalidations) ? result2.revalidations : null;
+  if (!raw) return {};
+  assertCollectionWithinLimit(raw, MAX_REVALIDATIONS, "lifecycleRevalidations");
+  return {
+    lifecycleRevalidations: raw.map(normalizeLifecycleRevalidation).map(
+      (revalidation) => requireNormalized(revalidation, "lifecycleRevalidation")
+    )
+  };
+}
+function normalizeLifecycleRevalidation(value) {
+  const revalidation = asRecord(value);
+  if (!revalidation) return null;
+  const evidence = Array.isArray(revalidation.evidence) ? (assertCollectionWithinLimit(
+    revalidation.evidence,
+    MAX_REVALIDATION_EVIDENCE,
+    "lifecycleEvidence"
+  ), revalidation.evidence.map(normalizeLifecycleEvidence).map((entry) => requireNormalized(entry, "lifecycleEvidence"))) : void 0;
+  const parsed = lifecycleRevalidationSchema.safeParse({
+    targetId: normalizeRequiredText(revalidation.targetId, 500),
+    ...typeof revalidation.fingerprint === "string" ? { fingerprint: normalizeText2(revalidation.fingerprint, 500) } : {},
+    verdict: revalidation.verdict,
+    ...isProbability(revalidation.confidence) ? { confidence: revalidation.confidence } : {},
+    ...evidence ? { evidence } : {},
+    ...typeof revalidation.rationale === "string" ? { rationale: normalizeText2(revalidation.rationale, 2e3) } : {}
+  });
+  return parsed.success ? parsed.data : null;
+}
+function normalizeLifecycleEvidence(value) {
+  const evidence = asRecord(value);
+  if (!evidence) return null;
+  const parsed = lifecycleEvidenceSchema.safeParse({
+    path: normalizeRequiredText(evidence.path, 4096),
+    ...evidence.startLine !== void 0 ? { startLine: evidence.startLine } : {},
+    ...evidence.endLine !== void 0 ? { endLine: evidence.endLine } : {},
+    reason: normalizeRequiredText(evidence.reason, 2e3)
+  });
+  return parsed.success ? parsed.data : null;
+}
+function normalizeProviderStatus(value) {
+  switch (value) {
+    case "success":
+      return "success" /* Success */;
+    case "timeout":
+      return "timeout" /* Timeout */;
+    case "rate-limited":
+    case "rate_limited":
+      return "rate_limited" /* RateLimited */;
+    case "error":
+    default:
+      return "error" /* Error */;
+  }
+}
+function normalizeDurationMs(provider) {
+  const raw = typeof provider.durationMs === "number" ? provider.durationMs : typeof provider.durationSeconds === "number" ? provider.durationSeconds * 1e3 : 0;
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(MAX_DURATION_MS, Math.max(0, Math.round(raw)));
+}
+function normalizeStringArray(values, maxItems, maxLength) {
+  assertCollectionWithinLimit(values, maxItems, "stringArray");
+  return [
+    ...new Set(
+      values.filter((value) => typeof value === "string").map((value) => normalizeText2(value, maxLength)).filter((value) => value.length > 0)
+    )
+  ];
+}
+function normalizeRequiredText(value, maxLength) {
+  return typeof value === "string" ? normalizeText2(value, maxLength) : value;
+}
+function normalizeText2(value, maxLength) {
+  const normalized = redactSensitiveText(value);
+  if (normalized.length > maxLength) {
+    throw new Error("review_checkpoint_text_limit_exceeded");
+  }
+  return normalized;
+}
+function assertCollectionWithinLimit(values, maxItems, field) {
+  if (values.length > maxItems) {
+    throw new Error(`review_checkpoint_${field}_limit_exceeded`);
+  }
+}
+function requireNormalized(value, field) {
+  if (value === null) {
+    throw new Error(`review_checkpoint_${field}_invalid`);
+  }
+  return value;
+}
+function messageFromUnknown(value) {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return value.message;
+  const record = asRecord(value);
+  return typeof record?.message === "string" ? record.message : void 0;
+}
+function isProbability(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+// src/review-execution/domain/review-path-shard.ts
+var import_crypto7 = require("crypto");
+var MAX_REVIEW_PATH_SHARDS = 64;
+function readReviewPathShard(env = process.env) {
+  const rawIndex = env.REVIEWROUTER_PATH_SHARD_INDEX?.trim() ?? "";
+  const rawCount = env.REVIEWROUTER_PATH_SHARD_COUNT?.trim() ?? "";
+  if (rawIndex === "" && rawCount === "") return null;
+  if (rawIndex === "" || rawCount === "") {
+    throw new Error("review_path_shard_configuration_incomplete");
+  }
+  const index = Number(rawIndex);
+  const count = Number(rawCount);
+  if (!Number.isSafeInteger(count) || count < 1 || count > MAX_REVIEW_PATH_SHARDS) {
+    throw new Error("review_path_shard_count_invalid");
+  }
+  if (!Number.isSafeInteger(index) || index < 0 || index >= count) {
+    throw new Error("review_path_shard_index_invalid");
+  }
+  return Object.freeze({ index, count });
+}
+function reviewPathShardIndex(path29, shardCount) {
+  if (!Number.isSafeInteger(shardCount) || shardCount < 1 || shardCount > MAX_REVIEW_PATH_SHARDS) {
+    throw new Error("review_path_shard_count_invalid");
+  }
+  const digest3 = (0, import_crypto7.createHash)("sha256").update(path29).digest();
+  return digest3.readUInt32BE(0) % shardCount;
+}
+function isPathInReviewShard(path29, shard) {
+  return reviewPathShardIndex(path29, shard.count) === shard.index;
+}
+
+// src/review-execution/domain/work-slot-provider-result.ts
+var EMPTY_USAGE = {
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0
+};
+function aggregateWorkSlotProviderResults(healthResults, workSlotResults) {
+  const healthByProvider = new Map(
+    [...healthResults].sort((left, right) => left.name.localeCompare(right.name)).map((result2) => [result2.name, result2])
+  );
+  const workByProvider = /* @__PURE__ */ new Map();
+  for (const scoped of [...workSlotResults].sort(compareScopedResults)) {
+    const provider = scoped.providerResult.name;
+    const existing = workByProvider.get(provider) ?? [];
+    existing.push(scoped);
+    workByProvider.set(provider, existing);
+  }
+  const providerNames = /* @__PURE__ */ new Set([
+    ...healthByProvider.keys(),
+    ...workByProvider.keys()
+  ]);
+  return [...providerNames].sort((left, right) => left.localeCompare(right)).map((provider) => {
+    const scoped = workByProvider.get(provider);
+    if (!scoped || scoped.length === 0) {
+      return healthByProvider.get(provider);
+    }
+    return aggregateProvider(provider, scoped);
+  });
+}
+function aggregateProvider(provider, scopedResults) {
+  const results = scopedResults.map((scoped) => scoped.providerResult);
+  const firstFailure = results.find((result2) => result2.status !== "success");
+  const successfulReviews = results.flatMap(
+    (result2) => result2.status === "success" && result2.result ? [result2.result] : []
+  );
+  const aggregateResult = aggregateSuccessfulReviews(successfulReviews);
+  return {
+    name: provider,
+    status: firstFailure?.status ?? "success",
+    durationSeconds: results.reduce(
+      (total, result2) => total + Math.max(0, result2.durationSeconds),
+      0
+    ),
+    ...aggregateResult ? { result: aggregateResult } : {},
+    ...firstFailure?.error ? { error: firstFailure.error } : {},
+    lifecycleAssignedTargetIds: [
+      ...new Set(
+        results.flatMap((result2) => result2.lifecycleAssignedTargetIds ?? [])
+      )
+    ].sort((left, right) => left.localeCompare(right))
+  };
+}
+function aggregateSuccessfulReviews(reviews) {
+  if (reviews.length === 0) return void 0;
+  const usage = reviews.reduce(
+    (total, review) => ({
+      promptTokens: total.promptTokens + (review.usage?.promptTokens ?? 0),
+      completionTokens: total.completionTokens + (review.usage?.completionTokens ?? 0),
+      totalTokens: total.totalTokens + (review.usage?.totalTokens ?? 0)
+    }),
+    EMPTY_USAGE
+  );
+  const likelihoods = reviews.flatMap(
+    (review) => typeof review.aiLikelihood === "number" ? [review.aiLikelihood] : []
+  );
+  const models = new Set(
+    reviews.flatMap(
+      (review) => review.actualModel ? [review.actualModel] : []
+    )
+  );
+  return {
+    content: reviews.map((review) => review.content).filter(Boolean).join("\n"),
+    findings: reviews.flatMap((review) => review.findings ?? []),
+    revalidations: reviews.flatMap((review) => review.revalidations ?? []),
+    usage,
+    durationSeconds: reviews.reduce(
+      (total, review) => total + Math.max(0, review.durationSeconds ?? 0),
+      0
+    ),
+    transportAttemptCount: reviews.reduce(
+      (total, review) => total + Math.max(0, review.transportAttemptCount ?? 0),
+      0
+    ),
+    ...likelihoods.length > 0 ? {
+      aiLikelihood: likelihoods.reduce((total, value) => total + value, 0) / likelihoods.length
+    } : {},
+    ...models.size === 1 ? { actualModel: [...models][0] } : {}
+  };
+}
+function compareScopedResults(left, right) {
+  return left.workSlotId.localeCompare(right.workSlotId) || left.providerResult.name.localeCompare(right.providerResult.name);
+}
+
 // src/github/pr-loader.ts
 var FILES_PER_PAGE = 100;
 var MAX_GITHUB_FILES = 3e3;
 var MAX_RAW_DIFF_FILES = 300;
 var MAX_SYNTHESIZED_DIFF_BYTES = 8 * 1024 * 1024;
 var PullRequestLoader = class {
-  constructor(client, localDiffLoader = loadPullRequestFilesFromGit) {
+  constructor(client, localDiffLoader = loadPullRequestFilesFromGit, pathShard = readReviewPathShard()) {
     this.client = client;
     this.localDiffLoader = localDiffLoader;
+    this.pathShard = pathShard;
   }
   async load(prNumber) {
     const { octokit, owner, repo } = this.client;
@@ -30918,7 +31713,15 @@ var PullRequestLoader = class {
         );
       }
     }
-    const diffResult = await this.fetchDiff(owner, repo, prNumber, files);
+    const totalFiles = files.length;
+    const pathShard = this.pathShard;
+    const reviewFiles = pathShard ? files.filter((file) => isPathInReviewShard(file.filename, pathShard)) : files;
+    if (pathShard) {
+      logger.info(
+        `Review path shard ${pathShard.index + 1}/${pathShard.count} selected ${reviewFiles.length} of ${totalFiles} file(s) for PR #${prNumber}.`
+      );
+    }
+    const diffResult = await this.fetchDiff(owner, repo, prNumber, reviewFiles);
     if (diffResult.omittedFiles.length > 0) {
       omissions.push({
         reason: "synthesized_diff_size_limit" /* SynthesizedDiffSizeLimit */,
@@ -30948,16 +31751,28 @@ var PullRequestLoader = class {
       labels: (pr2.labels || []).map(
         (label) => typeof label === "string" ? label : label.name || ""
       ),
-      files,
+      files: reviewFiles,
       diff: diffResult.diff,
-      additions: pr2.additions || 0,
-      deletions: pr2.deletions || 0,
+      additions: this.pathShard ? reviewFiles.reduce((total, file) => total + file.additions, 0) : pr2.additions || 0,
+      deletions: this.pathShard ? reviewFiles.reduce((total, file) => total + file.deletions, 0) : pr2.deletions || 0,
       baseSha,
       headSha,
+      ...this.pathShard ? {
+        pathShard: {
+          ...this.pathShard,
+          totalFiles
+        }
+      } : {},
       loadCompleteness: this.describeCompleteness(omissions)
     };
   }
   async fetchDiff(owner, repo, prNumber, files) {
+    if (files.length === 0) {
+      return { diff: "", omittedFiles: [] };
+    }
+    if (this.pathShard) {
+      return this.synthesizeDiff(prNumber, files);
+    }
     if (files.length > MAX_RAW_DIFF_FILES) {
       logger.warn(
         `PR #${prNumber} exceeds GitHub's ${MAX_RAW_DIFF_FILES}-file raw diff limit; using paginated file patches.`
@@ -31414,7 +32229,7 @@ function shouldPostSuggestion(finding, confidence, config) {
 }
 
 // src/github/comment-fingerprint.ts
-var import_crypto6 = require("crypto");
+var import_crypto8 = require("crypto");
 
 // src/review-projection/domain/finding-marker.ts
 var RESERVED_FINDING_MARKER_PREFIX_RE = /(?:review-router-finding:|reviewrouter:finding:v2:)/gi;
@@ -31493,7 +32308,7 @@ function signatureFromInlineComment(path29, line, body) {
   ].join(":");
 }
 function fingerprintFromInlineComment(path29, line, body) {
-  return (0, import_crypto6.createHash)("sha256").update(signatureFromInlineComment(path29, line, body)).digest("hex").slice(0, 16);
+  return (0, import_crypto8.createHash)("sha256").update(signatureFromInlineComment(path29, line, body)).digest("hex").slice(0, 16);
 }
 function inlineFingerprintMarker(fingerprint) {
   return `<!-- review-router-inline:${fingerprint} -->`;
@@ -31620,7 +32435,7 @@ function stableFindingFingerprint(input) {
     normalizeForSignature(stripSeverityPrefix(input.title)),
     normalizeForSignature(input.message).slice(0, 800)
   ].join("\n");
-  return (0, import_crypto6.createHash)("sha256").update(canonical).digest("hex").slice(0, 32);
+  return (0, import_crypto8.createHash)("sha256").update(canonical).digest("hex").slice(0, 32);
 }
 function semanticText(body) {
   return body.replace(/```[\s\S]*?```/g, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/\*\*Severity:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, " ");
@@ -35014,15 +35829,15 @@ var LifecycleRevalidationVerdict = /* @__PURE__ */ ((LifecycleRevalidationVerdic
 })(LifecycleRevalidationVerdict || {});
 
 // src/review-projection/domain/review-projection-canonicalizer.ts
-var import_crypto7 = require("crypto");
+var import_crypto9 = require("crypto");
 function canonicalizeReviewProjection(envelope) {
   return JSON.stringify(toCanonicalValue(envelope));
 }
 function hashReviewProjectionCanonicalJson(canonicalJson14) {
-  return (0, import_crypto7.createHash)("sha256").update(canonicalJson14, "utf8").digest("hex");
+  return (0, import_crypto9.createHash)("sha256").update(canonicalJson14, "utf8").digest("hex");
 }
 function hashProjectionFact(value) {
-  return (0, import_crypto7.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
+  return (0, import_crypto9.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
 }
 function deepFreezeProjection(value) {
   if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
@@ -35239,7 +36054,7 @@ function sortedUnique(values) {
 }
 
 // src/review-projection/domain/review-lifecycle-observation.ts
-var import_crypto8 = require("crypto");
+var import_crypto10 = require("crypto");
 var REVIEW_LIFECYCLE_THREAD_STATE_VERSION = "review_lifecycle_thread_state.v1";
 var REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^(?:rrl_[a-f0-9]{32}|[a-f0-9]{24,64})$/;
 var RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
@@ -35326,7 +36141,7 @@ function daysInMonth(year, month) {
   return [4, 6, 9, 11].includes(month) ? 30 : 31;
 }
 function sha2564(value) {
-  return (0, import_crypto8.createHash)("sha256").update(value, "utf8").digest("hex");
+  return (0, import_crypto10.createHash)("sha256").update(value, "utf8").digest("hex");
 }
 function compareCodeUnits2(left, right) {
   if (left < right) return -1;
@@ -35675,7 +36490,7 @@ function locationKey(path29, line) {
 }
 
 // src/github/ledger.ts
-var import_crypto9 = require("crypto");
+var import_crypto11 = require("crypto");
 var LEDGER_MARKER = "reviewrouter-ledger:v1";
 var LEDGER_RE = /<!--\s*reviewrouter-ledger:v1\s+payload=([A-Za-z0-9_-]+)\s+signature=([a-f0-9]{64})\s*-->/;
 var MAX_LEDGER_ENTRIES = 200;
@@ -35863,7 +36678,7 @@ var ReviewLedger = class {
     ].join("\n");
   }
   sign(payload) {
-    return (0, import_crypto9.createHmac)("sha256", this.secret || "").update(canonicalJson3(payload)).digest("hex");
+    return (0, import_crypto11.createHmac)("sha256", this.secret || "").update(canonicalJson3(payload)).digest("hex");
   }
   emptyPayload(prNumber) {
     return {
@@ -35899,7 +36714,7 @@ function safeEqualHex(a2, b2) {
   }
   const aBuffer = Buffer.from(a2, "hex");
   const bBuffer = Buffer.from(b2, "hex");
-  return aBuffer.length === bBuffer.length && (0, import_crypto9.timingSafeEqual)(aBuffer, bBuffer);
+  return aBuffer.length === bBuffer.length && (0, import_crypto11.timingSafeEqual)(aBuffer, bBuffer);
 }
 
 // src/learning/feedback-tracker.ts
@@ -37173,7 +37988,7 @@ var PromptGenerator = class {
 };
 
 // src/utils/sanitize.ts
-var import_crypto10 = require("crypto");
+var import_crypto12 = require("crypto");
 function encodeURIComponentSafe(value) {
   if (typeof value !== "string") {
     return "invalid";
@@ -37182,7 +37997,7 @@ function encodeURIComponentSafe(value) {
   const normalized = encoded.replace(/[+]/g, "_").replace(/%/g, "_").replace(/[<>:"|?*]/g, "_");
   const MAX_PREFIX = 120;
   const prefix = normalized.length > MAX_PREFIX ? normalized.slice(0, MAX_PREFIX) : normalized;
-  const hashSuffix = (0, import_crypto10.createHash)("sha256").update(value).digest("hex").slice(0, 16);
+  const hashSuffix = (0, import_crypto12.createHash)("sha256").update(value).digest("hex").slice(0, 16);
   return `${prefix}-${hashSuffix}`;
 }
 
@@ -38274,10 +39089,10 @@ var PluginLoader = class {
 };
 
 // src/core/batch-orchestrator.ts
-var import_crypto12 = require("crypto");
+var import_crypto14 = require("crypto");
 
 // src/review-orchestration/domain/content-defined-review-batches.ts
-var import_crypto11 = require("crypto");
+var import_crypto13 = require("crypto");
 var ROUTE_HASH_BITS = 256;
 function createContentDefinedReviewBatches(units, limits) {
   requirePositiveInteger(limits.maxFilesPerBatch, "max_files_per_batch");
@@ -38287,8 +39102,8 @@ function createContentDefinedReviewBatches(units, limits) {
   const canonicalIdentities = /* @__PURE__ */ new Set();
   const schedulingPriorities = /* @__PURE__ */ new Set();
   const routed = units.map((unit) => {
-    requireNonEmpty(unit.routeKey, "route_key");
-    requireNonEmpty(unit.canonicalIdentity, "canonical_identity");
+    requireNonEmpty2(unit.routeKey, "route_key");
+    requireNonEmpty2(unit.canonicalIdentity, "canonical_identity");
     requireNonNegativeInteger(unit.tokenCost, "token_cost");
     requireNonNegativeInteger(unit.schedulingPriority, "scheduling_priority");
     if (routeKeys.has(unit.routeKey)) {
@@ -38341,7 +39156,7 @@ function splitBucket(units, routePrefix, limits) {
 }
 function createBatch(units, routePrefix, tokenCost, oversizedSingleUnit) {
   const canonicalUnits = [...units].sort(
-    (left, right) => compareCodePoints2(left.canonicalIdentity, right.canonicalIdentity)
+    (left, right) => compareCodePoints3(left.canonicalIdentity, right.canonicalIdentity)
   ).map(({ routeHash: _routeHash, ...unit }) => Object.freeze(unit));
   return Object.freeze({
     units: Object.freeze(canonicalUnits),
@@ -38353,7 +39168,7 @@ function createBatch(units, routePrefix, tokenCost, oversizedSingleUnit) {
 }
 function compareBatchSchedulingPriority(left, right) {
   const priorityDifference = minimumSchedulingPriority(left.units) - minimumSchedulingPriority(right.units);
-  return priorityDifference !== 0 ? priorityDifference : compareCodePoints2(left.routePrefix, right.routePrefix);
+  return priorityDifference !== 0 ? priorityDifference : compareCodePoints3(left.routePrefix, right.routePrefix);
 }
 function minimumSchedulingPriority(units) {
   return units.reduce(
@@ -38377,9 +39192,9 @@ function routeBit(hash, bitIndex) {
   return nibble >> shift & 1;
 }
 function sha2565(value) {
-  return (0, import_crypto11.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto13.createHash)("sha256").update(value).digest("hex");
 }
-function compareCodePoints2(left, right) {
+function compareCodePoints3(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
@@ -38394,7 +39209,7 @@ function requireNonNegativeInteger(value, field) {
     throw new Error(`${field}_invalid`);
   }
 }
-function requireNonEmpty(value, field) {
+function requireNonEmpty2(value, field) {
   if (value.length === 0) throw new Error(`${field}_invalid`);
 }
 
@@ -38516,7 +39331,7 @@ var BatchOrchestrator = class {
   }
 };
 function fileIdentity(file) {
-  return (0, import_crypto12.createHash)("sha256").update(
+  return (0, import_crypto14.createHash)("sha256").update(
     JSON.stringify({
       additions: file.additions,
       changes: file.changes,
@@ -38531,7 +39346,7 @@ function fileIdentity(file) {
 }
 
 // src/learning/suppression-tracker.ts
-var import_crypto13 = require("crypto");
+var import_crypto15 = require("crypto");
 var SuppressionTracker = class _SuppressionTracker {
   constructor(storage, repoKey) {
     this.storage = storage;
@@ -38554,7 +39369,7 @@ var SuppressionTracker = class _SuppressionTracker {
     const ttl = scope === "pr" ? _SuppressionTracker.PR_TTL_MS : _SuppressionTracker.REPO_TTL_MS;
     const timestamp3 = Date.now();
     const pattern = {
-      id: (0, import_crypto13.randomUUID)(),
+      id: (0, import_crypto15.randomUUID)(),
       category: finding.category,
       file: finding.file,
       line: finding.line,
@@ -39023,7 +39838,7 @@ var AcceptanceDetector = class {
 };
 
 // src/github/review-thread-inventory.ts
-var import_crypto14 = require("crypto");
+var import_crypto16 = require("crypto");
 var DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS = ["review-router-ai[bot]"];
 var GITHUB_ACTIONS_BOT_AUTHOR = "github-actions[bot]";
 var RESOLUTION_REPLY_MARKER = "reviewrouter-lifecycle-resolution:v1";
@@ -39389,7 +40204,7 @@ function shouldTrustGitHubActionsBot(env) {
   return env.REVIEW_ROUTER_COMMENT_TOKEN_STATUS === "fallback";
 }
 function targetIdFor(threadId, parentCommentId, fingerprint) {
-  return `rrt_${(0, import_crypto14.createHash)("sha256").update(`${threadId}
+  return `rrt_${(0, import_crypto16.createHash)("sha256").update(`${threadId}
 ${parentCommentId}
 ${fingerprint}`).digest("hex").slice(0, 16)}`;
 }
@@ -40047,7 +40862,7 @@ function safeReason(message) {
 }
 
 // src/control-plane/memory.ts
-var import_crypto15 = require("crypto");
+var import_crypto17 = require("crypto");
 var ControlPlaneMemoryClient = class {
   constructor(runtimeConfig, env = process.env, fetchImpl = fetch, memoryLogger = logger) {
     this.runtimeConfig = runtimeConfig;
@@ -40178,7 +40993,7 @@ function buildSafeMemoryRetrievalQuery(pr2) {
   return normalized.length > 0 ? normalized : null;
 }
 function memorySourceHash(value) {
-  return (0, import_crypto15.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto17.createHash)("sha256").update(value).digest("hex");
 }
 function parseActionMemoryBundle(value) {
   if (!value || typeof value !== "object") {
@@ -40283,60 +41098,6 @@ function safeReason2(error2) {
   return message.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/g, "<redacted>").replace(/ghs_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/gh[pousr]_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/github_pat_[A-Za-z0-9_]+/g, "[redacted-github-token]").replace(/sk-[A-Za-z0-9_-]+/g, "[redacted-api-key]").slice(0, 160);
 }
 
-// src/review-execution/domain/execution-deadline.ts
-var SYSTEM_CLOCK = {
-  now: () => Date.now()
-};
-function requireNonNegativeFinite(value, field) {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`${field} must be a non-negative finite number`);
-  }
-}
-var ExecutionDeadline = class {
-  constructor(deadlineEpochMs, windows, clock = SYSTEM_CLOCK) {
-    this.deadlineEpochMs = deadlineEpochMs;
-    this.windows = windows;
-    this.clock = clock;
-    if (deadlineEpochMs !== void 0) {
-      requireNonNegativeFinite(deadlineEpochMs, "deadlineEpochMs");
-    }
-    requireNonNegativeFinite(
-      windows.completionReserveMs,
-      "completionReserveMs"
-    );
-    requireNonNegativeFinite(
-      windows.minimumBatchStartWindowMs,
-      "minimumBatchStartWindowMs"
-    );
-    requireNonNegativeFinite(
-      windows.minimumOptionalRetryStartWindowMs,
-      "minimumOptionalRetryStartWindowMs"
-    );
-  }
-  remainingMs() {
-    if (this.deadlineEpochMs === void 0) return Number.POSITIVE_INFINITY;
-    return Math.max(0, this.deadlineEpochMs - this.clock.now());
-  }
-  canStartBatch() {
-    return this.remainingMs() >= this.windows.completionReserveMs + this.windows.minimumBatchStartWindowMs;
-  }
-  canStartInitialInvocation() {
-    return this.canStartBatch();
-  }
-  clampProviderTimeout(requestedTimeoutMs) {
-    requireNonNegativeFinite(requestedTimeoutMs, "requestedTimeoutMs");
-    if (this.deadlineEpochMs === void 0) return requestedTimeoutMs;
-    const usableTime = Math.max(
-      0,
-      this.remainingMs() - this.windows.completionReserveMs
-    );
-    return Math.min(requestedTimeoutMs, usableTime);
-  }
-  canStartOptionalRetry() {
-    return this.remainingMs() >= this.windows.completionReserveMs + this.windows.minimumOptionalRetryStartWindowMs;
-  }
-};
-
 // src/review-execution/infrastructure/execution-deadline-from-environment.ts
 var REVIEW_EXECUTION_DEADLINE_ENV_KEY = "REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS";
 var DEFAULT_COMPLETION_RESERVE_MS = 12e4;
@@ -40366,348 +41127,7 @@ function createExecutionDeadlineFromEnvironment(environment = process.env, clock
 
 // src/review-execution/infrastructure/http-review-checkpoint-client.ts
 var fs14 = __toESM(require("fs/promises"));
-var import_crypto16 = require("crypto");
-
-// src/review-execution/domain/review-checkpoint.ts
-var REVIEW_CHECKPOINT_PROTOCOL_VERSION = 1;
-var REVIEW_CHECKPOINT_MAX_REQUEST_BYTES = 128 * 1024;
-var REVIEW_CHECKPOINT_MAX_AGGREGATE_BYTES = 2 * 1024 * 1024;
-var GIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
-var HASH_PATTERN = /^[a-f0-9]{64}$/i;
-var MAX_FILE_PATHS = 200;
-var MAX_PLANNED_WORK_KEYS = 200;
-var MAX_FINDINGS = 500;
-var MAX_PROVIDER_RESULTS = 50;
-var MAX_LIFECYCLE_TARGETS = 200;
-var MAX_REVALIDATIONS = 200;
-var MAX_REVALIDATION_EVIDENCE = 20;
-var MAX_DURATION_MS = 24 * 60 * 60 * 1e3;
-var MAX_TOKEN_COUNT = 1e9;
-var ReviewCheckpointProviderStatus = /* @__PURE__ */ ((ReviewCheckpointProviderStatus2) => {
-  ReviewCheckpointProviderStatus2["Success"] = "success";
-  ReviewCheckpointProviderStatus2["Error"] = "error";
-  ReviewCheckpointProviderStatus2["Timeout"] = "timeout";
-  ReviewCheckpointProviderStatus2["RateLimited"] = "rate_limited";
-  return ReviewCheckpointProviderStatus2;
-})(ReviewCheckpointProviderStatus || {});
-var ReviewCheckpointFindingSeverity = /* @__PURE__ */ ((ReviewCheckpointFindingSeverity2) => {
-  ReviewCheckpointFindingSeverity2["Critical"] = "critical";
-  ReviewCheckpointFindingSeverity2["Major"] = "major";
-  ReviewCheckpointFindingSeverity2["Minor"] = "minor";
-  return ReviewCheckpointFindingSeverity2;
-})(ReviewCheckpointFindingSeverity || {});
-var ReviewCheckpointLifecycleVerdict = /* @__PURE__ */ ((ReviewCheckpointLifecycleVerdict2) => {
-  ReviewCheckpointLifecycleVerdict2["Resolved"] = "resolved";
-  ReviewCheckpointLifecycleVerdict2["StillValid"] = "still_valid";
-  ReviewCheckpointLifecycleVerdict2["Uncertain"] = "uncertain";
-  return ReviewCheckpointLifecycleVerdict2;
-})(ReviewCheckpointLifecycleVerdict || {});
-var reviewCheckpointPlanIdentitySchema = external_exports.object({
-  pullRequestNumber: external_exports.number().int().positive(),
-  baseSha: external_exports.string().regex(GIT_SHA_PATTERN),
-  headSha: external_exports.string().regex(GIT_SHA_PATTERN),
-  compatibilityKey: external_exports.string().regex(HASH_PATTERN),
-  planHash: external_exports.string().regex(HASH_PATTERN),
-  workKeys: external_exports.array(external_exports.string().regex(HASH_PATTERN)).max(MAX_PLANNED_WORK_KEYS)
-}).strict().superRefine((value, context) => {
-  if (new Set(value.workKeys.map((key) => key.toLowerCase())).size !== value.workKeys.length) {
-    context.addIssue({
-      code: external_exports.ZodIssueCode.custom,
-      message: "Checkpoint work keys must be unique",
-      path: ["workKeys"]
-    });
-  }
-});
-var checkpointFindingSchema = external_exports.object({
-  file: external_exports.string().min(1).max(4096),
-  startLine: external_exports.number().int().positive().optional(),
-  line: external_exports.number().int().positive(),
-  endLine: external_exports.number().int().positive().optional(),
-  severity: external_exports.nativeEnum(ReviewCheckpointFindingSeverity),
-  title: external_exports.string().min(1).max(1e3),
-  message: external_exports.string().min(1).max(2e4),
-  provider: external_exports.string().min(1).max(500).optional(),
-  providers: external_exports.array(external_exports.string().min(1).max(500)).max(50).optional(),
-  actualModel: external_exports.string().min(1).max(500).optional(),
-  providerVoteKeys: external_exports.array(external_exports.string().min(1).max(500)).max(50).optional(),
-  providerPoolSize: external_exports.number().int().positive().optional(),
-  confidence: external_exports.number().min(0).max(1).optional(),
-  category: external_exports.string().min(1).max(500).optional(),
-  hasConsensus: external_exports.boolean().optional()
-}).strict();
-var lifecycleEvidenceSchema = external_exports.object({
-  path: external_exports.string().min(1).max(4096),
-  startLine: external_exports.number().int().positive().optional(),
-  endLine: external_exports.number().int().positive().optional(),
-  reason: external_exports.string().min(1).max(2e3)
-}).strict();
-var lifecycleRevalidationSchema = external_exports.object({
-  targetId: external_exports.string().min(1).max(500),
-  fingerprint: external_exports.string().min(1).max(500).optional(),
-  verdict: external_exports.nativeEnum(ReviewCheckpointLifecycleVerdict),
-  confidence: external_exports.number().min(0).max(1).optional(),
-  evidence: external_exports.array(lifecycleEvidenceSchema).max(MAX_REVALIDATION_EVIDENCE).optional(),
-  rationale: external_exports.string().min(1).max(2e3).optional()
-}).strict();
-var checkpointProviderResultSchema = external_exports.object({
-  name: external_exports.string().min(1).max(500),
-  status: external_exports.nativeEnum(ReviewCheckpointProviderStatus),
-  durationMs: external_exports.number().int().min(0).max(MAX_DURATION_MS),
-  errorMessage: external_exports.string().min(1).max(1e3).optional(),
-  actualModel: external_exports.string().min(1).max(500).optional(),
-  aiLikelihood: external_exports.number().min(0).max(1).optional(),
-  usage: external_exports.object({
-    promptTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT),
-    completionTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT),
-    totalTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT)
-  }).strict().optional(),
-  lifecycleAssignedTargetIds: external_exports.array(external_exports.string().min(1).max(500)).max(MAX_LIFECYCLE_TARGETS).refine((items) => new Set(items).size === items.length).optional(),
-  lifecycleRevalidations: external_exports.array(lifecycleRevalidationSchema).max(MAX_REVALIDATIONS).optional()
-}).strict();
-var reviewCheckpointBatchPayloadSchema = external_exports.object({
-  filePaths: external_exports.array(external_exports.string().min(1).max(4096)).max(MAX_FILE_PATHS).refine((items) => new Set(items).size === items.length),
-  findings: external_exports.array(checkpointFindingSchema).max(MAX_FINDINGS),
-  providerResults: external_exports.array(checkpointProviderResultSchema).max(MAX_PROVIDER_RESULTS)
-}).strict();
-var reviewCheckpointFinalizationMarkerSchema = external_exports.object({
-  protocolVersion: external_exports.literal(REVIEW_CHECKPOINT_PROTOCOL_VERSION),
-  pullRequestNumber: external_exports.number().int().positive(),
-  headSha: external_exports.string().regex(GIT_SHA_PATTERN),
-  planHash: external_exports.string().regex(HASH_PATTERN),
-  expectedVersion: external_exports.number().int().nonnegative(),
-  snapshotAdvancementRequired: external_exports.boolean()
-}).strict();
-function createReviewCheckpointPlanIdentity(input) {
-  const parsed = reviewCheckpointPlanIdentitySchema.parse(input);
-  return Object.freeze({
-    ...parsed,
-    baseSha: parsed.baseSha.toLowerCase(),
-    headSha: parsed.headSha.toLowerCase(),
-    compatibilityKey: parsed.compatibilityKey.toLowerCase(),
-    planHash: parsed.planHash.toLowerCase(),
-    workKeys: parsed.workKeys.map((key) => key.toLowerCase())
-  });
-}
-function normalizeReviewCheckpointBatchPayload(input) {
-  const record = asRecord(input);
-  const rawProviderResults = Array.isArray(input) ? input : Array.isArray(record?.providerResults) ? record.providerResults : [];
-  assertCollectionWithinLimit(
-    rawProviderResults,
-    MAX_PROVIDER_RESULTS,
-    "providerResults"
-  );
-  const providerResults = rawProviderResults.map(normalizeProviderResult).map((result2) => requireNormalized(result2, "providerResult"));
-  const rawFindings = Array.isArray(record?.findings) ? record.findings : rawProviderResults.flatMap((providerResult) => {
-    const provider = asRecord(providerResult);
-    const result2 = asRecord(provider?.result);
-    return Array.isArray(result2?.findings) ? result2.findings : [];
-  });
-  assertCollectionWithinLimit(rawFindings, MAX_FINDINGS, "findings");
-  return reviewCheckpointBatchPayloadSchema.parse({
-    filePaths: normalizeFilePaths(record),
-    findings: rawFindings.map(normalizeFinding2).map((finding) => requireNormalized(finding, "finding")),
-    providerResults
-  });
-}
-function parseReviewCheckpointFinalizationMarker(input) {
-  const value = typeof input === "string" ? JSON.parse(input) : input;
-  return reviewCheckpointFinalizationMarkerSchema.parse(value);
-}
-function checkpointPlansMatch(left, right) {
-  return left.pullRequestNumber === right.pullRequestNumber && left.baseSha === right.baseSha && left.headSha === right.headSha && left.compatibilityKey === right.compatibilityKey && left.planHash === right.planHash && left.workKeys.length === right.workKeys.length && left.workKeys.every((workKey, index) => workKey === right.workKeys[index]);
-}
-function checkpointPayloadsMatch(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-function normalizeFilePaths(record) {
-  const explicitPaths = Array.isArray(record?.filePaths) ? record.filePaths : [];
-  const fileObjects = Array.isArray(record?.files) ? record.files : [];
-  const values = [
-    ...explicitPaths,
-    ...fileObjects.map((file) => asRecord(file)?.filename)
-  ];
-  const paths = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const path29 = normalizeText2(value, 4096);
-    if (!path29 || seen.has(path29)) continue;
-    seen.add(path29);
-    paths.push(path29);
-    if (paths.length > MAX_FILE_PATHS) {
-      throw new Error("review_checkpoint_filePaths_limit_exceeded");
-    }
-  }
-  return paths;
-}
-function normalizeFinding2(value) {
-  const finding = asRecord(value);
-  if (!finding) return null;
-  const parsed = checkpointFindingSchema.safeParse({
-    file: normalizeRequiredText(finding.file, 4096),
-    ...finding.startLine !== void 0 ? { startLine: finding.startLine } : {},
-    line: finding.line,
-    ...finding.endLine !== void 0 ? { endLine: finding.endLine } : {},
-    severity: finding.severity,
-    title: normalizeRequiredText(finding.title, 1e3),
-    message: normalizeRequiredText(finding.message, 2e4),
-    ...typeof finding.provider === "string" ? { provider: normalizeText2(finding.provider, 500) } : {},
-    ...Array.isArray(finding.providers) ? { providers: normalizeStringArray(finding.providers, 50, 500) } : {},
-    ...typeof finding.actualModel === "string" ? { actualModel: normalizeText2(finding.actualModel, 500) } : {},
-    ...Array.isArray(finding.providerVoteKeys) ? {
-      providerVoteKeys: normalizeStringArray(
-        finding.providerVoteKeys,
-        50,
-        500
-      )
-    } : {},
-    ...finding.providerPoolSize !== void 0 ? { providerPoolSize: finding.providerPoolSize } : {},
-    ...finding.confidence !== void 0 ? { confidence: finding.confidence } : {},
-    ...typeof finding.category === "string" ? { category: normalizeText2(finding.category, 500) } : {},
-    ...finding.hasConsensus !== void 0 ? { hasConsensus: finding.hasConsensus } : {}
-  });
-  return parsed.success ? parsed.data : null;
-}
-function normalizeProviderResult(value) {
-  const provider = asRecord(value);
-  if (!provider || typeof provider.name !== "string") return null;
-  const result2 = asRecord(provider.result);
-  const errorMessage2 = messageFromUnknown(
-    provider.errorMessage ?? provider.error
-  );
-  const parsed = checkpointProviderResultSchema.safeParse({
-    name: normalizeText2(provider.name, 500),
-    status: normalizeProviderStatus(provider.status),
-    durationMs: normalizeDurationMs(provider),
-    ...errorMessage2 ? { errorMessage: normalizeText2(errorMessage2, 1e3) } : {},
-    ...typeof (provider.actualModel ?? result2?.actualModel) === "string" ? {
-      actualModel: normalizeText2(
-        provider.actualModel ?? result2?.actualModel,
-        500
-      )
-    } : {},
-    ...isProbability(provider.aiLikelihood ?? result2?.aiLikelihood) ? { aiLikelihood: provider.aiLikelihood ?? result2?.aiLikelihood } : {},
-    ...normalizeProviderUsage(provider, result2),
-    ...Array.isArray(provider.lifecycleAssignedTargetIds) ? {
-      lifecycleAssignedTargetIds: normalizeStringArray(
-        provider.lifecycleAssignedTargetIds,
-        MAX_LIFECYCLE_TARGETS,
-        500
-      )
-    } : {},
-    ...normalizeProviderRevalidations(provider, result2)
-  });
-  return parsed.success ? parsed.data : null;
-}
-function normalizeProviderUsage(provider, result2) {
-  const usage = asRecord(provider.usage) ?? asRecord(result2?.usage);
-  if (!usage) return {};
-  const parsed = external_exports.object({
-    promptTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT),
-    completionTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT),
-    totalTokens: external_exports.number().int().min(0).max(MAX_TOKEN_COUNT)
-  }).strict().safeParse(usage);
-  return parsed.success ? { usage: parsed.data } : {};
-}
-function normalizeProviderRevalidations(provider, result2) {
-  const raw = Array.isArray(provider.lifecycleRevalidations) ? provider.lifecycleRevalidations : Array.isArray(result2?.lifecycleRevalidations) ? result2.lifecycleRevalidations : Array.isArray(result2?.revalidations) ? result2.revalidations : null;
-  if (!raw) return {};
-  assertCollectionWithinLimit(raw, MAX_REVALIDATIONS, "lifecycleRevalidations");
-  return {
-    lifecycleRevalidations: raw.map(normalizeLifecycleRevalidation).map(
-      (revalidation) => requireNormalized(revalidation, "lifecycleRevalidation")
-    )
-  };
-}
-function normalizeLifecycleRevalidation(value) {
-  const revalidation = asRecord(value);
-  if (!revalidation) return null;
-  const evidence = Array.isArray(revalidation.evidence) ? (assertCollectionWithinLimit(
-    revalidation.evidence,
-    MAX_REVALIDATION_EVIDENCE,
-    "lifecycleEvidence"
-  ), revalidation.evidence.map(normalizeLifecycleEvidence).map((entry) => requireNormalized(entry, "lifecycleEvidence"))) : void 0;
-  const parsed = lifecycleRevalidationSchema.safeParse({
-    targetId: normalizeRequiredText(revalidation.targetId, 500),
-    ...typeof revalidation.fingerprint === "string" ? { fingerprint: normalizeText2(revalidation.fingerprint, 500) } : {},
-    verdict: revalidation.verdict,
-    ...isProbability(revalidation.confidence) ? { confidence: revalidation.confidence } : {},
-    ...evidence ? { evidence } : {},
-    ...typeof revalidation.rationale === "string" ? { rationale: normalizeText2(revalidation.rationale, 2e3) } : {}
-  });
-  return parsed.success ? parsed.data : null;
-}
-function normalizeLifecycleEvidence(value) {
-  const evidence = asRecord(value);
-  if (!evidence) return null;
-  const parsed = lifecycleEvidenceSchema.safeParse({
-    path: normalizeRequiredText(evidence.path, 4096),
-    ...evidence.startLine !== void 0 ? { startLine: evidence.startLine } : {},
-    ...evidence.endLine !== void 0 ? { endLine: evidence.endLine } : {},
-    reason: normalizeRequiredText(evidence.reason, 2e3)
-  });
-  return parsed.success ? parsed.data : null;
-}
-function normalizeProviderStatus(value) {
-  switch (value) {
-    case "success":
-      return "success" /* Success */;
-    case "timeout":
-      return "timeout" /* Timeout */;
-    case "rate-limited":
-    case "rate_limited":
-      return "rate_limited" /* RateLimited */;
-    case "error":
-    default:
-      return "error" /* Error */;
-  }
-}
-function normalizeDurationMs(provider) {
-  const raw = typeof provider.durationMs === "number" ? provider.durationMs : typeof provider.durationSeconds === "number" ? provider.durationSeconds * 1e3 : 0;
-  if (!Number.isFinite(raw)) return 0;
-  return Math.min(MAX_DURATION_MS, Math.max(0, Math.round(raw)));
-}
-function normalizeStringArray(values, maxItems, maxLength) {
-  assertCollectionWithinLimit(values, maxItems, "stringArray");
-  return [
-    ...new Set(
-      values.filter((value) => typeof value === "string").map((value) => normalizeText2(value, maxLength)).filter((value) => value.length > 0)
-    )
-  ];
-}
-function normalizeRequiredText(value, maxLength) {
-  return typeof value === "string" ? normalizeText2(value, maxLength) : value;
-}
-function normalizeText2(value, maxLength) {
-  const normalized = redactSensitiveText(value);
-  if (normalized.length > maxLength) {
-    throw new Error("review_checkpoint_text_limit_exceeded");
-  }
-  return normalized;
-}
-function assertCollectionWithinLimit(values, maxItems, field) {
-  if (values.length > maxItems) {
-    throw new Error(`review_checkpoint_${field}_limit_exceeded`);
-  }
-}
-function requireNormalized(value, field) {
-  if (value === null) {
-    throw new Error(`review_checkpoint_${field}_invalid`);
-  }
-  return value;
-}
-function messageFromUnknown(value) {
-  if (typeof value === "string") return value;
-  if (value instanceof Error) return value.message;
-  const record = asRecord(value);
-  return typeof record?.message === "string" ? record.message : void 0;
-}
-function isProbability(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
-}
-function asRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
+var import_crypto18 = require("crypto");
 
 // src/review-execution/application/review-checkpoint-session.ts
 var ReviewCheckpointSession = class _ReviewCheckpointSession {
@@ -41450,7 +41870,7 @@ var FileReviewCheckpointFinalizationMarkerWriter = class _FileReviewCheckpointFi
   }
   async write(marker) {
     const validated = reviewCheckpointFinalizationMarkerSchema.parse(marker);
-    const temporaryPath = `${this.path}.tmp-${process.pid}-${(0, import_crypto16.randomUUID)()}`;
+    const temporaryPath = `${this.path}.tmp-${process.pid}-${(0, import_crypto18.randomUUID)()}`;
     try {
       await fs14.writeFile(temporaryPath, JSON.stringify(validated), {
         encoding: "utf8",
@@ -44935,104 +45355,6 @@ function unquoteGitPath4(path29) {
   });
 }
 
-// src/review-execution/domain/capacity-signal.ts
-var STRUCTURED_OUTPUT_ERROR = /\b(?:structured\s+(?:json|output|response)|(?:invalid|malformed)\s+json|json\s+(?:schema|parse|parsing|validation)|(?:parse|parsing|validate)\s+(?:structured\s+)?json|failed\s+to\s+(?:parse|validate).*json)\b/i;
-var CAPACITY_MESSAGE = /(?:\bcapacity[\s_-]*unavailable\b|\brate[\s_-]*limit(?:ed|ing)?\b|\bratelimit(?:ed|ing)?\b|\busage[\s_-]*limit(?:ed|[\s_-]*(?:reached|exceeded|exhausted))?\b|\bbilling[\s_-]*limit(?:ed|[\s_-]*(?:reached|exceeded))?\b|\binsufficient[\s_-]*quota\b|\btoo many requests\b|\b429\b|\bquota(?:[\s_-]*(?:exceeded|exhausted|unavailable|limited))?\b)/i;
-var DEFINITIVE_CAPACITY_CODE = /^(?:429|capacity[_-]?unavailable|rate[_-]?limit(?:ed|_exceeded)?|usage[_-]?limit(?:ed|_reached|_exceeded|_exhausted)?|billing[_-]?limit(?:ed|_reached|_exceeded)?|insufficient[_-]?quota|too[_-]?many[_-]?requests|quota[_-]?(?:exceeded|exhausted|unavailable|limited)|resource[_-]?exhausted)$/i;
-function messageFromError(error2) {
-  if (typeof error2 === "string") return error2;
-  if (typeof error2 === "object" && error2 !== null) {
-    try {
-      const record = error2;
-      const serialized = JSON.stringify({
-        ...record,
-        ..."message" in record && typeof record.message === "string" ? { message: record.message } : error2 instanceof Error ? { message: error2.message } : {}
-      });
-      if (serialized !== "{}") return serialized;
-    } catch {
-    }
-    if (error2 instanceof Error) return error2.message;
-    if ("message" in error2 && typeof error2.message === "string") {
-      return error2.message;
-    }
-  }
-  return void 0;
-}
-function capacityFieldsFromJson(message) {
-  const trimmed = message.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return void 0;
-  try {
-    const parsed = JSON.parse(trimmed);
-    const evidence = collectKnownCapacityFields(parsed);
-    return {
-      fields: evidence.values.join(" "),
-      definitive: evidence.definitive
-    };
-  } catch {
-    return void 0;
-  }
-}
-function collectKnownCapacityFields(value, depth = 0) {
-  if (depth > 2 || typeof value !== "object" || value === null) {
-    return { values: [], definitive: false };
-  }
-  if (Array.isArray(value)) {
-    return value.reduce(
-      (combined, item) => {
-        const nested = collectKnownCapacityFields(item, depth + 1);
-        combined.values.push(...nested.values);
-        combined.definitive ||= nested.definitive;
-        return combined;
-      },
-      { values: [], definitive: false }
-    );
-  }
-  const record = value;
-  const fields = [];
-  let definitive = false;
-  for (const key of ["error", "status", "message", "code"]) {
-    const field = record[key];
-    if (typeof field === "string" || typeof field === "number") {
-      const normalized = String(field);
-      fields.push(normalized);
-      if ((key === "status" || key === "code") && DEFINITIVE_CAPACITY_CODE.test(normalized)) {
-        definitive = true;
-      }
-    } else if (typeof field === "object" && field !== null) {
-      const nested = collectKnownCapacityFields(field, depth + 1);
-      fields.push(...nested.values);
-      definitive ||= nested.definitive;
-    }
-  }
-  return { values: fields, definitive };
-}
-function hasCapacityMessage(message) {
-  if (message === void 0) return false;
-  const jsonFields = capacityFieldsFromJson(message);
-  if (jsonFields !== void 0) {
-    return jsonFields.definitive || !STRUCTURED_OUTPUT_ERROR.test(jsonFields.fields) && CAPACITY_MESSAGE.test(jsonFields.fields);
-  }
-  if (STRUCTURED_OUTPUT_ERROR.test(message)) return false;
-  return CAPACITY_MESSAGE.test(message);
-}
-function classifyOne(result2) {
-  const status = typeof result2.status === "string" ? result2.status : void 0;
-  if (hasCapacityMessage(status) || hasCapacityMessage(messageFromError(result2.error))) {
-    return "capacity_pressure" /* CapacityPressure */;
-  }
-  if (status?.toLowerCase() === "success") return "healthy" /* Healthy */;
-  return "neutral" /* Neutral */;
-}
-function classifyProviderCapacitySignal(result2) {
-  const results = Array.isArray(result2) ? result2 : [result2];
-  if (results.length === 0) return "neutral" /* Neutral */;
-  const signals = results.map(classifyOne);
-  if (signals.includes("capacity_pressure" /* CapacityPressure */)) {
-    return "capacity_pressure" /* CapacityPressure */;
-  }
-  return signals.every((signal) => signal === "healthy" /* Healthy */) ? "healthy" /* Healthy */ : "neutral" /* Neutral */;
-}
-
 // src/errors/review-router-error.ts
 var ReviewRouterError = class extends Error {
   code;
@@ -45825,276 +46147,6 @@ var ProgressTracker = class _ProgressTracker {
 // src/core/orchestrator.ts
 var fs15 = __toESM(require("fs/promises"));
 var import_path = __toESM(require("path"));
-
-// src/review-execution/domain/file-risk-priority.ts
-var TIER_ORDER = {
-  ["security" /* Security */]: 0,
-  ["migration" /* Migration */]: 1,
-  ["persistence" /* Persistence */]: 2,
-  ["public_contract" /* PublicContract */]: 3,
-  ["normal" /* Normal */]: 4
-};
-var SECURITY_TOKENS = /* @__PURE__ */ new Set([
-  "access",
-  "auth",
-  "authentication",
-  "authorization",
-  "authenticator",
-  "authn",
-  "authz",
-  "crypto",
-  "cryptography",
-  "jwt",
-  "oauth",
-  "security",
-  "session",
-  "sessions"
-]);
-var SENSITIVE_TOKEN_CONTEXT = /* @__PURE__ */ new Set([
-  "access",
-  "api",
-  "bearer",
-  "credential",
-  "credentials",
-  "csrf",
-  "identity",
-  "keyring",
-  "manager",
-  "refresh",
-  "secret",
-  "signing",
-  "storage",
-  "store",
-  "vault"
-]);
-var MIGRATION_TOKENS = /* @__PURE__ */ new Set([
-  "migration",
-  "migrations",
-  "schema",
-  "schemas"
-]);
-var PERSISTENCE_TOKENS = /* @__PURE__ */ new Set([
-  "database",
-  "datastore",
-  "db",
-  "persistence",
-  "persistent",
-  "repositories",
-  "repository",
-  "storage"
-]);
-var PUBLIC_CONTRACT_TOKENS = /* @__PURE__ */ new Set([
-  "api",
-  "apis",
-  "contract",
-  "contracts"
-]);
-function pathTokens(filename) {
-  return filename.replace(/([a-z0-9])([A-Z])/g, "$1/$2").toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 0);
-}
-function includesToken(tokens, candidates) {
-  return tokens.some((token) => candidates.has(token));
-}
-function isSensitiveTokenPath(tokens) {
-  return (tokens.includes("token") || tokens.includes("tokens")) && includesToken(tokens, SENSITIVE_TOKEN_CONTEXT);
-}
-function isActionManifest(filename, tokens) {
-  const basename3 = filename.split("/").at(-1)?.toLowerCase();
-  if (basename3 === "action.yml" || basename3 === "action.yaml") return true;
-  return tokens.includes("manifest") && (tokens.includes("action") || tokens.includes("actions"));
-}
-function classifyFileRisk(filename) {
-  const tokens = pathTokens(filename);
-  if (includesToken(tokens, SECURITY_TOKENS) || isSensitiveTokenPath(tokens)) {
-    return "security" /* Security */;
-  }
-  if (includesToken(tokens, MIGRATION_TOKENS)) return "migration" /* Migration */;
-  if (includesToken(tokens, PERSISTENCE_TOKENS)) {
-    return "persistence" /* Persistence */;
-  }
-  if (includesToken(tokens, PUBLIC_CONTRACT_TOKENS) || isActionManifest(filename, tokens)) {
-    return "public_contract" /* PublicContract */;
-  }
-  return "normal" /* Normal */;
-}
-function prioritizeFilesByRisk(files) {
-  return files.map((file, originalIndex) => ({
-    file,
-    originalIndex,
-    tier: classifyFileRisk(file.filename)
-  })).sort((left, right) => {
-    const tierDifference = TIER_ORDER[left.tier] - TIER_ORDER[right.tier];
-    return tierDifference !== 0 ? tierDifference : left.originalIndex - right.originalIndex;
-  }).map(({ file }) => file);
-}
-
-// src/review-execution/domain/review-batch-plan.ts
-var import_crypto17 = require("crypto");
-function compareCodePoints3(left, right) {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
-}
-function requireNonEmpty2(value, field) {
-  if (value.trim().length === 0) {
-    throw new Error(`${field} must not be empty`);
-  }
-}
-function canonicalFile(file) {
-  return {
-    filename: file.filename,
-    status: file.status,
-    additions: file.additions,
-    deletions: file.deletions,
-    changes: file.changes,
-    patch: file.patch ?? null,
-    previousFilename: file.previousFilename ?? null,
-    language: file.language ?? null
-  };
-}
-function cloneFile(file) {
-  return Object.freeze({ ...file });
-}
-function createReviewBatchPlan(input) {
-  requireNonEmpty2(input.baseSha, "baseSha");
-  requireNonEmpty2(input.headSha, "headSha");
-  requireNonEmpty2(input.compatibilityKey, "compatibilityKey");
-  input.providerNames.forEach((name) => requireNonEmpty2(name, "providerName"));
-  const providerNames = Object.freeze(
-    [...input.providerNames].sort(compareCodePoints3)
-  );
-  const canonicalBatches = input.batches.map(
-    (batch) => batch.map(canonicalFile)
-  );
-  const payload = {
-    version: "v1" /* V1 */,
-    baseSha: input.baseSha,
-    headSha: input.headSha,
-    compatibilityKey: input.compatibilityKey,
-    providerNames,
-    batches: canonicalBatches
-  };
-  const planHash = (0, import_crypto17.createHash)("sha256").update(JSON.stringify(payload)).digest("hex");
-  const batches = Object.freeze(
-    input.batches.map((batch, index) => {
-      const id = (0, import_crypto17.createHash)("sha256").update(
-        JSON.stringify({
-          version: "v1" /* V1 */,
-          planHash,
-          index,
-          files: canonicalBatches[index]
-        })
-      ).digest("hex");
-      return Object.freeze({
-        id,
-        index,
-        files: Object.freeze(batch.map(cloneFile))
-      });
-    })
-  );
-  return Object.freeze({
-    version: "v1" /* V1 */,
-    planHash,
-    baseSha: input.baseSha,
-    headSha: input.headSha,
-    compatibilityKey: input.compatibilityKey,
-    providerNames,
-    batches
-  });
-}
-
-// src/review-execution/domain/work-slot-provider-result.ts
-var EMPTY_USAGE = {
-  promptTokens: 0,
-  completionTokens: 0,
-  totalTokens: 0
-};
-function aggregateWorkSlotProviderResults(healthResults, workSlotResults) {
-  const healthByProvider = new Map(
-    [...healthResults].sort((left, right) => left.name.localeCompare(right.name)).map((result2) => [result2.name, result2])
-  );
-  const workByProvider = /* @__PURE__ */ new Map();
-  for (const scoped of [...workSlotResults].sort(compareScopedResults)) {
-    const provider = scoped.providerResult.name;
-    const existing = workByProvider.get(provider) ?? [];
-    existing.push(scoped);
-    workByProvider.set(provider, existing);
-  }
-  const providerNames = /* @__PURE__ */ new Set([
-    ...healthByProvider.keys(),
-    ...workByProvider.keys()
-  ]);
-  return [...providerNames].sort((left, right) => left.localeCompare(right)).map((provider) => {
-    const scoped = workByProvider.get(provider);
-    if (!scoped || scoped.length === 0) {
-      return healthByProvider.get(provider);
-    }
-    return aggregateProvider(provider, scoped);
-  });
-}
-function aggregateProvider(provider, scopedResults) {
-  const results = scopedResults.map((scoped) => scoped.providerResult);
-  const firstFailure = results.find((result2) => result2.status !== "success");
-  const successfulReviews = results.flatMap(
-    (result2) => result2.status === "success" && result2.result ? [result2.result] : []
-  );
-  const aggregateResult = aggregateSuccessfulReviews(successfulReviews);
-  return {
-    name: provider,
-    status: firstFailure?.status ?? "success",
-    durationSeconds: results.reduce(
-      (total, result2) => total + Math.max(0, result2.durationSeconds),
-      0
-    ),
-    ...aggregateResult ? { result: aggregateResult } : {},
-    ...firstFailure?.error ? { error: firstFailure.error } : {},
-    lifecycleAssignedTargetIds: [
-      ...new Set(
-        results.flatMap((result2) => result2.lifecycleAssignedTargetIds ?? [])
-      )
-    ].sort((left, right) => left.localeCompare(right))
-  };
-}
-function aggregateSuccessfulReviews(reviews) {
-  if (reviews.length === 0) return void 0;
-  const usage = reviews.reduce(
-    (total, review) => ({
-      promptTokens: total.promptTokens + (review.usage?.promptTokens ?? 0),
-      completionTokens: total.completionTokens + (review.usage?.completionTokens ?? 0),
-      totalTokens: total.totalTokens + (review.usage?.totalTokens ?? 0)
-    }),
-    EMPTY_USAGE
-  );
-  const likelihoods = reviews.flatMap(
-    (review) => typeof review.aiLikelihood === "number" ? [review.aiLikelihood] : []
-  );
-  const models = new Set(
-    reviews.flatMap(
-      (review) => review.actualModel ? [review.actualModel] : []
-    )
-  );
-  return {
-    content: reviews.map((review) => review.content).filter(Boolean).join("\n"),
-    findings: reviews.flatMap((review) => review.findings ?? []),
-    revalidations: reviews.flatMap((review) => review.revalidations ?? []),
-    usage,
-    durationSeconds: reviews.reduce(
-      (total, review) => total + Math.max(0, review.durationSeconds ?? 0),
-      0
-    ),
-    transportAttemptCount: reviews.reduce(
-      (total, review) => total + Math.max(0, review.transportAttemptCount ?? 0),
-      0
-    ),
-    ...likelihoods.length > 0 ? {
-      aiLikelihood: likelihoods.reduce((total, value) => total + value, 0) / likelihoods.length
-    } : {},
-    ...models.size === 1 ? { actualModel: [...models][0] } : {}
-  };
-}
-function compareScopedResults(left, right) {
-  return left.workSlotId.localeCompare(right.workSlotId) || left.providerResult.name.localeCompare(right.providerResult.name);
-}
 
 // src/review-execution/application/adaptive-batch-scheduler.ts
 var ADAPTIVE_BATCH_HARD_MAX_CONCURRENCY = 3;
@@ -47399,7 +47451,9 @@ var ReviewOrchestrator = class {
         review.threadLifecycle = lifecycle;
       }
       const markdown = this.components.formatter.format(review);
-      await this.updatePullRequestDescription(pr2);
+      if (!pr2.pathShard) {
+        await this.updatePullRequestDescription(pr2);
+      }
       if (config.learningEnabled && this.components.acceptanceDetector && this.components.providerWeightTracker && this.components.githubClient) {
         try {
           await this.detectAndRecordAcceptances(pr2.number);
@@ -47411,7 +47465,18 @@ var ReviewOrchestrator = class {
         (c2) => this.components.feedbackFilter.shouldPost(c2, reviewCommentState)
       );
       let shouldReplaceProgressWithCleanSummary = false;
-      if (this.shouldPostReviewOutput(review, inlineFiltered)) {
+      if (pr2.pathShard) {
+        logger.info(
+          `Publishing inline-only output for review path shard ${pr2.pathShard.index + 1}/${pr2.pathShard.count}`
+        );
+        await this.components.commentPoster.postInline(
+          pr2.number,
+          inlineFiltered,
+          pr2.files,
+          pr2.headSha,
+          lifecycleMode !== "off" ? lifecycleDedupeComments : void 0
+        );
+      } else if (this.shouldPostReviewOutput(review, inlineFiltered)) {
         let summaryPostedViaProgress = false;
         if (progressTracker) {
           summaryPostedViaProgress = await progressTracker.replaceWith(
@@ -49958,7 +50023,7 @@ function sanitizeNoticeError(error2) {
 }
 
 // src/github/discussion.ts
-var import_crypto18 = require("crypto");
+var import_crypto19 = require("crypto");
 var DISCUSSION_MARKER = "reviewrouter-discussion:v1";
 var DISCUSSION_MARKER_RE = /<!--\s*reviewrouter-discussion:v1\s+user_comment_id=(\d+)\s+body_sha=([a-f0-9]{64})\s*-->/;
 var ReviewDiscussionHandler = class {
@@ -50203,7 +50268,7 @@ function isBotUser(user) {
   return user?.type === "Bot" || login.endsWith("[bot]");
 }
 function bodyHash(body) {
-  return (0, import_crypto18.createHash)("sha256").update(body.trim()).digest("hex");
+  return (0, import_crypto19.createHash)("sha256").update(body.trim()).digest("hex");
 }
 function sanitizeError(error2) {
   const message = error2 instanceof Error ? error2.message : String(error2);
@@ -51819,7 +51884,7 @@ function assertSafeOwnerRepoPart(value, label) {
 }
 
 // src/codex-oauth/crypto.ts
-var import_crypto19 = require("crypto");
+var import_crypto20 = require("crypto");
 
 // node_modules/libsodium/dist/modules-esm/libsodium.mjs
 var import_meta = {};
@@ -55273,7 +55338,7 @@ function compactCodexAuthJsonBytes(input) {
   return {
     compactAuthJsonBytes,
     byteLength: compactByteLength,
-    exactBytesSha256: (0, import_crypto19.createHash)("sha256").update(input.authJsonBytes, "utf8").digest("hex")
+    exactBytesSha256: (0, import_crypto20.createHash)("sha256").update(input.authJsonBytes, "utf8").digest("hex")
   };
 }
 function computeCodexAuthGenerationHash(input) {
@@ -55281,7 +55346,7 @@ function computeCodexAuthGenerationHash(input) {
   if (salt.length < 16) {
     throw new Error("generation_hash_salt_too_short");
   }
-  return (0, import_crypto19.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
+  return (0, import_crypto20.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
 }
 function computeCodexAccountIdentityHash(input) {
   const auth = JSON.parse(input.authJsonBytes);
@@ -55294,7 +55359,7 @@ function computeCodexAccountIdentityHash(input) {
   if (salt.length < 16) {
     throw new Error("codex_account_identity_salt_invalid");
   }
-  return (0, import_crypto19.createHmac)("sha256", salt).update(
+  return (0, import_crypto20.createHmac)("sha256", salt).update(
     JSON.stringify({
       issuer: identity.issuer,
       subject: identity.subject,
@@ -55370,7 +55435,7 @@ function buildCodexRotatingWritebackRequest(input) {
     accountIdentityAlgorithm: "provider_issuer_subject_account_v1",
     encryptedValue: input.encryptedValue,
     keyId: input.keyId,
-    idempotencyKey: input.idempotencyKey ?? `wrb:${(0, import_crypto19.randomUUID)()}`
+    idempotencyKey: input.idempotencyKey ?? `wrb:${(0, import_crypto20.randomUUID)()}`
   };
 }
 function requireStableIdentityClaim(value) {
@@ -55999,7 +56064,7 @@ function safeGitError(value) {
 }
 
 // src/control-plane/review-action-v2-contract.ts
-var import_crypto21 = require("crypto");
+var import_crypto22 = require("crypto");
 var import_fs = require("fs");
 var import_path2 = __toESM(require("path"));
 
@@ -62106,20 +62171,20 @@ function assertExactKeys(value, expected) {
   }
 }
 function sha2566(value) {
-  return (0, import_crypto21.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto22.createHash)("sha256").update(value).digest("hex");
 }
 function isRecord3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // src/review-orchestration/infrastructure/production-t0-review-runner.ts
-var import_crypto41 = require("crypto");
+var import_crypto42 = require("crypto");
 var import_child_process19 = require("child_process");
 var path27 = __toESM(require("path"));
 var import_util13 = require("util");
 
 // src/control-plane/review-action-v2-client.ts
-var import_crypto22 = require("crypto");
+var import_crypto23 = require("crypto");
 var import__ = __toESM(require__());
 var import_ajv_formats = __toESM(require_dist());
 
@@ -94782,7 +94847,7 @@ var ReviewActionV2Client = class {
   constructor(options) {
     this.apiUrl = parseApiUrl(options.apiUrl, options.allowInsecureLocalhost);
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.requestIdFactory = options.requestIdFactory ?? (() => `rr:${(0, import_crypto22.randomUUID)()}`);
+    this.requestIdFactory = options.requestIdFactory ?? (() => `rr:${(0, import_crypto23.randomUUID)()}`);
     this.sleep = options.sleep ?? ((delayMs) => new Promise((resolve5) => setTimeout(resolve5, delayMs)));
     this.random = options.random ?? Math.random;
     this.monotonicNow = options.monotonicNow ?? (() => performance.now());
@@ -95179,7 +95244,7 @@ function readRetryAfterMs(response) {
   return Math.min(Math.max(0, at2 - Date.now()), 3e4);
 }
 function sha2567(value) {
-  return (0, import_crypto22.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto23.createHash)("sha256").update(value).digest("hex");
 }
 function clampInteger(value, minimum, maximum) {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
@@ -95337,7 +95402,7 @@ var ReviewInvocationConfigurationMismatchError = class extends Error {
 };
 
 // src/review-orchestration/application/run-t0-review-orchestration.ts
-var import_crypto25 = require("crypto");
+var import_crypto26 = require("crypto");
 
 // src/review-orchestration/domain/review-orchestration-state.ts
 function createReviewOrchestrationState(workSlotIds) {
@@ -95471,7 +95536,7 @@ function requireIdentity(value) {
 }
 
 // src/review-orchestration/domain/review-prompt-coverage.ts
-var import_crypto23 = require("crypto");
+var import_crypto24 = require("crypto");
 function createReviewPromptCoverageManifest(input) {
   if (!input.workSlotId || !/^[a-f0-9]{64}$/.test(input.reviewRevisionHash)) {
     throw new Error("review_prompt_coverage_scope_invalid");
@@ -95559,11 +95624,11 @@ function canonicalJson6(value) {
   return JSON.stringify(value);
 }
 function sha2568(value) {
-  return (0, import_crypto23.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto24.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/domain/stable-review-work-plan.ts
-var import_crypto24 = require("crypto");
+var import_crypto25 = require("crypto");
 var assignmentManifestMaxBytes = 512 * 1024;
 var assignmentManifestMaxPaths = 4096;
 var assignmentManifestMaxPathLength = 1024;
@@ -95816,7 +95881,7 @@ function compareCodePoints5(left, right) {
   return 0;
 }
 function sha2569(value) {
-  return (0, import_crypto24.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto25.createHash)("sha256").update(value).digest("hex");
 }
 function requireDigest2(value, field) {
   if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`${field}_invalid`);
@@ -98291,7 +98356,7 @@ function canonicalize3(value) {
   return value;
 }
 function sha25610(value) {
-  return (0, import_crypto25.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto26.createHash)("sha256").update(value).digest("hex");
 }
 function safeFailureCode(error2) {
   if (!(error2 instanceof Error)) return "unknown_failure";
@@ -98323,7 +98388,7 @@ var ReviewProviderUnavailableSignal = class extends Error {
 };
 
 // src/review-orchestration/infrastructure/codex-review-invocation-adapter.ts
-var import_crypto27 = require("crypto");
+var import_crypto28 = require("crypto");
 
 // src/control-plane/generated/review-action-v2/provider-invocation-manifest-v1.ts
 var providerInvocationManifestV1CanonicalizerDescriptor = {
@@ -98628,7 +98693,7 @@ function isRecord4(value) {
 }
 
 // src/review-orchestration/infrastructure/review-observation-normalizer.ts
-var import_crypto26 = require("crypto");
+var import_crypto27 = require("crypto");
 var reviewEvidencePayloadVersion = 2;
 function normalizeReviewObservation(input) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(input.workSlotId)) {
@@ -98756,7 +98821,7 @@ function canonicalJson9(value) {
   return JSON.stringify(value);
 }
 function sha25611(value) {
-  return (0, import_crypto26.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto27.createHash)("sha256").update(value).digest("hex");
 }
 function redactSensitiveText2(value) {
   return value.replace(
@@ -99982,10 +100047,10 @@ function isSafeReviewActionV2Diagnostic(message) {
   return false;
 }
 function sha25612(value) {
-  return (0, import_crypto27.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto28.createHash)("sha256").update(value).digest("hex");
 }
 function sha256Bytes(value) {
-  return (0, import_crypto27.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto28.createHash)("sha256").update(value).digest("hex");
 }
 function compareCodeUnits4(left, right) {
   if (left < right) return -1;
@@ -99995,7 +100060,7 @@ function compareCodeUnits4(left, right) {
 
 // src/review-orchestration/infrastructure/context-gateway-invocation-session.ts
 var import_child_process13 = require("child_process");
-var import_crypto30 = require("crypto");
+var import_crypto31 = require("crypto");
 var import_promises3 = require("fs/promises");
 var os9 = __toESM(require("os"));
 var path21 = __toESM(require("path"));
@@ -100355,7 +100420,7 @@ function gitOptions(root, encoding) {
 }
 
 // src/context-gateway/context-gateway-v4-replay-material.ts
-var import_crypto28 = require("crypto");
+var import_crypto29 = require("crypto");
 var import_promises = require("fs/promises");
 var import_path3 = __toESM(require("path"));
 var MAX_ENTRIES = 2e3;
@@ -100487,7 +100552,7 @@ function decryptContextGatewayV4ReplayMaterial(input) {
     if (nonce.byteLength !== 12 || authTag.byteLength !== 16) {
       throw new Error("invalid_envelope");
     }
-    const decipher = (0, import_crypto28.createDecipheriv)(
+    const decipher = (0, import_crypto29.createDecipheriv)(
       REPLAY_ENCRYPTION_ALGORITHM,
       replayEncryptionKey(input.secret, input.sessionId),
       nonce
@@ -100511,8 +100576,8 @@ function encryptContextGatewayV4ReplayMaterial(input) {
   if (Buffer.byteLength(input.plaintextCanonicalJson, "utf8") > MAX_STATE_BYTES) {
     throw new Error("context_gateway_v4_replay_size_invalid");
   }
-  const nonce = (0, import_crypto28.randomBytes)(12);
-  const cipher = (0, import_crypto28.createCipheriv)(
+  const nonce = (0, import_crypto29.randomBytes)(12);
+  const cipher = (0, import_crypto29.createCipheriv)(
     REPLAY_ENCRYPTION_ALGORITHM,
     replayEncryptionKey(input.secret, input.sessionId),
     nonce
@@ -100532,7 +100597,7 @@ function encryptContextGatewayV4ReplayMaterial(input) {
   });
 }
 function replayEncryptionKey(secret, sessionId) {
-  return (0, import_crypto28.createHmac)("sha256", secret).update("reviewrouter.context-gateway-v4.replay-material.v1\0", "utf8").update(sessionId, "utf8").digest();
+  return (0, import_crypto29.createHmac)("sha256", secret).update("reviewrouter.context-gateway-v4.replay-material.v1\0", "utf8").update(sessionId, "utf8").digest();
 }
 function replayAssociatedData(sessionId) {
   return Buffer.from(
@@ -100608,13 +100673,13 @@ function isRecord5(value) {
 }
 async function atomicPrivateWrite(target, content) {
   await (0, import_promises.mkdir)(import_path3.default.dirname(target), { recursive: true, mode: 448 });
-  const temporary = `${target}.${process.pid}.${(0, import_crypto28.randomBytes)(6).toString("hex")}.tmp`;
+  const temporary = `${target}.${process.pid}.${(0, import_crypto29.randomBytes)(6).toString("hex")}.tmp`;
   await (0, import_promises.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
   await (0, import_promises.rename)(temporary, target);
 }
 
 // src/context-gateway/context-gateway-v4-recorder.ts
-var import_crypto29 = require("crypto");
+var import_crypto30 = require("crypto");
 var import_promises2 = require("fs/promises");
 var import_path4 = __toESM(require("path"));
 var MAX_EVENTS = 2e3;
@@ -100846,7 +100911,7 @@ function sanitizeReason(value) {
 }
 async function atomicPrivateWrite2(target, content) {
   await (0, import_promises2.mkdir)(import_path4.default.dirname(target), { recursive: true, mode: 448 });
-  const temporary = `${target}.${process.pid}.${(0, import_crypto29.randomBytes)(6).toString("hex")}.tmp`;
+  const temporary = `${target}.${process.pid}.${(0, import_crypto30.randomBytes)(6).toString("hex")}.tmp`;
   await (0, import_promises2.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
   await (0, import_promises2.rename)(temporary, target);
 }
@@ -101612,7 +101677,7 @@ function createV4WireSealPayload(transcript) {
   });
 }
 function keyedSha2562(secret, value) {
-  return (0, import_crypto30.createHmac)("sha256", secret).update(value).digest("hex");
+  return (0, import_crypto31.createHmac)("sha256", secret).update(value).digest("hex");
 }
 function requireProviderKind(value) {
   switch (value) {
@@ -101649,19 +101714,19 @@ function requireContextGatewayMaxOperations(value) {
   return value;
 }
 function sha25613(value) {
-  return (0, import_crypto30.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto31.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/infrastructure/context-attestation-replay-runner.ts
 var import_child_process16 = require("child_process");
-var import_crypto32 = require("crypto");
+var import_crypto33 = require("crypto");
 var import_promises7 = require("fs/promises");
 var os10 = __toESM(require("os"));
 var path25 = __toESM(require("path"));
 var import_util11 = require("util");
 
 // src/context-gateway/context-gateway-recorder.ts
-var import_crypto31 = require("crypto");
+var import_crypto32 = require("crypto");
 var import_promises4 = require("fs/promises");
 var path22 = __toESM(require("path"));
 var MAX_RECORDER_STATE_BYTES = 2 * 1024 * 1024;
@@ -101908,7 +101973,7 @@ function parseCanonicalState(raw, kind) {
 }
 async function atomicPrivateWrite3(target, content) {
   await (0, import_promises4.mkdir)(path22.dirname(target), { recursive: true, mode: 448 });
-  const temporary = `${target}.${process.pid}.${(0, import_crypto31.randomBytes)(6).toString("hex")}.tmp`;
+  const temporary = `${target}.${process.pid}.${(0, import_crypto32.randomBytes)(6).toString("hex")}.tmp`;
   await (0, import_promises4.writeFile)(temporary, content, { encoding: "utf8", mode: 384 });
   await (0, import_promises4.rename)(temporary, target);
 }
@@ -103362,7 +103427,7 @@ var ContextAttestationReplayRunner = class {
     const directory = await (0, import_promises7.mkdtemp)(
       path25.join(os10.tmpdir(), "reviewrouter-context-replay-")
     );
-    const secret = (0, import_crypto32.randomBytes)(32);
+    const secret = (0, import_crypto33.randomBytes)(32);
     try {
       const eventChainSeedHash = sha256(
         canonicalizeReviewContextReplayChainSeed({
@@ -103444,7 +103509,7 @@ var ContextAttestationReplayRunner = class {
     const directory = await (0, import_promises7.mkdtemp)(
       path25.join(os10.tmpdir(), "reviewrouter-context-replay-v4-")
     );
-    const secret = (0, import_crypto32.randomBytes)(32);
+    const secret = (0, import_crypto33.randomBytes)(32);
     try {
       const eventChainSeedHash = sha256(
         canonicalizeReviewContextReplayChainSeed({
@@ -104185,7 +104250,7 @@ async function runGitCommand(args, options) {
 }
 
 // src/review-orchestration/infrastructure/github-review-state-adapter.ts
-var import_crypto33 = require("crypto");
+var import_crypto34 = require("crypto");
 var GitHubReviewRevisionGuard = class {
   constructor(client, scope) {
     this.client = client;
@@ -104459,7 +104524,7 @@ function canonicalJson11(value) {
   return JSON.stringify(value);
 }
 function sha25614(value) {
-  return (0, import_crypto33.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto34.createHash)("sha256").update(value).digest("hex");
 }
 function compareCodeUnits7(left, right) {
   if (left < right) return -1;
@@ -104468,7 +104533,7 @@ function compareCodeUnits7(left, right) {
 }
 
 // src/review-orchestration/infrastructure/production-review-projection.ts
-var import_crypto35 = require("crypto");
+var import_crypto36 = require("crypto");
 
 // src/review-projection/application/build-current-review-projection.ts
 var BuildCurrentReviewProjection = class {
@@ -105578,7 +105643,7 @@ function sortedUnique3(values) {
 }
 
 // src/review-orchestration/infrastructure/current-review-projection-builder-adapter.ts
-var import_crypto34 = require("crypto");
+var import_crypto35 = require("crypto");
 var CurrentReviewProjectionBuilderAdapter = class {
   constructor(projection, commands) {
     this.projection = projection;
@@ -105624,7 +105689,7 @@ function canonicalJson12(value) {
   return JSON.stringify(value);
 }
 function sha25615(value) {
-  return (0, import_crypto34.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto35.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/infrastructure/production-review-projection.ts
@@ -106003,14 +106068,14 @@ function compareCodeUnits8(left, right) {
   return 0;
 }
 function sha25616(value) {
-  return (0, import_crypto35.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto36.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter.ts
-var import_crypto37 = require("crypto");
+var import_crypto38 = require("crypto");
 
 // src/review-orchestration/infrastructure/context-gateway-failed-seal.ts
-var import_crypto36 = require("crypto");
+var import_crypto37 = require("crypto");
 var emptyCanonicalJson = "{}";
 var emptyCanonicalJsonHash = digest(emptyCanonicalJson);
 var failedTerminalOutcomeHash = digest(
@@ -106035,7 +106100,7 @@ function createFailedContextGatewaySealPayload(input) {
   });
 }
 function digest(value) {
-  return (0, import_crypto36.createHash)("sha256").update(value, "utf8").digest("hex");
+  return (0, import_crypto37.createHash)("sha256").update(value, "utf8").digest("hex");
 }
 
 // src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter.ts
@@ -107644,7 +107709,7 @@ function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function digest2(value) {
-  return (0, import_crypto37.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto38.createHash)("sha256").update(value).digest("hex");
 }
 function deterministicIdempotencyKey(purpose, parts) {
   return `rr:${purpose}:${digest2(
@@ -108266,7 +108331,7 @@ var CLAUDE_NATIVE_TOOLS = Object.freeze([
 ]);
 
 // src/review-investigation/infrastructure/codex-app-server-protocol.ts
-var import_crypto38 = require("crypto");
+var import_crypto39 = require("crypto");
 var import_path6 = __toESM(require("path"));
 var CODEX_APP_SERVER_VERSION = "0.147.0";
 var CODEX_APP_SERVER_MCP_NAME = "reviewrouter";
@@ -109214,7 +109279,7 @@ function parseTurnError(value) {
   ].join(" ").slice(0, 16384);
   return Object.freeze({
     failure: classifyCodexAppServerDiagnostic(diagnostic),
-    fingerprint: (0, import_crypto38.createHash)("sha256").update(canonical).digest("hex")
+    fingerprint: (0, import_crypto39.createHash)("sha256").update(canonical).digest("hex")
   });
 }
 function hasCodexErrorClassification(value) {
@@ -109475,7 +109540,7 @@ function notificationDiagnosticStage(value) {
       if (typeof value === "string" && IGNORED_NOTIFICATION_METHODS.has(value)) {
         return "ignored_notification" /* IgnoredNotification */;
       }
-      return typeof value === "string" ? `unknown_notification_${(0, import_crypto38.createHash)("sha256").update(value).digest("hex").slice(0, 12)}` : "unknown_notification" /* UnknownNotification */;
+      return typeof value === "string" ? `unknown_notification_${(0, import_crypto39.createHash)("sha256").update(value).digest("hex").slice(0, 12)}` : "unknown_notification" /* UnknownNotification */;
   }
 }
 function withStreamDiagnosticStage(error2, stage) {
@@ -111307,9 +111372,9 @@ function nullableTimestamp(value, field) {
 }
 
 // src/review-investigation/infrastructure/review-action-v2-investigation-lease-adapter.ts
-var import_crypto39 = require("crypto");
+var import_crypto40 = require("crypto");
 var ReviewActionV2InvestigationLeaseAdapter = class {
-  constructor(client, requestId = import_crypto39.randomUUID) {
+  constructor(client, requestId = import_crypto40.randomUUID) {
     this.client = client;
     this.requestId = requestId;
   }
@@ -111478,7 +111543,7 @@ function leaseFromAcquire(input) {
   return lease;
 }
 function deterministicId2(namespace, parts) {
-  const digest3 = (0, import_crypto39.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
+  const digest3 = (0, import_crypto40.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
   return `rr:${namespace}:${digest3}`;
 }
 function requireString5(value, field) {
@@ -112563,7 +112628,7 @@ function capabilityUnavailable(message) {
 }
 
 // src/review-orchestration/infrastructure/review-action-v2-investigation-context-attestation-adapter.ts
-var import_crypto40 = require("crypto");
+var import_crypto41 = require("crypto");
 var ReviewActionV2InvestigationContextAttestationAdapter = class {
   constructor(client, authorizationToken) {
     this.client = client;
@@ -112695,7 +112760,7 @@ var ReviewActionV2InvestigationContextAttestationAdapter = class {
   }
 };
 function deterministicId3(namespace, parts) {
-  const digest3 = (0, import_crypto40.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
+  const digest3 = (0, import_crypto41.createHash)("sha256").update(JSON.stringify(parts), "utf8").digest("hex").slice(0, 40);
   return `rr:${namespace}:${digest3}`;
 }
 function requireString6(value, field) {
@@ -113140,7 +113205,7 @@ function publicInvestigationProcessDiagnostic(stderr) {
   ];
   return Object.freeze({
     stderrByteCount: Buffer.byteLength(stderr, "utf8"),
-    stderrDigest: (0, import_crypto41.createHash)("sha256").update(stderr).digest("hex").slice(0, 16),
+    stderrDigest: (0, import_crypto42.createHash)("sha256").update(stderr).digest("hex").slice(0, 16),
     diagnosticKinds: Object.freeze(
       diagnosticKinds.filter(([pattern]) => pattern.test(stderr)).map(([, kind]) => kind)
     )
@@ -113564,7 +113629,7 @@ function canonicalJson13(value) {
   return JSON.stringify(value);
 }
 function sha25617(value) {
-  return (0, import_crypto41.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto42.createHash)("sha256").update(value).digest("hex");
 }
 
 // src/codex-oauth/ci-review-progress.ts
