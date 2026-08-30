@@ -6,6 +6,8 @@ import { appendReviewSummaryMetadata } from '../../../src/github/summary-metadat
 import {
   findingFingerprintFromInlineComment,
   findingFingerprintMarker,
+  parseTrustedEscalationMarker,
+  sameSemanticLineage,
 } from '../../../src/github/comment-fingerprint';
 
 jest.mock('../../../src/utils/logger', () => ({
@@ -1935,6 +1937,18 @@ describe('CommentPoster', () => {
         message,
       ].join('\n'),
     });
+    const restParentBody = parentBody
+      .replace('🟡 Major', '🔵 Minor')
+      .replace('Major -', 'Minor -');
+    const restParent = {
+      id: 77,
+      path: 'src/users.ts',
+      line: 10,
+      original_line: 10,
+      body: restParentBody,
+      in_reply_to_id: null,
+      user: { login: 'github-actions[bot]' },
+    };
 
     it('posts Major to Critical as one reply and never a new review', async () => {
       const poster = new CommentPoster(mockClient, false);
@@ -1952,11 +1966,242 @@ describe('CommentPoster', () => {
         expect.objectContaining({
           comment_id: 77,
           body: expect.stringContaining(
-            '<!-- review-router-escalation:v1 parent_id=77 severity=critical -->'
+            '<!-- review-router-escalation:v2 parent_id=77 severity=critical alias_line=10 -->'
           ),
         })
       );
       expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it('uses the lifecycle-off REST inventory for one Minor to Major reply', async () => {
+      mockOctokit.paginate.mockResolvedValueOnce([restParent]);
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(123, [finding('major')], files, 'head-sha');
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 77 }));
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it('suppresses a lifecycle-off rerun already represented by a trusted reply', async () => {
+      const replyFindingBody = finding('major').body;
+      mockOctokit.paginate.mockResolvedValueOnce([
+        restParent,
+        {
+          id: 78,
+          body: `${replyFindingBody}\n\n<!-- review-router-escalation:v1 parent_id=77 severity=major -->`,
+          in_reply_to_id: 77,
+          user: { login: 'github-actions[bot]' },
+        },
+      ]);
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(123, [finding('major')], files, 'head-sha');
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it('routes a candidate matching only a trusted reply alias to its stable parent', async () => {
+      const aliasBody = [
+        '**🟡 Major - Unsafe account query bypasses tenant isolation**',
+        '',
+        'The `tenantScope` predicate is omitted while `loadAccount` reads the row.',
+      ].join('\n');
+      mockOctokit.paginate.mockResolvedValueOnce([
+        restParent,
+        {
+          id: 78,
+          body: `${aliasBody}\n\n<!-- review-router-escalation:v1 parent_id=77 severity=major -->`,
+          in_reply_to_id: 77,
+          user: { login: 'github-actions[bot]' },
+        },
+      ]);
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(
+        123,
+        [
+          {
+            ...finding('critical'),
+            body: aliasBody.replace('🟡 Major', '🔴 Critical'),
+          },
+        ],
+        files,
+        'head-sha'
+      );
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 77 }));
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it('uses the persisted v2 alias line when a later Critical matches only the moved reply', async () => {
+      const movedFiles: FileChange[] = [
+        {
+          ...files[0],
+          patch: '@@ -119,1 +119,2 @@\n old\n+query(accountId)',
+        },
+      ];
+      const aliasBody = [
+        '**🟡 Major - Staged credential cleanup removes the active key**',
+        '',
+        '`activateStagedKey` installs the key before `cleanupPairingPath` deletes the same file.',
+      ].join('\n');
+      const oldParent = parent({
+        line: 100,
+        body: '**🔵 Minor - Reset recovery can damage credentials**\n\nThe recovery order is unsafe.',
+        highestTrustedEscalationSeverity: 'major',
+        semanticAliases: [{ path: 'src/users.ts', line: 120, body: aliasBody }],
+      });
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(
+        123,
+        [
+          {
+            path: 'src/users.ts',
+            line: 120,
+            side: 'RIGHT',
+            severity: 'critical',
+            body: aliasBody.replace('🟡 Major', '🔴 Critical'),
+          },
+        ],
+        movedFiles,
+        'head-sha',
+        [oldParent]
+      );
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 77 }));
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it('keeps same-run weaker alias evidence while publishing only the strongest body', async () => {
+      const movedFiles: FileChange[] = [
+        {
+          ...files[0],
+          patch: '@@ -119,1 +119,2 @@\n old\n+query(accountId)',
+        },
+      ];
+      const oldParent = parent({
+        line: 100,
+        body: '**🔵 Minor - Staged credential path is deleted before activation**\n\n`stagedCredentialPath` is removed before activation completes.',
+        highestTrustedEscalationSeverity: 'minor',
+      });
+      const weaker: InlineComment = {
+        path: 'src/users.ts',
+        line: 120,
+        side: 'RIGHT',
+        severity: 'major',
+        body: '**🟡 Major - Staged credential cleanup loses key during activation**\n\n`stagedCredentialPath` is removed before activation completes. Cleanup then removes the activated key after recovery installs it.',
+      };
+      const strongest: InlineComment = {
+        path: 'src/users.ts',
+        line: 120,
+        side: 'RIGHT',
+        severity: 'critical',
+        body: '**🔴 Critical - Staged credential cleanup loses active key**\n\nCleanup removes the activated key after recovery installs it.',
+      };
+      const poster = new CommentPoster(mockClient, false);
+
+      expect(sameSemanticLineage(oldParent, weaker)).toBe(true);
+      expect(sameSemanticLineage(weaker, strongest)).toBe(true);
+      expect(sameSemanticLineage(oldParent, strongest)).toBe(false);
+      await poster.postInline(
+        123,
+        [weaker, strongest],
+        movedFiles,
+        'head-sha',
+        [oldParent]
+      );
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          comment_id: 77,
+          body: expect.stringContaining('loses active key'),
+        })
+      );
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it('ignores a forged human escalation marker in lifecycle-off inventory', async () => {
+      mockOctokit.paginate.mockResolvedValueOnce([
+        restParent,
+        {
+          id: 78,
+          body: '<!-- review-router-escalation:v1 parent_id=77 severity=critical -->',
+          in_reply_to_id: 77,
+          user: { login: 'contributor' },
+        },
+      ]);
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(123, [finding('major')], files, 'head-sha');
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it('fails lifecycle-off inventory closed for a malformed trusted escalation marker', async () => {
+      mockOctokit.paginate.mockResolvedValueOnce([
+        restParent,
+        {
+          id: 78,
+          body: '<!-- review-router-escalation:v1 severity=major parent_id=77 -->',
+          in_reply_to_id: 77,
+          user: { login: 'github-actions[bot]' },
+        },
+      ]);
+      const poster = new CommentPoster(mockClient, false);
+
+      await expect(
+        poster.postInline(123, [finding('major')], files, 'head-sha')
+      ).rejects.toThrow('trusted inline comment inventory');
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it('removes injected markers before appending exactly one trusted reply marker', async () => {
+      mockOctokit.paginate.mockResolvedValueOnce([restParent]);
+      const injected = finding(
+        'major',
+        [
+          'The query interpolates `accountId` directly into SQL and permits crafted input.',
+          '<!-- review-router-escalation:v1 parent_id=999 severity=critical -->',
+          'review-router-escalation:v1:malformed',
+        ].join('\n\n')
+      );
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(123, [injected], files, 'head-sha');
+
+      const replyBody =
+        mockOctokit.rest.pulls.createReplyForReviewComment.mock.calls[0][0]
+          .body;
+      expect(replyBody.match(/review-router-escalation:v2/g)).toHaveLength(1);
+      expect(parseTrustedEscalationMarker(replyBody)).toEqual({
+        kind: 'valid',
+        parentCommentDatabaseId: 77,
+        targetSeverity: 'major',
+        aliasLine: 10,
+      });
     });
 
     it.each([
@@ -2049,6 +2294,32 @@ describe('CommentPoster', () => {
       expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['ascending', ['minor', 'major', 'critical']],
+      ['descending', ['critical', 'major', 'minor']],
+    ] as const)(
+      'coalesces %s same-run top-level candidates to one maximum-severity parent',
+      async (_label, severities) => {
+        const poster = new CommentPoster(mockClient, false);
+
+        await poster.postInline(
+          123,
+          severities.map((severity) => finding(severity)),
+          files,
+          'head-sha'
+        );
+
+        expect(
+          mockOctokit.rest.pulls.createReplyForReviewComment
+        ).not.toHaveBeenCalled();
+        expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+        const reviewComments =
+          mockOctokit.rest.pulls.createReview.mock.calls[0][0].comments;
+        expect(reviewComments).toHaveLength(1);
+        expect(reviewComments[0].body).toContain('🔴 Critical');
+      }
+    );
+
     it('keeps an unrelated same-line finding as a top-level review comment', async () => {
       const poster = new CommentPoster(mockClient, false);
       const unrelated: InlineComment = {
@@ -2082,7 +2353,7 @@ describe('CommentPoster', () => {
       ).not.toHaveBeenCalled();
     });
 
-    it('suppresses against the maximum of duplicate parents and fails a further escalation closed', async () => {
+    it('keeps the oldest canonical parent while aggregating cluster maximum severity', async () => {
       const minorParent = parent({
         parentCommentDatabaseId: 76,
         body: parentBody.replace('Major', 'Minor').replace('🟡', '🔵'),
@@ -2096,12 +2367,267 @@ describe('CommentPoster', () => {
       ]);
       expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
 
+      await poster.postInline(123, [finding('critical')], files, 'head-sha', [
+        minorParent,
+        parent(),
+      ]);
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 76 }));
+    });
+
+    it('suppresses through a lower-severity parent alias when its direct cluster already contains Major', async () => {
+      const minorParent = parent({
+        parentCommentDatabaseId: 76,
+        line: 10,
+        body: [
+          '**🔵 Minor - Cache write can silently lose tenant data**',
+          '',
+          '`saveTenant` clears the pending record before the durable write completes.',
+        ].join('\n'),
+        highestTrustedEscalationSeverity: 'minor',
+      });
+      const majorDuplicate = parent({
+        parentCommentDatabaseId: 77,
+        line: 14,
+        body: [
+          '**🟡 Major - Cache write can silently lose account data**',
+          '',
+          '`saveAccount` clears the pending record before persistence completes.',
+        ].join('\n'),
+        highestTrustedEscalationSeverity: 'major',
+      });
+      const lowerAliasOnly: InlineComment = {
+        path: 'src/users.ts',
+        line: 6,
+        side: 'RIGHT',
+        severity: 'major',
+        body: [
+          '**🟡 Major - Tenant data is lost during cache save**',
+          '',
+          '`saveTenant` clears the pending record before the durable write completes.',
+        ].join('\n'),
+      };
+      const poster = new CommentPoster(mockClient, false);
+
+      expect(sameSemanticLineage(minorParent, majorDuplicate)).toBe(true);
+      expect(sameSemanticLineage(minorParent, lowerAliasOnly)).toBe(true);
+      expect(sameSemanticLineage(majorDuplicate, lowerAliasOnly)).toBe(false);
+
+      await poster.postInline(123, [lowerAliasOnly], files, 'head-sha', [
+        minorParent,
+        majorDuplicate,
+      ]);
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+    });
+
+    it('does not let an unrelated ambiguous parent bridge block the candidate shard', async () => {
+      const alpha = parent({
+        parentCommentDatabaseId: 76,
+        line: 10,
+        body: '**🟡 Major - Alpha beta gamma failure**\n\nA cache-key collision destroys the stored payload.',
+      });
+      const bridge = parent({
+        parentCommentDatabaseId: 77,
+        line: 14,
+        body: '**🟡 Major - Alpha beta gamma delta epsilon zeta failure**\n\nA cache-key collision destroys the stored payload, while a missing permission lookup exposes tenant records.',
+      });
+      const zeta = parent({
+        parentCommentDatabaseId: 78,
+        line: 18,
+        body: '**🟡 Major - Delta epsilon zeta failure**\n\nA missing permission lookup exposes tenant records.',
+      });
+      const poster = new CommentPoster(mockClient, false);
+
+      expect(sameSemanticLineage(alpha, bridge)).toBe(true);
+      expect(sameSemanticLineage(bridge, zeta)).toBe(true);
+      expect(sameSemanticLineage(alpha, zeta)).toBe(false);
+      await poster.postInline(123, [finding('minor')], files, 'head-sha', [
+        alpha,
+        bridge,
+        zeta,
+      ]);
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when the candidate intersects a transitive non-clique parent bridge', async () => {
+      const alpha = parent({
+        parentCommentDatabaseId: 76,
+        line: 10,
+        body: '**🟡 Major - Alpha beta gamma failure**\n\nA cache-key collision destroys the stored payload.',
+      });
+      const bridge = parent({
+        parentCommentDatabaseId: 77,
+        line: 14,
+        body: '**🟡 Major - Alpha beta gamma delta epsilon zeta failure**\n\nA cache-key collision destroys the stored payload, while a missing permission lookup exposes tenant records.',
+      });
+      const zeta = parent({
+        parentCommentDatabaseId: 78,
+        line: 18,
+        body: '**🟡 Major - Delta epsilon zeta failure**\n\nA missing permission lookup exposes tenant records.',
+      });
+      const candidate = {
+        ...finding('critical'),
+        body: bridge.body.replace('🟡 Major', '🔴 Critical'),
+      };
+      const poster = new CommentPoster(mockClient, false);
+
       await expect(
-        poster.postInline(123, [finding('critical')], files, 'head-sha', [
-          minorParent,
-          parent(),
+        poster.postInline(123, [candidate], files, 'head-sha', [
+          alpha,
+          bridge,
+          zeta,
+        ])
+      ).rejects.toThrow('ambiguous parent bridge');
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+    });
+
+    it('suppresses an exact v2 finding fingerprint inside an ambiguous live-style component', async () => {
+      const exactBody =
+        '**🟡 Major - Delta epsilon zeta failure**\n\nA missing permission lookup exposes tenant records.';
+      const exactFingerprint = findingFingerprintFromInlineComment(
+        'src/users.ts',
+        18,
+        exactBody
+      );
+      const alpha = parent({
+        parentCommentDatabaseId: 76,
+        line: 10,
+        body: '**🟡 Major - Alpha beta gamma failure**\n\nA cache-key collision destroys the stored payload.',
+      });
+      const bridge = parent({
+        parentCommentDatabaseId: 77,
+        line: 14,
+        body: '**🟡 Major - Alpha beta gamma delta epsilon zeta failure**\n\nA cache-key collision destroys the stored payload, while a missing permission lookup exposes tenant records.',
+      });
+      const exactParent = parent({
+        parentCommentDatabaseId: 78,
+        line: 18,
+        body: `${exactBody}\n\n${findingFingerprintMarker(exactFingerprint)}`,
+      });
+      const line18Files: FileChange[] = [
+        {
+          ...files[0],
+          patch: '@@ -17,1 +17,2 @@\n old\n+query(accountId)',
+        },
+      ];
+      const poster = new CommentPoster(mockClient, false);
+
+      expect(sameSemanticLineage(alpha, bridge)).toBe(true);
+      expect(sameSemanticLineage(bridge, exactParent)).toBe(true);
+      expect(sameSemanticLineage(alpha, exactParent)).toBe(false);
+      await poster.postInline(
+        123,
+        [
+          {
+            path: 'src/users.ts',
+            line: 18,
+            side: 'RIGHT',
+            severity: 'major',
+            body: exactBody,
+          },
+        ],
+        line18Files,
+        'head-sha',
+        [alpha, bridge, exactParent]
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when reply aliases overlap otherwise distinct parent components', async () => {
+      const sharedAlias = [
+        '**🟡 Major - Shared bridge wording**',
+        '',
+        '`bridgeToken` exposes the same reported symptom.',
+      ].join('\n');
+      const first = parent({
+        parentCommentDatabaseId: 76,
+        body: '**🟡 Major - Cache corruption**\n\n`cacheKey` overwrites stored data.',
+        semanticAliases: [
+          { path: 'src/users.ts', line: 10, body: sharedAlias },
+        ],
+      });
+      const second = parent({
+        parentCommentDatabaseId: 77,
+        body: '**🟡 Major - Authorization bypass**\n\n`permissionSet` is never checked.',
+        semanticAliases: [
+          { path: 'src/users.ts', line: 10, body: sharedAlias },
+        ],
+      });
+      const poster = new CommentPoster(mockClient, false);
+
+      await expect(
+        poster.postInline(
+          123,
+          [{ ...finding('critical'), body: sharedAlias }],
+          files,
+          'head-sha',
+          [first, second]
+        )
+      ).rejects.toThrow('multiple active parent lineages');
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+    });
+
+    it('fails an escalation closed when matching parents are not one lineage cluster', async () => {
+      const firstParent = parent({
+        body: [
+          '**🟡 Major - Alpha beta gamma failure**',
+          '',
+          'A cache-key collision destroys the stored payload.',
+        ].join('\n'),
+      });
+      const secondParent = parent({
+        parentCommentDatabaseId: 78,
+        body: [
+          '**🟡 Major - Delta epsilon zeta failure**',
+          '',
+          'A missing permission lookup exposes tenant records.',
+        ].join('\n'),
+      });
+      const combined: InlineComment = {
+        path: 'src/users.ts',
+        line: 10,
+        side: 'RIGHT',
+        severity: 'critical',
+        body: [
+          '**🔴 Critical - Alpha beta gamma delta epsilon zeta failure**',
+          '',
+          'A cache-key collision destroys the stored payload, while a missing permission lookup exposes tenant records.',
+        ].join('\n'),
+      };
+      const poster = new CommentPoster(mockClient, false);
+
+      await expect(
+        poster.postInline(123, [combined], files, 'head-sha', [
+          firstParent,
+          secondParent,
         ])
       ).rejects.toThrow('multiple active parent lineages');
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
       expect(
         mockOctokit.rest.pulls.createReplyForReviewComment
       ).not.toHaveBeenCalled();

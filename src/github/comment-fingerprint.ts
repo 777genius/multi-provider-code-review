@@ -10,7 +10,7 @@ const INLINE_MARKER_RE =
   /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/i;
 const INLINE_MARKER_RE_GLOBAL =
   /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
-const MAX_NEARBY_LINE_DISTANCE = 12;
+const MAX_NEARBY_LINE_DISTANCE = 4;
 
 declare const findingFingerprintBrand: unique symbol;
 export type FindingFingerprint = string & {
@@ -25,15 +25,25 @@ export interface InlineCommentReference {
   parentCommentDatabaseId?: number;
   /** Highest trusted severity already represented by the parent and replies. */
   highestTrustedEscalationSeverity?: Severity;
+  /** Immutable, strictly verified escalation observations for this parent. */
+  semanticAliases?: readonly InlineCommentReference[];
   /** Head observed by the complete GraphQL inventory that produced this ref. */
   inventoryHeadSha?: string;
 }
 
 export const REVIEW_ROUTER_ESCALATION_MARKER = 'review-router-escalation:v1';
+export const REVIEW_ROUTER_ESCALATION_MARKER_V2 = 'review-router-escalation:v2';
+const RESERVED_ESCALATION_MARKER_COMMENT_RE =
+  /<!--(?:(?!-->)[\s\S])*review-router-escalation:v[12](?:(?!-->)[\s\S])*-->/gi;
+const UNCLOSED_RESERVED_ESCALATION_MARKER_COMMENT_RE =
+  /<!--(?:(?!-->)[\s\S])*review-router-escalation:v[12][\s\S]*$/gi;
+const RESERVED_ESCALATION_MARKER_TOKEN_RE =
+  /review-router-escalation:v[12][^\s<]*/gi;
 
 export interface TrustedEscalationMarker {
   parentCommentDatabaseId: number;
   targetSeverity: Severity;
+  aliasLine?: number;
 }
 
 export type TrustedEscalationMarkerParseResult =
@@ -44,7 +54,8 @@ export type TrustedEscalationMarkerParseResult =
 
 export function trustedEscalationMarker(
   parentCommentDatabaseId: number,
-  targetSeverity: Severity
+  targetSeverity: Severity,
+  aliasLine?: number
 ): string {
   if (
     !Number.isSafeInteger(parentCommentDatabaseId) ||
@@ -54,35 +65,65 @@ export function trustedEscalationMarker(
       'trusted escalation marker requires a positive parent database id'
     );
   }
-  return `<!-- ${REVIEW_ROUTER_ESCALATION_MARKER} parent_id=${parentCommentDatabaseId} severity=${targetSeverity} -->`;
+  if (aliasLine === undefined) {
+    return `<!-- ${REVIEW_ROUTER_ESCALATION_MARKER} parent_id=${parentCommentDatabaseId} severity=${targetSeverity} -->`;
+  }
+  if (!Number.isSafeInteger(aliasLine) || aliasLine <= 0) {
+    throw new Error('trusted escalation marker requires a positive alias line');
+  }
+  return `<!-- ${REVIEW_ROUTER_ESCALATION_MARKER_V2} parent_id=${parentCommentDatabaseId} severity=${targetSeverity} alias_line=${aliasLine} -->`;
 }
 
 export function parseTrustedEscalationMarker(
   body?: string | null
 ): TrustedEscalationMarkerParseResult {
-  if (!body?.includes(REVIEW_ROUTER_ESCALATION_MARKER))
+  if (
+    !body?.includes(REVIEW_ROUTER_ESCALATION_MARKER) &&
+    !body?.includes(REVIEW_ROUTER_ESCALATION_MARKER_V2)
+  )
     return { kind: 'absent' };
   const reserved =
-    body.match(/<!--\s*review-router-escalation:v1[\s\S]*?-->/g) ?? [];
+    body.match(/<!--\s*review-router-escalation:v[12][\s\S]*?-->/g) ?? [];
   if (reserved.length === 0) return { kind: 'malformed' };
   const reservedTokenCount =
-    body.match(/review-router-escalation:v1/g)?.length ?? 0;
+    body.match(/review-router-escalation:v[12]/g)?.length ?? 0;
   if (reservedTokenCount !== reserved.length) return { kind: 'malformed' };
-  const strict =
+  const strictV1 =
     /^<!-- review-router-escalation:v1 parent_id=([1-9]\d*) severity=(minor|major|critical) -->$/;
-  const parsed = reserved.map((marker) => marker.match(strict));
+  const strictV2 =
+    /^<!-- review-router-escalation:v2 parent_id=([1-9]\d*) severity=(minor|major|critical) alias_line=([1-9]\d*) -->$/;
+  const parsed = reserved.map(
+    (marker) => marker.match(strictV1) ?? marker.match(strictV2)
+  );
   if (parsed.some((match) => !match)) return { kind: 'malformed' };
-  const values = parsed.map((match) => `${match![1]}:${match![2]}`);
+  const values = parsed.map(
+    (match) => `${match![1]}:${match![2]}:${match![3] ?? ''}`
+  );
   if (new Set(values).size !== 1) return { kind: 'conflict' };
   if (parsed.length !== 1) return { kind: 'malformed' };
   const parentCommentDatabaseId = Number(parsed[0]![1]);
-  if (!Number.isSafeInteger(parentCommentDatabaseId))
+  const aliasLine = parsed[0]![3] ? Number(parsed[0]![3]) : undefined;
+  if (
+    !Number.isSafeInteger(parentCommentDatabaseId) ||
+    (aliasLine !== undefined && !Number.isSafeInteger(aliasLine))
+  )
     return { kind: 'malformed' };
   return {
     kind: 'valid',
     parentCommentDatabaseId,
     targetSeverity: parsed[0]![2] as Severity,
+    ...(aliasLine !== undefined ? { aliasLine } : {}),
   };
+}
+
+/** Remove model-controlled uses of the trusted escalation marker namespace. */
+export function stripReservedEscalationMarkerSyntax(body: string): string {
+  return body
+    .replace(RESERVED_ESCALATION_MARKER_COMMENT_RE, '')
+    .replace(UNCLOSED_RESERVED_ESCALATION_MARKER_COMMENT_RE, '')
+    .replace(RESERVED_ESCALATION_MARKER_TOKEN_RE, '')
+    .replace(/<!--\s*-->/g, '')
+    .trim();
 }
 
 export function signatureFromInlineComment(
@@ -150,7 +191,9 @@ export function appendInlineFingerprintMarker(
   path: string | undefined,
   line: number | null | undefined
 ): string {
-  const sanitizedBody = stripReservedFindingMarkerSyntax(body);
+  const sanitizedBody = stripReservedEscalationMarkerSyntax(
+    stripReservedFindingMarkerSyntax(body)
+  );
   const parts = [sanitizedBody.trimEnd()];
   if (!extractInlineFingerprint(sanitizedBody)) {
     parts.push(
@@ -168,8 +211,8 @@ export function appendInlineFingerprintMarker(
 }
 
 export function stripInlineFingerprintMarkers(body: string): string {
-  return stripReservedFindingMarkerSyntax(
-    body.replace(INLINE_MARKER_RE_GLOBAL, '')
+  return stripReservedEscalationMarkerSyntax(
+    stripReservedFindingMarkerSyntax(body.replace(INLINE_MARKER_RE_GLOBAL, ''))
   ).trim();
 }
 
@@ -263,9 +306,10 @@ export function sameSemanticLineage(
     candidateTitleTokens
   );
 
-  const existingTokens = tokenize(semanticText(existingBody));
-  const candidateTokens = tokenize(semanticText(candidateBody));
-  const bodySimilarity = diceSimilarity(existingTokens, candidateTokens);
+  const messageSimilarity = diceSimilarity(
+    tokenize(issueMessageText(existingBody)),
+    tokenize(issueMessageText(candidateBody))
+  );
 
   const existingCodeTokens = extractCodeTokens(existingBody);
   const candidateCodeTokens = extractCodeTokens(candidateBody);
@@ -273,13 +317,52 @@ export function sameSemanticLineage(
     existingCodeTokens,
     candidateCodeTokens
   );
+  const codeTokenSimilarity = diceSimilarity(
+    existingCodeTokens,
+    candidateCodeTokens
+  );
+  const codeTokenContainment =
+    sharedCodeTokens /
+    Math.max(1, Math.min(existingCodeTokens.size, candidateCodeTokens.size));
 
-  if (nearbyLine && titleSimilarity >= 0.45) return true;
-  if (nearbyLine && bodySimilarity >= 0.38) return true;
-  if (nearbyLine && sharedCodeTokens > 0 && bodySimilarity >= 0.24) return true;
+  if (nearbyLine && titleSimilarity >= 0.7 && messageSimilarity >= 0.3)
+    return true;
+  if (nearbyLine && messageSimilarity >= 0.65) return true;
+  if (
+    nearbyLine &&
+    sharedCodeTokens > 0 &&
+    titleSimilarity >= 0.4 &&
+    messageSimilarity >= 0.35
+  )
+    return true;
+
+  // A repeated rare identifier plus matching issue prose is strong evidence
+  // even when one report lists many more implementation details. Containment
+  // avoids penalizing that asymmetric expansion while the title/body gates
+  // prevent a shared helper name from merging different defects.
+  if (
+    sharedCodeTokens >= 1 &&
+    codeTokenContainment >= 0.5 &&
+    titleSimilarity >= 0.25 &&
+    messageSimilarity >= 0.3
+  ) {
+    return true;
+  }
+
+  // The model may anchor the same defect at its cause or its consequence.
+  // Across larger line shifts, require several matching code identifiers plus
+  // independently similar prose rather than widening the line-distance gate.
+  if (
+    sharedCodeTokens >= 2 &&
+    codeTokenSimilarity >= 0.5 &&
+    titleSimilarity >= 0.25 &&
+    messageSimilarity >= 0.35
+  ) {
+    return true;
+  }
 
   // Allow larger line shifts only when the model is clearly repeating the same issue.
-  return titleSimilarity >= 0.6 && bodySimilarity >= 0.55;
+  return titleSimilarity >= 0.65 && messageSimilarity >= 0.5;
 }
 
 export function inlineSeverityRank(severity: string): number {
@@ -350,12 +433,41 @@ function stableFindingFingerprint(input: {
 }
 
 function semanticText(body: string): string {
-  return body
+  const issueBody = stripGeneratedFooter(body);
+  return issueBody
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/\*\*Severity:\*\*[\s\S]*?(?:\n\n|$)/gi, ' ')
     .replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, ' ')
-    .replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, ' ');
+    .replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, ' ')
+    .replace(/\b(?:critical|major|minor)\b/gi, ' ');
+}
+
+function issueMessageText(body: string): string {
+  return semanticText(body)
+    .split('\n')
+    .filter(
+      (line) => !/^\s*(?:_.*(?:critical|major|minor).*_|\*\*.*\*\*)/i.test(line)
+    )
+    .join('\n');
+}
+
+function stripGeneratedFooter(body: string): string {
+  const lines = body.split('\n');
+  let fence: '`' | '~' | null = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trimStart();
+    const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const kind = fenceMatch[1][0] as '`' | '~';
+      fence = fence === kind ? null : (fence ?? kind);
+      continue;
+    }
+    if (!fence && /^(?:<details>|<sub>)/i.test(trimmed)) {
+      return lines.slice(0, index).join('\n');
+    }
+  }
+  return body;
 }
 
 function tokenize(value: string): Set<string> {
@@ -364,16 +476,36 @@ function tokenize(value: string): Set<string> {
     .replace(/[^\p{L}\p{N}_]+/gu, ' ');
   const tokens = normalized
     .split(/\s+/)
-    .map((token) => token.trim())
+    .map((token) => normalizeSemanticToken(token.trim()))
     .filter((token) => token.length >= 3 && !STOPWORDS.has(token));
   return new Set(tokens);
 }
 
+function normalizeSemanticToken(token: string): string {
+  if (token.length > 4 && token.endsWith('ies')) {
+    return `${token.slice(0, -3)}y`;
+  }
+  if (
+    token.length > 4 &&
+    token.endsWith('s') &&
+    !token.endsWith('ss') &&
+    !token.endsWith('us')
+  ) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
 function extractCodeTokens(body: string): Set<string> {
   const tokens = new Set<string>();
-  for (const match of body.matchAll(/`([^`\n]{2,120})`/g)) {
-    for (const token of tokenize(match[1])) {
-      tokens.add(token);
+  for (const match of semanticText(body).matchAll(/`([^`\n]{2,120})`/g)) {
+    for (const anchor of match[1].matchAll(
+      /[$\p{L}_][$\p{L}\p{N}_]*(?:\.[$\p{L}_][$\p{L}\p{N}_]*)*/gu
+    )) {
+      const normalized = anchor[0].toLowerCase();
+      if (normalized.length >= 4 && !GENERIC_CODE_ANCHORS.has(normalized)) {
+        tokens.add(normalized);
+      }
     }
   }
   return tokens;
@@ -409,6 +541,7 @@ const STOPWORDS = new Set([
   'can',
   'cannot',
   'comment',
+  'critical',
   'could',
   'does',
   'every',
@@ -439,4 +572,26 @@ const STOPWORDS = new Set([
   'will',
   'with',
   'would',
+]);
+
+const GENERIC_CODE_ANCHORS = new Set([
+  'async',
+  'await',
+  'boolean',
+  'class',
+  'const',
+  'else',
+  'error',
+  'false',
+  'function',
+  'import',
+  'null',
+  'require',
+  'return',
+  'state',
+  'static',
+  'status',
+  'string',
+  'true',
+  'undefined',
 ]);

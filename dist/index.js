@@ -32332,7 +32332,58 @@ function collectMarkerMatches(body, pattern) {
 // src/github/comment-fingerprint.ts
 var INLINE_MARKER_RE = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/i;
 var INLINE_MARKER_RE_GLOBAL = /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
-var MAX_NEARBY_LINE_DISTANCE = 12;
+var MAX_NEARBY_LINE_DISTANCE = 4;
+var REVIEW_ROUTER_ESCALATION_MARKER = "review-router-escalation:v1";
+var REVIEW_ROUTER_ESCALATION_MARKER_V2 = "review-router-escalation:v2";
+var RESERVED_ESCALATION_MARKER_COMMENT_RE = /<!--(?:(?!-->)[\s\S])*review-router-escalation:v[12](?:(?!-->)[\s\S])*-->/gi;
+var UNCLOSED_RESERVED_ESCALATION_MARKER_COMMENT_RE = /<!--(?:(?!-->)[\s\S])*review-router-escalation:v[12][\s\S]*$/gi;
+var RESERVED_ESCALATION_MARKER_TOKEN_RE = /review-router-escalation:v[12][^\s<]*/gi;
+function trustedEscalationMarker(parentCommentDatabaseId, targetSeverity, aliasLine) {
+  if (!Number.isSafeInteger(parentCommentDatabaseId) || parentCommentDatabaseId <= 0) {
+    throw new Error(
+      "trusted escalation marker requires a positive parent database id"
+    );
+  }
+  if (aliasLine === void 0) {
+    return `<!-- ${REVIEW_ROUTER_ESCALATION_MARKER} parent_id=${parentCommentDatabaseId} severity=${targetSeverity} -->`;
+  }
+  if (!Number.isSafeInteger(aliasLine) || aliasLine <= 0) {
+    throw new Error("trusted escalation marker requires a positive alias line");
+  }
+  return `<!-- ${REVIEW_ROUTER_ESCALATION_MARKER_V2} parent_id=${parentCommentDatabaseId} severity=${targetSeverity} alias_line=${aliasLine} -->`;
+}
+function parseTrustedEscalationMarker(body) {
+  if (!body?.includes(REVIEW_ROUTER_ESCALATION_MARKER) && !body?.includes(REVIEW_ROUTER_ESCALATION_MARKER_V2))
+    return { kind: "absent" };
+  const reserved = body.match(/<!--\s*review-router-escalation:v[12][\s\S]*?-->/g) ?? [];
+  if (reserved.length === 0) return { kind: "malformed" };
+  const reservedTokenCount = body.match(/review-router-escalation:v[12]/g)?.length ?? 0;
+  if (reservedTokenCount !== reserved.length) return { kind: "malformed" };
+  const strictV1 = /^<!-- review-router-escalation:v1 parent_id=([1-9]\d*) severity=(minor|major|critical) -->$/;
+  const strictV2 = /^<!-- review-router-escalation:v2 parent_id=([1-9]\d*) severity=(minor|major|critical) alias_line=([1-9]\d*) -->$/;
+  const parsed = reserved.map(
+    (marker) => marker.match(strictV1) ?? marker.match(strictV2)
+  );
+  if (parsed.some((match2) => !match2)) return { kind: "malformed" };
+  const values = parsed.map(
+    (match2) => `${match2[1]}:${match2[2]}:${match2[3] ?? ""}`
+  );
+  if (new Set(values).size !== 1) return { kind: "conflict" };
+  if (parsed.length !== 1) return { kind: "malformed" };
+  const parentCommentDatabaseId = Number(parsed[0][1]);
+  const aliasLine = parsed[0][3] ? Number(parsed[0][3]) : void 0;
+  if (!Number.isSafeInteger(parentCommentDatabaseId) || aliasLine !== void 0 && !Number.isSafeInteger(aliasLine))
+    return { kind: "malformed" };
+  return {
+    kind: "valid",
+    parentCommentDatabaseId,
+    targetSeverity: parsed[0][2],
+    ...aliasLine !== void 0 ? { aliasLine } : {}
+  };
+}
+function stripReservedEscalationMarkerSyntax(body) {
+  return body.replace(RESERVED_ESCALATION_MARKER_COMMENT_RE, "").replace(UNCLOSED_RESERVED_ESCALATION_MARKER_COMMENT_RE, "").replace(RESERVED_ESCALATION_MARKER_TOKEN_RE, "").replace(/<!--\s*-->/g, "").trim();
+}
 function signatureFromInlineComment(path29, line, body) {
   const cleanBody = stripInlineFingerprintMarkers(body);
   const severity = extractSeverity(cleanBody);
@@ -32369,7 +32420,9 @@ function extractFindingFingerprint(body) {
   return parsed.kind === "valid" /* Valid */ ? parsed.fingerprint : null;
 }
 function appendInlineFingerprintMarker(body, path29, line) {
-  const sanitizedBody = stripReservedFindingMarkerSyntax(body);
+  const sanitizedBody = stripReservedEscalationMarkerSyntax(
+    stripReservedFindingMarkerSyntax(body)
+  );
   const parts = [sanitizedBody.trimEnd()];
   if (!extractInlineFingerprint(sanitizedBody)) {
     parts.push(
@@ -32386,8 +32439,8 @@ function appendInlineFingerprintMarker(body, path29, line) {
   return parts.join("\n\n");
 }
 function stripInlineFingerprintMarkers(body) {
-  return stripReservedFindingMarkerSyntax(
-    body.replace(INLINE_MARKER_RE_GLOBAL, "")
+  return stripReservedEscalationMarkerSyntax(
+    stripReservedFindingMarkerSyntax(body.replace(INLINE_MARKER_RE_GLOBAL, ""))
   ).trim();
 }
 function isReviewRouterInlineComment(body) {
@@ -32422,16 +32475,21 @@ function extractInlineTitle(body) {
   return stripSeverityPrefix(extractTitle(stripInlineFingerprintMarkers(body)));
 }
 function isLikelySameInlineFinding(existing, candidate) {
+  const existingBody = stripInlineFingerprintMarkers(existing.body);
+  const candidateBody = stripInlineFingerprintMarkers(candidate.body);
+  const existingSeverity = extractSeverity(existingBody);
+  const candidateSeverity = extractSeverity(candidateBody);
+  if (candidateSeverity && (!existingSeverity || inlineSeverityRank(candidateSeverity) > inlineSeverityRank(existingSeverity))) {
+    return false;
+  }
+  return sameSemanticLineage(existing, candidate);
+}
+function sameSemanticLineage(existing, candidate) {
   const existingPath = (existing.path || "").toLowerCase();
   const candidatePath = (candidate.path || "").toLowerCase();
   if (!existingPath || existingPath !== candidatePath) return false;
   const existingBody = stripInlineFingerprintMarkers(existing.body);
   const candidateBody = stripInlineFingerprintMarkers(candidate.body);
-  const existingSeverity = extractSeverity(existingBody);
-  const candidateSeverity = extractSeverity(candidateBody);
-  if (candidateSeverity && (!existingSeverity || severityRank(candidateSeverity) > severityRank(existingSeverity))) {
-    return false;
-  }
   const existingLine = existing.line ?? 0;
   const candidateLine = candidate.line ?? 0;
   const lineDistance = Math.abs(existingLine - candidateLine);
@@ -32442,21 +32500,35 @@ function isLikelySameInlineFinding(existing, candidate) {
     existingTitleTokens,
     candidateTitleTokens
   );
-  const existingTokens = tokenize2(semanticText(existingBody));
-  const candidateTokens = tokenize2(semanticText(candidateBody));
-  const bodySimilarity = diceSimilarity(existingTokens, candidateTokens);
+  const messageSimilarity = diceSimilarity(
+    tokenize2(issueMessageText(existingBody)),
+    tokenize2(issueMessageText(candidateBody))
+  );
   const existingCodeTokens = extractCodeTokens(existingBody);
   const candidateCodeTokens = extractCodeTokens(candidateBody);
   const sharedCodeTokens = intersectionSize(
     existingCodeTokens,
     candidateCodeTokens
   );
-  if (nearbyLine && titleSimilarity >= 0.45) return true;
-  if (nearbyLine && bodySimilarity >= 0.38) return true;
-  if (nearbyLine && sharedCodeTokens > 0 && bodySimilarity >= 0.24) return true;
-  return titleSimilarity >= 0.6 && bodySimilarity >= 0.55;
+  const codeTokenSimilarity = diceSimilarity(
+    existingCodeTokens,
+    candidateCodeTokens
+  );
+  const codeTokenContainment = sharedCodeTokens / Math.max(1, Math.min(existingCodeTokens.size, candidateCodeTokens.size));
+  if (nearbyLine && titleSimilarity >= 0.7 && messageSimilarity >= 0.3)
+    return true;
+  if (nearbyLine && messageSimilarity >= 0.65) return true;
+  if (nearbyLine && sharedCodeTokens > 0 && titleSimilarity >= 0.4 && messageSimilarity >= 0.35)
+    return true;
+  if (sharedCodeTokens >= 1 && codeTokenContainment >= 0.5 && titleSimilarity >= 0.25 && messageSimilarity >= 0.3) {
+    return true;
+  }
+  if (sharedCodeTokens >= 2 && codeTokenSimilarity >= 0.5 && titleSimilarity >= 0.25 && messageSimilarity >= 0.35) {
+    return true;
+  }
+  return titleSimilarity >= 0.65 && messageSimilarity >= 0.5;
 }
-function severityRank(severity) {
+function inlineSeverityRank(severity) {
   switch (severity.toLowerCase()) {
     case "critical":
       return 3;
@@ -32499,18 +32571,55 @@ function stableFindingFingerprint(input) {
   return (0, import_crypto8.createHash)("sha256").update(canonical).digest("hex").slice(0, 32);
 }
 function semanticText(body) {
-  return body.replace(/```[\s\S]*?```/g, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/\*\*Severity:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, " ");
+  const issueBody = stripGeneratedFooter(body);
+  return issueBody.replace(/```[\s\S]*?```/g, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/\*\*Severity:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\b(?:critical|major|minor)\b/gi, " ");
+}
+function issueMessageText(body) {
+  return semanticText(body).split("\n").filter(
+    (line) => !/^\s*(?:_.*(?:critical|major|minor).*_|\*\*.*\*\*)/i.test(line)
+  ).join("\n");
+}
+function stripGeneratedFooter(body) {
+  const lines = body.split("\n");
+  let fence = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trimStart();
+    const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const kind = fenceMatch[1][0];
+      fence = fence === kind ? null : fence ?? kind;
+      continue;
+    }
+    if (!fence && /^(?:<details>|<sub>)/i.test(trimmed)) {
+      return lines.slice(0, index).join("\n");
+    }
+  }
+  return body;
 }
 function tokenize2(value) {
   const normalized = splitIdentifiers(value).toLowerCase().replace(/[^\p{L}\p{N}_]+/gu, " ");
-  const tokens = normalized.split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 3 && !STOPWORDS.has(token));
+  const tokens = normalized.split(/\s+/).map((token) => normalizeSemanticToken(token.trim())).filter((token) => token.length >= 3 && !STOPWORDS.has(token));
   return new Set(tokens);
+}
+function normalizeSemanticToken(token) {
+  if (token.length > 4 && token.endsWith("ies")) {
+    return `${token.slice(0, -3)}y`;
+  }
+  if (token.length > 4 && token.endsWith("s") && !token.endsWith("ss") && !token.endsWith("us")) {
+    return token.slice(0, -1);
+  }
+  return token;
 }
 function extractCodeTokens(body) {
   const tokens = /* @__PURE__ */ new Set();
-  for (const match2 of body.matchAll(/`([^`\n]{2,120})`/g)) {
-    for (const token of tokenize2(match2[1])) {
-      tokens.add(token);
+  for (const match2 of semanticText(body).matchAll(/`([^`\n]{2,120})`/g)) {
+    for (const anchor of match2[1].matchAll(
+      /[$\p{L}_][$\p{L}\p{N}_]*(?:\.[$\p{L}_][$\p{L}\p{N}_]*)*/gu
+    )) {
+      const normalized = anchor[0].toLowerCase();
+      if (normalized.length >= 4 && !GENERIC_CODE_ANCHORS.has(normalized)) {
+        tokens.add(normalized);
+      }
     }
   }
   return tokens;
@@ -32542,6 +32651,7 @@ var STOPWORDS = /* @__PURE__ */ new Set([
   "can",
   "cannot",
   "comment",
+  "critical",
   "could",
   "does",
   "every",
@@ -32572,6 +32682,27 @@ var STOPWORDS = /* @__PURE__ */ new Set([
   "will",
   "with",
   "would"
+]);
+var GENERIC_CODE_ANCHORS = /* @__PURE__ */ new Set([
+  "async",
+  "await",
+  "boolean",
+  "class",
+  "const",
+  "else",
+  "error",
+  "false",
+  "function",
+  "import",
+  "null",
+  "require",
+  "return",
+  "state",
+  "static",
+  "status",
+  "string",
+  "true",
+  "undefined"
 ]);
 
 // src/github/summary-metadata.ts
@@ -33148,6 +33279,7 @@ var ReviewThreadInventoryLoader = class {
       manualAttention: [],
       manualAttentionIssues: [],
       dedupeComments: [],
+      topLevelParents: [],
       warnings: [],
       failed: false
     };
@@ -33194,6 +33326,7 @@ var ReviewThreadInventoryLoader = class {
       if (inventory.failed) {
         inventory.candidates = [];
         inventory.dedupeComments = [];
+        inventory.topLevelParents = [];
       }
     } catch (error2) {
       logger.warn(
@@ -33204,6 +33337,7 @@ var ReviewThreadInventoryLoader = class {
       inventory.manualAttention = [];
       inventory.manualAttentionIssues = [];
       inventory.dedupeComments = [];
+      inventory.topLevelParents = [];
       inventory.failed = true;
       inventory.warnings.push("review thread lifecycle inventory failed");
     }
@@ -33271,6 +33405,11 @@ var ReviewThreadInventoryLoader = class {
     );
     const title = parsedTitle || "Previous ReviewRouter finding";
     const severity = normalizeLifecycleSeverity(extractInlineSeverity(body));
+    const trustedEscalation = this.trustedEscalationFacts(
+      comments,
+      parent,
+      severity
+    );
     const message = cleanBody || parsedTitle || title;
     const reasonCodes = [];
     if (!trustedAuthor) reasonCodes.push("untrusted_author");
@@ -33311,11 +33450,23 @@ var ReviewThreadInventoryLoader = class {
       reasonCodes
     };
     if (trustedAuthor && !thread.isOutdated && target.currentPath && target.currentLine != null) {
-      inventory.dedupeComments.push({
+      const parentReference = {
         path: target.currentPath,
         line: target.currentLine,
-        body
-      });
+        body,
+        ...parent.databaseId != null ? { parentCommentDatabaseId: parent.databaseId } : {},
+        highestTrustedEscalationSeverity: trustedEscalation.highestSeverity,
+        ...trustedEscalation.aliases.length > 0 ? {
+          semanticAliases: trustedEscalation.aliases.map((alias) => ({
+            path: target.currentPath,
+            line: alias.line ?? target.currentLine,
+            body: alias.body
+          }))
+        } : {},
+        ...inventory.headRefOid ? { inventoryHeadSha: inventory.headRefOid } : {}
+      };
+      inventory.topLevelParents.push(parentReference);
+      inventory.dedupeComments.push(parentReference);
     }
     if (reasonCodes.length > 0) {
       inventory.manualAttention.push({
@@ -33325,6 +33476,33 @@ var ReviewThreadInventoryLoader = class {
       return;
     }
     inventory.candidates.push(target);
+  }
+  trustedEscalationFacts(comments, parent, parentSeverity) {
+    let highest = parentSeverity === "unknown" ? "minor" : parentSeverity;
+    const aliases = [];
+    for (const reply of comments.slice(1)) {
+      if (!this.isTrustedAuthor(reply.author?.login)) continue;
+      const parsed = parseTrustedEscalationMarker(reply.body);
+      if (parsed.kind === "absent") continue;
+      if (parsed.kind === "malformed" || parsed.kind === "conflict") {
+        throw new Error(
+          `trusted escalation marker in ${reply.id} was ${parsed.kind}`
+        );
+      }
+      if (parent.databaseId == null || parsed.parentCommentDatabaseId !== parent.databaseId) {
+        throw new Error(
+          `trusted escalation marker in ${reply.id} referenced a conflicting parent`
+        );
+      }
+      if (inlineSeverityRank(parsed.targetSeverity) > inlineSeverityRank(highest)) {
+        highest = parsed.targetSeverity;
+      }
+      aliases.push({
+        body: reply.body ?? "",
+        ...parsed.aliasLine !== void 0 ? { line: parsed.aliasLine } : {}
+      });
+    }
+    return { highestSeverity: highest, aliases };
   }
   isTrustedAuthor(login) {
     return isTrustedReviewThreadAuthor(login, this.trustedAuthors);
@@ -33846,13 +34024,15 @@ ${content.substring(0, 500)}...`
     if (!body) return false;
     return body.includes(_CommentPoster.BOT_COMMENT_MARKER) && body.includes("# ReviewRouter") && !body.includes(_CommentPoster.INLINE_FALLBACK_MARKER) && !body.includes(_CommentPoster.INLINE_SKIP_HELP_MARKER);
   }
-  async loadActiveInlineComments(prNumber) {
+  async loadActiveInlineComments(prNumber, inventoryHeadSha) {
     const coarseKeys = /* @__PURE__ */ new Set();
     const legacyKeys = /* @__PURE__ */ new Set();
     const findingFingerprints = /* @__PURE__ */ new Set();
     const activeComments = [];
     const { octokit, owner, repo } = this.client;
     const trustedAuthors = trustedReviewThreadAuthorsFromEnv();
+    const trustedParentIds = /* @__PURE__ */ new Set();
+    const activeParentsById = /* @__PURE__ */ new Map();
     try {
       const comments = await octokit.paginate(
         octokit.rest.pulls.listReviewComments,
@@ -33867,18 +34047,34 @@ ${content.substring(0, 500)}...`
         if (!isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors)) {
           continue;
         }
+        if (comment.in_reply_to_id != null) continue;
         const activeLine = comment.line;
         const body = comment.body || "";
-        if (activeLine == null || !isReviewRouterInlineComment(body)) continue;
+        if (!isReviewRouterInlineComment(body)) continue;
         const findingMarker = parseFindingMarker(body);
         if (findingMarker.kind === "conflict" /* Conflict */ || findingMarker.kind === "malformed" /* Malformed */) {
-          continue;
+          throw new Error(
+            "Trusted ReviewRouter inline comment has an invalid finding marker"
+          );
         }
-        activeComments.push({
+        const parentId = comment.id;
+        if (!Number.isSafeInteger(parentId) || typeof parentId !== "number" || parentId <= 0) {
+          throw new Error(
+            "Trusted ReviewRouter inline comment is missing a valid database id"
+          );
+        }
+        trustedParentIds.add(parentId);
+        if (activeLine == null) continue;
+        const parentReference = {
           path: comment.path,
           line: activeLine,
-          body
-        });
+          body,
+          parentCommentDatabaseId: parentId,
+          highestTrustedEscalationSeverity: _CommentPoster.inlineSeverity(body) ?? "minor",
+          ...inventoryHeadSha ? { inventoryHeadSha } : {}
+        };
+        activeComments.push(parentReference);
+        activeParentsById.set(parentId, parentReference);
         const signature = signatureFromInlineComment(
           comment.path,
           activeLine,
@@ -33901,6 +34097,44 @@ ${content.substring(0, 500)}...`
           legacyKeys.add(fingerprint);
           if (marker) legacyKeys.add(marker);
         }
+      }
+      for (const comment of comments) {
+        if (!isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors)) {
+          continue;
+        }
+        const parentId = comment.in_reply_to_id;
+        if (typeof parentId !== "number") continue;
+        const parsed = parseTrustedEscalationMarker(comment.body);
+        if (parsed.kind === "absent") continue;
+        if (parsed.kind === "malformed" || parsed.kind === "conflict") {
+          throw new Error(
+            `Trusted ReviewRouter escalation reply has a ${parsed.kind} marker`
+          );
+        }
+        if (parsed.parentCommentDatabaseId !== parentId) {
+          throw new Error(
+            "Trusted ReviewRouter escalation reply references a conflicting parent"
+          );
+        }
+        if (!trustedParentIds.has(parentId)) {
+          throw new Error(
+            "Trusted ReviewRouter escalation reply references an unknown parent"
+          );
+        }
+        const activeParent = activeParentsById.get(parentId);
+        if (!activeParent) continue;
+        const currentSeverity = _CommentPoster.effectiveSeverity(activeParent);
+        if (inlineSeverityRank(parsed.targetSeverity) > inlineSeverityRank(currentSeverity)) {
+          activeParent.highestTrustedEscalationSeverity = parsed.targetSeverity;
+        }
+        activeParent.semanticAliases = [
+          ...activeParent.semanticAliases ?? [],
+          {
+            path: activeParent.path,
+            line: parsed.aliasLine ?? activeParent.line,
+            body: comment.body || ""
+          }
+        ];
       }
     } catch (error2) {
       const inventoryError = new Error(
@@ -33926,8 +34160,176 @@ ${content.substring(0, 500)}...`
     const findingFingerprint = extractFindingFingerprint(body);
     const keys = findingFingerprint ? activeComments.legacyKeys : activeComments.coarseKeys;
     return (findingFingerprint ? activeComments.findingFingerprints.has(findingFingerprint) : false) || keys.has(signatureFromInlineComment(path29, line, body)) || keys.has(fingerprintFromInlineComment(path29, line, body)) || (marker ? keys.has(marker) : false) || activeComments.comments.some(
-      (comment) => isLikelySameInlineFinding(comment, { path: path29, line, body })
+      (comment) => _CommentPoster.semanticReferences(comment).some(
+        (reference) => isLikelySameInlineFinding(reference, { path: path29, line, body })
+      )
     );
+  }
+  hasTrustedExactInlineIdentity(activeComments, body) {
+    const parsedFindingMarker = parseFindingMarker(body);
+    if (parsedFindingMarker.kind === "conflict" /* Conflict */ || parsedFindingMarker.kind === "malformed" /* Malformed */) {
+      return false;
+    }
+    const findingFingerprint = extractFindingFingerprint(body);
+    if (findingFingerprint && activeComments.findingFingerprints.has(findingFingerprint)) {
+      return true;
+    }
+    return false;
+  }
+  classifyInlineCandidate(activeComments, candidate) {
+    if (this.hasTrustedExactInlineIdentity(activeComments, candidate.body)) {
+      return { kind: "duplicate" };
+    }
+    const candidateReferences = [
+      {
+        path: candidate.path,
+        line: candidate.line,
+        body: candidate.body
+      },
+      ...candidate.semanticAliases ?? []
+    ];
+    const matchingComponents = _CommentPoster.semanticLineageComponents(
+      activeComments.comments
+    ).filter(
+      (component2) => component2.parents.some(
+        (parent2) => _CommentPoster.semanticReferences(parent2).some(
+          (existingAlias) => candidateReferences.some(
+            (candidateAlias) => sameSemanticLineage(existingAlias, candidateAlias)
+          )
+        )
+      )
+    );
+    if (matchingComponents.some((component2) => component2.ambiguous)) {
+      throw new Error(
+        "Cannot classify semantic lineage because the candidate intersects an ambiguous parent bridge"
+      );
+    }
+    if (matchingComponents.length > 1) {
+      throw new Error(
+        "Cannot post semantic escalation because multiple active parent lineages match the finding"
+      );
+    }
+    if (this.hasInlineDuplicate(
+      activeComments,
+      candidate.path,
+      candidate.line,
+      candidate.body
+    )) {
+      return { kind: "duplicate" };
+    }
+    const candidateSeverity = _CommentPoster.inlineSeverity(candidate.body);
+    if (!candidateSeverity) return { kind: "top-level" };
+    if (matchingComponents.length === 0) return { kind: "top-level" };
+    const component = matchingComponents[0].parents;
+    const parent = _CommentPoster.canonicalLineageParent(component);
+    const componentSeverity = component.reduce(
+      (highest, member) => inlineSeverityRank(_CommentPoster.effectiveSeverity(member)) > inlineSeverityRank(highest) ? _CommentPoster.effectiveSeverity(member) : highest,
+      "minor"
+    );
+    if (inlineSeverityRank(candidateSeverity) <= inlineSeverityRank(componentSeverity)) {
+      return { kind: "duplicate" };
+    }
+    return { kind: "escalation", parent, severity: candidateSeverity };
+  }
+  static semanticReferences(parent) {
+    return [parent, ...parent.semanticAliases ?? []];
+  }
+  /**
+   * Direct parent-to-parent matches may reconcile old duplicate roots. A
+   * transitive fuzzy bridge is not durable identity, so non-clique components
+   * fail closed before any GitHub mutation.
+   */
+  static semanticLineageComponents(parents) {
+    const remaining = new Set(parents);
+    const components = [];
+    while (remaining.size > 0) {
+      const seed = remaining.values().next().value;
+      const component = [seed];
+      remaining.delete(seed);
+      const pending = [seed];
+      while (pending.length > 0) {
+        const current = pending.pop();
+        for (const candidate of [...remaining]) {
+          if (!sameSemanticLineage(current, candidate)) continue;
+          remaining.delete(candidate);
+          component.push(candidate);
+          pending.push(candidate);
+        }
+      }
+      const clique = component.every(
+        (left, leftIndex) => component.slice(leftIndex + 1).every((right) => sameSemanticLineage(left, right))
+      );
+      components.push({ parents: component, ambiguous: !clique });
+    }
+    return components;
+  }
+  static canonicalLineageParent(component) {
+    return [...component].sort(
+      (left, right) => (left.parentCommentDatabaseId ?? Number.MAX_SAFE_INTEGER) - (right.parentCommentDatabaseId ?? Number.MAX_SAFE_INTEGER)
+    )[0];
+  }
+  static effectiveSeverity(comment) {
+    return comment.highestTrustedEscalationSeverity ?? _CommentPoster.inlineSeverity(comment.body) ?? "minor";
+  }
+  static inlineSeverity(body) {
+    const severity = extractInlineSeverity(body);
+    return severity === "critical" || severity === "major" || severity === "minor" ? severity : null;
+  }
+  static rememberInlineComment(activeComments, comment) {
+    activeComments.coarseKeys.add(
+      signatureFromInlineComment(comment.path, comment.line, comment.body)
+    );
+    activeComments.coarseKeys.add(
+      fingerprintFromInlineComment(comment.path, comment.line, comment.body)
+    );
+    const marker = extractInlineFingerprint(comment.body);
+    if (marker) activeComments.coarseKeys.add(marker);
+    const findingFingerprint = extractFindingFingerprint(comment.body);
+    if (findingFingerprint) {
+      activeComments.findingFingerprints.add(findingFingerprint);
+    }
+    activeComments.comments.push({
+      path: comment.path,
+      line: comment.line,
+      body: comment.body
+    });
+  }
+  static coalesceSameRunInlineCandidates(comments) {
+    const groups = [];
+    for (const candidate of comments) {
+      const intersectingGroups = groups.filter(
+        (group) => group.some((existing) => sameSemanticLineage(existing, candidate))
+      );
+      if (intersectingGroups.length === 0) {
+        groups.push([candidate]);
+        continue;
+      }
+      if (intersectingGroups.length !== 1 || !intersectingGroups[0].every(
+        (existing) => sameSemanticLineage(existing, candidate)
+      )) {
+        throw new Error(
+          "Cannot coalesce same-run inline findings because the semantic lineage is ambiguous"
+        );
+      }
+      intersectingGroups[0].push(candidate);
+    }
+    return groups.map((group) => {
+      const strongest = group.reduce((currentStrongest, candidate) => {
+        const strongestSeverity = _CommentPoster.inlineSeverity(
+          currentStrongest.body
+        );
+        const candidateSeverity = _CommentPoster.inlineSeverity(candidate.body);
+        return inlineSeverityRank(candidateSeverity ?? "") > inlineSeverityRank(strongestSeverity ?? "") ? candidate : currentStrongest;
+      });
+      return {
+        ...strongest,
+        semanticAliases: group.filter((candidate) => candidate !== strongest).map((candidate) => ({
+          path: candidate.path,
+          line: candidate.line,
+          body: candidate.body
+        }))
+      };
+    });
   }
   /**
    * Validate and filter suggestions through quality pipeline.
@@ -34046,7 +34448,7 @@ ${content.substring(0, 500)}...`
       legacyKeys: /* @__PURE__ */ new Set(),
       findingFingerprints: /* @__PURE__ */ new Set(),
       comments: []
-    } : dedupeComments ? _CommentPoster.activeInlineCommentsFromReferences(dedupeComments) : await this.loadActiveInlineComments(prNumber);
+    } : dedupeComments ? _CommentPoster.activeInlineCommentsFromReferences(dedupeComments) : await this.loadActiveInlineComments(prNumber, headSha);
     const filesWithAdditions = files.filter((f2) => !isDeletionOnlyFile(f2));
     const filesWithAdditionsSet = new Set(
       filesWithAdditions.map((f2) => f2.filename)
@@ -34060,7 +34462,7 @@ ${content.substring(0, 500)}...`
       if (pathCompare !== 0) return pathCompare;
       return a2.line - b2.line;
     });
-    const apiComments = (await Promise.all(
+    const preparedApiComments = (await Promise.all(
       sortedComments.map(async (c2) => {
         const file = files.find((f2) => f2.filename === c2.path);
         const rangedComment = c2;
@@ -34179,34 +34581,6 @@ ${content.substring(0, 500)}...`
             c2.severity
           )
         };
-        if (this.hasInlineDuplicate(
-          activeInlineComments,
-          c2.path,
-          c2.line,
-          apiComment.body
-        )) {
-          logger.info(
-            `Skipping duplicate active inline comment at ${c2.path}:${c2.line}`
-          );
-          return null;
-        }
-        activeInlineComments.coarseKeys.add(
-          signatureFromInlineComment(c2.path, c2.line, apiComment.body)
-        );
-        activeInlineComments.coarseKeys.add(
-          fingerprintFromInlineComment(c2.path, c2.line, apiComment.body)
-        );
-        const marker = extractInlineFingerprint(apiComment.body);
-        if (marker) activeInlineComments.coarseKeys.add(marker);
-        const findingFingerprint = extractFindingFingerprint(apiComment.body);
-        if (findingFingerprint) {
-          activeInlineComments.findingFingerprints.add(findingFingerprint);
-        }
-        activeInlineComments.comments.push({
-          path: c2.path,
-          line: c2.line,
-          body: apiComment.body
-        });
         if (startLine !== void 0 && startLine !== c2.line) {
           apiComment.start_line = startLine;
           apiComment.start_side = "RIGHT";
@@ -34214,6 +34588,77 @@ ${content.substring(0, 500)}...`
         return apiComment;
       })
     )).filter((c2) => c2 !== null);
+    const coalescedApiComments = _CommentPoster.coalesceSameRunInlineCandidates(preparedApiComments);
+    const apiComments = [];
+    const escalationReplies = /* @__PURE__ */ new Map();
+    for (const apiComment of coalescedApiComments) {
+      const classification = this.classifyInlineCandidate(
+        activeInlineComments,
+        apiComment
+      );
+      if (classification.kind === "duplicate") {
+        logger.info(
+          `Skipping duplicate active inline comment at ${apiComment.path}:${apiComment.line}`
+        );
+        continue;
+      }
+      if (classification.kind === "escalation") {
+        const parentId = classification.parent.parentCommentDatabaseId;
+        if (!parentId) {
+          throw new Error(
+            "Cannot post semantic escalation without the parent review comment database id"
+          );
+        }
+        if (!headSha) {
+          throw new Error(
+            "Cannot post semantic escalation without an expected PR head SHA"
+          );
+        }
+        if (classification.parent.inventoryHeadSha && classification.parent.inventoryHeadSha !== headSha) {
+          throw new Error(
+            "Cannot reuse a semantic escalation parent from a stale review-thread inventory"
+          );
+        }
+        const staged = escalationReplies.get(parentId);
+        if (!staged || inlineSeverityRank(classification.severity) > inlineSeverityRank(staged.severity)) {
+          escalationReplies.set(parentId, {
+            parent: classification.parent,
+            severity: classification.severity,
+            body: apiComment.body,
+            aliasLine: apiComment.line
+          });
+          classification.parent.highestTrustedEscalationSeverity = classification.severity;
+        }
+        continue;
+      }
+      const { semanticAliases: _semanticAliases, ...publishableComment } = apiComment;
+      apiComments.push(publishableComment);
+      _CommentPoster.rememberInlineComment(
+        activeInlineComments,
+        publishableComment
+      );
+    }
+    if (!this.dryRun) {
+      for (const escalation of escalationReplies.values()) {
+        const parentId = escalation.parent.parentCommentDatabaseId;
+        if (!await this.canMutateExpectedHead(
+          prNumber,
+          headSha,
+          "semantic escalation reply creation"
+        )) {
+          return;
+        }
+        await this.client.octokit.rest.pulls.createReplyForReviewComment({
+          owner: this.client.owner,
+          repo: this.client.repo,
+          pull_number: prNumber,
+          comment_id: parentId,
+          body: `${escalation.body.trimEnd()}
+
+${trustedEscalationMarker(parentId, escalation.severity, escalation.aliasLine)}`
+        });
+      }
+    }
     if (apiComments.length === 0) {
       logger.info("No inline comments with valid diff positions to post");
       return;
@@ -34315,27 +34760,29 @@ ${comment.body.substring(0, 200)}...`
         continue;
       }
       comments.push(comment);
-      const signature = signatureFromInlineComment(
-        comment.path,
-        comment.line,
-        body
-      );
-      const fingerprint = fingerprintFromInlineComment(
-        comment.path,
-        comment.line,
-        body
-      );
-      coarseKeys.add(signature);
-      coarseKeys.add(fingerprint);
-      const marker = extractInlineFingerprint(body);
-      if (marker) coarseKeys.add(marker);
-      const findingFingerprint = extractFindingFingerprint(body);
-      if (findingFingerprint) {
-        findingFingerprints.add(findingFingerprint);
-      } else {
-        legacyKeys.add(signature);
-        legacyKeys.add(fingerprint);
-        if (marker) legacyKeys.add(marker);
+      for (const reference of _CommentPoster.semanticReferences(comment)) {
+        const signature = signatureFromInlineComment(
+          reference.path,
+          reference.line,
+          reference.body
+        );
+        const fingerprint = fingerprintFromInlineComment(
+          reference.path,
+          reference.line,
+          reference.body
+        );
+        coarseKeys.add(signature);
+        coarseKeys.add(fingerprint);
+        const marker = extractInlineFingerprint(reference.body);
+        if (marker) coarseKeys.add(marker);
+        const findingFingerprint = extractFindingFingerprint(reference.body);
+        if (findingFingerprint) {
+          findingFingerprints.add(findingFingerprint);
+        } else {
+          legacyKeys.add(signature);
+          legacyKeys.add(fingerprint);
+          if (marker) legacyKeys.add(marker);
+        }
       }
     }
     return { coarseKeys, legacyKeys, findingFingerprints, comments };
@@ -35942,7 +36389,7 @@ function currentFindingMatchesTarget(finding, target) {
 
 ${finding.message}`
   };
-  return isLikelySameInlineFinding(targetReference, findingReference);
+  return sameSemanticLineage(targetReference, findingReference);
 }
 function lifecycleTargetBody(target) {
   const severity = target.severity === "critical" || target.severity === "major" || target.severity === "minor" ? target.severity : "minor";
@@ -36821,7 +37268,7 @@ var FeedbackFilter = class {
         const signature = this.signatureFromComment(comment.path, line, body);
         const marker = extractInlineFingerprint(body);
         const findingMarker = parseFindingMarker(body);
-        if (isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors) && isReviewRouterInlineComment(body) && activeLine != null && findingMarker.kind !== "conflict" /* Conflict */ && findingMarker.kind !== "malformed" /* Malformed */) {
+        if (isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors) && isReviewRouterInlineComment(body) && comment.in_reply_to_id == null && activeLine != null && findingMarker.kind !== "conflict" /* Conflict */ && findingMarker.kind !== "malformed" /* Malformed */) {
           alreadyPosted.add(signature);
           if (marker) alreadyPosted.add(marker);
           const findingFingerprint = extractFindingFingerprint(body);
@@ -36926,7 +37373,17 @@ var FeedbackFilter = class {
     ) : null;
     const alreadyPostedLegacy = state.alreadyPostedLegacy ?? state.alreadyPosted;
     const alreadyPostedByKey = findingFingerprint !== null && ((state.alreadyPostedFindings?.has(findingFingerprint) ?? false) || alreadyPostedLegacy.has(signature) || alreadyPostedLegacy.has(fingerprint));
-    return !state.suppressed.has(signature) && !state.suppressed.has(fingerprint) && !(state.commandDismissed?.has(signature) ?? false) && !(state.commandDismissed?.has(fingerprint) ?? false) && (invalidFindingMarker || !alreadyPostedByKey) && (invalidFindingMarker || !state.suppressedComments.some(
+    const candidateSeverity = normalizeSeverity(
+      extractInlineSeverity(comment.body)
+    );
+    const suppressedByEffectiveLineage = Boolean(
+      candidateSeverity && state.alreadyPostedComments.some((existing) => {
+        if (!sameSemanticLineage(existing, comment)) return false;
+        const effectiveSeverity = existing.highestTrustedEscalationSeverity ?? normalizeSeverity(extractInlineSeverity(existing.body));
+        return effectiveSeverity != null && inlineSeverityRank(candidateSeverity) <= inlineSeverityRank(effectiveSeverity);
+      })
+    );
+    return !state.suppressed.has(signature) && !state.suppressed.has(fingerprint) && !(state.commandDismissed?.has(signature) ?? false) && !(state.commandDismissed?.has(fingerprint) ?? false) && (invalidFindingMarker || !suppressedByEffectiveLineage) && (invalidFindingMarker || !alreadyPostedByKey) && (invalidFindingMarker || !state.suppressedComments.some(
       (existing) => isLikelySameInlineFinding(existing, comment)
     )) && !(state.commandDismissedFindings?.some(
       (existing) => isLikelySameDismissedFinding(existing, comment)
@@ -51430,7 +51887,7 @@ function hasProviderPrefix(value, providerPrefix) {
 }
 
 // src/output/severity-gate.ts
-var severityRank2 = {
+var severityRank = {
   critical: 3,
   major: 2,
   minor: 1
@@ -51446,9 +51903,9 @@ function getBlockingFindingBreakdown(review, threshold) {
       total: 0
     };
   }
-  const minRank = severityRank2[threshold];
+  const minRank = severityRank[threshold];
   const current = review.findings.filter(
-    (finding) => severityRank2[finding.severity] >= minRank
+    (finding) => severityRank[finding.severity] >= minRank
   ).length;
   const attributedFromCurrentReview = review.findingProvenance ? countAtOrAbove(review.findingProvenance.fromCurrentReview, minRank) : current;
   const attributedCarriedForward = review.findingProvenance ? countAtOrAbove(review.findingProvenance.carriedForward, minRank) : 0;
@@ -51461,7 +51918,7 @@ function getBlockingFindingBreakdown(review, threshold) {
   const previousStillValid = (review.threadLifecycle?.previousStillValid ?? []).filter((record) => {
     if (isLinkedCurrentFinding(record)) return false;
     const severity = record.target.severity;
-    return (severity === "critical" || severity === "major" || severity === "minor") && severityRank2[severity] >= minRank;
+    return (severity === "critical" || severity === "major" || severity === "minor") && severityRank[severity] >= minRank;
   }).length;
   return {
     current,
@@ -51517,8 +51974,8 @@ function formatBlockingFindingFailure(review, threshold) {
   )}: ${detail}.` + noNewFromCurrentReview + " Review comments were posted before failing this check.";
 }
 function countAtOrAbove(counts, minRank) {
-  return Object.keys(severityRank2).reduce(
-    (total, severity) => severityRank2[severity] >= minRank ? total + (counts[severity] ?? 0) : total,
+  return Object.keys(severityRank).reduce(
+    (total, severity) => severityRank[severity] >= minRank ? total + (counts[severity] ?? 0) : total,
     0
   );
 }

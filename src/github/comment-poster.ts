@@ -31,6 +31,7 @@ import {
   InlineCommentReference,
   isReviewRouterInlineComment,
   isLikelySameInlineFinding,
+  parseTrustedEscalationMarker,
   sameSemanticLineage,
   signatureFromInlineComment,
   trustedEscalationMarker,
@@ -67,12 +68,20 @@ interface GitHubInlineCommentPayload {
   body: string;
   start_line?: number;
   start_side?: 'LEFT' | 'RIGHT';
+  /** Same-run semantic evidence; never sent to GitHub. */
+  semanticAliases?: readonly InlineCommentReference[];
+}
+
+interface SemanticLineageComponent {
+  parents: InlineCommentReference[];
+  ambiguous: boolean;
 }
 
 interface InlineEscalationReply {
   parent: InlineCommentReference;
   severity: Severity;
   body: string;
+  aliasLine: number;
 }
 
 export interface SummaryPostResult {
@@ -543,7 +552,8 @@ export class CommentPoster {
   }
 
   private async loadActiveInlineComments(
-    prNumber: number
+    prNumber: number,
+    inventoryHeadSha?: string
   ): Promise<ActiveInlineComments> {
     const coarseKeys = new Set<string>();
     const legacyKeys = new Set<string>();
@@ -551,6 +561,8 @@ export class CommentPoster {
     const activeComments: InlineCommentReference[] = [];
     const { octokit, owner, repo } = this.client;
     const trustedAuthors = trustedReviewThreadAuthorsFromEnv();
+    const trustedParentIds = new Set<number>();
+    const activeParentsById = new Map<number, InlineCommentReference>();
 
     try {
       const comments = await octokit.paginate(
@@ -570,20 +582,41 @@ export class CommentPoster {
         if (comment.in_reply_to_id != null) continue;
         const activeLine = comment.line;
         const body = comment.body || '';
-        if (activeLine == null || !isReviewRouterInlineComment(body)) continue;
+        if (!isReviewRouterInlineComment(body)) continue;
         const findingMarker = parseFindingMarker(body);
         if (
           findingMarker.kind === FindingMarkerParseKind.Conflict ||
           findingMarker.kind === FindingMarkerParseKind.Malformed
         ) {
-          continue;
+          throw new Error(
+            'Trusted ReviewRouter inline comment has an invalid finding marker'
+          );
         }
 
-        activeComments.push({
+        const parentId = comment.id;
+        if (
+          !Number.isSafeInteger(parentId) ||
+          typeof parentId !== 'number' ||
+          parentId <= 0
+        ) {
+          throw new Error(
+            'Trusted ReviewRouter inline comment is missing a valid database id'
+          );
+        }
+        trustedParentIds.add(parentId);
+        if (activeLine == null) continue;
+
+        const parentReference: InlineCommentReference = {
           path: comment.path,
           line: activeLine,
           body,
-        });
+          parentCommentDatabaseId: parentId,
+          highestTrustedEscalationSeverity:
+            CommentPoster.inlineSeverity(body) ?? 'minor',
+          ...(inventoryHeadSha ? { inventoryHeadSha } : {}),
+        };
+        activeComments.push(parentReference);
+        activeParentsById.set(parentId, parentReference);
         const signature = signatureFromInlineComment(
           comment.path,
           activeLine,
@@ -607,6 +640,48 @@ export class CommentPoster {
           legacyKeys.add(fingerprint);
           if (marker) legacyKeys.add(marker);
         }
+      }
+
+      for (const comment of comments) {
+        if (!isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors)) {
+          continue;
+        }
+        const parentId = comment.in_reply_to_id;
+        if (typeof parentId !== 'number') continue;
+        const parsed = parseTrustedEscalationMarker(comment.body);
+        if (parsed.kind === 'absent') continue;
+        if (parsed.kind === 'malformed' || parsed.kind === 'conflict') {
+          throw new Error(
+            `Trusted ReviewRouter escalation reply has a ${parsed.kind} marker`
+          );
+        }
+        if (parsed.parentCommentDatabaseId !== parentId) {
+          throw new Error(
+            'Trusted ReviewRouter escalation reply references a conflicting parent'
+          );
+        }
+        if (!trustedParentIds.has(parentId)) {
+          throw new Error(
+            'Trusted ReviewRouter escalation reply references an unknown parent'
+          );
+        }
+        const activeParent = activeParentsById.get(parentId);
+        if (!activeParent) continue;
+        const currentSeverity = CommentPoster.effectiveSeverity(activeParent);
+        if (
+          inlineSeverityRank(parsed.targetSeverity) >
+          inlineSeverityRank(currentSeverity)
+        ) {
+          activeParent.highestTrustedEscalationSeverity = parsed.targetSeverity;
+        }
+        activeParent.semanticAliases = [
+          ...(activeParent.semanticAliases ?? []),
+          {
+            path: activeParent.path,
+            line: parsed.aliasLine ?? activeParent.line,
+            body: comment.body || '',
+          },
+        ];
       }
     } catch (error) {
       const inventoryError = new Error(
@@ -651,9 +726,32 @@ export class CommentPoster {
       keys.has(fingerprintFromInlineComment(path, line, body)) ||
       (marker ? keys.has(marker) : false) ||
       activeComments.comments.some((comment) =>
-        isLikelySameInlineFinding(comment, { path, line, body })
+        CommentPoster.semanticReferences(comment).some((reference) =>
+          isLikelySameInlineFinding(reference, { path, line, body })
+        )
       )
     );
+  }
+
+  private hasTrustedExactInlineIdentity(
+    activeComments: ActiveInlineComments,
+    body: string
+  ): boolean {
+    const parsedFindingMarker = parseFindingMarker(body);
+    if (
+      parsedFindingMarker.kind === FindingMarkerParseKind.Conflict ||
+      parsedFindingMarker.kind === FindingMarkerParseKind.Malformed
+    ) {
+      return false;
+    }
+    const findingFingerprint = extractFindingFingerprint(body);
+    if (
+      findingFingerprint &&
+      activeComments.findingFingerprints.has(findingFingerprint)
+    ) {
+      return true;
+    }
+    return false;
   }
 
   private classifyInlineCandidate(
@@ -667,6 +765,38 @@ export class CommentPoster {
         parent: InlineCommentReference;
         severity: Severity;
       } {
+    if (this.hasTrustedExactInlineIdentity(activeComments, candidate.body)) {
+      return { kind: 'duplicate' };
+    }
+    const candidateReferences: InlineCommentReference[] = [
+      {
+        path: candidate.path,
+        line: candidate.line,
+        body: candidate.body,
+      },
+      ...(candidate.semanticAliases ?? []),
+    ];
+    const matchingComponents = CommentPoster.semanticLineageComponents(
+      activeComments.comments
+    ).filter((component) =>
+      component.parents.some((parent) =>
+        CommentPoster.semanticReferences(parent).some((existingAlias) =>
+          candidateReferences.some((candidateAlias) =>
+            sameSemanticLineage(existingAlias, candidateAlias)
+          )
+        )
+      )
+    );
+    if (matchingComponents.some((component) => component.ambiguous)) {
+      throw new Error(
+        'Cannot classify semantic lineage because the candidate intersects an ambiguous parent bridge'
+      );
+    }
+    if (matchingComponents.length > 1) {
+      throw new Error(
+        'Cannot post semantic escalation because multiple active parent lineages match the finding'
+      );
+    }
     if (
       this.hasInlineDuplicate(
         activeComments,
@@ -680,38 +810,74 @@ export class CommentPoster {
 
     const candidateSeverity = CommentPoster.inlineSeverity(candidate.body);
     if (!candidateSeverity) return { kind: 'top-level' };
-    const semanticParents = activeComments.comments
-      .filter((parent) =>
-        sameSemanticLineage(parent, {
-          path: candidate.path,
-          line: candidate.line,
-          body: candidate.body,
-        })
-      )
-      .sort((left, right) => {
-        const severityDifference =
-          inlineSeverityRank(CommentPoster.effectiveSeverity(right)) -
-          inlineSeverityRank(CommentPoster.effectiveSeverity(left));
-        if (severityDifference !== 0) return severityDifference;
-        return (
-          (left.parentCommentDatabaseId ?? Number.MAX_SAFE_INTEGER) -
-          (right.parentCommentDatabaseId ?? Number.MAX_SAFE_INTEGER)
-        );
-      });
-    const parent = semanticParents[0];
-    if (!parent) return { kind: 'top-level' };
+    if (matchingComponents.length === 0) return { kind: 'top-level' };
+    const component = matchingComponents[0].parents;
+    const parent = CommentPoster.canonicalLineageParent(component);
+    const componentSeverity = component.reduce<Severity>(
+      (highest, member) =>
+        inlineSeverityRank(CommentPoster.effectiveSeverity(member)) >
+        inlineSeverityRank(highest)
+          ? CommentPoster.effectiveSeverity(member)
+          : highest,
+      'minor'
+    );
     if (
       inlineSeverityRank(candidateSeverity) <=
-      inlineSeverityRank(CommentPoster.effectiveSeverity(parent))
+      inlineSeverityRank(componentSeverity)
     ) {
       return { kind: 'duplicate' };
     }
-    if (semanticParents.length !== 1) {
-      throw new Error(
-        'Cannot post semantic escalation because multiple active parent lineages match the finding'
-      );
-    }
     return { kind: 'escalation', parent, severity: candidateSeverity };
+  }
+
+  private static semanticReferences(
+    parent: InlineCommentReference
+  ): InlineCommentReference[] {
+    return [parent, ...(parent.semanticAliases ?? [])];
+  }
+
+  /**
+   * Direct parent-to-parent matches may reconcile old duplicate roots. A
+   * transitive fuzzy bridge is not durable identity, so non-clique components
+   * fail closed before any GitHub mutation.
+   */
+  private static semanticLineageComponents(
+    parents: InlineCommentReference[]
+  ): SemanticLineageComponent[] {
+    const remaining = new Set(parents);
+    const components: SemanticLineageComponent[] = [];
+    while (remaining.size > 0) {
+      const seed = remaining.values().next().value as InlineCommentReference;
+      const component = [seed];
+      remaining.delete(seed);
+      const pending = [seed];
+      while (pending.length > 0) {
+        const current = pending.pop()!;
+        for (const candidate of [...remaining]) {
+          if (!sameSemanticLineage(current, candidate)) continue;
+          remaining.delete(candidate);
+          component.push(candidate);
+          pending.push(candidate);
+        }
+      }
+      const clique = component.every((left, leftIndex) =>
+        component
+          .slice(leftIndex + 1)
+          .every((right) => sameSemanticLineage(left, right))
+      );
+      components.push({ parents: component, ambiguous: !clique });
+    }
+    return components;
+  }
+
+  private static canonicalLineageParent(
+    component: InlineCommentReference[]
+  ): InlineCommentReference {
+    return [...component].sort(
+      (left, right) =>
+        (left.parentCommentDatabaseId ?? Number.MAX_SAFE_INTEGER) -
+        (right.parentCommentDatabaseId ?? Number.MAX_SAFE_INTEGER)
+    )[0];
   }
 
   private static effectiveSeverity(comment: InlineCommentReference): Severity {
@@ -751,6 +917,56 @@ export class CommentPoster {
       path: comment.path,
       line: comment.line,
       body: comment.body,
+    });
+  }
+
+  private static coalesceSameRunInlineCandidates(
+    comments: GitHubInlineCommentPayload[]
+  ): GitHubInlineCommentPayload[] {
+    const groups: GitHubInlineCommentPayload[][] = [];
+
+    for (const candidate of comments) {
+      const intersectingGroups = groups.filter((group) =>
+        group.some((existing) => sameSemanticLineage(existing, candidate))
+      );
+      if (intersectingGroups.length === 0) {
+        groups.push([candidate]);
+        continue;
+      }
+      if (
+        intersectingGroups.length !== 1 ||
+        !intersectingGroups[0].every((existing) =>
+          sameSemanticLineage(existing, candidate)
+        )
+      ) {
+        throw new Error(
+          'Cannot coalesce same-run inline findings because the semantic lineage is ambiguous'
+        );
+      }
+      intersectingGroups[0].push(candidate);
+    }
+
+    return groups.map((group) => {
+      const strongest = group.reduce((currentStrongest, candidate) => {
+        const strongestSeverity = CommentPoster.inlineSeverity(
+          currentStrongest.body
+        );
+        const candidateSeverity = CommentPoster.inlineSeverity(candidate.body);
+        return inlineSeverityRank(candidateSeverity ?? '') >
+          inlineSeverityRank(strongestSeverity ?? '')
+          ? candidate
+          : currentStrongest;
+      });
+      return {
+        ...strongest,
+        semanticAliases: group
+          .filter((candidate) => candidate !== strongest)
+          .map((candidate) => ({
+            path: candidate.path,
+            line: candidate.line,
+            body: candidate.body,
+          })),
+      };
     });
   }
 
@@ -918,7 +1134,7 @@ export class CommentPoster {
         }
       : dedupeComments
         ? CommentPoster.activeInlineCommentsFromReferences(dedupeComments)
-        : await this.loadActiveInlineComments(prNumber);
+        : await this.loadActiveInlineComments(prNumber, headSha);
 
     // Filter out deletion-only files (no suggestions possible)
     const filesWithAdditions = files.filter((f) => !isDeletionOnlyFile(f));
@@ -1089,9 +1305,11 @@ export class CommentPoster {
       )
     ).filter((c): c is GitHubInlineCommentPayload => c !== null);
 
+    const coalescedApiComments =
+      CommentPoster.coalesceSameRunInlineCandidates(preparedApiComments);
     const apiComments: GitHubInlineCommentPayload[] = [];
     const escalationReplies = new Map<number, InlineEscalationReply>();
-    for (const apiComment of preparedApiComments) {
+    for (const apiComment of coalescedApiComments) {
       const classification = this.classifyInlineCandidate(
         activeInlineComments,
         apiComment
@@ -1132,6 +1350,7 @@ export class CommentPoster {
             parent: classification.parent,
             severity: classification.severity,
             body: apiComment.body,
+            aliasLine: apiComment.line,
           });
           classification.parent.highestTrustedEscalationSeverity =
             classification.severity;
@@ -1139,8 +1358,13 @@ export class CommentPoster {
         continue;
       }
 
-      apiComments.push(apiComment);
-      CommentPoster.rememberInlineComment(activeInlineComments, apiComment);
+      const { semanticAliases: _semanticAliases, ...publishableComment } =
+        apiComment;
+      apiComments.push(publishableComment);
+      CommentPoster.rememberInlineComment(
+        activeInlineComments,
+        publishableComment
+      );
     }
 
     if (!this.dryRun) {
@@ -1160,7 +1384,7 @@ export class CommentPoster {
           repo: this.client.repo,
           pull_number: prNumber,
           comment_id: parentId,
-          body: `${escalation.body.trimEnd()}\n\n${trustedEscalationMarker(parentId, escalation.severity)}`,
+          body: `${escalation.body.trimEnd()}\n\n${trustedEscalationMarker(parentId, escalation.severity, escalation.aliasLine)}`,
         });
       }
     }
@@ -1287,27 +1511,29 @@ export class CommentPoster {
         continue;
       }
       comments.push(comment);
-      const signature = signatureFromInlineComment(
-        comment.path,
-        comment.line,
-        body
-      );
-      const fingerprint = fingerprintFromInlineComment(
-        comment.path,
-        comment.line,
-        body
-      );
-      coarseKeys.add(signature);
-      coarseKeys.add(fingerprint);
-      const marker = extractInlineFingerprint(body);
-      if (marker) coarseKeys.add(marker);
-      const findingFingerprint = extractFindingFingerprint(body);
-      if (findingFingerprint) {
-        findingFingerprints.add(findingFingerprint);
-      } else {
-        legacyKeys.add(signature);
-        legacyKeys.add(fingerprint);
-        if (marker) legacyKeys.add(marker);
+      for (const reference of CommentPoster.semanticReferences(comment)) {
+        const signature = signatureFromInlineComment(
+          reference.path,
+          reference.line,
+          reference.body
+        );
+        const fingerprint = fingerprintFromInlineComment(
+          reference.path,
+          reference.line,
+          reference.body
+        );
+        coarseKeys.add(signature);
+        coarseKeys.add(fingerprint);
+        const marker = extractInlineFingerprint(reference.body);
+        if (marker) coarseKeys.add(marker);
+        const findingFingerprint = extractFindingFingerprint(reference.body);
+        if (findingFingerprint) {
+          findingFingerprints.add(findingFingerprint);
+        } else {
+          legacyKeys.add(signature);
+          legacyKeys.add(fingerprint);
+          if (marker) legacyKeys.add(marker);
+        }
       }
     }
 

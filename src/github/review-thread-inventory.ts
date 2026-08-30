@@ -347,8 +347,11 @@ export class ReviewThreadInventoryLoader {
     );
     const title = parsedTitle || 'Previous ReviewRouter finding';
     const severity = normalizeLifecycleSeverity(extractInlineSeverity(body));
-    const highestTrustedEscalationSeverity =
-      this.highestTrustedEscalationSeverity(comments, parent, severity);
+    const trustedEscalation = this.trustedEscalationFacts(
+      comments,
+      parent,
+      severity
+    );
     const message = cleanBody || parsedTitle || title;
     const reasonCodes: LifecycleReasonCode[] = [];
 
@@ -403,7 +406,16 @@ export class ReviewThreadInventoryLoader {
         ...(parent.databaseId != null
           ? { parentCommentDatabaseId: parent.databaseId }
           : {}),
-        highestTrustedEscalationSeverity,
+        highestTrustedEscalationSeverity: trustedEscalation.highestSeverity,
+        ...(trustedEscalation.aliases.length > 0
+          ? {
+              semanticAliases: trustedEscalation.aliases.map((alias) => ({
+                path: target.currentPath,
+                line: alias.line ?? target.currentLine,
+                body: alias.body,
+              })),
+            }
+          : {}),
         ...(inventory.headRefOid
           ? { inventoryHeadSha: inventory.headRefOid }
           : {}),
@@ -423,13 +435,17 @@ export class ReviewThreadInventoryLoader {
     inventory.candidates.push(target);
   }
 
-  private highestTrustedEscalationSeverity(
+  private trustedEscalationFacts(
     comments: GraphQLComment[],
     parent: GraphQLComment,
     parentSeverity: LifecycleTarget['severity']
-  ): 'minor' | 'major' | 'critical' {
+  ): {
+    highestSeverity: 'minor' | 'major' | 'critical';
+    aliases: Array<{ body: string; line?: number }>;
+  } {
     let highest: 'minor' | 'major' | 'critical' =
       parentSeverity === 'unknown' ? 'minor' : parentSeverity;
+    const aliases: Array<{ body: string; line?: number }> = [];
     for (const reply of comments.slice(1)) {
       if (!this.isTrustedAuthor(reply.author?.login)) continue;
       const parsed = parseTrustedEscalationMarker(reply.body);
@@ -452,8 +468,12 @@ export class ReviewThreadInventoryLoader {
       ) {
         highest = parsed.targetSeverity;
       }
+      aliases.push({
+        body: reply.body ?? '',
+        ...(parsed.aliasLine !== undefined ? { line: parsed.aliasLine } : {}),
+      });
     }
-    return highest;
+    return { highestSeverity: highest, aliases };
   }
 
   private isTrustedAuthor(login?: string | null): boolean {

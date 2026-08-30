@@ -1406,12 +1406,12 @@ describe('trusted semantic escalation inventory', () => {
     };
   }
 
-  it('keeps only the parent as dedupe ref and computes Minor to Major to Critical maximum', async () => {
+  it('keeps one parent ref, retains trusted reply aliases, and computes the severity maximum', async () => {
     const { loader } = loaderFor([
       {
         id: 'major-reply',
         author: 'review-router-ai[bot]',
-        body: '<!-- review-router-escalation:v1 parent_id=77 severity=major -->',
+        body: '<!-- review-router-escalation:v2 parent_id=77 severity=major alias_line=120 -->',
       },
       {
         id: 'critical-reply',
@@ -1430,6 +1430,16 @@ describe('trusted semantic escalation inventory', () => {
       highestTrustedEscalationSeverity: 'critical',
       inventoryHeadSha: 'head-sha',
       body: expect.stringContaining('Previous Bug'),
+      semanticAliases: [
+        expect.objectContaining({
+          line: 120,
+          body: '<!-- review-router-escalation:v2 parent_id=77 severity=major alias_line=120 -->',
+        }),
+        expect.objectContaining({
+          line: 12,
+          body: '<!-- review-router-escalation:v1 parent_id=77 severity=critical -->',
+        }),
+      ],
     });
   });
 
@@ -1455,6 +1465,10 @@ describe('trusted semantic escalation inventory', () => {
     [
       '<!-- review-router-escalation:v1 parent_id=77 severity=major -->',
       '<!-- review-router-escalation:v1 parent_id=78 severity=major -->',
+    ].join('\n'),
+    [
+      '<!-- review-router-escalation:v1 parent_id=77 severity=major -->',
+      '<!-- review-router-escalation:v2 parent_id=77 severity=major alias_line=120 -->',
     ].join('\n'),
     '<!-- review-router-escalation:v1 parent_id=78 severity=critical -->',
   ])(
