@@ -396,7 +396,9 @@ jobs:
             warn('CODEX_AUTH_JSON last_refresh is missing. If Codex later fails with an auth error, run codex login on a trusted machine and reseed auth.json.');
           }
           NODE
-          export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+          codex_home="${CODEX_HOME:-$HOME/.codex}"
+          export CODEX_HOME="$codex_home"
+          printf 'CODEX_HOME=%s\n' "$CODEX_HOME" >> "$GITHUB_ENV"
           mkdir -p "$CODEX_HOME"
           chmod 700 "$CODEX_HOME"
           printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"

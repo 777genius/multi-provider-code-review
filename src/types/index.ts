@@ -315,6 +315,11 @@ export interface PRContext {
   deletions: number;
   baseSha: string;
   headSha: string;
+  pathShard?: {
+    readonly index: number;
+    readonly count: number;
+    readonly totalFiles: number;
+  };
   loadCompleteness?: PullRequestLoadCompleteness;
 }
 

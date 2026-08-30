@@ -13,10 +13,22 @@ describe('resolveProviderCliPlan', () => {
   it('requires Codex CLI for OpenAI API-key runtime config', () => {
     const plan = resolveProviderCliPlan({
       REVIEW_AUTH_MODE: 'openai-api',
+      REVIEW_PROVIDERS: 'codex/gpt-5.6-sol',
+      CODEX_AUTH_JSON_PRESENT: '1',
     });
 
     expect(plan.codexCliNeeded).toBe(true);
     expect(plan.codexOauthNeeded).toBe(false);
+  });
+
+  it('restores legacy Codex OAuth when its secret is available', () => {
+    const plan = resolveProviderCliPlan({
+      REVIEW_PROVIDERS: 'codex/gpt-5.6-sol',
+      CODEX_AUTH_JSON_PRESENT: '1',
+    });
+
+    expect(plan.codexCliNeeded).toBe(true);
+    expect(plan.codexOauthNeeded).toBe(true);
   });
 
   it('requires Claude CLI for Claude OAuth runtime config', () => {
@@ -58,6 +70,7 @@ describe('resolveProviderCliPlan', () => {
       REVIEW_AUTH_MODE: 'openrouter-api',
       REVIEW_PROVIDERS: 'openrouter/anthropic/claude-sonnet-4.5',
       SYNTHESIS_MODEL: 'openrouter/anthropic/claude-sonnet-4.5',
+      CODEX_AUTH_JSON_PRESENT: '1',
     });
 
     expect(plan.codexCliNeeded).toBe(true);

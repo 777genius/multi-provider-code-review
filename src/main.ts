@@ -51,6 +51,7 @@ import {
   resolveReviewActionV2Activation,
   ReviewActionV2RuntimeMode,
 } from './control-plane/review-action-v2-contract';
+import { isReviewPathShardRequested } from './review-execution/domain';
 
 function syncEnvFromInputs(): void {
   const inputKeys = [
@@ -163,10 +164,12 @@ async function run(): Promise<void> {
   let githubTokenProvider: GitHubTokenProvider | undefined;
   let prNumber: number | undefined;
   let runtimeConfig: RuntimeConfigResult | undefined;
+  let pathShardRequested = false;
   const startedAt = new Date();
 
   try {
     syncEnvFromInputs();
+    pathShardRequested = isReviewPathShardRequested();
     const reviewActionV2Activation = resolveReviewActionV2Activation({
       env: process.env,
     });
@@ -272,10 +275,16 @@ async function run(): Promise<void> {
 
     if (!review) {
       core.info('Review skipped');
-      await clearReviewFailureSummaries(
-        await currentGitHubToken(token, githubTokenProvider),
-        prNumber
-      );
+      if (pathShardRequested) {
+        core.info(
+          'Skipping shared failure-summary cleanup for isolated review path shard'
+        );
+      } else {
+        await clearReviewFailureSummaries(
+          await currentGitHubToken(token, githubTokenProvider),
+          prNumber
+        );
+      }
       await reportControlPlaneActionHealth({
         runtimeConfig,
         review,
@@ -288,10 +297,16 @@ async function run(): Promise<void> {
       return;
     }
 
-    await clearReviewFailureSummaries(
-      await currentGitHubToken(token, githubTokenProvider),
-      prNumber
-    );
+    if (pathShardRequested) {
+      core.info(
+        'Skipping shared failure-summary cleanup for isolated review path shard'
+      );
+    } else {
+      await clearReviewFailureSummaries(
+        await currentGitHubToken(token, githubTokenProvider),
+        prNumber
+      );
+    }
 
     const previousStillValidCounts = countPreviousStillValidBySeverity(
       review.threadLifecycle
@@ -352,11 +367,17 @@ async function run(): Promise<void> {
 
     core.setFailed(formatActionError(normalizedError));
 
-    await postReviewFailureSummary(
-      normalizedError,
-      await currentGitHubToken(token, githubTokenProvider),
-      prNumber
-    );
+    if (pathShardRequested) {
+      core.info(
+        'Skipping shared failure-summary publication for isolated review path shard'
+      );
+    } else {
+      await postReviewFailureSummary(
+        normalizedError,
+        await currentGitHubToken(token, githubTokenProvider),
+        prNumber
+      );
+    }
     await reportControlPlaneActionHealth({
       runtimeConfig,
       error: normalizedError,

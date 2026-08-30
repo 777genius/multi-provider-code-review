@@ -13,6 +13,11 @@ import {
   loadPullRequestFilesFromGit,
   LocalPullRequestDiffLoader,
 } from './local-git-diff';
+import {
+  isPathInReviewShard,
+  readReviewPathShard,
+  type ReviewPathShard,
+} from '../review-execution/domain';
 
 const FILES_PER_PAGE = 100;
 const MAX_GITHUB_FILES = 3000;
@@ -27,7 +32,8 @@ interface DiffLoadResult {
 export class PullRequestLoader {
   constructor(
     private readonly client: GitHubClient,
-    private readonly localDiffLoader: LocalPullRequestDiffLoader = loadPullRequestFilesFromGit
+    private readonly localDiffLoader: LocalPullRequestDiffLoader = loadPullRequestFilesFromGit,
+    private readonly pathShard: ReviewPathShard | null = readReviewPathShard()
   ) {}
 
   async load(prNumber: number): Promise<PRContext> {
@@ -110,7 +116,18 @@ export class PullRequestLoader {
       }
     }
 
-    const diffResult = await this.fetchDiff(owner, repo, prNumber, files);
+    const totalFiles = files.length;
+    const pathShard = this.pathShard;
+    const reviewFiles = pathShard
+      ? files.filter((file) => isPathInReviewShard(file.filename, pathShard))
+      : files;
+    if (pathShard) {
+      logger.info(
+        `Review path shard ${pathShard.index + 1}/${pathShard.count} selected ${reviewFiles.length} of ${totalFiles} file(s) for PR #${prNumber}.`
+      );
+    }
+
+    const diffResult = await this.fetchDiff(owner, repo, prNumber, reviewFiles);
     if (diffResult.omittedFiles.length > 0) {
       omissions.push({
         reason: PullRequestLoadOmissionReason.SynthesizedDiffSizeLimit,
@@ -142,12 +159,24 @@ export class PullRequestLoader {
       labels: (pr.labels || []).map((label) =>
         typeof label === 'string' ? label : label.name || ''
       ),
-      files,
+      files: reviewFiles,
       diff: diffResult.diff,
-      additions: pr.additions || 0,
-      deletions: pr.deletions || 0,
+      additions: this.pathShard
+        ? reviewFiles.reduce((total, file) => total + file.additions, 0)
+        : pr.additions || 0,
+      deletions: this.pathShard
+        ? reviewFiles.reduce((total, file) => total + file.deletions, 0)
+        : pr.deletions || 0,
       baseSha,
       headSha,
+      ...(this.pathShard
+        ? {
+            pathShard: {
+              ...this.pathShard,
+              totalFiles,
+            },
+          }
+        : {}),
       loadCompleteness: this.describeCompleteness(omissions),
     };
   }
@@ -158,6 +187,12 @@ export class PullRequestLoader {
     prNumber: number,
     files: FileChange[]
   ): Promise<DiffLoadResult> {
+    if (files.length === 0) {
+      return { diff: '', omittedFiles: [] };
+    }
+    if (this.pathShard) {
+      return this.synthesizeDiff(prNumber, files);
+    }
     if (files.length > MAX_RAW_DIFF_FILES) {
       logger.warn(
         `PR #${prNumber} exceeds GitHub's ${MAX_RAW_DIFF_FILES}-file raw diff limit; using paginated file patches.`

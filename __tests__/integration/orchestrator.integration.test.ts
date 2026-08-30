@@ -115,6 +115,15 @@ class StubPRLoader {
   }
 }
 
+class ShardedStubPRLoader extends StubPRLoader {
+  async load(): Promise<PRContext> {
+    return {
+      ...(await super.load()),
+      pathShard: { index: 3, count: 12, totalFiles: 48 },
+    };
+  }
+}
+
 class StubCommentPoster {
   postedSummary: string | null = null;
   postedInline: any[] = [];
@@ -247,6 +256,63 @@ describe('ReviewOrchestrator integration (offline)', () => {
     expect(
       (components.commentPoster as unknown as StubCommentPoster).postedSummary
     ).toBeTruthy();
+  });
+
+  it('publishes only inline findings for a path shard', async () => {
+    const commentPoster = new StubCommentPoster();
+    const updateDescription = jest.fn();
+    const shardedConfig = { ...config, updatePrDescription: true };
+    const components: ReviewComponents = {
+      config: shardedConfig,
+      providerRegistry: new StubProviderRegistry() as any,
+      promptBuilder: new PromptBuilder(shardedConfig),
+      llmExecutor: new StubLLMExecutor() as any,
+      deduplicator: new Deduplicator(),
+      consensus: new ConsensusEngine({
+        minAgreement: 1,
+        minSeverity: 'minor',
+        maxComments: 100,
+      }),
+      synthesis: new SynthesisEngine(shardedConfig),
+      testCoverage: new TestCoverageAnalyzer(),
+      astAnalyzer: new ASTAnalyzer(),
+      cache: new NoopCache(),
+      incrementalReviewer: {
+        shouldUseIncremental: async () => false,
+        getLastReview: async () => null,
+        saveReview: async () => {},
+        getChangedFilesSince: async () => [],
+        mergeFindings: (prev: any, curr: any) => curr,
+        generateIncrementalSummary: () => '',
+      } as any,
+      costTracker: new CostTracker({
+        getPricing: async () => ({
+          modelId: 'fake',
+          promptPrice: 0,
+          completionPrice: 0,
+          isFree: true,
+        }),
+      } as any),
+      security: new SecurityScanner(),
+      rules: new RulesEngine([]),
+      prLoader: new ShardedStubPRLoader() as unknown as PullRequestLoader,
+      commentPoster: commentPoster as unknown as CommentPoster,
+      formatter: new MarkdownFormatter(),
+      contextRetriever: new ContextRetriever(),
+      impactAnalyzer: new ImpactAnalyzer(),
+      evidenceScorer: new EvidenceScorer(),
+      mermaidGenerator: new MermaidGenerator(),
+      feedbackFilter: new StubFeedbackFilter() as unknown as FeedbackFilter,
+      prDescriptionUpdater: { update: updateDescription } as any,
+    };
+
+    const review = await new ReviewOrchestrator(components).execute(1);
+
+    expect(review?.findings.length).toBeGreaterThan(0);
+    expect(commentPoster.postedInline.length).toBeGreaterThan(0);
+    expect(commentPoster.postedSummary).toBeNull();
+    expect(commentPoster.clearedSummaries).toBe(false);
+    expect(updateDescription).not.toHaveBeenCalled();
   });
 
   it('replaces the progress comment with the final summary when findings are posted', async () => {

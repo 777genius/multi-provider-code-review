@@ -4,6 +4,7 @@ import {
   PullRequestLoadOmissionReason,
   PullRequestLoadStatus,
 } from '../../../src/types';
+import { isPathInReviewShard } from '../../../src/review-execution/domain';
 import {
   createMockOctokit,
   createErrorOctokit,
@@ -342,6 +343,76 @@ describe('PullRequestLoader', () => {
       expect(context.diff).toContain(
         'diff --git a/src/file-349.ts b/src/file-349.ts'
       );
+    });
+
+    it('loads only the deterministic file shard and synthesizes only its patches', async () => {
+      const files = Array.from({ length: 48 }, (_, index) => ({
+        filename: `src/file-${index}.ts`,
+        status: 'modified' as const,
+        additions: index + 1,
+        deletions: 1,
+        changes: index + 2,
+        patch: `@@ -0,0 +1 @@\n+export const value${index} = ${index};`,
+      }));
+      const shard = { index: 2, count: 8 };
+      const selected = files.filter((file) =>
+        isPathInReviewShard(file.filename, shard)
+      );
+      const excluded = files.filter(
+        (file) => !isPathInReviewShard(file.filename, shard)
+      );
+      const mockOctokit = createMockOctokit({ files });
+
+      const context = await new PullRequestLoader(
+        createMockClient(mockOctokit),
+        async () => null,
+        shard
+      ).load(1);
+
+      expect(context.files.map((file) => file.filename)).toEqual(
+        selected.map((file) => file.filename)
+      );
+      expect(context.pathShard).toEqual({ ...shard, totalFiles: files.length });
+      expect(context.additions).toBe(
+        selected.reduce((total, file) => total + file.additions, 0)
+      );
+      expect(context.deletions).toBe(selected.length);
+      for (const file of selected)
+        expect(context.diff).toContain(file.filename);
+      for (const file of excluded) {
+        expect(context.diff).not.toContain(
+          `a/${file.filename} b/${file.filename}`
+        );
+      }
+      expect(mockOctokit.request).not.toHaveBeenCalled();
+    });
+
+    it('does not request the full raw diff for an empty shard', async () => {
+      const files = [
+        {
+          filename: 'src/only.ts',
+          status: 'modified' as const,
+          additions: 1,
+          deletions: 0,
+          changes: 1,
+          patch: '@@ -0,0 +1 @@\n+export const only = true;',
+        },
+      ];
+      const owningIndex = Array.from({ length: 2 }, (_, index) => index).find(
+        (index) => isPathInReviewShard(files[0].filename, { index, count: 2 })
+      );
+      const emptyShard = { index: owningIndex === 0 ? 1 : 0, count: 2 };
+      const mockOctokit = createMockOctokit({ files });
+
+      const context = await new PullRequestLoader(
+        createMockClient(mockOctokit),
+        async () => null,
+        emptyShard
+      ).load(1);
+
+      expect(context.files).toEqual([]);
+      expect(context.diff).toBe('');
+      expect(mockOctokit.request).not.toHaveBeenCalled();
     });
 
     it('falls back to file patches when GitHub rejects a raw diff as too large', async () => {
