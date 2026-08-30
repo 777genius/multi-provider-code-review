@@ -17,7 +17,7 @@ import {
 import {
   findingFingerprintFromFinding,
   InlineCommentReference,
-  isLikelySameInlineFinding,
+  sameSemanticLineage,
 } from '../github/comment-fingerprint';
 
 export interface ThreadLifecycleAggregationInput {
@@ -549,7 +549,7 @@ function currentFindingMatchesTarget(
     line: finding.line,
     body: `**${finding.severity} - ${finding.title}**\n\n${finding.message}`,
   };
-  return isLikelySameInlineFinding(targetReference, findingReference);
+  return sameSemanticLineage(targetReference, findingReference);
 }
 
 function lifecycleTargetBody(target: LifecycleTarget): string {

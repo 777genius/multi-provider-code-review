@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { Finding } from '../types';
+import { Finding, Severity } from '../types';
 import {
   FindingMarkerParseKind,
   parseFindingMarker,
@@ -21,6 +21,68 @@ export interface InlineCommentReference {
   path: string | undefined;
   line: number | null | undefined;
   body: string;
+  /** GitHub REST id of the immutable top-level review comment. */
+  parentCommentDatabaseId?: number;
+  /** Highest trusted severity already represented by the parent and replies. */
+  highestTrustedEscalationSeverity?: Severity;
+  /** Head observed by the complete GraphQL inventory that produced this ref. */
+  inventoryHeadSha?: string;
+}
+
+export const REVIEW_ROUTER_ESCALATION_MARKER = 'review-router-escalation:v1';
+
+export interface TrustedEscalationMarker {
+  parentCommentDatabaseId: number;
+  targetSeverity: Severity;
+}
+
+export type TrustedEscalationMarkerParseResult =
+  | { kind: 'absent' }
+  | ({ kind: 'valid' } & TrustedEscalationMarker)
+  | { kind: 'malformed' }
+  | { kind: 'conflict' };
+
+export function trustedEscalationMarker(
+  parentCommentDatabaseId: number,
+  targetSeverity: Severity
+): string {
+  if (
+    !Number.isSafeInteger(parentCommentDatabaseId) ||
+    parentCommentDatabaseId <= 0
+  ) {
+    throw new Error(
+      'trusted escalation marker requires a positive parent database id'
+    );
+  }
+  return `<!-- ${REVIEW_ROUTER_ESCALATION_MARKER} parent_id=${parentCommentDatabaseId} severity=${targetSeverity} -->`;
+}
+
+export function parseTrustedEscalationMarker(
+  body?: string | null
+): TrustedEscalationMarkerParseResult {
+  if (!body?.includes(REVIEW_ROUTER_ESCALATION_MARKER))
+    return { kind: 'absent' };
+  const reserved =
+    body.match(/<!--\s*review-router-escalation:v1[\s\S]*?-->/g) ?? [];
+  if (reserved.length === 0) return { kind: 'malformed' };
+  const reservedTokenCount =
+    body.match(/review-router-escalation:v1/g)?.length ?? 0;
+  if (reservedTokenCount !== reserved.length) return { kind: 'malformed' };
+  const strict =
+    /^<!-- review-router-escalation:v1 parent_id=([1-9]\d*) severity=(minor|major|critical) -->$/;
+  const parsed = reserved.map((marker) => marker.match(strict));
+  if (parsed.some((match) => !match)) return { kind: 'malformed' };
+  const values = parsed.map((match) => `${match![1]}:${match![2]}`);
+  if (new Set(values).size !== 1) return { kind: 'conflict' };
+  if (parsed.length !== 1) return { kind: 'malformed' };
+  const parentCommentDatabaseId = Number(parsed[0]![1]);
+  if (!Number.isSafeInteger(parentCommentDatabaseId))
+    return { kind: 'malformed' };
+  return {
+    kind: 'valid',
+    parentCommentDatabaseId,
+    targetSeverity: parsed[0]![2] as Severity,
+  };
 }
 
 export function signatureFromInlineComment(
@@ -161,26 +223,33 @@ export function isLikelySameInlineFinding(
   existing: InlineCommentReference,
   candidate: InlineCommentReference
 ): boolean {
+  const existingBody = stripInlineFingerprintMarkers(existing.body);
+  const candidateBody = stripInlineFingerprintMarkers(candidate.body);
+  const existingSeverity = extractSeverity(existingBody);
+  const candidateSeverity = extractSeverity(candidateBody);
+  if (
+    candidateSeverity &&
+    (!existingSeverity ||
+      inlineSeverityRank(candidateSeverity) >
+        inlineSeverityRank(existingSeverity))
+  ) {
+    return false;
+  }
+
+  return sameSemanticLineage(existing, candidate);
+}
+
+/** Severity-independent relation used to keep one immutable issue lineage. */
+export function sameSemanticLineage(
+  existing: InlineCommentReference,
+  candidate: InlineCommentReference
+): boolean {
   const existingPath = (existing.path || '').toLowerCase();
   const candidatePath = (candidate.path || '').toLowerCase();
   if (!existingPath || existingPath !== candidatePath) return false;
 
   const existingBody = stripInlineFingerprintMarkers(existing.body);
   const candidateBody = stripInlineFingerprintMarkers(candidate.body);
-
-  // Never let an older, lower-severity comment hide a newly escalated
-  // finding. A downgrade may still reuse the existing thread, but an
-  // escalation must remain visible even when the model describes the same
-  // issue with nearly identical wording.
-  const existingSeverity = extractSeverity(existingBody);
-  const candidateSeverity = extractSeverity(candidateBody);
-  if (
-    candidateSeverity &&
-    (!existingSeverity ||
-      severityRank(candidateSeverity) > severityRank(existingSeverity))
-  ) {
-    return false;
-  }
 
   const existingLine = existing.line ?? 0;
   const candidateLine = candidate.line ?? 0;
@@ -213,7 +282,7 @@ export function isLikelySameInlineFinding(
   return titleSimilarity >= 0.6 && bodySimilarity >= 0.55;
 }
 
-function severityRank(severity: string): number {
+export function inlineSeverityRank(severity: string): number {
   switch (severity.toLowerCase()) {
     case 'critical':
       return 3;

@@ -33,6 +33,39 @@ const target = (overrides: Partial<LifecycleTarget> = {}): LifecycleTarget => ({
   ...overrides,
 });
 
+describe('semantic escalation lifecycle safety', () => {
+  it('keeps a Minor parent open when the current finding escalates to Major', () => {
+    const currentFinding: Finding = {
+      file: 'src/app.ts',
+      line: 12,
+      severity: 'major',
+      title: 'SQL injection in account lookup',
+      message:
+        'The query interpolates accountId directly into SQL and permits crafted input.',
+    };
+
+    const lifecycle = new ThreadLifecycleAggregator().aggregate({
+      mode: 'resolve',
+      targets: [
+        target({
+          severity: 'minor',
+          title: 'SQL injection in account lookup',
+          message:
+            'The query interpolates accountId directly into SQL and permits crafted input.',
+        }),
+      ],
+      plannedProviders: ['provider-a'],
+      providerResults: [success('provider-a', [resolvedVote()])],
+      currentFindings: [currentFinding],
+    });
+
+    expect(lifecycle.resolvedCandidates).toHaveLength(0);
+    expect(lifecycle.previousStillValid[0]?.reasonCodes).toContain(
+      'current_finding_present'
+    );
+  });
+});
+
 const success = (
   name: string,
   revalidations: ProviderLifecycleRevalidation[]

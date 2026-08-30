@@ -39,6 +39,7 @@ describe('CommentPoster', () => {
             .mockResolvedValue({ data: { head: { sha: 'head-sha' } } }),
           createReview: jest.fn().mockResolvedValue({}),
           createReviewComment: jest.fn().mockResolvedValue({}),
+          createReplyForReviewComment: jest.fn().mockResolvedValue({}),
           listReviewComments: jest.fn(),
         },
       },
@@ -1893,5 +1894,217 @@ describe('CommentPoster', () => {
     expect(mockOctokit.rest.issues.listComments).toHaveBeenCalledTimes(2);
     expect(mockOctokit.rest.issues.updateComment).not.toHaveBeenCalled();
     expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
+  });
+
+  describe('semantic escalation lineage', () => {
+    const files: FileChange[] = [
+      {
+        filename: 'src/users.ts',
+        status: 'modified',
+        additions: 1,
+        deletions: 0,
+        changes: 1,
+        patch: '@@ -9,2 +9,3 @@\n old\n+query(accountId)\n next',
+      },
+    ];
+    const parentBody = [
+      '**🟡 Major - SQL injection in account lookup**',
+      '',
+      'The query interpolates `accountId` directly into SQL and permits crafted input.',
+    ].join('\n');
+    const parent = (overrides: Record<string, unknown> = {}) => ({
+      path: 'src/users.ts',
+      line: 10,
+      body: parentBody,
+      parentCommentDatabaseId: 77,
+      highestTrustedEscalationSeverity: 'major' as const,
+      inventoryHeadSha: 'head-sha',
+      ...overrides,
+    });
+    const finding = (
+      severity: 'minor' | 'major' | 'critical',
+      message = 'The query interpolates `accountId` directly into SQL and permits crafted input.'
+    ): InlineComment => ({
+      path: 'src/users.ts',
+      line: 10,
+      side: 'RIGHT',
+      severity,
+      body: [
+        `**${severity === 'critical' ? '🔴 Critical' : severity === 'major' ? '🟡 Major' : '🔵 Minor'} - SQL injection in account lookup**`,
+        '',
+        message,
+      ].join('\n'),
+    });
+
+    it('posts Major to Critical as one reply and never a new review', async () => {
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(123, [finding('critical')], files, 'head-sha', [
+        parent(),
+      ]);
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          comment_id: 77,
+          body: expect.stringContaining(
+            '<!-- review-router-escalation:v1 parent_id=77 severity=critical -->'
+          ),
+        })
+      );
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['rerun', 'critical', undefined],
+      [
+        'wording variation',
+        'critical',
+        'Crafted `accountId` input is interpolated into the SQL query, changing its meaning.',
+      ],
+      ['equal', 'major', undefined],
+      ['downgrade', 'minor', undefined],
+    ] as const)(
+      'suppresses %s at or below effective severity',
+      async (_label, severity, message) => {
+        const poster = new CommentPoster(mockClient, false);
+        const ref = parent({
+          highestTrustedEscalationSeverity:
+            severity === 'critical' ? 'critical' : 'major',
+        });
+
+        await poster.postInline(
+          123,
+          [finding(severity, message)],
+          files,
+          'head-sha',
+          [ref]
+        );
+
+        expect(
+          mockOctokit.rest.pulls.createReplyForReviewComment
+        ).not.toHaveBeenCalled();
+        expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      }
+    );
+
+    it('fails before mutation when the matching parent database id is missing', async () => {
+      const poster = new CommentPoster(mockClient, false);
+
+      await expect(
+        poster.postInline(123, [finding('critical')], files, 'head-sha', [
+          parent({ parentCommentDatabaseId: undefined }),
+        ])
+      ).rejects.toThrow('parent review comment database id');
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+    });
+
+    it('calls reply exactly once and throws an ambiguous 500 without fallback', async () => {
+      mockOctokit.rest.pulls.createReplyForReviewComment.mockRejectedValueOnce(
+        Object.assign(new Error('server error'), { status: 500 })
+      );
+      const poster = new CommentPoster(mockClient, false);
+
+      await expect(
+        poster.postInline(123, [finding('critical')], files, 'head-sha', [
+          parent(),
+        ])
+      ).rejects.toThrow('server error');
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+
+    it('coalesces two same-run escalation candidates to one maximum reply', async () => {
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(
+        123,
+        [
+          finding('critical'),
+          finding(
+            'critical',
+            'The SQL query directly interpolates crafted `accountId` input.'
+          ),
+        ],
+        files,
+        'head-sha',
+        [parent()]
+      );
+
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it('keeps an unrelated same-line finding as a top-level review comment', async () => {
+      const poster = new CommentPoster(mockClient, false);
+      const unrelated: InlineComment = {
+        path: 'src/users.ts',
+        line: 10,
+        side: 'RIGHT',
+        severity: 'critical',
+        body: '**🔴 Critical - Authorization bypass**\n\nThe handler never checks the current tenant membership.',
+      };
+
+      await poster.postInline(123, [unrelated], files, 'head-sha', [parent()]);
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+    });
+
+    it('does not reuse a parent from a stale inventory', async () => {
+      const poster = new CommentPoster(mockClient, false);
+
+      await expect(
+        poster.postInline(123, [finding('critical')], files, 'head-sha', [
+          parent({ inventoryHeadSha: 'old-head' }),
+        ])
+      ).rejects.toThrow('stale review-thread inventory');
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+    });
+
+    it('suppresses against the maximum of duplicate parents and fails a further escalation closed', async () => {
+      const minorParent = parent({
+        parentCommentDatabaseId: 76,
+        body: parentBody.replace('Major', 'Minor').replace('🟡', '🔵'),
+        highestTrustedEscalationSeverity: 'minor',
+      });
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(123, [finding('major')], files, 'head-sha', [
+        minorParent,
+        parent(),
+      ]);
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+
+      await expect(
+        poster.postInline(123, [finding('critical')], files, 'head-sha', [
+          minorParent,
+          parent(),
+        ])
+      ).rejects.toThrow('multiple active parent lineages');
+      expect(
+        mockOctokit.rest.pulls.createReplyForReviewComment
+      ).not.toHaveBeenCalled();
+    });
   });
 });

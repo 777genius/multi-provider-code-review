@@ -15,6 +15,8 @@ import {
   InlineCommentReference,
   isReviewRouterInlineComment,
   isLikelySameInlineFinding,
+  sameSemanticLineage,
+  inlineSeverityRank,
   signatureFromInlineComment,
 } from './comment-fingerprint';
 import { ReviewLedger } from './ledger';
@@ -120,6 +122,7 @@ export class FeedbackFilter {
         if (
           isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors) &&
           isReviewRouterInlineComment(body) &&
+          comment.in_reply_to_id == null &&
           activeLine != null &&
           findingMarker.kind !== FindingMarkerParseKind.Conflict &&
           findingMarker.kind !== FindingMarkerParseKind.Malformed
@@ -255,12 +258,30 @@ export class FeedbackFilter {
       ((state.alreadyPostedFindings?.has(findingFingerprint) ?? false) ||
         alreadyPostedLegacy.has(signature) ||
         alreadyPostedLegacy.has(fingerprint));
+    const candidateSeverity = normalizeSeverity(
+      extractInlineSeverity(comment.body)
+    );
+    const suppressedByEffectiveLineage = Boolean(
+      candidateSeverity &&
+      state.alreadyPostedComments.some((existing) => {
+        if (!sameSemanticLineage(existing, comment)) return false;
+        const effectiveSeverity =
+          existing.highestTrustedEscalationSeverity ??
+          normalizeSeverity(extractInlineSeverity(existing.body));
+        return (
+          effectiveSeverity != null &&
+          inlineSeverityRank(candidateSeverity) <=
+            inlineSeverityRank(effectiveSeverity)
+        );
+      })
+    );
 
     return (
       !state.suppressed.has(signature) &&
       !state.suppressed.has(fingerprint) &&
       !(state.commandDismissed?.has(signature) ?? false) &&
       !(state.commandDismissed?.has(fingerprint) ?? false) &&
+      (invalidFindingMarker || !suppressedByEffectiveLineage) &&
       (invalidFindingMarker || !alreadyPostedByKey) &&
       (invalidFindingMarker ||
         !state.suppressedComments.some((existing) =>

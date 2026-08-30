@@ -24,12 +24,16 @@ import {
   appendInlineFingerprintMarker,
   extractFindingFingerprint,
   extractInlineFingerprint,
+  extractInlineSeverity,
   FindingFingerprint,
   fingerprintFromInlineComment,
+  inlineSeverityRank,
   InlineCommentReference,
   isReviewRouterInlineComment,
   isLikelySameInlineFinding,
+  sameSemanticLineage,
   signatureFromInlineComment,
+  trustedEscalationMarker,
 } from './comment-fingerprint';
 import {
   ReviewSummaryMetadata,
@@ -63,6 +67,12 @@ interface GitHubInlineCommentPayload {
   body: string;
   start_line?: number;
   start_side?: 'LEFT' | 'RIGHT';
+}
+
+interface InlineEscalationReply {
+  parent: InlineCommentReference;
+  severity: Severity;
+  body: string;
 }
 
 export interface SummaryPostResult {
@@ -557,6 +567,7 @@ export class CommentPoster {
         if (!isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors)) {
           continue;
         }
+        if (comment.in_reply_to_id != null) continue;
         const activeLine = comment.line;
         const body = comment.body || '';
         if (activeLine == null || !isReviewRouterInlineComment(body)) continue;
@@ -643,6 +654,104 @@ export class CommentPoster {
         isLikelySameInlineFinding(comment, { path, line, body })
       )
     );
+  }
+
+  private classifyInlineCandidate(
+    activeComments: ActiveInlineComments,
+    candidate: GitHubInlineCommentPayload
+  ):
+    | { kind: 'duplicate' }
+    | { kind: 'top-level' }
+    | {
+        kind: 'escalation';
+        parent: InlineCommentReference;
+        severity: Severity;
+      } {
+    if (
+      this.hasInlineDuplicate(
+        activeComments,
+        candidate.path,
+        candidate.line,
+        candidate.body
+      )
+    ) {
+      return { kind: 'duplicate' };
+    }
+
+    const candidateSeverity = CommentPoster.inlineSeverity(candidate.body);
+    if (!candidateSeverity) return { kind: 'top-level' };
+    const semanticParents = activeComments.comments
+      .filter((parent) =>
+        sameSemanticLineage(parent, {
+          path: candidate.path,
+          line: candidate.line,
+          body: candidate.body,
+        })
+      )
+      .sort((left, right) => {
+        const severityDifference =
+          inlineSeverityRank(CommentPoster.effectiveSeverity(right)) -
+          inlineSeverityRank(CommentPoster.effectiveSeverity(left));
+        if (severityDifference !== 0) return severityDifference;
+        return (
+          (left.parentCommentDatabaseId ?? Number.MAX_SAFE_INTEGER) -
+          (right.parentCommentDatabaseId ?? Number.MAX_SAFE_INTEGER)
+        );
+      });
+    const parent = semanticParents[0];
+    if (!parent) return { kind: 'top-level' };
+    if (
+      inlineSeverityRank(candidateSeverity) <=
+      inlineSeverityRank(CommentPoster.effectiveSeverity(parent))
+    ) {
+      return { kind: 'duplicate' };
+    }
+    if (semanticParents.length !== 1) {
+      throw new Error(
+        'Cannot post semantic escalation because multiple active parent lineages match the finding'
+      );
+    }
+    return { kind: 'escalation', parent, severity: candidateSeverity };
+  }
+
+  private static effectiveSeverity(comment: InlineCommentReference): Severity {
+    return (
+      comment.highestTrustedEscalationSeverity ??
+      CommentPoster.inlineSeverity(comment.body) ??
+      'minor'
+    );
+  }
+
+  private static inlineSeverity(body: string): Severity | null {
+    const severity = extractInlineSeverity(body);
+    return severity === 'critical' ||
+      severity === 'major' ||
+      severity === 'minor'
+      ? severity
+      : null;
+  }
+
+  private static rememberInlineComment(
+    activeComments: ActiveInlineComments,
+    comment: GitHubInlineCommentPayload
+  ): void {
+    activeComments.coarseKeys.add(
+      signatureFromInlineComment(comment.path, comment.line, comment.body)
+    );
+    activeComments.coarseKeys.add(
+      fingerprintFromInlineComment(comment.path, comment.line, comment.body)
+    );
+    const marker = extractInlineFingerprint(comment.body);
+    if (marker) activeComments.coarseKeys.add(marker);
+    const findingFingerprint = extractFindingFingerprint(comment.body);
+    if (findingFingerprint) {
+      activeComments.findingFingerprints.add(findingFingerprint);
+    }
+    activeComments.comments.push({
+      path: comment.path,
+      line: comment.line,
+      body: comment.body,
+    });
   }
 
   /**
@@ -831,7 +940,7 @@ export class CommentPoster {
     });
 
     // Convert comments to GitHub API format, filtering out those without valid positions
-    const apiComments = (
+    const preparedApiComments = (
       await Promise.all(
         sortedComments.map(async (c) => {
           const file = files.find((f) => f.filename === c.path);
@@ -970,38 +1079,6 @@ export class CommentPoster {
             ),
           };
 
-          if (
-            this.hasInlineDuplicate(
-              activeInlineComments,
-              c.path,
-              c.line,
-              apiComment.body
-            )
-          ) {
-            logger.info(
-              `Skipping duplicate active inline comment at ${c.path}:${c.line}`
-            );
-            return null;
-          }
-
-          activeInlineComments.coarseKeys.add(
-            signatureFromInlineComment(c.path, c.line, apiComment.body)
-          );
-          activeInlineComments.coarseKeys.add(
-            fingerprintFromInlineComment(c.path, c.line, apiComment.body)
-          );
-          const marker = extractInlineFingerprint(apiComment.body);
-          if (marker) activeInlineComments.coarseKeys.add(marker);
-          const findingFingerprint = extractFindingFingerprint(apiComment.body);
-          if (findingFingerprint) {
-            activeInlineComments.findingFingerprints.add(findingFingerprint);
-          }
-          activeInlineComments.comments.push({
-            path: c.path,
-            line: c.line,
-            body: apiComment.body,
-          });
-
           if (startLine !== undefined && startLine !== c.line) {
             // Multi-line: use line-based parameters.
             apiComment.start_line = startLine;
@@ -1011,6 +1088,82 @@ export class CommentPoster {
         })
       )
     ).filter((c): c is GitHubInlineCommentPayload => c !== null);
+
+    const apiComments: GitHubInlineCommentPayload[] = [];
+    const escalationReplies = new Map<number, InlineEscalationReply>();
+    for (const apiComment of preparedApiComments) {
+      const classification = this.classifyInlineCandidate(
+        activeInlineComments,
+        apiComment
+      );
+      if (classification.kind === 'duplicate') {
+        logger.info(
+          `Skipping duplicate active inline comment at ${apiComment.path}:${apiComment.line}`
+        );
+        continue;
+      }
+      if (classification.kind === 'escalation') {
+        const parentId = classification.parent.parentCommentDatabaseId;
+        if (!parentId) {
+          throw new Error(
+            'Cannot post semantic escalation without the parent review comment database id'
+          );
+        }
+        if (!headSha) {
+          throw new Error(
+            'Cannot post semantic escalation without an expected PR head SHA'
+          );
+        }
+        if (
+          classification.parent.inventoryHeadSha &&
+          classification.parent.inventoryHeadSha !== headSha
+        ) {
+          throw new Error(
+            'Cannot reuse a semantic escalation parent from a stale review-thread inventory'
+          );
+        }
+        const staged = escalationReplies.get(parentId);
+        if (
+          !staged ||
+          inlineSeverityRank(classification.severity) >
+            inlineSeverityRank(staged.severity)
+        ) {
+          escalationReplies.set(parentId, {
+            parent: classification.parent,
+            severity: classification.severity,
+            body: apiComment.body,
+          });
+          classification.parent.highestTrustedEscalationSeverity =
+            classification.severity;
+        }
+        continue;
+      }
+
+      apiComments.push(apiComment);
+      CommentPoster.rememberInlineComment(activeInlineComments, apiComment);
+    }
+
+    if (!this.dryRun) {
+      for (const escalation of escalationReplies.values()) {
+        const parentId = escalation.parent.parentCommentDatabaseId!;
+        if (
+          !(await this.canMutateExpectedHead(
+            prNumber,
+            headSha!,
+            'semantic escalation reply creation'
+          ))
+        ) {
+          return;
+        }
+        await this.client.octokit.rest.pulls.createReplyForReviewComment({
+          owner: this.client.owner,
+          repo: this.client.repo,
+          pull_number: prNumber,
+          comment_id: parentId,
+          body: `${escalation.body.trimEnd()}\n\n${trustedEscalationMarker(parentId, escalation.severity)}`,
+        });
+      }
+    }
 
     if (apiComments.length === 0) {
       logger.info('No inline comments with valid diff positions to post');

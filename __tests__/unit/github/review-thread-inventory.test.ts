@@ -1337,3 +1337,138 @@ function inventoryPageWithParentBody(
     },
   };
 }
+
+describe('trusted semantic escalation inventory', () => {
+  function escalationInventory(
+    replies: Array<{
+      id: string;
+      author: string;
+      body: string;
+    }>
+  ) {
+    return {
+      repository: {
+        pullRequest: {
+          headRefOid: 'head-sha',
+          reviewThreads: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                id: 'lineage-thread',
+                isResolved: false,
+                isOutdated: false,
+                viewerCanResolve: true,
+                path: 'src/app.ts',
+                line: 12,
+                comments: {
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                  nodes: [
+                    {
+                      id: 'lineage-parent',
+                      databaseId: 77,
+                      author: { login: 'review-router-ai[bot]' },
+                      body: parentBody
+                        .replace('Major', 'Minor')
+                        .replace('🟡', '🔵'),
+                      createdAt: '2026-05-14T00:00:00Z',
+                      updatedAt: '2026-05-14T00:00:00Z',
+                      path: 'src/app.ts',
+                      line: 12,
+                    },
+                    ...replies.map((reply, index) => ({
+                      id: reply.id,
+                      author: { login: reply.author },
+                      body: reply.body,
+                      createdAt: `2026-05-14T00:0${index + 1}:00Z`,
+                      updatedAt: `2026-05-14T00:0${index + 1}:00Z`,
+                    })),
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+  }
+
+  function loaderFor(
+    replies: Array<{ id: string; author: string; body: string }>
+  ) {
+    const graphql = jest.fn().mockResolvedValue(escalationInventory(replies));
+    return {
+      graphql,
+      loader: new ReviewThreadInventoryLoader({
+        owner: 'owner',
+        repo: 'repo',
+        octokit: { graphql },
+      } as unknown as GitHubClient),
+    };
+  }
+
+  it('keeps only the parent as dedupe ref and computes Minor to Major to Critical maximum', async () => {
+    const { loader } = loaderFor([
+      {
+        id: 'major-reply',
+        author: 'review-router-ai[bot]',
+        body: '<!-- review-router-escalation:v1 parent_id=77 severity=major -->',
+      },
+      {
+        id: 'critical-reply',
+        author: 'review-router-ai[bot]',
+        body: '<!-- review-router-escalation:v1 parent_id=77 severity=critical -->',
+      },
+    ]);
+
+    const inventory = await loader.load(123);
+
+    expect(inventory.failed).toBe(false);
+    expect(inventory.topLevelParents).toHaveLength(1);
+    expect(inventory.dedupeComments).toHaveLength(1);
+    expect(inventory.dedupeComments[0]).toMatchObject({
+      parentCommentDatabaseId: 77,
+      highestTrustedEscalationSeverity: 'critical',
+      inventoryHeadSha: 'head-sha',
+      body: expect.stringContaining('Previous Bug'),
+    });
+  });
+
+  it('ignores forged human escalation markers', async () => {
+    const { loader } = loaderFor([
+      {
+        id: 'forged-critical',
+        author: 'contributor',
+        body: '<!-- review-router-escalation:v1 parent_id=77 severity=critical -->',
+      },
+    ]);
+
+    const inventory = await loader.load(123);
+
+    expect(inventory.failed).toBe(false);
+    expect(inventory.dedupeComments[0]).toMatchObject({
+      highestTrustedEscalationSeverity: 'minor',
+    });
+  });
+
+  it.each([
+    '<!-- review-router-escalation:v1 severity=critical parent_id=77 -->',
+    [
+      '<!-- review-router-escalation:v1 parent_id=77 severity=major -->',
+      '<!-- review-router-escalation:v1 parent_id=78 severity=major -->',
+    ].join('\n'),
+    '<!-- review-router-escalation:v1 parent_id=78 severity=critical -->',
+  ])(
+    'fails closed for malformed or conflicting trusted marker %s',
+    async (body) => {
+      const { loader } = loaderFor([
+        { id: 'invalid-marker', author: 'review-router-ai[bot]', body },
+      ]);
+
+      const inventory = await loader.load(123);
+
+      expect(inventory.failed).toBe(true);
+      expect(inventory.dedupeComments).toHaveLength(0);
+      expect(inventory.topLevelParents).toHaveLength(0);
+    }
+  );
+});

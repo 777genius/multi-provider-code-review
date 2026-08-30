@@ -4,7 +4,9 @@ import { LifecycleReasonCode, LifecycleTarget } from '../types';
 import {
   extractInlineSeverity,
   extractInlineTitle,
+  inlineSeverityRank,
   InlineCommentReference,
+  parseTrustedEscalationMarker,
   stripInlineFingerprintMarkers,
 } from './comment-fingerprint';
 import { logger } from '../utils/logger';
@@ -46,6 +48,8 @@ export interface ReviewThreadInventory {
   manualAttention: ReviewThreadLifecycleRecord[];
   manualAttentionIssues: ReviewThreadMarkerIssue[];
   dedupeComments: InlineCommentReference[];
+  /** Trusted immutable top-level findings; replies are never projected here. */
+  topLevelParents: InlineCommentReference[];
   warnings: string[];
   failed: boolean;
 }
@@ -186,6 +190,7 @@ export class ReviewThreadInventoryLoader {
       manualAttention: [],
       manualAttentionIssues: [],
       dedupeComments: [],
+      topLevelParents: [],
       warnings: [],
       failed: false,
     };
@@ -243,6 +248,7 @@ export class ReviewThreadInventoryLoader {
       if (inventory.failed) {
         inventory.candidates = [];
         inventory.dedupeComments = [];
+        inventory.topLevelParents = [];
       }
     } catch (error) {
       logger.warn(
@@ -253,6 +259,7 @@ export class ReviewThreadInventoryLoader {
       inventory.manualAttention = [];
       inventory.manualAttentionIssues = [];
       inventory.dedupeComments = [];
+      inventory.topLevelParents = [];
       inventory.failed = true;
       inventory.warnings.push('review thread lifecycle inventory failed');
     }
@@ -340,6 +347,8 @@ export class ReviewThreadInventoryLoader {
     );
     const title = parsedTitle || 'Previous ReviewRouter finding';
     const severity = normalizeLifecycleSeverity(extractInlineSeverity(body));
+    const highestTrustedEscalationSeverity =
+      this.highestTrustedEscalationSeverity(comments, parent, severity);
     const message = cleanBody || parsedTitle || title;
     const reasonCodes: LifecycleReasonCode[] = [];
 
@@ -387,11 +396,20 @@ export class ReviewThreadInventoryLoader {
       target.currentPath &&
       target.currentLine != null
     ) {
-      inventory.dedupeComments.push({
+      const parentReference: InlineCommentReference = {
         path: target.currentPath,
         line: target.currentLine,
         body,
-      });
+        ...(parent.databaseId != null
+          ? { parentCommentDatabaseId: parent.databaseId }
+          : {}),
+        highestTrustedEscalationSeverity,
+        ...(inventory.headRefOid
+          ? { inventoryHeadSha: inventory.headRefOid }
+          : {}),
+      };
+      inventory.topLevelParents.push(parentReference);
+      inventory.dedupeComments.push(parentReference);
     }
 
     if (reasonCodes.length > 0) {
@@ -403,6 +421,39 @@ export class ReviewThreadInventoryLoader {
     }
 
     inventory.candidates.push(target);
+  }
+
+  private highestTrustedEscalationSeverity(
+    comments: GraphQLComment[],
+    parent: GraphQLComment,
+    parentSeverity: LifecycleTarget['severity']
+  ): 'minor' | 'major' | 'critical' {
+    let highest: 'minor' | 'major' | 'critical' =
+      parentSeverity === 'unknown' ? 'minor' : parentSeverity;
+    for (const reply of comments.slice(1)) {
+      if (!this.isTrustedAuthor(reply.author?.login)) continue;
+      const parsed = parseTrustedEscalationMarker(reply.body);
+      if (parsed.kind === 'absent') continue;
+      if (parsed.kind === 'malformed' || parsed.kind === 'conflict') {
+        throw new Error(
+          `trusted escalation marker in ${reply.id} was ${parsed.kind}`
+        );
+      }
+      if (
+        parent.databaseId == null ||
+        parsed.parentCommentDatabaseId !== parent.databaseId
+      ) {
+        throw new Error(
+          `trusted escalation marker in ${reply.id} referenced a conflicting parent`
+        );
+      }
+      if (
+        inlineSeverityRank(parsed.targetSeverity) > inlineSeverityRank(highest)
+      ) {
+        highest = parsed.targetSeverity;
+      }
+    }
+    return highest;
   }
 
   private isTrustedAuthor(login?: string | null): boolean {
