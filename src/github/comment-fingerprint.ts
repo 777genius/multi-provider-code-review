@@ -299,6 +299,16 @@ export function sameSemanticLineage(
   const lineDistance = Math.abs(existingLine - candidateLine);
   const nearbyLine = lineDistance <= MAX_NEARBY_LINE_DISTANCE;
 
+  const existingSuggestedFix = extractSuggestedFixSignature(existingBody);
+  const candidateSuggestedFix = extractSuggestedFixSignature(candidateBody);
+  if (
+    nearbyLine &&
+    existingSuggestedFix !== null &&
+    existingSuggestedFix === candidateSuggestedFix
+  ) {
+    return true;
+  }
+
   const existingTitleTokens = tokenize(extractTitle(existingBody));
   const candidateTitleTokens = tokenize(extractTitle(candidateBody));
   const titleSimilarity = diceSimilarity(
@@ -441,6 +451,16 @@ function semanticText(body: string): string {
     .replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, ' ')
     .replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, ' ')
     .replace(/\b(?:critical|major|minor)\b/gi, ' ');
+}
+
+function extractSuggestedFixSignature(body: string): string | null {
+  const match = body.match(
+    /<details>\s*<summary>Suggested fix<\/summary>[\s\S]*?```(?:diff|\w+)?\s*\n([\s\S]*?)```[\s\S]*?<\/details>/i
+  );
+  if (!match?.[1]) return null;
+  const normalized = match[1].replace(/\s+/g, ' ').trim();
+  if (normalized.length < 40 || tokenize(normalized).size < 4) return null;
+  return normalized;
 }
 
 function issueMessageText(body: string): string {

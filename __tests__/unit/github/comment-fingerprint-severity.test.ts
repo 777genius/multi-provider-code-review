@@ -344,4 +344,131 @@ describe('inline finding semantic severity safety', () => {
       )
     ).toBe(false);
   });
+
+  it('matches the live terminal-run settlement duplicate across severity wording', () => {
+    expect(
+      sameSemanticLineage(
+        {
+          path: 'src/features/terminal-workspace/renderer/model/terminalCommandRuns.ts',
+          line: 194,
+          body: [
+            '_🔵 Minor_ | _⚡ Quick win_',
+            '',
+            '**New commands settle runs from unrelated panes**',
+            '',
+            "This passes every stored run through settlement using screen lines from the new command's pane. A running command in another pane with matching command text is therefore marked completed even though that pane is still running. `settleScopedTerminalCommandRuns` already provides the required session/pane filtering, and `test/renderer/features/terminal-workspace/useTerminalCommandRuns.test.tsx` explicitly verifies that switching to another pane must not settle the previous pane's run.",
+            '',
+            '<details>',
+            '<summary>Suggested fix</summary>',
+            '',
+            '```diff',
+            '+const settledRuns = settleScopedTerminalCommandRuns(',
+            '+  runs, nextRun.sessionId, nextRun.paneId, screenLines, nowMs, true',
+            '+);',
+            '```',
+            '</details>',
+          ].join('\n'),
+        },
+        {
+          path: 'src/features/terminal-workspace/renderer/model/terminalCommandRuns.ts',
+          line: 197,
+          body: [
+            '_🟡 Major_ | _⚡ Quick win_',
+            '',
+            '**Starting a command can settle runs from other panes**',
+            '',
+            'The initial settlement applies the current screenLines to every stored run, although the remainder of this helper only supersedes runs matching nextRun.sessionId and nextRun.paneId. The pane-switch test in test/renderer/features/terminal-workspace/useTerminalCommandRuns.test.tsx explicitly requires a pane-1 run to remain unchanged when pane-2 screen content updates; starting a pane-2 command can bypass that protection and persist a false result for pane 1.',
+            '',
+            '<details>',
+            '<summary>Suggested fix</summary>',
+            '',
+            '```diff',
+            '+const settledRuns = settleScopedTerminalCommandRuns(',
+            '+  runs, nextRun.sessionId, nextRun.paneId, screenLines, nowMs, true',
+            '+);',
+            '```',
+            '</details>',
+          ].join('\n'),
+        }
+      )
+    ).toBe(true);
+  });
+
+  it('keeps a nearby terminal-run persistence defect distinct from pane settlement', () => {
+    expect(
+      sameSemanticLineage(
+        {
+          path: 'src/features/terminal-workspace/renderer/model/terminalCommandRuns.ts',
+          line: 194,
+          body: [
+            '**🟡 Major - Starting a command can settle runs from other panes**',
+            '',
+            'The initial settlement applies current `screenLines` to every stored run and falsely completes a run in another pane.',
+            '',
+            '<details><summary>Suggested fix</summary>',
+            '```diff',
+            '+const settledRuns = settleScopedTerminalCommandRuns(',
+            '+  runs, nextRun.sessionId, nextRun.paneId, screenLines, nowMs, true',
+            '+);',
+            '```',
+            '</details>',
+          ].join('\n'),
+        },
+        {
+          path: 'src/features/terminal-workspace/renderer/model/terminalCommandRuns.ts',
+          line: 196,
+          body: [
+            '**🟡 Major - Starting a command can overwrite a completed run result**',
+            '',
+            'The persistence update replaces the stored `exitCode` for the same pane after the completed run has already been archived.',
+            '',
+            '<details><summary>Suggested fix</summary>',
+            '```diff',
+            '+const updatedRuns = replaceArchivedRunResult(',
+            '+  runs, nextRun.id, nextRun.exitCode, nowMs',
+            '+);',
+            '```',
+            '</details>',
+          ].join('\n'),
+        }
+      )
+    ).toBe(false);
+  });
+
+  it('does not equate opposite suggested-fix operations', () => {
+    expect(
+      sameSemanticLineage(
+        {
+          path: 'src/worker.ts',
+          line: 40,
+          body: [
+            '**Retry state is never installed**',
+            '',
+            'The retry path drops the newly created scoped state.',
+            '',
+            '<details><summary>Suggested fix</summary>',
+            '```diff',
+            '+const retainedState = applyScopedWorkerState(current, next, nowMs);',
+            '```',
+            '</details>',
+          ].join('\n'),
+        },
+        {
+          path: 'src/worker.ts',
+          line: 41,
+          body: [
+            '**Stale worker state remains active**',
+            '',
+            'The shutdown path continues using an obsolete state object.',
+            '',
+            '<details><summary>Suggested fix</summary>',
+            '```diff',
+            '-const retainedState = applyScopedWorkerState(current, next, nowMs);',
+            '```',
+            '</details>',
+          ].join('\n'),
+        }
+      )
+    ).toBe(false);
+  });
 });

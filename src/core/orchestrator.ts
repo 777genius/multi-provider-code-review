@@ -231,6 +231,8 @@ export class ReviewOrchestrator {
    */
   async executeReview(pr: PRContext): Promise<Review> {
     const { config } = this.components;
+    const requireCompleteProviderCoverage =
+      process.env.REQUIRE_COMPLETE_PROVIDER_COVERAGE === 'true';
     this.tokenTelemetryTotals = {
       promptTokens: 0,
       completionTokens: 0,
@@ -249,7 +251,13 @@ export class ReviewOrchestrator {
       lifecycleMode: configuredLifecycleMode,
     });
     try {
-      progressTracker = await this.initProgressTracker(pr, summaryMetadata);
+      if (requireCompleteProviderCoverage) {
+        logger.info(
+          'Progress comments are disabled while complete provider coverage is required'
+        );
+      } else {
+        progressTracker = await this.initProgressTracker(pr, summaryMetadata);
+      }
       progressTracker?.addItem('graph', 'Build code graph');
       progressTracker?.addItem('llm', 'LLM review (batched)');
       progressTracker?.addItem('static', 'Static analysis & rules');
@@ -463,6 +471,11 @@ export class ReviewOrchestrator {
       const incrementalInvalidatedPaths = [...incrementalPlan.invalidatedPaths];
       const lastReviewData = incrementalPlan.lastReview;
       if (incrementalPlan.mode === IncrementalReviewPlanMode.ReuseCompleted) {
+        if (requireCompleteProviderCoverage) {
+          throw new Error(
+            'Completed incremental snapshot cannot satisfy REQUIRE_COMPLETE_PROVIDER_COVERAGE because it has no provider batch coverage evidence'
+          );
+        }
         logger.info(
           'Completed snapshot matches the current revision; re-projecting live lifecycle state without provider execution or snapshot advancement'
         );
@@ -790,6 +803,14 @@ export class ReviewOrchestrator {
               'No healthy providers available; failing because FAIL_ON_NO_HEALTHY_PROVIDERS=true'
             );
           }
+          if (requireCompleteProviderCoverage) {
+            const providerFailureSummary =
+              this.formatProviderFailureSummary(allHealthResults);
+            throw new Error(
+              `Complete provider coverage is unavailable (healthy=${healthy.length}, required=${MIN_FALLBACK_HEALTHY}); ` +
+                `failing because REQUIRE_COMPLETE_PROVIDER_COVERAGE=true. ${providerFailureSummary}`
+            );
+          }
           providerResults = allHealthResults;
           hasProviderCoverageGap = true;
           for (const file of filesToReview) {
@@ -867,6 +888,16 @@ export class ReviewOrchestrator {
               );
               batches = batchOrchestrator.createBatches(prioritizedFiles, 1);
             }
+          }
+          if (
+            requireCompleteProviderCoverage &&
+            filesToReview.length > 0 &&
+            batches.length === 0
+          ) {
+            throw new Error(
+              `Provider review coverage is incomplete because batching produced no work for ${filesToReview.length} file(s); ` +
+                'failing because REQUIRE_COMPLETE_PROVIDER_COVERAGE=true'
+            );
           }
 
           const batchPlan = createReviewBatchPlan({
@@ -1049,6 +1080,7 @@ export class ReviewOrchestrator {
                   );
                 if (
                   checkpointSession &&
+                  !requireCompleteProviderCoverage &&
                   !requiredFailure &&
                   this.hasCompleteProviderCheckpointCoverage(
                     healthy,
@@ -1243,6 +1275,27 @@ export class ReviewOrchestrator {
 
           if (requiredProviderFailures.length > 0) {
             throw requiredProviderFailures[0];
+          }
+          if (requireCompleteProviderCoverage && hasProviderCoverageGap) {
+            const providerFailureSummary =
+              this.formatProviderFailureSummary(mergedResults);
+            throw new Error(
+              `Provider review coverage is incomplete (${batchFailures} failed batch(es), ` +
+                `${batchSuccesses} batch(es) with successful output, ${batches.length} planned); ` +
+                `failing because REQUIRE_COMPLETE_PROVIDER_COVERAGE=true. ${providerFailureSummary}`
+            );
+          }
+
+          if (checkpointSession && requireCompleteProviderCoverage) {
+            for (const result of scheduled.completed) {
+              if (result.status !== BatchExecutionStatus.Fulfilled) continue;
+              await checkpointSession.commitSuccessfulBatch({
+                workKey: result.item.id,
+                files: [...result.item.files],
+                findings: extractFindings(result.result),
+                providerResults: result.result,
+              });
+            }
           }
           // Use partial success: proceed if at least some batches succeeded
           // Even if ALL batches failed, continue with AST/security analysis

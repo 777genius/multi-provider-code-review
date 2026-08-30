@@ -32494,6 +32494,11 @@ function sameSemanticLineage(existing, candidate) {
   const candidateLine = candidate.line ?? 0;
   const lineDistance = Math.abs(existingLine - candidateLine);
   const nearbyLine = lineDistance <= MAX_NEARBY_LINE_DISTANCE;
+  const existingSuggestedFix = extractSuggestedFixSignature(existingBody);
+  const candidateSuggestedFix = extractSuggestedFixSignature(candidateBody);
+  if (nearbyLine && existingSuggestedFix !== null && existingSuggestedFix === candidateSuggestedFix) {
+    return true;
+  }
   const existingTitleTokens = tokenize2(extractTitle(existingBody));
   const candidateTitleTokens = tokenize2(extractTitle(candidateBody));
   const titleSimilarity = diceSimilarity(
@@ -32573,6 +32578,15 @@ function stableFindingFingerprint(input) {
 function semanticText(body) {
   const issueBody = stripGeneratedFooter(body);
   return issueBody.replace(/```[\s\S]*?```/g, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/\*\*Severity:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\b(?:critical|major|minor)\b/gi, " ");
+}
+function extractSuggestedFixSignature(body) {
+  const match2 = body.match(
+    /<details>\s*<summary>Suggested fix<\/summary>[\s\S]*?```(?:diff|\w+)?\s*\n([\s\S]*?)```[\s\S]*?<\/details>/i
+  );
+  if (!match2?.[1]) return null;
+  const normalized = match2[1].replace(/\s+/g, " ").trim();
+  if (normalized.length < 40 || tokenize2(normalized).size < 4) return null;
+  return normalized;
 }
 function issueMessageText(body) {
   return semanticText(body).split("\n").filter(
@@ -46895,6 +46909,7 @@ var ReviewOrchestrator = class {
    */
   async executeReview(pr2) {
     const { config } = this.components;
+    const requireCompleteProviderCoverage = process.env.REQUIRE_COMPLETE_PROVIDER_COVERAGE === "true";
     this.tokenTelemetryTotals = {
       promptTokens: 0,
       completionTokens: 0,
@@ -46912,7 +46927,13 @@ var ReviewOrchestrator = class {
       lifecycleMode: configuredLifecycleMode
     });
     try {
-      progressTracker = await this.initProgressTracker(pr2, summaryMetadata);
+      if (requireCompleteProviderCoverage) {
+        logger.info(
+          "Progress comments are disabled while complete provider coverage is required"
+        );
+      } else {
+        progressTracker = await this.initProgressTracker(pr2, summaryMetadata);
+      }
       progressTracker?.addItem("graph", "Build code graph");
       progressTracker?.addItem("llm", "LLM review (batched)");
       progressTracker?.addItem("static", "Static analysis & rules");
@@ -47087,6 +47108,11 @@ var ReviewOrchestrator = class {
       const incrementalInvalidatedPaths = [...incrementalPlan.invalidatedPaths];
       const lastReviewData = incrementalPlan.lastReview;
       if (incrementalPlan.mode === "reuse_completed" /* ReuseCompleted */) {
+        if (requireCompleteProviderCoverage) {
+          throw new Error(
+            "Completed incremental snapshot cannot satisfy REQUIRE_COMPLETE_PROVIDER_COVERAGE because it has no provider batch coverage evidence"
+          );
+        }
         logger.info(
           "Completed snapshot matches the current revision; re-projecting live lifecycle state without provider execution or snapshot advancement"
         );
@@ -47335,6 +47361,12 @@ var ReviewOrchestrator = class {
               "No healthy providers available; failing because FAIL_ON_NO_HEALTHY_PROVIDERS=true"
             );
           }
+          if (requireCompleteProviderCoverage) {
+            const providerFailureSummary = this.formatProviderFailureSummary(allHealthResults);
+            throw new Error(
+              `Complete provider coverage is unavailable (healthy=${healthy.length}, required=${MIN_FALLBACK_HEALTHY}); failing because REQUIRE_COMPLETE_PROVIDER_COVERAGE=true. ${providerFailureSummary}`
+            );
+          }
           providerResults = allHealthResults;
           hasProviderCoverageGap = true;
           for (const file of filesToReview) {
@@ -47406,6 +47438,11 @@ var ReviewOrchestrator = class {
               );
               batches = batchOrchestrator.createBatches(prioritizedFiles, 1);
             }
+          }
+          if (requireCompleteProviderCoverage && filesToReview.length > 0 && batches.length === 0) {
+            throw new Error(
+              `Provider review coverage is incomplete because batching produced no work for ${filesToReview.length} file(s); failing because REQUIRE_COMPLETE_PROVIDER_COVERAGE=true`
+            );
           }
           const batchPlan = createReviewBatchPlan({
             batches,
@@ -47555,7 +47592,7 @@ var ReviewOrchestrator = class {
                   requiredHealthyProviders,
                   scopedResults
                 );
-                if (checkpointSession && !requiredFailure && this.hasCompleteProviderCheckpointCoverage(
+                if (checkpointSession && !requireCompleteProviderCoverage && !requiredFailure && this.hasCompleteProviderCheckpointCoverage(
                   healthy,
                   scopedResults
                 )) {
@@ -47721,6 +47758,23 @@ var ReviewOrchestrator = class {
           await this.recordReliability(mergedResults);
           if (requiredProviderFailures.length > 0) {
             throw requiredProviderFailures[0];
+          }
+          if (requireCompleteProviderCoverage && hasProviderCoverageGap) {
+            const providerFailureSummary = this.formatProviderFailureSummary(mergedResults);
+            throw new Error(
+              `Provider review coverage is incomplete (${batchFailures} failed batch(es), ${batchSuccesses} batch(es) with successful output, ${batches.length} planned); failing because REQUIRE_COMPLETE_PROVIDER_COVERAGE=true. ${providerFailureSummary}`
+            );
+          }
+          if (checkpointSession && requireCompleteProviderCoverage) {
+            for (const result2 of scheduled.completed) {
+              if (result2.status !== "fulfilled" /* Fulfilled */) continue;
+              await checkpointSession.commitSuccessfulBatch({
+                workKey: result2.item.id,
+                files: [...result2.item.files],
+                findings: extractFindings(result2.result),
+                providerResults: result2.result
+              });
+            }
           }
           if (batchFailures > 0) {
             if (batchSuccesses === 0) {
