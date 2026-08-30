@@ -125,6 +125,14 @@ describe('applyControlPlaneRuntimeConfig', () => {
       expectedTimeout: '1200',
     },
     {
+      name: 'a blank authoritative server timeout',
+      initialTimeout: undefined,
+      runtimeTimeout: '  ',
+      model: 'gpt-5.6-sol',
+      effort: 'ultra',
+      expectedTimeout: '  ',
+    },
+    {
       name: 'another model',
       initialTimeout: undefined,
       runtimeTimeout: undefined,
@@ -150,7 +158,7 @@ describe('applyControlPlaneRuntimeConfig', () => {
     const runtimeEnv = {
       CODEX_MODEL: testCase.model,
       CODEX_REASONING_EFFORT: testCase.effort,
-      ...(testCase.runtimeTimeout
+      ...(testCase.runtimeTimeout !== undefined
         ? { RUN_TIMEOUT_SECONDS: testCase.runtimeTimeout }
         : {}),
     };
