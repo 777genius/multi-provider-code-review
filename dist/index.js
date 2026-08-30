@@ -51224,9 +51224,10 @@ function resolveProviderCliPlan(env = process.env) {
     providerHints,
     "openrouter"
   );
+  const legacyCodexOauthRequested = !authMode && codexProviderRequested && env.CODEX_AUTH_JSON_PRESENT?.trim() === "1";
   return {
     codexCliNeeded: authMode === "codex-oauth" || authMode === "openai-api" || authMode === "openrouter-api" || codexProviderRequested || openRouterProviderRequested,
-    codexOauthNeeded: authMode === "codex-oauth",
+    codexOauthNeeded: authMode === "codex-oauth" || legacyCodexOauthRequested,
     claudeCliNeeded: authMode === "claude-oauth" || hasProviderPrefix(providerHints, "claude")
   };
 }

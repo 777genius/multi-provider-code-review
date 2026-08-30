@@ -27,6 +27,10 @@ export function resolveProviderCliPlan(
     providerHints,
     'openrouter'
   );
+  const legacyCodexOauthRequested =
+    !authMode &&
+    codexProviderRequested &&
+    env.CODEX_AUTH_JSON_PRESENT?.trim() === '1';
 
   return {
     codexCliNeeded:
@@ -35,7 +39,7 @@ export function resolveProviderCliPlan(
       authMode === 'openrouter-api' ||
       codexProviderRequested ||
       openRouterProviderRequested,
-    codexOauthNeeded: authMode === 'codex-oauth',
+    codexOauthNeeded: authMode === 'codex-oauth' || legacyCodexOauthRequested,
     claudeCliNeeded:
       authMode === 'claude-oauth' || hasProviderPrefix(providerHints, 'claude'),
   };
