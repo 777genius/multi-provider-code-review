@@ -12,6 +12,11 @@ const INLINE_MARKER_RE_GLOBAL =
   /<!--\s*(?:review-router|ai-robot-review)-inline:([a-f0-9]{16})\s*-->/gi;
 const MAX_NEARBY_LINE_DISTANCE = 12;
 
+declare const findingFingerprintBrand: unique symbol;
+export type FindingFingerprint = string & {
+  readonly [findingFingerprintBrand]: true;
+};
+
 export interface InlineCommentReference {
   path: string | undefined;
   line: number | null | undefined;
@@ -69,10 +74,12 @@ export function extractInlineFingerprint(body?: string | null): string | null {
   return match?.[1]?.toLowerCase() ?? null;
 }
 
-export function extractFindingFingerprint(body?: string | null): string | null {
+export function extractFindingFingerprint(
+  body?: string | null
+): FindingFingerprint | null {
   const parsed = parseFindingMarker(body);
   return parsed.kind === FindingMarkerParseKind.Valid
-    ? parsed.fingerprint
+    ? (parsed.fingerprint as FindingFingerprint)
     : null;
 }
 
@@ -161,6 +168,20 @@ export function isLikelySameInlineFinding(
   const existingBody = stripInlineFingerprintMarkers(existing.body);
   const candidateBody = stripInlineFingerprintMarkers(candidate.body);
 
+  // Never let an older, lower-severity comment hide a newly escalated
+  // finding. A downgrade may still reuse the existing thread, but an
+  // escalation must remain visible even when the model describes the same
+  // issue with nearly identical wording.
+  const existingSeverity = extractSeverity(existingBody);
+  const candidateSeverity = extractSeverity(candidateBody);
+  if (
+    candidateSeverity &&
+    (!existingSeverity ||
+      severityRank(candidateSeverity) > severityRank(existingSeverity))
+  ) {
+    return false;
+  }
+
   const existingLine = existing.line ?? 0;
   const candidateLine = candidate.line ?? 0;
   const lineDistance = Math.abs(existingLine - candidateLine);
@@ -190,6 +211,19 @@ export function isLikelySameInlineFinding(
 
   // Allow larger line shifts only when the model is clearly repeating the same issue.
   return titleSimilarity >= 0.6 && bodySimilarity >= 0.55;
+}
+
+function severityRank(severity: string): number {
+  switch (severity.toLowerCase()) {
+    case 'critical':
+      return 3;
+    case 'major':
+      return 2;
+    case 'minor':
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 function normalizeForSignature(value: string): string {
@@ -258,7 +292,7 @@ function semanticText(body: string): string {
 function tokenize(value: string): Set<string> {
   const normalized = splitIdentifiers(value)
     .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, ' ');
+    .replace(/[^\p{L}\p{N}_]+/gu, ' ');
   const tokens = normalized
     .split(/\s+/)
     .map((token) => token.trim())

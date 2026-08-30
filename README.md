@@ -304,22 +304,23 @@ This token is not used to post comments. Review comments and summaries still use
 
 ## Important Inputs
 
-| Input                             | Default | Notes                                                                                                      |
-| --------------------------------- | ------: | ---------------------------------------------------------------------------------------------------------- |
-| `CODEX_MODEL`                     |   empty | Codex model id, for example `gpt-5.6-sol`.                                                                 |
-| `CLAUDE_MODEL`                    |   empty | Claude Code model alias/id, for example `sonnet`.                                                          |
-| `CODEX_REASONING_EFFORT`          |   empty | Codex effort for review runs, for example `medium`.                                                        |
-| `CODEX_AGENTIC_CONTEXT`           |  `true` | Lets Codex inspect related files in read-only mode.                                                        |
-| `INLINE_MAX_COMMENTS`             |     `5` | Caps inline comment noise.                                                                                 |
-| `INLINE_MIN_SEVERITY`             | `major` | Controls which findings become inline comments.                                                            |
-| `MIN_CONFIDENCE`                  |   empty | Optional confidence threshold for inline suggestions.                                                      |
-| `FAIL_ON_CRITICAL`                |  `true` | Fails the check on critical findings.                                                                      |
-| `FAIL_ON_MAJOR`                   | `false` | Set `true` to block PRs on major findings.                                                                 |
-| `UPDATE_PR_DESCRIPTION`           |  `true` | Adds or updates only the generated ReviewRouter block.                                                     |
-| `REVIEW_ROUTER_PROGRESS_COMMENTS` | `first` | `first` shows progress until a ReviewRouter result exists; use `true` for every run or `false` to disable. |
-| `SMART_DIFF_COMPACTION`           |  `true` | Summarizes oversized/generated diffs before prompt construction.                                           |
-| `GRAPH_ENABLED`                   | `false` | Optional code graph context. Keep off until validated for your repo.                                       |
-| `LEARNING_ENABLED`                | `false` | Experimental feedback-learning path.                                                                       |
+| Input                             |    Default | Notes                                                                                                      |
+| --------------------------------- | ---------: | ---------------------------------------------------------------------------------------------------------- |
+| `CODEX_MODEL`                     |      empty | Codex model id, for example `gpt-5.6-sol`.                                                                 |
+| `CLAUDE_MODEL`                    |      empty | Claude Code model alias/id, for example `sonnet`.                                                          |
+| `CODEX_REASONING_EFFORT`          |      empty | Codex effort for review runs, for example `medium`.                                                        |
+| `CODEX_AGENTIC_CONTEXT`           |     `true` | Lets Codex inspect related files in read-only mode.                                                        |
+| `REVIEW_FOCUS_PROFILE`            | `standard` | Use `critical` for a mandatory Critical-first risk pass while retaining valid Major and Minor findings.    |
+| `INLINE_MAX_COMMENTS`             |        `5` | Caps inline comment noise.                                                                                 |
+| `INLINE_MIN_SEVERITY`             |    `major` | Controls which findings become inline comments.                                                            |
+| `MIN_CONFIDENCE`                  |      empty | Optional confidence threshold for inline suggestions.                                                      |
+| `FAIL_ON_CRITICAL`                |     `true` | Fails the check on critical findings.                                                                      |
+| `FAIL_ON_MAJOR`                   |    `false` | Set `true` to block PRs on major findings.                                                                 |
+| `UPDATE_PR_DESCRIPTION`           |     `true` | Adds or updates only the generated ReviewRouter block.                                                     |
+| `REVIEW_ROUTER_PROGRESS_COMMENTS` |    `first` | `first` shows progress until a ReviewRouter result exists; use `true` for every run or `false` to disable. |
+| `SMART_DIFF_COMPACTION`           |     `true` | Summarizes oversized/generated diffs before prompt construction.                                           |
+| `GRAPH_ENABLED`                   |    `false` | Optional code graph context. Keep off until validated for your repo.                                       |
+| `LEARNING_ENABLED`                |    `false` | Experimental feedback-learning path.                                                                       |
 
 ## Review Scope And Limits
 

@@ -127,14 +127,23 @@ class ShardedStubPRLoader extends StubPRLoader {
 class StubCommentPoster {
   postedSummary: string | null = null;
   postedInline: any[] = [];
+  inlinePublication: unknown = null;
   clearedSummaries = false;
   async postSummary(_pr: number, body: string): Promise<void> {
     void _pr;
     this.postedSummary = body;
   }
-  async postInline(_pr: number, comments: any[]): Promise<void> {
+  async postInline(
+    _pr: number,
+    comments: any[],
+    _files?: unknown,
+    _headSha?: string,
+    _dedupeComments?: unknown,
+    publication?: unknown
+  ): Promise<void> {
     void _pr;
     this.postedInline = comments;
+    this.inlinePublication = publication;
   }
   async deleteSummaryComments(): Promise<void> {
     this.clearedSummaries = true;
@@ -151,14 +160,18 @@ class NoopCache extends CacheManager {
 }
 
 class StubFeedbackFilter {
+  constructor(private readonly inventoryComplete = true) {}
+
   async loadSuppressed(): Promise<Set<string>> {
     return new Set();
   }
   async loadReviewCommentState(): Promise<{
+    inventoryComplete: boolean;
     suppressed: Set<string>;
     alreadyPosted: Set<string>;
   }> {
     return {
+      inventoryComplete: this.inventoryComplete,
       suppressed: new Set(),
       alreadyPosted: new Set(),
     };
@@ -312,7 +325,24 @@ describe('ReviewOrchestrator integration (offline)', () => {
     expect(commentPoster.postedInline.length).toBeGreaterThan(0);
     expect(commentPoster.postedSummary).toBeNull();
     expect(commentPoster.clearedSummaries).toBe(false);
+    expect(commentPoster.inlinePublication).toEqual({
+      mode: 'strict-inline-only',
+    });
     expect(updateDescription).not.toHaveBeenCalled();
+
+    const blockedPoster = new StubCommentPoster();
+    await expect(
+      new ReviewOrchestrator({
+        ...components,
+        commentPoster: blockedPoster as unknown as CommentPoster,
+        feedbackFilter: new StubFeedbackFilter(
+          false
+        ) as unknown as FeedbackFilter,
+      }).execute(1)
+    ).rejects.toThrow(
+      'Path-sharded inline publication requires a complete trusted review-comment inventory; refusing publication'
+    );
+    expect(blockedPoster.postedInline).toEqual([]);
   });
 
   it('replaces the progress comment with the final summary when findings are posted', async () => {
@@ -471,10 +501,12 @@ describe('ReviewOrchestrator integration (offline)', () => {
   it('filters duplicate inline comments before posting', async () => {
     class BlockingFeedbackFilter extends StubFeedbackFilter {
       async loadReviewCommentState(): Promise<{
+        inventoryComplete: boolean;
         suppressed: Set<string>;
         alreadyPosted: Set<string>;
       }> {
         return {
+          inventoryComplete: true,
           suppressed: new Set(),
           alreadyPosted: new Set(['existing-finding']),
         };

@@ -27,6 +27,9 @@ inputs:
     description: Allow same-repository draft review from pull_request_target.
     required: false
     default: "false"
+  review-focus-profile:
+    description: Review focus profile. Use critical for a mandatory Critical-first risk pass.
+    required: false
   max-changed-lines:
     description: Skip review when additions plus deletions exceed this value. Zero disables the limit.
     required: false

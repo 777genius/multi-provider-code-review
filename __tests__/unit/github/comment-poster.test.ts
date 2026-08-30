@@ -3,6 +3,10 @@ import { GitHubClient } from '../../../src/github/client';
 import { InlineComment, FileChange } from '../../../src/types';
 import { logger } from '../../../src/utils/logger';
 import { appendReviewSummaryMetadata } from '../../../src/github/summary-metadata';
+import {
+  findingFingerprintFromInlineComment,
+  findingFingerprintMarker,
+} from '../../../src/github/comment-fingerprint';
 
 jest.mock('../../../src/utils/logger', () => ({
   logger: {
@@ -47,6 +51,13 @@ describe('CommentPoster', () => {
       repo: 'test-repo',
     } as any;
   });
+
+  function expectNoSharedIssueCommentAccess(): void {
+    expect(mockOctokit.rest.issues.listComments).not.toHaveBeenCalled();
+    expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
+    expect(mockOctokit.rest.issues.updateComment).not.toHaveBeenCalled();
+    expect(mockOctokit.rest.issues.deleteComment).not.toHaveBeenCalled();
+  }
 
   describe('Normal Mode', () => {
     it('posts summary comment', async () => {
@@ -467,6 +478,7 @@ describe('CommentPoster', () => {
       mockOctokit.paginate.mockResolvedValue([
         {
           id: 1,
+          user: { login: 'review-router-ai[bot]' },
           path: 'src/users.js',
           line: 10,
           body: '**🔴 Critical - SQL injection**\n\nThe email value is inserted directly into the SQL string.\n\n<!-- review-router-inline:legacy -->',
@@ -515,6 +527,7 @@ describe('CommentPoster', () => {
       mockOctokit.paginate.mockResolvedValue([
         {
           id: 1,
+          user: { login: 'review-router-ai[bot]' },
           path: 'src/users.js',
           line: 10,
           body: '**🔴 Critical - SQL injection**\n\nThe email value is inserted directly into the SQL string.\n\n<!-- ai-robot-review-inline:0123456789abcdef -->',
@@ -547,21 +560,195 @@ describe('CommentPoster', () => {
       expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
     });
 
-    it('skips semantic duplicate inline comments after small line shifts and model rewrites', async () => {
+    it('posts distinct v2 findings at the same location and severity', async () => {
+      const existingBody =
+        '**🟡 Major - Null cache entry crashes startup**\n\nDereferencing `cacheEntry` throws before the fallback runs.';
       mockOctokit.paginate.mockResolvedValue([
         {
           id: 1,
+          user: { login: 'review-router-ai[bot]' },
+          path: 'src/test.ts',
+          line: 10,
+          body: `${existingBody}\n\n${findingFingerprintMarker(
+            findingFingerprintFromInlineComment('src/test.ts', 10, existingBody)
+          )}`,
+        },
+      ]);
+
+      const poster = new CommentPoster(mockClient, false);
+      await poster.postInline(
+        123,
+        [
+          {
+            path: 'src/test.ts',
+            line: 10,
+            side: 'RIGHT',
+            severity: 'major',
+            body: '**🟡 Major - Audit export exhausts memory**\n\nLoading every audit row into one array can terminate the worker.',
+          },
+        ],
+        [
+          {
+            filename: 'src/test.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+            patch: '@@ -9,0 +10 @@\n+changed',
+          },
+        ]
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips an exact v2 finding duplicate', async () => {
+      const body =
+        '**🟡 Major - Null cache entry crashes startup**\n\nDereferencing `cacheEntry` throws before the fallback runs.';
+      mockOctokit.paginate.mockResolvedValue([
+        {
+          id: 1,
+          user: { login: 'review-router-ai[bot]' },
+          path: 'src/test.ts',
+          line: 10,
+          body: `${body}\n\n${findingFingerprintMarker(
+            findingFingerprintFromInlineComment('src/test.ts', 10, body)
+          )}`,
+        },
+      ]);
+
+      const poster = new CommentPoster(mockClient, false);
+      await poster.postInline(
+        123,
+        [
+          {
+            path: 'src/test.ts',
+            line: 10,
+            side: 'RIGHT',
+            severity: 'major',
+            body,
+          },
+        ],
+        [
+          {
+            filename: 'src/test.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+            patch: '@@ -9,0 +10 @@\n+changed',
+          },
+        ]
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['an untrusted author', { login: 'mallory' }],
+      ['a missing author', undefined],
+    ])(
+      'does not suppress a finding from a forged marker posted by %s',
+      async (_label, user) => {
+        const body =
+          '**🟡 Major - Null cache entry crashes startup**\n\nDereferencing `cacheEntry` throws before the fallback runs.';
+        mockOctokit.paginate.mockResolvedValue([
+          {
+            id: 1,
+            user,
+            path: 'src/test.ts',
+            line: 10,
+            body: `${body}\n\n${findingFingerprintMarker(
+              findingFingerprintFromInlineComment('src/test.ts', 10, body)
+            )}`,
+          },
+        ]);
+
+        const poster = new CommentPoster(mockClient, false);
+        await poster.postInline(
+          123,
+          [
+            {
+              path: 'src/test.ts',
+              line: 10,
+              side: 'RIGHT',
+              severity: 'major',
+              body,
+            },
+          ],
+          [
+            {
+              filename: 'src/test.ts',
+              status: 'modified',
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+              patch: '@@ -9,0 +10 @@\n+changed',
+            },
+          ]
+        );
+
+        expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('fails closed without mutation when trusted inline inventory cannot be loaded', async () => {
+      mockOctokit.paginate.mockRejectedValue(new Error('inventory timeout'));
+      const poster = new CommentPoster(mockClient, false);
+
+      await expect(
+        poster.postInline(
+          123,
+          [
+            {
+              path: 'src/test.ts',
+              line: 10,
+              side: 'RIGHT',
+              severity: 'major',
+              body: '**🟡 Major - Test finding**\n\nBody',
+            },
+          ],
+          [
+            {
+              filename: 'src/test.ts',
+              status: 'modified',
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+              patch: '@@ -9,0 +10 @@\n+changed',
+            },
+          ]
+        )
+      ).rejects.toThrow(
+        'Failed to load trusted inline comment inventory; refusing publication'
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.createReviewComment).not.toHaveBeenCalled();
+      expectNoSharedIssueCommentAccess();
+    });
+
+    it('skips semantic duplicate inline comments after small line shifts and model rewrites', async () => {
+      const existingBody = [
+        '**🟡 Major - Deep links to hidden paid chats spin forever**',
+        '',
+        '**Severity:** 🟡 **Major** - should fix before merge; correctness risk.',
+        '',
+        'When `hidePaidFeaturesInfo` is true, this branch removes every inaccessible course from `courseItems`, so a direct chat link can keep waiting forever.',
+      ].join('\n');
+      mockOctokit.paginate.mockResolvedValue([
+        {
+          id: 1,
+          user: { login: 'review-router-ai[bot]' },
           path: 'lib/app/chat/chats_page.dart',
           line: 52,
-          body: [
-            '**🟡 Major - Deep links to hidden paid chats spin forever**',
-            '',
-            '**Severity:** 🟡 **Major** - should fix before merge; correctness risk.',
-            '',
-            'When `hidePaidFeaturesInfo` is true, this branch removes every inaccessible course from `courseItems`, so a direct chat link can keep waiting forever.',
-            '',
-            '<!-- review-router-inline:legacy -->',
-          ].join('\n'),
+          body: `${existingBody}\n\n${findingFingerprintMarker(
+            findingFingerprintFromInlineComment(
+              'lib/app/chat/chats_page.dart',
+              52,
+              existingBody
+            )
+          )}`,
         },
       ]);
 
@@ -611,6 +798,7 @@ describe('CommentPoster', () => {
       mockOctokit.paginate.mockResolvedValue([
         {
           id: 1,
+          user: { login: 'review-router-ai[bot]' },
           path: 'src/users.js',
           line: 6,
           body: [
@@ -671,6 +859,7 @@ describe('CommentPoster', () => {
       mockOctokit.paginate.mockResolvedValue([
         {
           id: 1,
+          user: { login: 'review-router-ai[bot]' },
           path: 'src/test.ts',
           line: null,
           original_line: 10,
@@ -707,6 +896,7 @@ describe('CommentPoster', () => {
       mockOctokit.paginate.mockResolvedValue([
         {
           id: 1,
+          user: { login: 'review-router-ai[bot]' },
           path: 'src/test.ts',
           line: 10,
           body: '**🟡 Major - SQL injection**\n\nUse parameterized queries.',
@@ -955,6 +1145,230 @@ describe('CommentPoster', () => {
       });
       expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
       expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+
+    it('does not inspect shared fallbacks for zero findings in strict inline-only mode', async () => {
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(123, [], [], 'head-sha', undefined, {
+        mode: 'strict-inline-only',
+      });
+
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+      expectNoSharedIssueCommentAccess();
+    });
+
+    it('does not inspect shared fallbacks after a successful strict inline batch', async () => {
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(
+        123,
+        [
+          {
+            path: 'src/test.ts',
+            line: 10,
+            side: 'RIGHT',
+            severity: 'major',
+            body: '**🟡 Major - Test finding**\n\nBody',
+          },
+        ],
+        [
+          {
+            filename: 'src/test.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+            patch: '@@ -9,0 +10 @@\n+changed',
+          },
+        ],
+        'head-sha',
+        undefined,
+        { mode: 'strict-inline-only' }
+      );
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+      expectNoSharedIssueCommentAccess();
+    });
+
+    it('retries a rejected strict inline batch individually without shared fallback access', async () => {
+      const error = new Error('Validation Failed') as Error & {
+        status: number;
+      };
+      error.status = 422;
+      mockOctokit.rest.pulls.createReview.mockRejectedValue(error);
+      const poster = new CommentPoster(mockClient, false);
+
+      await poster.postInline(
+        123,
+        [
+          {
+            path: 'src/test.ts',
+            line: 10,
+            side: 'RIGHT',
+            severity: 'major',
+            body: '**🟡 Major - Test finding**\n\nBody',
+          },
+        ],
+        [
+          {
+            filename: 'src/test.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+            patch: '@@ -9,0 +10 @@\n+changed',
+          },
+        ],
+        'head-sha',
+        undefined,
+        { mode: 'strict-inline-only' }
+      );
+
+      expect(mockOctokit.rest.pulls.createReviewComment).toHaveBeenCalledTimes(
+        1
+      );
+      expectNoSharedIssueCommentAccess();
+    });
+
+    it('fails rejected strict individual publication without creating a shared fallback', async () => {
+      const error = new Error('Validation Failed') as Error & {
+        status: number;
+      };
+      error.status = 422;
+      mockOctokit.rest.pulls.createReview.mockRejectedValue(error);
+      mockOctokit.rest.pulls.createReviewComment.mockRejectedValue(error);
+      const poster = new CommentPoster(mockClient, false);
+
+      await expect(
+        poster.postInline(
+          123,
+          [
+            {
+              path: 'src/test.ts',
+              line: 10,
+              side: 'RIGHT',
+              severity: 'major',
+              body: '**🟡 Major - Test finding**\n\nBody',
+            },
+          ],
+          [
+            {
+              filename: 'src/test.ts',
+              status: 'modified',
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+              patch: '@@ -9,0 +10 @@\n+changed',
+            },
+          ],
+          'head-sha',
+          undefined,
+          { mode: 'strict-inline-only' }
+        )
+      ).rejects.toThrow(
+        'Strict inline-only publication left 1/1 finding(s) unpublished after GitHub rejected batch and individual inline comment APIs'
+      );
+      expect(mockOctokit.rest.pulls.createReviewComment).toHaveBeenCalledTimes(
+        1
+      );
+      expectNoSharedIssueCommentAccess();
+    });
+
+    it.each([
+      [
+        'a 500 response',
+        Object.assign(new Error('server failed'), { status: 500 }),
+      ],
+      ['a timeout', new Error('request timed out')],
+    ])(
+      'does not blindly retry or fallback after an ambiguous batch mutation result: %s',
+      async (_label, error) => {
+        mockOctokit.rest.pulls.createReview.mockRejectedValue(error);
+        const poster = new CommentPoster(mockClient, false);
+
+        await expect(
+          poster.postInline(
+            123,
+            [
+              {
+                path: 'src/test.ts',
+                line: 10,
+                side: 'RIGHT',
+                severity: 'major',
+                body: '**🟡 Major - Test finding**\n\nBody',
+              },
+            ],
+            [
+              {
+                filename: 'src/test.ts',
+                status: 'modified',
+                additions: 1,
+                deletions: 0,
+                changes: 1,
+                patch: '@@ -9,0 +10 @@\n+changed',
+              },
+            ],
+            'head-sha',
+            undefined,
+            { mode: 'strict-inline-only' }
+          )
+        ).rejects.toBe(error);
+
+        expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+        expect(
+          mockOctokit.rest.pulls.createReviewComment
+        ).not.toHaveBeenCalled();
+        expectNoSharedIssueCommentAccess();
+      }
+    );
+
+    it('does not blindly retry or fallback after an ambiguous individual mutation result', async () => {
+      const batchError = Object.assign(new Error('Validation Failed'), {
+        status: 422,
+      });
+      const individualError = Object.assign(new Error('server failed'), {
+        status: 500,
+      });
+      mockOctokit.rest.pulls.createReview.mockRejectedValue(batchError);
+      mockOctokit.rest.pulls.createReviewComment.mockRejectedValue(
+        individualError
+      );
+      const poster = new CommentPoster(mockClient, false);
+
+      await expect(
+        poster.postInline(
+          123,
+          [
+            {
+              path: 'src/test.ts',
+              line: 10,
+              side: 'RIGHT',
+              severity: 'major',
+              body: '**🟡 Major - Test finding**\n\nBody',
+            },
+          ],
+          [
+            {
+              filename: 'src/test.ts',
+              status: 'modified',
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+              patch: '@@ -9,0 +10 @@\n+changed',
+            },
+          ],
+          'head-sha',
+          undefined,
+          { mode: 'strict-inline-only' }
+        )
+      ).rejects.toBe(individualError);
+
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.rest.pulls.createReviewComment).toHaveBeenCalledTimes(
+        1
+      );
+      expectNoSharedIssueCommentAccess();
     });
 
     it('retries individual inline comments without committable suggestion before PR-comment fallback', async () => {

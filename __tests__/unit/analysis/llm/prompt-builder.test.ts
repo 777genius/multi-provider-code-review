@@ -1,5 +1,5 @@
 import { PromptBuilder } from '../../../../src/analysis/llm/prompt-builder';
-import { PRContext } from '../../../../src/types';
+import { PRContext, ReviewFocusProfile } from '../../../../src/types';
 import { DEFAULT_CONFIG } from '../../../../src/config/defaults';
 
 describe('PromptBuilder', () => {
@@ -42,6 +42,41 @@ describe('PromptBuilder', () => {
       const prompt = await builder.build(mockPR);
 
       expect(prompt).not.toContain('OUTPUT LANGUAGE:');
+    });
+
+    it('keeps the prompt unchanged when the focus profile is omitted or standard', async () => {
+      const configWithoutFocus = { ...DEFAULT_CONFIG };
+      delete configWithoutFocus.reviewFocusProfile;
+
+      const defaultPrompt = await new PromptBuilder(configWithoutFocus).build(
+        mockPR
+      );
+      const standardPrompt = await new PromptBuilder({
+        ...DEFAULT_CONFIG,
+        reviewFocusProfile: ReviewFocusProfile.Standard,
+      }).build(mockPR);
+
+      expect(standardPrompt).toBe(defaultPrompt);
+      expect(defaultPrompt).not.toContain('MANDATORY CRITICAL-FIRST PASS');
+    });
+
+    it('adds the mandatory Critical-first pass without suppressing lower severities', async () => {
+      const prompt = await new PromptBuilder({
+        ...DEFAULT_CONFIG,
+        reviewFocusProfile: ReviewFocusProfile.Critical,
+      }).build(mockPR);
+
+      expect(prompt).toContain('MANDATORY CRITICAL-FIRST PASS');
+      expect(prompt).toContain('authentication/authorization');
+      expect(prompt).toContain('secret exposure');
+      expect(prompt).toContain('RCE');
+      expect(prompt).toContain('Data loss or corruption');
+      expect(prompt).toContain('exactly-once guarantees');
+      expect(prompt).toContain('billing correctness');
+      expect(prompt).toContain('Recovery, availability, deployment, rollback');
+      expect(prompt).toContain('tenant-isolation failures');
+      expect(prompt).toContain('report valid Major and Minor findings');
+      expect(prompt).toContain('do not inflate severity');
     });
 
     it('does not add a directive when the language is an English alias', async () => {

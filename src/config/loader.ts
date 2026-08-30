@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import { ReviewConfig, ReviewDepth } from '../types';
+import { ReviewConfig, ReviewDepth, ReviewFocusProfile } from '../types';
 import { DEFAULT_CONFIG } from './defaults';
 import { ReviewConfigSchema, ReviewConfigFile } from './schema';
 import { validateConfig, ValidationError } from '../utils/validation';
@@ -85,6 +85,9 @@ export class ConfigLoader {
 
     return {
       reviewDepth: this.parseReviewDepth(env.REVIEW_DEPTH),
+      reviewFocusProfile: this.parseReviewFocusProfile(
+        env.REVIEW_FOCUS_PROFILE
+      ),
       providers,
       synthesisModel:
         env.SYNTHESIS_MODEL ||
@@ -195,6 +198,7 @@ export class ConfigLoader {
   ): Partial<ReviewConfig> {
     return {
       reviewDepth: config.review_depth,
+      reviewFocusProfile: config.review_focus_profile,
       providers: config.providers,
       synthesisModel: config.synthesis_model,
       outputLanguage: config.output_language,
@@ -327,6 +331,24 @@ export class ConfigLoader {
           'REVIEW_DEPTH has invalid value',
           'REVIEW_DEPTH',
           `Expected one of: ${Object.values(ReviewDepth).join(', ')}`
+        );
+    }
+  }
+
+  private static parseReviewFocusProfile(
+    value?: string
+  ): ReviewFocusProfile | undefined {
+    if (value === undefined || value.trim().length === 0) return undefined;
+    switch (value.trim()) {
+      case ReviewFocusProfile.Standard:
+        return ReviewFocusProfile.Standard;
+      case ReviewFocusProfile.Critical:
+        return ReviewFocusProfile.Critical;
+      default:
+        throw new ValidationError(
+          'REVIEW_FOCUS_PROFILE has invalid value',
+          'REVIEW_FOCUS_PROFILE',
+          `Expected one of: ${Object.values(ReviewFocusProfile).join(', ')}`
         );
     }
   }

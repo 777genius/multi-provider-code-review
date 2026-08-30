@@ -1,8 +1,9 @@
-import { ReviewConfig, ReviewDepth } from '../types';
+import { ReviewConfig, ReviewDepth, ReviewFocusProfile } from '../types';
 import { PREFERRED_OPENROUTER_FREE_MODELS } from '../providers/openrouter-models';
 
 export const DEFAULT_CONFIG: ReviewConfig = {
   reviewDepth: ReviewDepth.Balanced,
+  reviewFocusProfile: ReviewFocusProfile.Standard,
   // Empty array triggers dynamic model discovery.
   // OpenRouter discovery prefers concrete free tool-capable models and can
   // discover OpenCode CLI models as fallback.

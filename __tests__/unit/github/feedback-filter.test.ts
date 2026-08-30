@@ -2,6 +2,7 @@ import { FeedbackFilter } from '../../../src/github/feedback';
 import { GitHubClient } from '../../../src/github/client';
 import { InlineComment } from '../../../src/types';
 import {
+  findingFingerprintMarker,
   findingFingerprintFromInlineComment,
   fingerprintFromInlineComment,
 } from '../../../src/github/comment-fingerprint';
@@ -25,6 +26,9 @@ type MockOctokit = {
 };
 
 describe('FeedbackFilter', () => {
+  const trustedReviewRouterAuthor = {
+    user: { login: 'review-router-ai[bot]' },
+  };
   let feedbackFilter: FeedbackFilter;
   let mockClient: jest.Mocked<GitHubClient>;
   let mockOctokit: MockOctokit;
@@ -103,6 +107,7 @@ describe('FeedbackFilter', () => {
     it('tracks existing ReviewRouter inline comments without thumbs-down', async () => {
       mockOctokit.paginate.mockResolvedValue([
         {
+          ...trustedReviewRouterAuthor,
           id: 1,
           path: 'src/file.ts',
           line: 10,
@@ -135,6 +140,7 @@ describe('FeedbackFilter', () => {
     it('does not treat human review comments as already posted', async () => {
       mockOctokit.paginate.mockResolvedValue([
         {
+          user: { login: 'alice' },
           id: 1,
           path: 'src/file.ts',
           line: 10,
@@ -152,6 +158,39 @@ describe('FeedbackFilter', () => {
       expect(state.alreadyPosted.size).toBe(0);
     });
 
+    it.each([undefined, 'mallory'])(
+      '%s author cannot forge a dedup marker',
+      async (login) => {
+        const body =
+          '**🟡 Major - SQL injection**\n\nUse parameterized queries.';
+        const fingerprint = findingFingerprintFromInlineComment(
+          'src/file.ts',
+          10,
+          body
+        );
+        mockOctokit.paginate.mockResolvedValue([
+          {
+            id: 1,
+            path: 'src/file.ts',
+            line: 10,
+            body: `${body}\n\n${findingFingerprintMarker(fingerprint)}`,
+            ...(login ? { user: { login } } : {}),
+          },
+        ]);
+
+        const state = await feedbackFilter.loadReviewCommentState(123);
+
+        expect(state.inventoryComplete).toBe(true);
+        expect(state.alreadyPostedFindings?.size).toBe(0);
+        expect(
+          feedbackFilter.shouldPost(
+            { path: 'src/file.ts', line: 10, side: 'RIGHT', body },
+            state
+          )
+        ).toBe(true);
+      }
+    );
+
     it('uses hidden inline fingerprint markers for stable duplicate detection', async () => {
       const existingBody =
         '**🟡 Major - SQL injection**\n\nUse parameterized queries.';
@@ -162,6 +201,7 @@ describe('FeedbackFilter', () => {
       );
       mockOctokit.paginate.mockResolvedValue([
         {
+          ...trustedReviewRouterAuthor,
           id: 1,
           path: 'src/file.ts',
           line: 10,
@@ -193,6 +233,7 @@ describe('FeedbackFilter', () => {
     it('blocks duplicates when model rewrites the title for the same severity and line', async () => {
       mockOctokit.paginate.mockResolvedValue([
         {
+          ...trustedReviewRouterAuthor,
           id: 1,
           path: 'src/file.ts',
           line: 10,
@@ -220,9 +261,174 @@ describe('FeedbackFilter', () => {
       ).toBe(false);
     });
 
+    it('derives exact v2 identity for an unmarked synthesized duplicate', async () => {
+      const body =
+        '**🟡 Major - Null cache entry crashes startup**\n\nDereferencing `cacheEntry` throws before the fallback runs.';
+      const findingFingerprint = findingFingerprintFromInlineComment(
+        'src/file.ts',
+        10,
+        body
+      );
+      const markedBody = `${body}\n\n${findingFingerprintMarker(findingFingerprint)}`;
+      mockOctokit.paginate.mockResolvedValue([
+        {
+          ...trustedReviewRouterAuthor,
+          id: 1,
+          path: 'src/file.ts',
+          line: 10,
+          body: markedBody,
+        },
+      ]);
+
+      const state = await feedbackFilter.loadReviewCommentState(123);
+
+      expect(
+        feedbackFilter.shouldPost(
+          {
+            path: 'src/file.ts',
+            line: 10,
+            side: 'RIGHT',
+            body,
+          },
+          state
+        )
+      ).toBe(false);
+    });
+
+    it('does not let a coarse location key suppress distinct v2 findings', async () => {
+      const existingBody =
+        '**🟡 Major - Null cache entry crashes startup**\n\nDereferencing `cacheEntry` throws before the fallback runs.';
+      const candidateBody =
+        '**🟡 Major - Audit export exhausts memory**\n\nLoading every audit row into one array can terminate the worker.';
+      mockOctokit.paginate.mockResolvedValue([
+        {
+          ...trustedReviewRouterAuthor,
+          id: 1,
+          path: 'src/file.ts',
+          line: 10,
+          body: `${existingBody}\n\n${findingFingerprintMarker(
+            findingFingerprintFromInlineComment('src/file.ts', 10, existingBody)
+          )}`,
+        },
+      ]);
+
+      const state = await feedbackFilter.loadReviewCommentState(123);
+      expect(
+        feedbackFilter.shouldPost(
+          {
+            path: 'src/file.ts',
+            line: 10,
+            side: 'RIGHT',
+            body: candidateBody,
+          },
+          state
+        )
+      ).toBe(true);
+    });
+
+    it('keeps coarse compatibility for a markerless legacy comment', async () => {
+      mockOctokit.paginate.mockResolvedValue([
+        {
+          ...trustedReviewRouterAuthor,
+          id: 1,
+          path: 'src/file.ts',
+          line: 10,
+          body: '**🟡 Major - Legacy cache warning**\n\nOld diagnostic text.',
+        },
+      ]);
+
+      const state = await feedbackFilter.loadReviewCommentState(123);
+      const candidateBody =
+        '**🟡 Major - Distinct export warning**\n\nCompletely unrelated diagnostic text.';
+
+      expect(
+        feedbackFilter.shouldPost(
+          {
+            path: 'src/file.ts',
+            line: 10,
+            side: 'RIGHT',
+            body: candidateBody,
+          },
+          state
+        )
+      ).toBe(false);
+    });
+
+    it.each([
+      `reviewrouter:finding:v2:${'a'.repeat(23)}`,
+      `${findingFingerprintMarker('a'.repeat(24))}\n${findingFingerprintMarker(
+        'b'.repeat(24)
+      )}`,
+    ])(
+      'fails open for malformed or conflicting finding markers',
+      async (marker) => {
+        mockOctokit.paginate.mockResolvedValue([
+          {
+            ...trustedReviewRouterAuthor,
+            id: 1,
+            path: 'src/file.ts',
+            line: 10,
+            body: `**🟡 Major - Legacy cache warning**\n\nOld diagnostic text.\n\n${marker}`,
+          },
+        ]);
+
+        const state = await feedbackFilter.loadReviewCommentState(123);
+        const candidateBody =
+          '**🟡 Major - Distinct export warning**\n\nCompletely unrelated diagnostic text.';
+
+        expect(
+          feedbackFilter.shouldPost(
+            {
+              path: 'src/file.ts',
+              line: 10,
+              side: 'RIGHT',
+              body: candidateBody,
+            },
+            state
+          )
+        ).toBe(true);
+      }
+    );
+
+    it.each([
+      `reviewrouter:finding:v2:${'a'.repeat(23)}`,
+      `${findingFingerprintMarker('a'.repeat(24))}\n${findingFingerprintMarker(
+        'b'.repeat(24)
+      )}`,
+    ])('fails open for an invalid candidate marker', async (marker) => {
+      const body =
+        '**🟡 Major - Null cache entry crashes startup**\n\nDereferencing `cacheEntry` throws before the fallback runs.';
+      mockOctokit.paginate.mockResolvedValue([
+        {
+          ...trustedReviewRouterAuthor,
+          id: 1,
+          path: 'src/file.ts',
+          line: 10,
+          body: `${body}\n\n${findingFingerprintMarker(
+            findingFingerprintFromInlineComment('src/file.ts', 10, body)
+          )}`,
+        },
+      ]);
+
+      const state = await feedbackFilter.loadReviewCommentState(123);
+
+      expect(
+        feedbackFilter.shouldPost(
+          {
+            path: 'src/file.ts',
+            line: 10,
+            side: 'RIGHT',
+            body: `${body}\n\n${marker}`,
+          },
+          state
+        )
+      ).toBe(true);
+    });
+
     it('blocks semantic duplicates when the model shifts the line and rewrites the title', async () => {
       mockOctokit.paginate.mockResolvedValue([
         {
+          ...trustedReviewRouterAuthor,
           id: 1,
           path: 'lib/app/chat/chats_page.dart',
           line: 52,
@@ -261,6 +467,7 @@ describe('FeedbackFilter', () => {
     it('does not treat outdated ReviewRouter comments as already posted', async () => {
       mockOctokit.paginate.mockResolvedValue([
         {
+          ...trustedReviewRouterAuthor,
           id: 1,
           path: 'src/file.ts',
           line: null,
@@ -334,6 +541,7 @@ describe('FeedbackFilter', () => {
 
       mockOctokit.paginate.mockResolvedValue([
         {
+          ...trustedReviewRouterAuthor,
           id: 10,
           path: 'src/file.ts',
           line: 10,
@@ -540,6 +748,70 @@ describe('FeedbackFilter', () => {
       ).toBe(false);
     });
 
+    it('fails closed when the GitHub comment inventory fails while preserving ledger dismissals', async () => {
+      const body = '**🟡 Major - SQL injection**\n\nUse parameterized queries.';
+      const findingFingerprint = findingFingerprintFromInlineComment(
+        'src/file.ts',
+        10,
+        body
+      );
+      const ledger = {
+        load: jest.fn().mockResolvedValue({
+          valid: true,
+          payload: {
+            version: 1,
+            repo: 'test-owner/test-repo',
+            pr: 123,
+            entries: [],
+          },
+        }),
+        activeSkips: jest.fn().mockReturnValue([
+          {
+            action: 'skip',
+            fingerprint: findingFingerprint,
+            severity: 'major',
+            path: 'src/file.ts',
+            line: 10,
+            title: 'SQL injection',
+            body,
+            reason: 'validated false positive',
+            actor: 'maintainer',
+            actorRole: 'maintain',
+            parentCommentId: 10,
+            createdAt: '2026-05-01T00:00:00.000Z',
+          },
+        ]),
+      };
+      feedbackFilter = new FeedbackFilter(mockClient, undefined, ledger as any);
+      mockOctokit.paginate.mockRejectedValue(
+        new Error('review comment pagination failed')
+      );
+
+      const state = await feedbackFilter.loadReviewCommentState(123);
+
+      expect(state.inventoryComplete).toBe(false);
+      expect(state.inventoryFailure).toBe('review comment pagination failed');
+      expect(state.alreadyPosted.size).toBe(0);
+      expect(
+        feedbackFilter.shouldPost(
+          { path: 'src/another.ts', line: 20, side: 'RIGHT', body },
+          state
+        )
+      ).toBe(false);
+      expect(
+        feedbackFilter.isFindingCommandDismissed(
+          {
+            file: 'src/file.ts',
+            line: 10,
+            severity: 'major',
+            title: 'SQL injection',
+            message: 'Use parameterized queries.',
+          },
+          state
+        )
+      ).toBe(true);
+    });
+
     it('ignores invalid ledger state and keeps active duplicate suppression', async () => {
       const ledger = {
         load: jest.fn().mockResolvedValue({
@@ -557,6 +829,7 @@ describe('FeedbackFilter', () => {
       feedbackFilter = new FeedbackFilter(mockClient, undefined, ledger as any);
       mockOctokit.paginate.mockResolvedValue([
         {
+          ...trustedReviewRouterAuthor,
           id: 10,
           path: 'src/file.ts',
           line: 10,

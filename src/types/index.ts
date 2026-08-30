@@ -10,6 +10,10 @@ export enum ReviewDepth {
   Balanced = 'balanced',
   Thorough = 'thorough',
 }
+export enum ReviewFocusProfile {
+  Standard = 'standard',
+  Critical = 'critical',
+}
 export type LifecycleSeverity = Severity | 'unknown';
 export type LifecycleQuorumMode = 'single-provider' | 'multi-provider';
 export type LifecycleVerdict = 'resolved' | 'still_valid' | 'uncertain';
@@ -72,6 +76,7 @@ export type LifecycleReasonCode =
  */
 export interface ReviewConfig {
   reviewDepth: ReviewDepth;
+  reviewFocusProfile?: ReviewFocusProfile;
   providers: string[];
   synthesisModel: string;
   fallbackProviders: string[];

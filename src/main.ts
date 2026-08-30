@@ -157,6 +157,11 @@ function syncEnvFromInputs(): void {
       process.env[key] = value;
     }
   }
+
+  const reviewFocusProfile = core.getInput('review-focus-profile');
+  if (reviewFocusProfile && !process.env.REVIEW_FOCUS_PROFILE) {
+    process.env.REVIEW_FOCUS_PROFILE = reviewFocusProfile;
+  }
 }
 
 async function run(): Promise<void> {

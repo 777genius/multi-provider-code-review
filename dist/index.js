@@ -15112,6 +15112,11 @@ var ReviewDepth = /* @__PURE__ */ ((ReviewDepth2) => {
   ReviewDepth2["Thorough"] = "thorough";
   return ReviewDepth2;
 })(ReviewDepth || {});
+var ReviewFocusProfile = /* @__PURE__ */ ((ReviewFocusProfile2) => {
+  ReviewFocusProfile2["Standard"] = "standard";
+  ReviewFocusProfile2["Critical"] = "critical";
+  return ReviewFocusProfile2;
+})(ReviewFocusProfile || {});
 
 // src/utils/logger.ts
 var LEVELS = {
@@ -15211,6 +15216,7 @@ async function getBestFreeModelsCached(count = 4, timeoutMs = 5e3) {
 // src/config/defaults.ts
 var DEFAULT_CONFIG = {
   reviewDepth: "balanced" /* Balanced */,
+  reviewFocusProfile: "standard" /* Standard */,
   // Empty array triggers dynamic model discovery.
   // OpenRouter discovery prefers concrete free tool-capable models and can
   // discover OpenCode CLI models as fallback.
@@ -19443,6 +19449,7 @@ function isValidRegexPattern(pattern) {
 // src/config/schema.ts
 var ReviewConfigSchema = external_exports.object({
   review_depth: external_exports.nativeEnum(ReviewDepth).optional(),
+  review_focus_profile: external_exports.nativeEnum(ReviewFocusProfile).optional(),
   providers: external_exports.array(external_exports.string()).optional(),
   synthesis_model: external_exports.string().optional(),
   output_language: external_exports.string().max(60).optional(),
@@ -19825,6 +19832,9 @@ var ConfigLoader = class {
     const providers = explicitProviders.length > 0 ? explicitProviders : inferredProvider ? [inferredProvider] : void 0;
     return {
       reviewDepth: this.parseReviewDepth(env.REVIEW_DEPTH),
+      reviewFocusProfile: this.parseReviewFocusProfile(
+        env.REVIEW_FOCUS_PROFILE
+      ),
       providers,
       synthesisModel: env.SYNTHESIS_MODEL || (explicitProviders.length === 0 ? inferredProvider : void 0),
       fallbackProviders: this.parseArray(env.FALLBACK_PROVIDERS),
@@ -19918,6 +19928,7 @@ var ConfigLoader = class {
   static normalizeKeys(config) {
     return {
       reviewDepth: config.review_depth,
+      reviewFocusProfile: config.review_focus_profile,
       providers: config.providers,
       synthesisModel: config.synthesis_model,
       outputLanguage: config.output_language,
@@ -20039,6 +20050,21 @@ var ConfigLoader = class {
           "REVIEW_DEPTH has invalid value",
           "REVIEW_DEPTH",
           `Expected one of: ${Object.values(ReviewDepth).join(", ")}`
+        );
+    }
+  }
+  static parseReviewFocusProfile(value) {
+    if (value === void 0 || value.trim().length === 0) return void 0;
+    switch (value.trim()) {
+      case "standard" /* Standard */:
+        return "standard" /* Standard */;
+      case "critical" /* Critical */:
+        return "critical" /* Critical */;
+      default:
+        throw new ValidationError(
+          "REVIEW_FOCUS_PROFILE has invalid value",
+          "REVIEW_FOCUS_PROFILE",
+          `Expected one of: ${Object.values(ReviewFocusProfile).join(", ")}`
         );
     }
   }
@@ -27252,6 +27278,20 @@ var PromptBuilder = class {
       "   \u2022 Semantic inversions and dropped structured fields are bugs when existing callers depend on the previous meaning, even if the changed line is not directly user-facing",
       ""
     );
+    if (this.config.reviewFocusProfile === "critical" /* Critical */) {
+      pushShared(
+        "MANDATORY CRITICAL-FIRST PASS:",
+        "Before evaluating other findings, explicitly inspect changed code and reachable effects for:",
+        "   \u2022 Security, authentication/authorization, secret exposure, command injection, and RCE",
+        "   \u2022 Data loss or corruption, including destructive migrations and persistence failures",
+        "   \u2022 Concurrency, exactly-once guarantees, duplicate side effects, and billing correctness",
+        "   \u2022 Recovery, availability, deployment, rollback, and failure-path regressions",
+        "   \u2022 Privilege escalation, cross-tenant access, and tenant-isolation failures",
+        "Complete this pass even when it yields no Critical finding, then continue reviewing normally and report valid Major and Minor findings.",
+        "Assign Critical only for concrete, reachable impact that warrants it; do not inflate severity based on category alone.",
+        ""
+      );
+    }
     const outputLanguage = normalizeReviewOutputLanguage(
       this.config.outputLanguage
     );
@@ -32387,6 +32427,11 @@ function isLikelySameInlineFinding(existing, candidate) {
   if (!existingPath || existingPath !== candidatePath) return false;
   const existingBody = stripInlineFingerprintMarkers(existing.body);
   const candidateBody = stripInlineFingerprintMarkers(candidate.body);
+  const existingSeverity = extractSeverity(existingBody);
+  const candidateSeverity = extractSeverity(candidateBody);
+  if (candidateSeverity && (!existingSeverity || severityRank(candidateSeverity) > severityRank(existingSeverity))) {
+    return false;
+  }
   const existingLine = existing.line ?? 0;
   const candidateLine = candidate.line ?? 0;
   const lineDistance = Math.abs(existingLine - candidateLine);
@@ -32410,6 +32455,18 @@ function isLikelySameInlineFinding(existing, candidate) {
   if (nearbyLine && bodySimilarity >= 0.38) return true;
   if (nearbyLine && sharedCodeTokens > 0 && bodySimilarity >= 0.24) return true;
   return titleSimilarity >= 0.6 && bodySimilarity >= 0.55;
+}
+function severityRank(severity) {
+  switch (severity.toLowerCase()) {
+    case "critical":
+      return 3;
+    case "major":
+      return 2;
+    case "minor":
+      return 1;
+    default:
+      return 0;
+  }
 }
 function normalizeForSignature(value) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
@@ -32445,7 +32502,7 @@ function semanticText(body) {
   return body.replace(/```[\s\S]*?```/g, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/\*\*Severity:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, " ").replace(/\*\*Suggestion:\*\*[\s\S]*?(?:\n\n|$)/gi, " ");
 }
 function tokenize2(value) {
-  const normalized = splitIdentifiers(value).toLowerCase().replace(/[^a-z0-9_]+/g, " ");
+  const normalized = splitIdentifiers(value).toLowerCase().replace(/[^\p{L}\p{N}_]+/gu, " ");
   const tokens = normalized.split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 3 && !STOPWORDS.has(token));
   return new Set(tokens);
 }
@@ -32592,6 +32649,383 @@ function numberFromString(value) {
   return Number.isFinite(parsed) ? parsed : void 0;
 }
 
+// src/review-projection/domain/review-projection.ts
+var LifecycleRevalidationVerdict = /* @__PURE__ */ ((LifecycleRevalidationVerdict2) => {
+  LifecycleRevalidationVerdict2["Resolved"] = "resolved";
+  LifecycleRevalidationVerdict2["StillValid"] = "still_valid";
+  LifecycleRevalidationVerdict2["Uncertain"] = "uncertain";
+  return LifecycleRevalidationVerdict2;
+})(LifecycleRevalidationVerdict || {});
+
+// src/review-projection/domain/review-projection-canonicalizer.ts
+var import_crypto9 = require("crypto");
+function canonicalizeReviewProjection(envelope) {
+  return JSON.stringify(toCanonicalValue(envelope));
+}
+function hashReviewProjectionCanonicalJson(canonicalJson14) {
+  return (0, import_crypto9.createHash)("sha256").update(canonicalJson14, "utf8").digest("hex");
+}
+function hashProjectionFact(value) {
+  return (0, import_crypto9.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
+}
+function deepFreezeProjection(value) {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+  for (const child of Object.values(value)) {
+    deepFreezeProjection(child);
+  }
+  return Object.freeze(value);
+}
+function toCanonicalValue(value) {
+  if (value === null || typeof value !== "object") {
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error("review projection contains a non-finite number");
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(toCanonicalValue);
+  }
+  const canonical = {};
+  for (const key of Object.keys(value).sort()) {
+    const child = value[key];
+    if (child !== void 0) {
+      canonical[key] = toCanonicalValue(child);
+    }
+  }
+  return canonical;
+}
+
+// src/review-projection/domain/current-review-projector.ts
+var CurrentReviewProjector = class {
+  projectOccurrences(input) {
+    const occurrences = [];
+    const matchedLineages = /* @__PURE__ */ new Set();
+    for (const finding of input.selectedFindings) {
+      const hint = this.matchPriorLineage(finding, input.priorLineageHints);
+      const lineageId = hint?.lineageId ?? this.createLineageId(input.scope, finding);
+      if (hint) matchedLineages.add(hint.lineageId);
+      const target = this.findTargetForFinding(
+        finding,
+        input.inventory.targets
+      );
+      const suppressed = target?.disposition === "command_suppressed" /* CommandSuppressed */;
+      const state = suppressed ? "suppressed_by_human" /* SuppressedByHuman */ : hint ? hint.severity === finding.severity ? "reconfirmed" /* Reconfirmed */ : "changed" /* Changed */ : "new" /* New */;
+      occurrences.push({
+        lineageId,
+        sourceFindingIds: sortedUnique(finding.sourceFindingIds),
+        state,
+        severity: finding.severity,
+        ...hint && hint.severity !== finding.severity ? { previousSeverity: hint.severity } : {},
+        category: finding.category,
+        normalizedFailureModeHash: finding.normalizedFailureModeHash,
+        ...finding.symbolAnchor ? { symbolAnchor: finding.symbolAnchor } : {},
+        ...finding.trustedMarker ? { trustedMarker: finding.trustedMarker } : {},
+        title: finding.title,
+        message: finding.message,
+        ...finding.suggestion ? { suggestion: finding.suggestion } : {},
+        filePath: finding.filePath,
+        ...finding.startLine !== void 0 ? { startLine: finding.startLine } : {},
+        ...finding.line !== void 0 ? { line: finding.line } : {},
+        ...finding.endLine !== void 0 ? { endLine: finding.endLine } : {},
+        placement: summaryPlacement(lineageId, finding.filePath, "pending"),
+        providerVoteKeys: sortedUnique(finding.providerVoteKeys),
+        observationIds: sortedUnique(finding.observationIds),
+        firstSeenHeadSha: hint?.firstSeenHeadSha ?? input.scope.reviewedHeadSha,
+        sourceHeadSha: input.scope.reviewedHeadSha,
+        blocking: false
+      });
+    }
+    const decisionByTarget = new Map(
+      input.lifecycleDecisions.map((decision) => [decision.targetId, decision])
+    );
+    for (const hint of input.priorLineageHints) {
+      if (matchedLineages.has(hint.lineageId) || !hint.active) continue;
+      const target = this.findTargetForHint(hint, input.inventory.targets);
+      if (!target) continue;
+      const decision = decisionByTarget.get(target.targetId);
+      const state = this.priorOccurrenceState(target, decision?.verdict);
+      occurrences.push({
+        lineageId: hint.lineageId,
+        sourceFindingIds: [],
+        state,
+        severity: hint.severity,
+        category: hint.category,
+        normalizedFailureModeHash: hint.normalizedFailureModeHash,
+        ...hint.symbolAnchor ? { symbolAnchor: hint.symbolAnchor } : {},
+        ...hint.trustedMarker ? { trustedMarker: hint.trustedMarker } : {},
+        title: hint.title,
+        message: hint.message,
+        filePath: target.currentPath ?? hint.filePath,
+        ...hint.startLine !== void 0 ? { startLine: hint.startLine } : {},
+        ...target.currentLine !== void 0 ? { line: target.currentLine } : hint.line !== void 0 ? { line: hint.line } : {},
+        ...hint.endLine !== void 0 ? { endLine: hint.endLine } : {},
+        placement: summaryPlacement(
+          hint.lineageId,
+          target.currentPath ?? hint.filePath,
+          "historical occurrence"
+        ),
+        providerVoteKeys: [],
+        observationIds: [],
+        firstSeenHeadSha: hint.firstSeenHeadSha,
+        sourceHeadSha: input.scope.reviewedHeadSha,
+        blocking: false
+      });
+    }
+    return sortOccurrences(occurrences);
+  }
+  priorOccurrenceState(target, verdict) {
+    if (target.disposition === "command_suppressed" /* CommandSuppressed */) {
+      return "suppressed_by_human" /* SuppressedByHuman */;
+    }
+    if (hasValidTrustedResolutionMarker(target)) {
+      return "resolved" /* Resolved */;
+    }
+    if (target.disposition === "human_reply" /* HumanReply */) {
+      return "uncertain" /* Uncertain */;
+    }
+    if (verdict === "resolved" /* Resolved */) {
+      return "resolved" /* Resolved */;
+    }
+    if (verdict === "still_valid" /* StillValid */) {
+      return "carried_unverified" /* CarriedUnverified */;
+    }
+    return "uncertain" /* Uncertain */;
+  }
+  matchPriorLineage(finding, hints) {
+    const byMarker = finding.trustedMarker ? hints.filter(
+      (hint) => hint.trustedMarker === finding.trustedMarker && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash
+    ) : [];
+    if (byMarker.length === 1) return byMarker[0];
+    if (byMarker.length > 1) return void 0;
+    const byAnchor = hints.filter(
+      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && Boolean(hint.symbolAnchor) && hint.symbolAnchor === finding.symbolAnchor
+    );
+    if (byAnchor.length === 1) return byAnchor[0];
+    if (byAnchor.length > 1) return void 0;
+    const byLocation = hints.filter(
+      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && normalizePath(hint.filePath) === normalizePath(finding.filePath) && hint.line !== void 0 && finding.line !== void 0 && Math.abs(hint.line - finding.line) <= 2
+    );
+    return byLocation.length === 1 ? byLocation[0] : void 0;
+  }
+  findTargetForFinding(finding, targets) {
+    if (finding.trustedMarker) {
+      const markerMatches = targets.filter(
+        (target) => target.trustedMarker === finding.trustedMarker
+      );
+      if (markerMatches.length === 1) return markerMatches[0];
+    }
+    const locationMatches = targets.filter(
+      (target) => normalizePath(target.currentPath ?? target.originalPath) === normalizePath(finding.filePath) && target.currentLine !== void 0 && finding.line !== void 0 && Math.abs(target.currentLine - finding.line) <= 2
+    );
+    return locationMatches.length === 1 ? locationMatches[0] : void 0;
+  }
+  findTargetForHint(hint, targets) {
+    if (!hint.trustedMarker) return void 0;
+    const markerMatches = targets.filter(
+      (target) => target.trustedMarker === hint.trustedMarker
+    );
+    return markerMatches.length === 1 ? markerMatches[0] : void 0;
+  }
+  createLineageId(scope, finding) {
+    return `rrl_${hashProjectionFact({
+      scmRepositoryIdentityId: scope.scmRepositoryIdentityId,
+      pullRequestNumber: scope.pullRequestNumber,
+      category: finding.category,
+      normalizedFailureModeHash: finding.normalizedFailureModeHash,
+      symbolAnchor: finding.symbolAnchor ?? null,
+      firstSeenHeadSha: scope.reviewedHeadSha,
+      trustedMarker: finding.trustedMarker ?? null
+    }).slice(0, 32)}`;
+  }
+};
+function hasValidTrustedResolutionMarker(target) {
+  const marker = target.resolutionMarker;
+  return Boolean(
+    marker && marker.trust === "trusted" /* Trusted */ && marker.schemaVersion === "reviewrouter-lifecycle-resolution.v1" && marker.targetId === target.targetId && marker.fingerprint === target.trustedMarker
+  );
+}
+function summaryPlacement(lineageId, path29, reason) {
+  return {
+    lineageId,
+    kind: "summary" /* Summary */,
+    path: path29,
+    reason
+  };
+}
+function sortOccurrences(occurrences) {
+  const stateOrder = {
+    ["new" /* New */]: 0,
+    ["changed" /* Changed */]: 1,
+    ["reconfirmed" /* Reconfirmed */]: 2,
+    ["carried_unverified" /* CarriedUnverified */]: 3,
+    ["uncertain" /* Uncertain */]: 4,
+    ["resolved" /* Resolved */]: 5,
+    ["suppressed_by_human" /* SuppressedByHuman */]: 6
+  };
+  const severityOrder = {
+    critical: 0,
+    major: 1,
+    minor: 2
+  };
+  return [...occurrences].sort(
+    (left, right) => stateOrder[left.state] - stateOrder[right.state] || severityOrder[left.severity] - severityOrder[right.severity] || left.filePath.localeCompare(right.filePath) || (left.line ?? 0) - (right.line ?? 0) || left.lineageId.localeCompare(right.lineageId)
+  );
+}
+function normalizePath(path29) {
+  return path29.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+}
+function sortedUnique(values) {
+  return Array.from(new Set(values)).sort(
+    (left, right) => left.localeCompare(right)
+  );
+}
+
+// src/review-projection/domain/review-lifecycle-observation.ts
+var import_crypto10 = require("crypto");
+var REVIEW_LIFECYCLE_THREAD_STATE_VERSION = "review_lifecycle_thread_state.v1";
+var REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^(?:rrl_[a-f0-9]{32}|[a-f0-9]{24,64})$/;
+var RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+function isReviewLifecycleMarkerFingerprint(value) {
+  return typeof value === "string" && REVIEW_LIFECYCLE_MARKER_FINGERPRINT.test(value);
+}
+function hashReviewLifecycleThreadState(input) {
+  requireIdentifier(input.threadId, "thread_id");
+  if (input.comments.length === 0) {
+    throw new Error("review_lifecycle_thread_state_comments_missing");
+  }
+  const seenCommentIds = /* @__PURE__ */ new Set();
+  const comments = [...input.comments].sort((left, right) => compareCodeUnits2(left.id, right.id)).map((comment) => {
+    const commentId = requireIdentifier(comment.id, "comment_id");
+    if (seenCommentIds.has(commentId)) {
+      throw new Error("review_lifecycle_thread_state_comment_id_duplicate");
+    }
+    seenCommentIds.add(commentId);
+    return [
+      commentId,
+      normalizeAuthorLogin(comment.authorLogin),
+      sha2564(comment.body ?? ""),
+      normalizeTimestamp(comment.createdAt),
+      normalizeTimestamp(comment.updatedAt ?? comment.createdAt)
+    ];
+  });
+  const preimage = JSON.stringify([
+    REVIEW_LIFECYCLE_THREAD_STATE_VERSION,
+    input.threadId,
+    comments
+  ]);
+  return sha2564(preimage);
+}
+function requireIdentifier(value, field) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`review_lifecycle_thread_state_${field}_invalid`);
+  }
+  return value;
+}
+function normalizeAuthorLogin(value) {
+  if (value === null || value === void 0) return null;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("review_lifecycle_thread_state_author_login_invalid");
+  }
+  return value.toLowerCase();
+}
+function normalizeTimestamp(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
+  const match2 = RFC3339_TIMESTAMP.exec(value);
+  if (match2 === null || !hasValidTimestampFields(match2)) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
+  }
+  return parsed.toISOString();
+}
+function hasValidTimestampFields(match2) {
+  const year = Number(match2[1]);
+  const month = Number(match2[2]);
+  const day = Number(match2[3]);
+  const hour = Number(match2[4]);
+  const minute = Number(match2[5]);
+  const second = Number(match2[6]);
+  const offset = match2[7];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+  if (offset !== "Z") {
+    const offsetHour = Number(offset.slice(1, 3));
+    const offsetMinute = Number(offset.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return false;
+  }
+  return true;
+}
+function daysInMonth(year, month) {
+  if (month === 2) {
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leapYear ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+function sha2564(value) {
+  return (0, import_crypto10.createHash)("sha256").update(value, "utf8").digest("hex");
+}
+function compareCodeUnits2(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+// src/review-projection/domain/review-projection-limits.ts
+var REVIEW_PROJECTION_ABSOLUTE_LIMITS = {
+  maxProjectionBytes: 2e6,
+  maxFindings: 1e3,
+  maxReferencesPerFinding: 100,
+  maxLineageHints: 2e3,
+  maxLifecycleTargets: 2e3,
+  maxRevisionFiles: 5e3,
+  maxDiffBytes: 2e6,
+  maxSummaryBytes: 65e3,
+  maxCheckSummaryBytes: 65e3,
+  maxInlineComments: 500,
+  maxInlineCommentsPerChunk: 50,
+  maxInlineChunks: 20,
+  maxInlineCommentBodyBytes: 65e3,
+  maxStringBytes: 65e3
+};
+var ReviewProjectionLimitError = class extends Error {
+  constructor(limitName, actual, maximum) {
+    super(
+      `review projection ${limitName} exceeded: ${actual} is greater than ${maximum}`
+    );
+    this.limitName = limitName;
+    this.actual = actual;
+    this.maximum = maximum;
+    this.name = "ReviewProjectionLimitError";
+  }
+};
+function validateReviewProjectionLimits(limits) {
+  for (const key of Object.keys(REVIEW_PROJECTION_ABSOLUTE_LIMITS)) {
+    const value = limits[key];
+    const absoluteMaximum = REVIEW_PROJECTION_ABSOLUTE_LIMITS[key];
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new Error(`review projection ${key} must be a positive integer`);
+    }
+    if (value > absoluteMaximum) {
+      throw new ReviewProjectionLimitError(key, value, absoluteMaximum);
+    }
+  }
+  return Object.freeze({ ...limits });
+}
+function assertWithinProjectionLimit(limitName, actual, limits) {
+  const maximum = limits[limitName];
+  if (actual > maximum) {
+    throw new ReviewProjectionLimitError(limitName, actual, maximum);
+  }
+}
+
 // src/github/pr-head-guard.ts
 async function verifyPullRequestHead(octokit, input) {
   try {
@@ -32615,6 +33049,456 @@ async function verifyPullRequestHead(octokit, input) {
       error: error2
     };
   }
+}
+
+// src/github/review-thread-inventory.ts
+var import_crypto11 = require("crypto");
+var DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS = ["review-router-ai[bot]"];
+var GITHUB_ACTIONS_BOT_AUTHOR = "github-actions[bot]";
+var RESOLUTION_REPLY_MARKER = "reviewrouter-lifecycle-resolution:v1";
+var TRUSTED_AUTHOR_ENV_KEYS = [
+  "REVIEW_THREAD_LIFECYCLE_TRUSTED_AUTHORS",
+  "REVIEW_ROUTER_TRUSTED_BOT_AUTHORS"
+];
+var APP_BOT_LOGIN_ENV_KEYS = [
+  "REVIEW_APP_BOT_LOGIN",
+  "REVIEW_ROUTER_APP_BOT_LOGIN",
+  "REVIEWROUTER_APP_BOT_LOGIN"
+];
+var APP_SLUG_ENV_KEYS = [
+  "REVIEW_APP_SLUG",
+  "REVIEW_ROUTER_APP_SLUG",
+  "REVIEWROUTER_APP_SLUG",
+  "AI_ROBOT_REVIEW_APP_SLUG"
+];
+var MAX_REVIEW_THREAD_PAGES = 100;
+var MAX_REVIEW_THREAD_COMMENT_PAGES = 100;
+var INVENTORY_QUERY = `
+query ReviewRouterThreadInventory(
+  $owner: String!
+  $repo: String!
+  $prNumber: Int!
+  $threadsAfter: String
+) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      headRefOid
+      reviewThreads(first: 50, after: $threadsAfter) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          viewerCanResolve
+          path
+          line
+          originalLine
+          comments(first: 100) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              id
+              databaseId
+              author { login }
+              body
+              createdAt
+              updatedAt
+              path
+              line
+              originalLine
+              diffHunk
+              url
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+var THREAD_COMMENTS_QUERY = `
+query ReviewRouterThreadComments($threadId: ID!, $commentsAfter: String) {
+  node(id: $threadId) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $commentsAfter) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          databaseId
+          author { login }
+          body
+          createdAt
+          updatedAt
+          path
+          line
+          originalLine
+          diffHunk
+          url
+        }
+      }
+    }
+  }
+}`;
+var ReviewThreadInventoryLoader = class {
+  constructor(client, trustedAuthors = DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS) {
+    this.client = client;
+    this.trustedAuthors = trustedAuthors;
+  }
+  async load(prNumber) {
+    const inventory = {
+      candidates: [],
+      manualAttention: [],
+      manualAttentionIssues: [],
+      dedupeComments: [],
+      warnings: [],
+      failed: false
+    };
+    try {
+      let cursor;
+      let pageCount = 0;
+      const seenCursors = /* @__PURE__ */ new Set();
+      do {
+        if (pageCount >= MAX_REVIEW_THREAD_PAGES) {
+          throw new Error("review thread pagination page limit exceeded");
+        }
+        pageCount += 1;
+        const response = await this.graphql(INVENTORY_QUERY, {
+          owner: this.client.owner,
+          repo: this.client.repo,
+          prNumber,
+          threadsAfter: cursor ?? null
+        });
+        const pr2 = response.repository?.pullRequest;
+        if (!pr2?.headRefOid || !pr2.reviewThreads) {
+          throw new Error("pull request review thread connection was missing");
+        }
+        inventory.headRefOid = pr2.headRefOid;
+        const threads = pr2.reviewThreads;
+        if (!Array.isArray(threads.nodes)) {
+          throw new Error("pull request review thread nodes were missing");
+        }
+        for (const thread of threads.nodes || []) {
+          await this.classifyThread(thread, inventory);
+        }
+        if (threads.pageInfo.hasNextPage) {
+          if (!threads.pageInfo.endCursor) {
+            throw new Error("review thread pagination cursor was missing");
+          }
+          if (seenCursors.has(threads.pageInfo.endCursor)) {
+            throw new Error("review thread pagination cursor repeated");
+          }
+          seenCursors.add(threads.pageInfo.endCursor);
+          cursor = threads.pageInfo.endCursor;
+        } else {
+          cursor = null;
+        }
+      } while (cursor);
+      if (inventory.failed) {
+        inventory.candidates = [];
+        inventory.dedupeComments = [];
+      }
+    } catch (error2) {
+      logger.warn(
+        "Failed to load ReviewRouter review thread lifecycle inventory",
+        error2
+      );
+      inventory.candidates = [];
+      inventory.manualAttention = [];
+      inventory.manualAttentionIssues = [];
+      inventory.dedupeComments = [];
+      inventory.failed = true;
+      inventory.warnings.push("review thread lifecycle inventory failed");
+    }
+    return inventory;
+  }
+  async classifyThread(thread, inventory) {
+    if (thread.isResolved) {
+      return;
+    }
+    if (!thread.comments || !Array.isArray(thread.comments.nodes)) {
+      throw new Error(`thread ${thread.id} comments connection was missing`);
+    }
+    let comments = thread.comments.nodes;
+    if (thread.comments.pageInfo.hasNextPage) {
+      comments = await this.loadRemainingThreadComments(
+        thread.id,
+        comments,
+        thread.comments.pageInfo.endCursor ?? null
+      );
+    }
+    const parent = comments[0];
+    if (!parent) {
+      throw new Error(`thread ${thread.id} parent comment was missing`);
+    }
+    const trustedAuthor = this.isTrustedAuthor(parent.author?.login);
+    const marker = parseFindingMarker(parent.body ?? "");
+    if (marker.kind === "conflict" /* Conflict */ || marker.kind === "malformed" /* Malformed */) {
+      if (trustedAuthor) {
+        const reason = marker.kind === "conflict" /* Conflict */ ? "conflicting_finding_marker" : "malformed_finding_marker";
+        inventory.failed = true;
+        inventory.manualAttentionIssues.push({
+          threadId: thread.id,
+          parentCommentId: parent.id,
+          ...parent.url ? { threadUrl: parent.url } : {},
+          reason
+        });
+        inventory.warnings.push(
+          `trusted ReviewRouter thread ${thread.id} has a ${reason.replaceAll("_", " ")}`
+        );
+      }
+      return;
+    }
+    if (marker.kind === "absent" /* Absent */) {
+      return;
+    }
+    const threadStateHash = hashReviewLifecycleThreadState({
+      threadId: thread.id,
+      comments: comments.map((comment) => ({
+        id: comment.id,
+        authorLogin: comment.author?.login,
+        body: comment.body,
+        createdAt: requireCommentTimestamp(comment.createdAt),
+        updatedAt: comment.updatedAt
+      }))
+    });
+    const body = parent.body || "";
+    const fingerprint = marker.fingerprint;
+    const humanReply = comments.some(
+      (comment, index) => index > 0 && comment.id !== parent.id && !this.isTrustedAuthor(comment.author?.login)
+    );
+    const cleanBody = stripLifecycleCommentBody(body);
+    const parsedTitle = extractInlineTitle(cleanBody);
+    const hasOldFindingDetails = Boolean(
+      cleanBody.trim() || parsedTitle.trim()
+    );
+    const title = parsedTitle || "Previous ReviewRouter finding";
+    const severity = normalizeLifecycleSeverity(extractInlineSeverity(body));
+    const message = cleanBody || parsedTitle || title;
+    const reasonCodes = [];
+    if (!trustedAuthor) reasonCodes.push("untrusted_author");
+    if (humanReply) reasonCodes.push("human_reply");
+    if (!hasOldFindingDetails) reasonCodes.push("missing_old_finding_details");
+    const targetId = targetIdFor(thread.id, parent.id, fingerprint);
+    const trustedResolutionMarker = findTrustedResolutionMarker({
+      comments,
+      targetId,
+      fingerprint,
+      expectedAuthorLogin: parent.author?.login,
+      isTrustedAuthor: (login) => this.isTrustedAuthor(login)
+    });
+    const target = {
+      targetId,
+      threadId: thread.id,
+      threadUrl: parent.url ?? void 0,
+      fingerprint,
+      severity,
+      title,
+      message,
+      originalPath: parent.path || thread.path || "unknown",
+      currentPath: thread.path || parent.path || void 0,
+      originalLine: parent.originalLine ?? thread.originalLine ?? void 0,
+      currentLine: parent.line ?? thread.line ?? void 0,
+      diffHunk: parent.diffHunk ?? void 0,
+      parentCommentId: parent.id,
+      parentCommentDatabaseId: parent.databaseId ?? void 0,
+      parentCommentUpdatedAt: normalizeCommentTimestamp(
+        parent.updatedAt ?? requireCommentTimestamp(parent.createdAt)
+      ),
+      threadCommentCount: comments.length,
+      threadStateHash,
+      viewerCanResolve: Boolean(thread.viewerCanResolve),
+      hasHumanReply: humanReply,
+      trustedAuthor,
+      ...trustedResolutionMarker ? { trustedResolutionMarker } : {},
+      reasonCodes
+    };
+    if (trustedAuthor && !thread.isOutdated && target.currentPath && target.currentLine != null) {
+      inventory.dedupeComments.push({
+        path: target.currentPath,
+        line: target.currentLine,
+        body
+      });
+    }
+    if (reasonCodes.length > 0) {
+      inventory.manualAttention.push({
+        target,
+        reasonCodes
+      });
+      return;
+    }
+    inventory.candidates.push(target);
+  }
+  isTrustedAuthor(login) {
+    return isTrustedReviewThreadAuthor(login, this.trustedAuthors);
+  }
+  async loadRemainingThreadComments(threadId, initialComments, initialCursor) {
+    if (!initialCursor) {
+      throw new Error("thread comments pagination cursor was missing");
+    }
+    const comments = [...initialComments];
+    let cursor = initialCursor;
+    let pageCount = 0;
+    const seenCursors = /* @__PURE__ */ new Set([initialCursor]);
+    while (cursor) {
+      if (pageCount >= MAX_REVIEW_THREAD_COMMENT_PAGES) {
+        throw new Error("thread comments pagination page limit exceeded");
+      }
+      pageCount += 1;
+      const response = await this.graphql(
+        THREAD_COMMENTS_QUERY,
+        {
+          threadId,
+          commentsAfter: cursor
+        }
+      );
+      const connection = response.node?.comments ?? null;
+      if (!connection) {
+        throw new Error("thread comments connection was missing");
+      }
+      if (!Array.isArray(connection.nodes)) {
+        throw new Error("thread comments nodes were missing");
+      }
+      comments.push(...connection.nodes);
+      if (!connection.pageInfo.hasNextPage) {
+        cursor = null;
+        break;
+      }
+      if (!connection.pageInfo.endCursor) {
+        throw new Error("thread comments pagination cursor was missing");
+      }
+      if (seenCursors.has(connection.pageInfo.endCursor)) {
+        throw new Error("thread comments pagination cursor repeated");
+      }
+      seenCursors.add(connection.pageInfo.endCursor);
+      cursor = connection.pageInfo.endCursor;
+    }
+    return comments;
+  }
+  async graphql(query, variables) {
+    const graphql = this.client.octokit.graphql;
+    if (typeof graphql !== "function") {
+      throw new Error("GitHub GraphQL client is unavailable");
+    }
+    return graphql(query, variables);
+  }
+};
+function isTrustedReviewThreadAuthor(login, trustedAuthors = DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS) {
+  const normalizedLogin = canonicalBotLogin(login);
+  return Boolean(
+    normalizedLogin && trustedAuthors.some(
+      (author) => canonicalBotLogin(author) === normalizedLogin
+    )
+  );
+}
+function trustedReviewThreadAuthorsFromEnv(env = process.env) {
+  const authors = new Set(
+    DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS.map((author) => author.toLowerCase())
+  );
+  if (shouldTrustGitHubActionsBot(env)) {
+    authors.add(GITHUB_ACTIONS_BOT_AUTHOR);
+  }
+  for (const key of TRUSTED_AUTHOR_ENV_KEYS) {
+    for (const raw of splitList(env[key])) {
+      const normalized = normalizeBotLogin(raw);
+      if (normalized) authors.add(normalized);
+    }
+  }
+  for (const key of APP_BOT_LOGIN_ENV_KEYS) {
+    const normalized = normalizeBotLogin(env[key]);
+    if (normalized) authors.add(normalized);
+  }
+  for (const key of APP_SLUG_ENV_KEYS) {
+    const normalized = normalizeAppSlugBotLogin(env[key]);
+    if (normalized) authors.add(normalized);
+  }
+  return Array.from(authors);
+}
+function shouldTrustGitHubActionsBot(env) {
+  if (env.REVIEWROUTER_COMMENT_TOKEN_MODE !== "app-oidc") {
+    return true;
+  }
+  return env.REVIEW_ROUTER_COMMENT_TOKEN_STATUS === "fallback";
+}
+function targetIdFor(threadId, parentCommentId, fingerprint) {
+  return `rrt_${(0, import_crypto11.createHash)("sha256").update(`${threadId}
+${parentCommentId}
+${fingerprint}`).digest("hex").slice(0, 16)}`;
+}
+function findTrustedResolutionMarker(input) {
+  const expectedAuthor = canonicalBotLogin(input.expectedAuthorLogin);
+  if (!expectedAuthor || expectedAuthor === GITHUB_ACTIONS_BOT_AUTHOR) {
+    return void 0;
+  }
+  for (const comment of input.comments.slice(1)) {
+    const markerAuthor = canonicalBotLogin(comment.author?.login);
+    if (markerAuthor !== expectedAuthor || !input.isTrustedAuthor(comment.author?.login)) {
+      continue;
+    }
+    const marker = parseResolutionMarker(comment.body ?? "");
+    if (marker?.targetId !== input.targetId || marker.fingerprint !== input.fingerprint) {
+      continue;
+    }
+    return {
+      schemaVersion: "reviewrouter-lifecycle-resolution.v1",
+      targetId: marker.targetId,
+      fingerprint: marker.fingerprint,
+      commentId: comment.id,
+      commentUpdatedAt: normalizeCommentTimestamp(
+        comment.updatedAt ?? requireCommentTimestamp(comment.createdAt)
+      )
+    };
+  }
+  return void 0;
+}
+function parseResolutionMarker(body) {
+  const match2 = new RegExp(
+    `<!--\\s*${RESOLUTION_REPLY_MARKER}\\s+target_id=([A-Za-z0-9._:-]{1,160})\\s+fingerprint=([A-Za-z0-9_]{1,80})\\s*-->`,
+    "i"
+  ).exec(body);
+  if (!match2?.[1] || !match2[2]) return void 0;
+  const fingerprint = match2[2].toLowerCase();
+  if (!isReviewLifecycleMarkerFingerprint(fingerprint)) return void 0;
+  return { targetId: match2[1], fingerprint };
+}
+function normalizeLifecycleSeverity(value) {
+  if (value === "critical" || value === "major" || value === "minor") {
+    return value;
+  }
+  return "unknown";
+}
+function requireCommentTimestamp(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("review thread comment timestamp was missing");
+  }
+  return value;
+}
+function normalizeCommentTimestamp(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("review thread comment timestamp was invalid");
+  }
+  return parsed.toISOString();
+}
+function stripLifecycleCommentBody(body) {
+  return stripInlineFingerprintMarkers(body).replace(/<sub><!--\s*review-router-skip-help\s*-->[\s\S]*?<\/sub>/gi, "").replace(/<sub>\s*Models?:[\s\S]*?<\/sub>/gi, "").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, "").trim();
+}
+function splitList(value) {
+  return (value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+function normalizeAppSlugBotLogin(value) {
+  const slug = (value ?? "").trim();
+  if (!slug) return void 0;
+  return normalizeBotLogin(slug.endsWith("[bot]") ? slug : `${slug}[bot]`);
+}
+function normalizeBotLogin(value) {
+  const login = (value ?? "").trim().toLowerCase();
+  if (!login) return void 0;
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?(?:\[bot\])?$/.test(login)) {
+    return void 0;
+  }
+  return login;
+}
+function canonicalBotLogin(value) {
+  const login = normalizeBotLogin(value);
+  return login?.endsWith("[bot]") ? login.slice(0, -5) : login;
 }
 
 // src/github/comment-poster.ts
@@ -32963,9 +33847,12 @@ ${content.substring(0, 500)}...`
     return body.includes(_CommentPoster.BOT_COMMENT_MARKER) && body.includes("# ReviewRouter") && !body.includes(_CommentPoster.INLINE_FALLBACK_MARKER) && !body.includes(_CommentPoster.INLINE_SKIP_HELP_MARKER);
   }
   async loadActiveInlineComments(prNumber) {
-    const keys = /* @__PURE__ */ new Set();
+    const coarseKeys = /* @__PURE__ */ new Set();
+    const legacyKeys = /* @__PURE__ */ new Set();
+    const findingFingerprints = /* @__PURE__ */ new Set();
     const activeComments = [];
     const { octokit, owner, repo } = this.client;
+    const trustedAuthors = trustedReviewThreadAuthorsFromEnv();
     try {
       const comments = await octokit.paginate(
         octokit.rest.pulls.listReviewComments,
@@ -32977,30 +33864,68 @@ ${content.substring(0, 500)}...`
         }
       );
       for (const comment of comments) {
+        if (!isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors)) {
+          continue;
+        }
         const activeLine = comment.line;
         const body = comment.body || "";
         if (activeLine == null || !isReviewRouterInlineComment(body)) continue;
+        const findingMarker = parseFindingMarker(body);
+        if (findingMarker.kind === "conflict" /* Conflict */ || findingMarker.kind === "malformed" /* Malformed */) {
+          continue;
+        }
         activeComments.push({
           path: comment.path,
           line: activeLine,
           body
         });
-        keys.add(signatureFromInlineComment(comment.path, activeLine, body));
-        keys.add(fingerprintFromInlineComment(comment.path, activeLine, body));
+        const signature = signatureFromInlineComment(
+          comment.path,
+          activeLine,
+          body
+        );
+        const fingerprint = fingerprintFromInlineComment(
+          comment.path,
+          activeLine,
+          body
+        );
+        coarseKeys.add(signature);
+        coarseKeys.add(fingerprint);
         const marker = extractInlineFingerprint(body);
-        if (marker) keys.add(marker);
+        if (marker) coarseKeys.add(marker);
+        const findingFingerprint = extractFindingFingerprint(body);
+        if (findingFingerprint) {
+          findingFingerprints.add(findingFingerprint);
+        } else {
+          legacyKeys.add(signature);
+          legacyKeys.add(fingerprint);
+          if (marker) legacyKeys.add(marker);
+        }
       }
     } catch (error2) {
-      logger.warn(
-        "Failed to load existing inline comments for deduplication",
-        error2
+      const inventoryError = new Error(
+        "Failed to load trusted inline comment inventory; refusing publication"
       );
+      inventoryError.cause = error2;
+      logger.error(inventoryError.message, error2);
+      throw inventoryError;
     }
-    return { keys, comments: activeComments };
+    return {
+      coarseKeys,
+      legacyKeys,
+      findingFingerprints,
+      comments: activeComments
+    };
   }
   hasInlineDuplicate(activeComments, path29, line, body) {
+    const parsedFindingMarker = parseFindingMarker(body);
+    if (parsedFindingMarker.kind === "conflict" /* Conflict */ || parsedFindingMarker.kind === "malformed" /* Malformed */) {
+      return false;
+    }
     const marker = extractInlineFingerprint(body);
-    return activeComments.keys.has(signatureFromInlineComment(path29, line, body)) || activeComments.keys.has(fingerprintFromInlineComment(path29, line, body)) || (marker ? activeComments.keys.has(marker) : false) || activeComments.comments.some(
+    const findingFingerprint = extractFindingFingerprint(body);
+    const keys = findingFingerprint ? activeComments.legacyKeys : activeComments.coarseKeys;
+    return (findingFingerprint ? activeComments.findingFingerprints.has(findingFingerprint) : false) || keys.has(signatureFromInlineComment(path29, line, body)) || keys.has(fingerprintFromInlineComment(path29, line, body)) || (marker ? keys.has(marker) : false) || activeComments.comments.some(
       (comment) => isLikelySameInlineFinding(comment, { path: path29, line, body })
     );
   }
@@ -33097,7 +34022,8 @@ ${content.substring(0, 500)}...`
     }
     return { valid: true, hasConsensus };
   }
-  async postInline(prNumber, comments, files, headSha, dedupeComments) {
+  async postInline(prNumber, comments, files, headSha, dedupeComments, publication = { mode: "default" }) {
+    const strictInlineOnly = publication.mode === "strict-inline-only";
     if (!this.dryRun && headSha && !await this.canMutateExpectedHead(
       prNumber,
       headSha,
@@ -33106,7 +34032,7 @@ ${content.substring(0, 500)}...`
       return;
     }
     if (comments.length === 0) {
-      if (!this.dryRun) {
+      if (!this.dryRun && !strictInlineOnly) {
         await this.deleteInlineFallbackComments(
           prNumber,
           "no current inline findings remain",
@@ -33115,7 +34041,12 @@ ${content.substring(0, 500)}...`
       }
       return;
     }
-    const activeInlineComments = this.dryRun ? { keys: /* @__PURE__ */ new Set(), comments: [] } : dedupeComments ? _CommentPoster.activeInlineCommentsFromReferences(dedupeComments) : await this.loadActiveInlineComments(prNumber);
+    const activeInlineComments = this.dryRun ? {
+      coarseKeys: /* @__PURE__ */ new Set(),
+      legacyKeys: /* @__PURE__ */ new Set(),
+      findingFingerprints: /* @__PURE__ */ new Set(),
+      comments: []
+    } : dedupeComments ? _CommentPoster.activeInlineCommentsFromReferences(dedupeComments) : await this.loadActiveInlineComments(prNumber);
     const filesWithAdditions = files.filter((f2) => !isDeletionOnlyFile(f2));
     const filesWithAdditionsSet = new Set(
       filesWithAdditions.map((f2) => f2.filename)
@@ -33259,14 +34190,18 @@ ${content.substring(0, 500)}...`
           );
           return null;
         }
-        activeInlineComments.keys.add(
+        activeInlineComments.coarseKeys.add(
           signatureFromInlineComment(c2.path, c2.line, apiComment.body)
         );
-        activeInlineComments.keys.add(
+        activeInlineComments.coarseKeys.add(
           fingerprintFromInlineComment(c2.path, c2.line, apiComment.body)
         );
         const marker = extractInlineFingerprint(apiComment.body);
-        if (marker) activeInlineComments.keys.add(marker);
+        if (marker) activeInlineComments.coarseKeys.add(marker);
+        const findingFingerprint = extractFindingFingerprint(apiComment.body);
+        if (findingFingerprint) {
+          activeInlineComments.findingFingerprints.add(findingFingerprint);
+        }
         activeInlineComments.comments.push({
           path: c2.path,
           line: c2.line,
@@ -33304,51 +34239,62 @@ ${comment.body.substring(0, 200)}...`
       return;
     }
     try {
-      await withRetry(
-        () => octokit.rest.pulls.createReview({
-          owner,
-          repo,
-          pull_number: prNumber,
-          ...headSha ? { commit_id: headSha } : {},
-          event: "COMMENT",
-          comments: apiComments
-        }),
-        { retries: 2, minTimeout: 1e3, maxTimeout: 5e3 }
-      );
-      await this.deleteInlineFallbackComments(
-        prNumber,
-        "inline comments posted successfully",
-        headSha
-      );
+      await octokit.rest.pulls.createReview({
+        owner,
+        repo,
+        pull_number: prNumber,
+        ...headSha ? { commit_id: headSha } : {},
+        event: "COMMENT",
+        comments: apiComments
+      });
+      if (!strictInlineOnly) {
+        await this.deleteInlineFallbackComments(
+          prNumber,
+          "inline comments posted successfully",
+          headSha
+        );
+      }
     } catch (error2) {
       if (!_CommentPoster.shouldFallbackInlineReviewError(error2)) {
         throw error2;
       }
       logger.warn(
-        "GitHub inline review API failed; posting inline findings as a PR comment fallback",
+        strictInlineOnly ? "GitHub batch inline review API failed in strict inline-only mode; retrying findings individually" : "GitHub inline review API failed; posting inline findings as a PR comment fallback",
         error2
       );
       if (headSha && !await this.canMutateExpectedHead(
         prNumber,
         headSha,
-        "inline fallback publication"
+        strictInlineOnly ? "strict individual inline retry" : "inline fallback publication"
       )) {
         return;
       }
       const remainingComments = headSha ? await this.postIndividualInlineComments(
         prNumber,
         apiComments,
-        headSha,
-        error2
+        headSha
       ) : apiComments;
       if (remainingComments.length > 0) {
-        await this.postInlineFallback(
-          prNumber,
-          remainingComments,
-          error2,
-          headSha
-        );
-      } else {
+        if (strictInlineOnly) {
+          const publicationError = new Error(
+            `Strict inline-only publication left ${remainingComments.length}/${apiComments.length} finding(s) unpublished after GitHub rejected batch and individual inline comment APIs`
+          );
+          publicationError.cause = error2;
+          logger.error(publicationError.message, error2);
+          throw publicationError;
+        } else {
+          logger.warn(
+            `Falling back to PR comment for ${remainingComments.length}/${apiComments.length} inline finding(s) after GitHub rejected batch and individual inline comment APIs`,
+            error2
+          );
+          await this.postInlineFallback(
+            prNumber,
+            remainingComments,
+            error2,
+            headSha
+          );
+        }
+      } else if (!strictInlineOnly) {
         await this.deleteInlineFallbackComments(
           prNumber,
           "inline comments posted successfully",
@@ -33358,19 +34304,43 @@ ${comment.body.substring(0, 200)}...`
     }
   }
   static activeInlineCommentsFromReferences(references) {
-    const keys = /* @__PURE__ */ new Set();
+    const coarseKeys = /* @__PURE__ */ new Set();
+    const legacyKeys = /* @__PURE__ */ new Set();
+    const findingFingerprints = /* @__PURE__ */ new Set();
     const comments = [];
     for (const comment of references) {
       const body = comment.body || "";
+      const findingMarker = parseFindingMarker(body);
+      if (findingMarker.kind === "conflict" /* Conflict */ || findingMarker.kind === "malformed" /* Malformed */) {
+        continue;
+      }
       comments.push(comment);
-      keys.add(signatureFromInlineComment(comment.path, comment.line, body));
-      keys.add(fingerprintFromInlineComment(comment.path, comment.line, body));
+      const signature = signatureFromInlineComment(
+        comment.path,
+        comment.line,
+        body
+      );
+      const fingerprint = fingerprintFromInlineComment(
+        comment.path,
+        comment.line,
+        body
+      );
+      coarseKeys.add(signature);
+      coarseKeys.add(fingerprint);
       const marker = extractInlineFingerprint(body);
-      if (marker) keys.add(marker);
+      if (marker) coarseKeys.add(marker);
+      const findingFingerprint = extractFindingFingerprint(body);
+      if (findingFingerprint) {
+        findingFingerprints.add(findingFingerprint);
+      } else {
+        legacyKeys.add(signature);
+        legacyKeys.add(fingerprint);
+        if (marker) legacyKeys.add(marker);
+      }
     }
-    return { keys, comments };
+    return { coarseKeys, legacyKeys, findingFingerprints, comments };
   }
-  async postIndividualInlineComments(prNumber, comments, headSha, originalError) {
+  async postIndividualInlineComments(prNumber, comments, headSha) {
     const { octokit, owner, repo } = this.client;
     const failedComments = [];
     let postedCount = 0;
@@ -33383,21 +34353,18 @@ ${comment.body.substring(0, 200)}...`
         return [...failedComments, ...comments.slice(postedCount)];
       }
       try {
-        await withRetry(
-          () => octokit.rest.pulls.createReviewComment({
-            owner,
-            repo,
-            pull_number: prNumber,
-            commit_id: headSha,
-            path: comment.path,
-            line: comment.line,
-            side: comment.side,
-            ...comment.start_line !== void 0 ? { start_line: comment.start_line } : {},
-            ...comment.start_side !== void 0 ? { start_side: comment.start_side } : {},
-            body: comment.body
-          }),
-          { retries: 2, minTimeout: 1e3, maxTimeout: 5e3 }
-        );
+        await octokit.rest.pulls.createReviewComment({
+          owner,
+          repo,
+          pull_number: prNumber,
+          commit_id: headSha,
+          path: comment.path,
+          line: comment.line,
+          side: comment.side,
+          ...comment.start_line !== void 0 ? { start_line: comment.start_line } : {},
+          ...comment.start_side !== void 0 ? { start_side: comment.start_side } : {},
+          body: comment.body
+        });
         postedCount++;
       } catch (error2) {
         if (!_CommentPoster.shouldFallbackInlineReviewError(error2)) {
@@ -33406,21 +34373,18 @@ ${comment.body.substring(0, 200)}...`
         const retryComment = _CommentPoster.withoutCommittableSuggestionForInlineRetry(comment);
         if (retryComment.body !== comment.body) {
           try {
-            await withRetry(
-              () => octokit.rest.pulls.createReviewComment({
-                owner,
-                repo,
-                pull_number: prNumber,
-                commit_id: headSha,
-                path: retryComment.path,
-                line: retryComment.line,
-                side: retryComment.side,
-                ...retryComment.start_line !== void 0 ? { start_line: retryComment.start_line } : {},
-                ...retryComment.start_side !== void 0 ? { start_side: retryComment.start_side } : {},
-                body: retryComment.body
-              }),
-              { retries: 2, minTimeout: 1e3, maxTimeout: 5e3 }
-            );
+            await octokit.rest.pulls.createReviewComment({
+              owner,
+              repo,
+              pull_number: prNumber,
+              commit_id: headSha,
+              path: retryComment.path,
+              line: retryComment.line,
+              side: retryComment.side,
+              ...retryComment.start_line !== void 0 ? { start_line: retryComment.start_line } : {},
+              ...retryComment.start_side !== void 0 ? { start_side: retryComment.start_side } : {},
+              body: retryComment.body
+            });
             logger.info(
               `Posted inline comment at ${comment.path}:${comment.line} after removing committable suggestion block rejected by GitHub`
             );
@@ -33440,18 +34404,10 @@ ${comment.body.substring(0, 200)}...`
         `Posted ${postedCount}/${comments.length} inline comment(s) through individual GitHub review-comment API after batch review failed`
       );
     }
-    if (failedComments.length > 0) {
-      logger.warn(
-        `Falling back to PR comment for ${failedComments.length}/${comments.length} inline finding(s) after GitHub rejected batch and individual inline comment APIs`,
-        originalError
-      );
-    }
     return failedComments;
   }
   static shouldFallbackInlineReviewError(error2) {
-    const maybeError = error2;
-    const message = maybeError?.message || String(error2);
-    return maybeError?.status === 422 || /unprocessable entity/i.test(message) || /internal error occurred/i.test(message) || /validation failed/i.test(message);
+    return error2?.status === 422;
   }
   static withoutCommittableSuggestionForInlineRetry(comment) {
     if (!comment.body.includes("```suggestion")) {
@@ -35824,383 +36780,6 @@ var MermaidGenerator = class {
   }
 };
 
-// src/review-projection/domain/review-projection.ts
-var LifecycleRevalidationVerdict = /* @__PURE__ */ ((LifecycleRevalidationVerdict2) => {
-  LifecycleRevalidationVerdict2["Resolved"] = "resolved";
-  LifecycleRevalidationVerdict2["StillValid"] = "still_valid";
-  LifecycleRevalidationVerdict2["Uncertain"] = "uncertain";
-  return LifecycleRevalidationVerdict2;
-})(LifecycleRevalidationVerdict || {});
-
-// src/review-projection/domain/review-projection-canonicalizer.ts
-var import_crypto9 = require("crypto");
-function canonicalizeReviewProjection(envelope) {
-  return JSON.stringify(toCanonicalValue(envelope));
-}
-function hashReviewProjectionCanonicalJson(canonicalJson14) {
-  return (0, import_crypto9.createHash)("sha256").update(canonicalJson14, "utf8").digest("hex");
-}
-function hashProjectionFact(value) {
-  return (0, import_crypto9.createHash)("sha256").update(JSON.stringify(toCanonicalValue(value)), "utf8").digest("hex");
-}
-function deepFreezeProjection(value) {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
-    return value;
-  }
-  for (const child of Object.values(value)) {
-    deepFreezeProjection(child);
-  }
-  return Object.freeze(value);
-}
-function toCanonicalValue(value) {
-  if (value === null || typeof value !== "object") {
-    if (typeof value === "number" && !Number.isFinite(value)) {
-      throw new Error("review projection contains a non-finite number");
-    }
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map(toCanonicalValue);
-  }
-  const canonical = {};
-  for (const key of Object.keys(value).sort()) {
-    const child = value[key];
-    if (child !== void 0) {
-      canonical[key] = toCanonicalValue(child);
-    }
-  }
-  return canonical;
-}
-
-// src/review-projection/domain/current-review-projector.ts
-var CurrentReviewProjector = class {
-  projectOccurrences(input) {
-    const occurrences = [];
-    const matchedLineages = /* @__PURE__ */ new Set();
-    for (const finding of input.selectedFindings) {
-      const hint = this.matchPriorLineage(finding, input.priorLineageHints);
-      const lineageId = hint?.lineageId ?? this.createLineageId(input.scope, finding);
-      if (hint) matchedLineages.add(hint.lineageId);
-      const target = this.findTargetForFinding(
-        finding,
-        input.inventory.targets
-      );
-      const suppressed = target?.disposition === "command_suppressed" /* CommandSuppressed */;
-      const state = suppressed ? "suppressed_by_human" /* SuppressedByHuman */ : hint ? hint.severity === finding.severity ? "reconfirmed" /* Reconfirmed */ : "changed" /* Changed */ : "new" /* New */;
-      occurrences.push({
-        lineageId,
-        sourceFindingIds: sortedUnique(finding.sourceFindingIds),
-        state,
-        severity: finding.severity,
-        ...hint && hint.severity !== finding.severity ? { previousSeverity: hint.severity } : {},
-        category: finding.category,
-        normalizedFailureModeHash: finding.normalizedFailureModeHash,
-        ...finding.symbolAnchor ? { symbolAnchor: finding.symbolAnchor } : {},
-        ...finding.trustedMarker ? { trustedMarker: finding.trustedMarker } : {},
-        title: finding.title,
-        message: finding.message,
-        ...finding.suggestion ? { suggestion: finding.suggestion } : {},
-        filePath: finding.filePath,
-        ...finding.startLine !== void 0 ? { startLine: finding.startLine } : {},
-        ...finding.line !== void 0 ? { line: finding.line } : {},
-        ...finding.endLine !== void 0 ? { endLine: finding.endLine } : {},
-        placement: summaryPlacement(lineageId, finding.filePath, "pending"),
-        providerVoteKeys: sortedUnique(finding.providerVoteKeys),
-        observationIds: sortedUnique(finding.observationIds),
-        firstSeenHeadSha: hint?.firstSeenHeadSha ?? input.scope.reviewedHeadSha,
-        sourceHeadSha: input.scope.reviewedHeadSha,
-        blocking: false
-      });
-    }
-    const decisionByTarget = new Map(
-      input.lifecycleDecisions.map((decision) => [decision.targetId, decision])
-    );
-    for (const hint of input.priorLineageHints) {
-      if (matchedLineages.has(hint.lineageId) || !hint.active) continue;
-      const target = this.findTargetForHint(hint, input.inventory.targets);
-      if (!target) continue;
-      const decision = decisionByTarget.get(target.targetId);
-      const state = this.priorOccurrenceState(target, decision?.verdict);
-      occurrences.push({
-        lineageId: hint.lineageId,
-        sourceFindingIds: [],
-        state,
-        severity: hint.severity,
-        category: hint.category,
-        normalizedFailureModeHash: hint.normalizedFailureModeHash,
-        ...hint.symbolAnchor ? { symbolAnchor: hint.symbolAnchor } : {},
-        ...hint.trustedMarker ? { trustedMarker: hint.trustedMarker } : {},
-        title: hint.title,
-        message: hint.message,
-        filePath: target.currentPath ?? hint.filePath,
-        ...hint.startLine !== void 0 ? { startLine: hint.startLine } : {},
-        ...target.currentLine !== void 0 ? { line: target.currentLine } : hint.line !== void 0 ? { line: hint.line } : {},
-        ...hint.endLine !== void 0 ? { endLine: hint.endLine } : {},
-        placement: summaryPlacement(
-          hint.lineageId,
-          target.currentPath ?? hint.filePath,
-          "historical occurrence"
-        ),
-        providerVoteKeys: [],
-        observationIds: [],
-        firstSeenHeadSha: hint.firstSeenHeadSha,
-        sourceHeadSha: input.scope.reviewedHeadSha,
-        blocking: false
-      });
-    }
-    return sortOccurrences(occurrences);
-  }
-  priorOccurrenceState(target, verdict) {
-    if (target.disposition === "command_suppressed" /* CommandSuppressed */) {
-      return "suppressed_by_human" /* SuppressedByHuman */;
-    }
-    if (hasValidTrustedResolutionMarker(target)) {
-      return "resolved" /* Resolved */;
-    }
-    if (target.disposition === "human_reply" /* HumanReply */) {
-      return "uncertain" /* Uncertain */;
-    }
-    if (verdict === "resolved" /* Resolved */) {
-      return "resolved" /* Resolved */;
-    }
-    if (verdict === "still_valid" /* StillValid */) {
-      return "carried_unverified" /* CarriedUnverified */;
-    }
-    return "uncertain" /* Uncertain */;
-  }
-  matchPriorLineage(finding, hints) {
-    const byMarker = finding.trustedMarker ? hints.filter(
-      (hint) => hint.trustedMarker === finding.trustedMarker && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash
-    ) : [];
-    if (byMarker.length === 1) return byMarker[0];
-    if (byMarker.length > 1) return void 0;
-    const byAnchor = hints.filter(
-      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && Boolean(hint.symbolAnchor) && hint.symbolAnchor === finding.symbolAnchor
-    );
-    if (byAnchor.length === 1) return byAnchor[0];
-    if (byAnchor.length > 1) return void 0;
-    const byLocation = hints.filter(
-      (hint) => hint.category === finding.category && hint.normalizedFailureModeHash === finding.normalizedFailureModeHash && normalizePath(hint.filePath) === normalizePath(finding.filePath) && hint.line !== void 0 && finding.line !== void 0 && Math.abs(hint.line - finding.line) <= 2
-    );
-    return byLocation.length === 1 ? byLocation[0] : void 0;
-  }
-  findTargetForFinding(finding, targets) {
-    if (finding.trustedMarker) {
-      const markerMatches = targets.filter(
-        (target) => target.trustedMarker === finding.trustedMarker
-      );
-      if (markerMatches.length === 1) return markerMatches[0];
-    }
-    const locationMatches = targets.filter(
-      (target) => normalizePath(target.currentPath ?? target.originalPath) === normalizePath(finding.filePath) && target.currentLine !== void 0 && finding.line !== void 0 && Math.abs(target.currentLine - finding.line) <= 2
-    );
-    return locationMatches.length === 1 ? locationMatches[0] : void 0;
-  }
-  findTargetForHint(hint, targets) {
-    if (!hint.trustedMarker) return void 0;
-    const markerMatches = targets.filter(
-      (target) => target.trustedMarker === hint.trustedMarker
-    );
-    return markerMatches.length === 1 ? markerMatches[0] : void 0;
-  }
-  createLineageId(scope, finding) {
-    return `rrl_${hashProjectionFact({
-      scmRepositoryIdentityId: scope.scmRepositoryIdentityId,
-      pullRequestNumber: scope.pullRequestNumber,
-      category: finding.category,
-      normalizedFailureModeHash: finding.normalizedFailureModeHash,
-      symbolAnchor: finding.symbolAnchor ?? null,
-      firstSeenHeadSha: scope.reviewedHeadSha,
-      trustedMarker: finding.trustedMarker ?? null
-    }).slice(0, 32)}`;
-  }
-};
-function hasValidTrustedResolutionMarker(target) {
-  const marker = target.resolutionMarker;
-  return Boolean(
-    marker && marker.trust === "trusted" /* Trusted */ && marker.schemaVersion === "reviewrouter-lifecycle-resolution.v1" && marker.targetId === target.targetId && marker.fingerprint === target.trustedMarker
-  );
-}
-function summaryPlacement(lineageId, path29, reason) {
-  return {
-    lineageId,
-    kind: "summary" /* Summary */,
-    path: path29,
-    reason
-  };
-}
-function sortOccurrences(occurrences) {
-  const stateOrder = {
-    ["new" /* New */]: 0,
-    ["changed" /* Changed */]: 1,
-    ["reconfirmed" /* Reconfirmed */]: 2,
-    ["carried_unverified" /* CarriedUnverified */]: 3,
-    ["uncertain" /* Uncertain */]: 4,
-    ["resolved" /* Resolved */]: 5,
-    ["suppressed_by_human" /* SuppressedByHuman */]: 6
-  };
-  const severityOrder = {
-    critical: 0,
-    major: 1,
-    minor: 2
-  };
-  return [...occurrences].sort(
-    (left, right) => stateOrder[left.state] - stateOrder[right.state] || severityOrder[left.severity] - severityOrder[right.severity] || left.filePath.localeCompare(right.filePath) || (left.line ?? 0) - (right.line ?? 0) || left.lineageId.localeCompare(right.lineageId)
-  );
-}
-function normalizePath(path29) {
-  return path29.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
-}
-function sortedUnique(values) {
-  return Array.from(new Set(values)).sort(
-    (left, right) => left.localeCompare(right)
-  );
-}
-
-// src/review-projection/domain/review-lifecycle-observation.ts
-var import_crypto10 = require("crypto");
-var REVIEW_LIFECYCLE_THREAD_STATE_VERSION = "review_lifecycle_thread_state.v1";
-var REVIEW_LIFECYCLE_MARKER_FINGERPRINT = /^(?:rrl_[a-f0-9]{32}|[a-f0-9]{24,64})$/;
-var RFC3339_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
-function isReviewLifecycleMarkerFingerprint(value) {
-  return typeof value === "string" && REVIEW_LIFECYCLE_MARKER_FINGERPRINT.test(value);
-}
-function hashReviewLifecycleThreadState(input) {
-  requireIdentifier(input.threadId, "thread_id");
-  if (input.comments.length === 0) {
-    throw new Error("review_lifecycle_thread_state_comments_missing");
-  }
-  const seenCommentIds = /* @__PURE__ */ new Set();
-  const comments = [...input.comments].sort((left, right) => compareCodeUnits2(left.id, right.id)).map((comment) => {
-    const commentId = requireIdentifier(comment.id, "comment_id");
-    if (seenCommentIds.has(commentId)) {
-      throw new Error("review_lifecycle_thread_state_comment_id_duplicate");
-    }
-    seenCommentIds.add(commentId);
-    return [
-      commentId,
-      normalizeAuthorLogin(comment.authorLogin),
-      sha2564(comment.body ?? ""),
-      normalizeTimestamp(comment.createdAt),
-      normalizeTimestamp(comment.updatedAt ?? comment.createdAt)
-    ];
-  });
-  const preimage = JSON.stringify([
-    REVIEW_LIFECYCLE_THREAD_STATE_VERSION,
-    input.threadId,
-    comments
-  ]);
-  return sha2564(preimage);
-}
-function requireIdentifier(value, field) {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`review_lifecycle_thread_state_${field}_invalid`);
-  }
-  return value;
-}
-function normalizeAuthorLogin(value) {
-  if (value === null || value === void 0) return null;
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error("review_lifecycle_thread_state_author_login_invalid");
-  }
-  return value.toLowerCase();
-}
-function normalizeTimestamp(value) {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
-  }
-  const match2 = RFC3339_TIMESTAMP.exec(value);
-  if (match2 === null || !hasValidTimestampFields(match2)) {
-    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error("review_lifecycle_thread_state_timestamp_invalid");
-  }
-  return parsed.toISOString();
-}
-function hasValidTimestampFields(match2) {
-  const year = Number(match2[1]);
-  const month = Number(match2[2]);
-  const day = Number(match2[3]);
-  const hour = Number(match2[4]);
-  const minute = Number(match2[5]);
-  const second = Number(match2[6]);
-  const offset = match2[7];
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
-    return false;
-  }
-  if (offset !== "Z") {
-    const offsetHour = Number(offset.slice(1, 3));
-    const offsetMinute = Number(offset.slice(4, 6));
-    if (offsetHour > 23 || offsetMinute > 59) return false;
-  }
-  return true;
-}
-function daysInMonth(year, month) {
-  if (month === 2) {
-    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-    return leapYear ? 29 : 28;
-  }
-  return [4, 6, 9, 11].includes(month) ? 30 : 31;
-}
-function sha2564(value) {
-  return (0, import_crypto10.createHash)("sha256").update(value, "utf8").digest("hex");
-}
-function compareCodeUnits2(left, right) {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
-}
-
-// src/review-projection/domain/review-projection-limits.ts
-var REVIEW_PROJECTION_ABSOLUTE_LIMITS = {
-  maxProjectionBytes: 2e6,
-  maxFindings: 1e3,
-  maxReferencesPerFinding: 100,
-  maxLineageHints: 2e3,
-  maxLifecycleTargets: 2e3,
-  maxRevisionFiles: 5e3,
-  maxDiffBytes: 2e6,
-  maxSummaryBytes: 65e3,
-  maxCheckSummaryBytes: 65e3,
-  maxInlineComments: 500,
-  maxInlineCommentsPerChunk: 50,
-  maxInlineChunks: 20,
-  maxInlineCommentBodyBytes: 65e3,
-  maxStringBytes: 65e3
-};
-var ReviewProjectionLimitError = class extends Error {
-  constructor(limitName, actual, maximum) {
-    super(
-      `review projection ${limitName} exceeded: ${actual} is greater than ${maximum}`
-    );
-    this.limitName = limitName;
-    this.actual = actual;
-    this.maximum = maximum;
-    this.name = "ReviewProjectionLimitError";
-  }
-};
-function validateReviewProjectionLimits(limits) {
-  for (const key of Object.keys(REVIEW_PROJECTION_ABSOLUTE_LIMITS)) {
-    const value = limits[key];
-    const absoluteMaximum = REVIEW_PROJECTION_ABSOLUTE_LIMITS[key];
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      throw new Error(`review projection ${key} must be a positive integer`);
-    }
-    if (value > absoluteMaximum) {
-      throw new ReviewProjectionLimitError(key, value, absoluteMaximum);
-    }
-  }
-  return Object.freeze({ ...limits });
-}
-function assertWithinProjectionLimit(limitName, actual, limits) {
-  const maximum = limits[limitName];
-  if (actual > maximum) {
-    throw new ReviewProjectionLimitError(limitName, actual, maximum);
-  }
-}
-
 // src/github/feedback.ts
 var FeedbackFilter = class {
   constructor(client, _providerWeightTracker, ledger) {
@@ -36214,12 +36793,17 @@ var FeedbackFilter = class {
     const { octokit, owner, repo } = this.client;
     const suppressed = /* @__PURE__ */ new Set();
     const alreadyPosted = /* @__PURE__ */ new Set();
+    const alreadyPostedLegacy = /* @__PURE__ */ new Set();
+    const alreadyPostedFindings = /* @__PURE__ */ new Set();
     const commandDismissed = /* @__PURE__ */ new Set();
     const commandDismissedLocations = /* @__PURE__ */ new Set();
     const suppressedComments = [];
     const alreadyPostedComments = [];
     const commandDismissedComments = [];
     const commandDismissedFindings = [];
+    const trustedAuthors = trustedReviewThreadAuthorsFromEnv();
+    let inventoryComplete = false;
+    let inventoryFailure;
     try {
       const comments = await octokit.paginate(
         octokit.rest.pulls.listReviewComments,
@@ -36236,9 +36820,20 @@ var FeedbackFilter = class {
         const body = comment.body || "";
         const signature = this.signatureFromComment(comment.path, line, body);
         const marker = extractInlineFingerprint(body);
-        if (isReviewRouterInlineComment(body) && activeLine != null) {
+        const findingMarker = parseFindingMarker(body);
+        if (isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors) && isReviewRouterInlineComment(body) && activeLine != null && findingMarker.kind !== "conflict" /* Conflict */ && findingMarker.kind !== "malformed" /* Malformed */) {
           alreadyPosted.add(signature);
           if (marker) alreadyPosted.add(marker);
+          const findingFingerprint = extractFindingFingerprint(body);
+          if (findingFingerprint) {
+            alreadyPostedFindings.add(findingFingerprint);
+          } else {
+            alreadyPostedLegacy.add(signature);
+            alreadyPostedLegacy.add(
+              fingerprintFromInlineComment(comment.path, activeLine, body)
+            );
+            if (marker) alreadyPostedLegacy.add(marker);
+          }
           alreadyPostedComments.push({
             path: comment.path,
             line: activeLine,
@@ -36247,7 +36842,9 @@ var FeedbackFilter = class {
         }
         if (typeof comment.id !== "number") continue;
       }
+      inventoryComplete = true;
     } catch (error2) {
+      inventoryFailure = error2 instanceof Error ? error2.message : "unknown GitHub API error";
       logger.warn(
         "Failed to load review comments for feedback filter",
         error2
@@ -36289,8 +36886,12 @@ var FeedbackFilter = class {
       }
     }
     return {
+      inventoryComplete,
+      inventoryFailure,
       suppressed,
       alreadyPosted,
+      alreadyPostedLegacy,
+      alreadyPostedFindings,
       commandDismissed,
       commandDismissedLocations,
       commandDismissedFindings,
@@ -36313,13 +36914,25 @@ var FeedbackFilter = class {
     if (state instanceof Set) {
       return !state.has(signature) && !state.has(fingerprint);
     }
-    return !state.suppressed.has(signature) && !state.suppressed.has(fingerprint) && !(state.commandDismissed?.has(signature) ?? false) && !(state.commandDismissed?.has(fingerprint) ?? false) && !state.alreadyPosted.has(signature) && !state.alreadyPosted.has(fingerprint) && !state.suppressedComments.some(
+    if (state.inventoryComplete === false) {
+      return false;
+    }
+    const marker = parseFindingMarker(comment.body);
+    const invalidFindingMarker = marker.kind === "conflict" /* Conflict */ || marker.kind === "malformed" /* Malformed */;
+    const findingFingerprint = marker.kind === "valid" /* Valid */ ? marker.fingerprint : marker.kind === "absent" /* Absent */ ? findingFingerprintFromInlineComment(
+      comment.path,
+      comment.line,
+      comment.body
+    ) : null;
+    const alreadyPostedLegacy = state.alreadyPostedLegacy ?? state.alreadyPosted;
+    const alreadyPostedByKey = findingFingerprint !== null && ((state.alreadyPostedFindings?.has(findingFingerprint) ?? false) || alreadyPostedLegacy.has(signature) || alreadyPostedLegacy.has(fingerprint));
+    return !state.suppressed.has(signature) && !state.suppressed.has(fingerprint) && !(state.commandDismissed?.has(signature) ?? false) && !(state.commandDismissed?.has(fingerprint) ?? false) && (invalidFindingMarker || !alreadyPostedByKey) && (invalidFindingMarker || !state.suppressedComments.some(
       (existing) => isLikelySameInlineFinding(existing, comment)
-    ) && !(state.commandDismissedFindings?.some(
+    )) && !(state.commandDismissedFindings?.some(
       (existing) => isLikelySameDismissedFinding(existing, comment)
-    ) ?? false) && !state.alreadyPostedComments.some(
+    ) ?? false) && (invalidFindingMarker || !state.alreadyPostedComments.some(
       (existing) => isLikelySameInlineFinding(existing, comment)
-    );
+    ));
   }
   isFindingCommandDismissed(finding, state) {
     const body = [
@@ -36494,7 +37107,7 @@ function locationKey(path29, line) {
 }
 
 // src/github/ledger.ts
-var import_crypto11 = require("crypto");
+var import_crypto12 = require("crypto");
 var LEDGER_MARKER = "reviewrouter-ledger:v1";
 var LEDGER_RE = /<!--\s*reviewrouter-ledger:v1\s+payload=([A-Za-z0-9_-]+)\s+signature=([a-f0-9]{64})\s*-->/;
 var MAX_LEDGER_ENTRIES = 200;
@@ -36682,7 +37295,7 @@ var ReviewLedger = class {
     ].join("\n");
   }
   sign(payload) {
-    return (0, import_crypto11.createHmac)("sha256", this.secret || "").update(canonicalJson3(payload)).digest("hex");
+    return (0, import_crypto12.createHmac)("sha256", this.secret || "").update(canonicalJson3(payload)).digest("hex");
   }
   emptyPayload(prNumber) {
     return {
@@ -36718,7 +37331,7 @@ function safeEqualHex(a2, b2) {
   }
   const aBuffer = Buffer.from(a2, "hex");
   const bBuffer = Buffer.from(b2, "hex");
-  return aBuffer.length === bBuffer.length && (0, import_crypto11.timingSafeEqual)(aBuffer, bBuffer);
+  return aBuffer.length === bBuffer.length && (0, import_crypto12.timingSafeEqual)(aBuffer, bBuffer);
 }
 
 // src/learning/feedback-tracker.ts
@@ -37992,7 +38605,7 @@ var PromptGenerator = class {
 };
 
 // src/utils/sanitize.ts
-var import_crypto12 = require("crypto");
+var import_crypto13 = require("crypto");
 function encodeURIComponentSafe(value) {
   if (typeof value !== "string") {
     return "invalid";
@@ -38001,7 +38614,7 @@ function encodeURIComponentSafe(value) {
   const normalized = encoded.replace(/[+]/g, "_").replace(/%/g, "_").replace(/[<>:"|?*]/g, "_");
   const MAX_PREFIX = 120;
   const prefix = normalized.length > MAX_PREFIX ? normalized.slice(0, MAX_PREFIX) : normalized;
-  const hashSuffix = (0, import_crypto12.createHash)("sha256").update(value).digest("hex").slice(0, 16);
+  const hashSuffix = (0, import_crypto13.createHash)("sha256").update(value).digest("hex").slice(0, 16);
   return `${prefix}-${hashSuffix}`;
 }
 
@@ -39093,10 +39706,10 @@ var PluginLoader = class {
 };
 
 // src/core/batch-orchestrator.ts
-var import_crypto14 = require("crypto");
+var import_crypto15 = require("crypto");
 
 // src/review-orchestration/domain/content-defined-review-batches.ts
-var import_crypto13 = require("crypto");
+var import_crypto14 = require("crypto");
 var ROUTE_HASH_BITS = 256;
 function createContentDefinedReviewBatches(units, limits) {
   requirePositiveInteger(limits.maxFilesPerBatch, "max_files_per_batch");
@@ -39196,7 +39809,7 @@ function routeBit(hash, bitIndex) {
   return nibble >> shift & 1;
 }
 function sha2565(value) {
-  return (0, import_crypto13.createHash)("sha256").update(value).digest("hex");
+  return (0, import_crypto14.createHash)("sha256").update(value).digest("hex");
 }
 function compareCodePoints3(left, right) {
   if (left < right) return -1;
@@ -39335,7 +39948,7 @@ var BatchOrchestrator = class {
   }
 };
 function fileIdentity(file) {
-  return (0, import_crypto14.createHash)("sha256").update(
+  return (0, import_crypto15.createHash)("sha256").update(
     JSON.stringify({
       additions: file.additions,
       changes: file.changes,
@@ -39350,7 +39963,7 @@ function fileIdentity(file) {
 }
 
 // src/learning/suppression-tracker.ts
-var import_crypto15 = require("crypto");
+var import_crypto16 = require("crypto");
 var SuppressionTracker = class _SuppressionTracker {
   constructor(storage, repoKey) {
     this.storage = storage;
@@ -39373,7 +39986,7 @@ var SuppressionTracker = class _SuppressionTracker {
     const ttl = scope === "pr" ? _SuppressionTracker.PR_TTL_MS : _SuppressionTracker.REPO_TTL_MS;
     const timestamp3 = Date.now();
     const pattern = {
-      id: (0, import_crypto15.randomUUID)(),
+      id: (0, import_crypto16.randomUUID)(),
       category: finding.category,
       file: finding.file,
       line: finding.line,
@@ -39840,456 +40453,6 @@ var AcceptanceDetector = class {
     );
   }
 };
-
-// src/github/review-thread-inventory.ts
-var import_crypto16 = require("crypto");
-var DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS = ["review-router-ai[bot]"];
-var GITHUB_ACTIONS_BOT_AUTHOR = "github-actions[bot]";
-var RESOLUTION_REPLY_MARKER = "reviewrouter-lifecycle-resolution:v1";
-var TRUSTED_AUTHOR_ENV_KEYS = [
-  "REVIEW_THREAD_LIFECYCLE_TRUSTED_AUTHORS",
-  "REVIEW_ROUTER_TRUSTED_BOT_AUTHORS"
-];
-var APP_BOT_LOGIN_ENV_KEYS = [
-  "REVIEW_APP_BOT_LOGIN",
-  "REVIEW_ROUTER_APP_BOT_LOGIN",
-  "REVIEWROUTER_APP_BOT_LOGIN"
-];
-var APP_SLUG_ENV_KEYS = [
-  "REVIEW_APP_SLUG",
-  "REVIEW_ROUTER_APP_SLUG",
-  "REVIEWROUTER_APP_SLUG",
-  "AI_ROBOT_REVIEW_APP_SLUG"
-];
-var MAX_REVIEW_THREAD_PAGES = 100;
-var MAX_REVIEW_THREAD_COMMENT_PAGES = 100;
-var INVENTORY_QUERY = `
-query ReviewRouterThreadInventory(
-  $owner: String!
-  $repo: String!
-  $prNumber: Int!
-  $threadsAfter: String
-) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $prNumber) {
-      headRefOid
-      reviewThreads(first: 50, after: $threadsAfter) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          id
-          isResolved
-          isOutdated
-          viewerCanResolve
-          path
-          line
-          originalLine
-          comments(first: 100) {
-            pageInfo { hasNextPage endCursor }
-            nodes {
-              id
-              databaseId
-              author { login }
-              body
-              createdAt
-              updatedAt
-              path
-              line
-              originalLine
-              diffHunk
-              url
-            }
-          }
-        }
-      }
-    }
-  }
-}`;
-var THREAD_COMMENTS_QUERY = `
-query ReviewRouterThreadComments($threadId: ID!, $commentsAfter: String) {
-  node(id: $threadId) {
-    ... on PullRequestReviewThread {
-      comments(first: 100, after: $commentsAfter) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          id
-          databaseId
-          author { login }
-          body
-          createdAt
-          updatedAt
-          path
-          line
-          originalLine
-          diffHunk
-          url
-        }
-      }
-    }
-  }
-}`;
-var ReviewThreadInventoryLoader = class {
-  constructor(client, trustedAuthors = DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS) {
-    this.client = client;
-    this.trustedAuthors = trustedAuthors;
-  }
-  async load(prNumber) {
-    const inventory = {
-      candidates: [],
-      manualAttention: [],
-      manualAttentionIssues: [],
-      dedupeComments: [],
-      warnings: [],
-      failed: false
-    };
-    try {
-      let cursor;
-      let pageCount = 0;
-      const seenCursors = /* @__PURE__ */ new Set();
-      do {
-        if (pageCount >= MAX_REVIEW_THREAD_PAGES) {
-          throw new Error("review thread pagination page limit exceeded");
-        }
-        pageCount += 1;
-        const response = await this.graphql(INVENTORY_QUERY, {
-          owner: this.client.owner,
-          repo: this.client.repo,
-          prNumber,
-          threadsAfter: cursor ?? null
-        });
-        const pr2 = response.repository?.pullRequest;
-        if (!pr2?.headRefOid || !pr2.reviewThreads) {
-          throw new Error("pull request review thread connection was missing");
-        }
-        inventory.headRefOid = pr2.headRefOid;
-        const threads = pr2.reviewThreads;
-        if (!Array.isArray(threads.nodes)) {
-          throw new Error("pull request review thread nodes were missing");
-        }
-        for (const thread of threads.nodes || []) {
-          await this.classifyThread(thread, inventory);
-        }
-        if (threads.pageInfo.hasNextPage) {
-          if (!threads.pageInfo.endCursor) {
-            throw new Error("review thread pagination cursor was missing");
-          }
-          if (seenCursors.has(threads.pageInfo.endCursor)) {
-            throw new Error("review thread pagination cursor repeated");
-          }
-          seenCursors.add(threads.pageInfo.endCursor);
-          cursor = threads.pageInfo.endCursor;
-        } else {
-          cursor = null;
-        }
-      } while (cursor);
-      if (inventory.failed) {
-        inventory.candidates = [];
-        inventory.dedupeComments = [];
-      }
-    } catch (error2) {
-      logger.warn(
-        "Failed to load ReviewRouter review thread lifecycle inventory",
-        error2
-      );
-      inventory.candidates = [];
-      inventory.manualAttention = [];
-      inventory.manualAttentionIssues = [];
-      inventory.dedupeComments = [];
-      inventory.failed = true;
-      inventory.warnings.push("review thread lifecycle inventory failed");
-    }
-    return inventory;
-  }
-  async classifyThread(thread, inventory) {
-    if (thread.isResolved) {
-      return;
-    }
-    if (!thread.comments || !Array.isArray(thread.comments.nodes)) {
-      throw new Error(`thread ${thread.id} comments connection was missing`);
-    }
-    let comments = thread.comments.nodes;
-    if (thread.comments.pageInfo.hasNextPage) {
-      comments = await this.loadRemainingThreadComments(
-        thread.id,
-        comments,
-        thread.comments.pageInfo.endCursor ?? null
-      );
-    }
-    const parent = comments[0];
-    if (!parent) {
-      throw new Error(`thread ${thread.id} parent comment was missing`);
-    }
-    const trustedAuthor = this.isTrustedAuthor(parent.author?.login);
-    const marker = parseFindingMarker(parent.body ?? "");
-    if (marker.kind === "conflict" /* Conflict */ || marker.kind === "malformed" /* Malformed */) {
-      if (trustedAuthor) {
-        const reason = marker.kind === "conflict" /* Conflict */ ? "conflicting_finding_marker" : "malformed_finding_marker";
-        inventory.failed = true;
-        inventory.manualAttentionIssues.push({
-          threadId: thread.id,
-          parentCommentId: parent.id,
-          ...parent.url ? { threadUrl: parent.url } : {},
-          reason
-        });
-        inventory.warnings.push(
-          `trusted ReviewRouter thread ${thread.id} has a ${reason.replaceAll("_", " ")}`
-        );
-      }
-      return;
-    }
-    if (marker.kind === "absent" /* Absent */) {
-      return;
-    }
-    const threadStateHash = hashReviewLifecycleThreadState({
-      threadId: thread.id,
-      comments: comments.map((comment) => ({
-        id: comment.id,
-        authorLogin: comment.author?.login,
-        body: comment.body,
-        createdAt: requireCommentTimestamp(comment.createdAt),
-        updatedAt: comment.updatedAt
-      }))
-    });
-    const body = parent.body || "";
-    const fingerprint = marker.fingerprint;
-    const humanReply = comments.some(
-      (comment, index) => index > 0 && comment.id !== parent.id && !this.isTrustedAuthor(comment.author?.login)
-    );
-    const cleanBody = stripLifecycleCommentBody(body);
-    const parsedTitle = extractInlineTitle(cleanBody);
-    const hasOldFindingDetails = Boolean(
-      cleanBody.trim() || parsedTitle.trim()
-    );
-    const title = parsedTitle || "Previous ReviewRouter finding";
-    const severity = normalizeLifecycleSeverity(extractInlineSeverity(body));
-    const message = cleanBody || parsedTitle || title;
-    const reasonCodes = [];
-    if (!trustedAuthor) reasonCodes.push("untrusted_author");
-    if (humanReply) reasonCodes.push("human_reply");
-    if (!hasOldFindingDetails) reasonCodes.push("missing_old_finding_details");
-    const targetId = targetIdFor(thread.id, parent.id, fingerprint);
-    const trustedResolutionMarker = findTrustedResolutionMarker({
-      comments,
-      targetId,
-      fingerprint,
-      expectedAuthorLogin: parent.author?.login,
-      isTrustedAuthor: (login) => this.isTrustedAuthor(login)
-    });
-    const target = {
-      targetId,
-      threadId: thread.id,
-      threadUrl: parent.url ?? void 0,
-      fingerprint,
-      severity,
-      title,
-      message,
-      originalPath: parent.path || thread.path || "unknown",
-      currentPath: thread.path || parent.path || void 0,
-      originalLine: parent.originalLine ?? thread.originalLine ?? void 0,
-      currentLine: parent.line ?? thread.line ?? void 0,
-      diffHunk: parent.diffHunk ?? void 0,
-      parentCommentId: parent.id,
-      parentCommentDatabaseId: parent.databaseId ?? void 0,
-      parentCommentUpdatedAt: normalizeCommentTimestamp(
-        parent.updatedAt ?? requireCommentTimestamp(parent.createdAt)
-      ),
-      threadCommentCount: comments.length,
-      threadStateHash,
-      viewerCanResolve: Boolean(thread.viewerCanResolve),
-      hasHumanReply: humanReply,
-      trustedAuthor,
-      ...trustedResolutionMarker ? { trustedResolutionMarker } : {},
-      reasonCodes
-    };
-    if (trustedAuthor && !thread.isOutdated && target.currentPath && target.currentLine != null) {
-      inventory.dedupeComments.push({
-        path: target.currentPath,
-        line: target.currentLine,
-        body
-      });
-    }
-    if (reasonCodes.length > 0) {
-      inventory.manualAttention.push({
-        target,
-        reasonCodes
-      });
-      return;
-    }
-    inventory.candidates.push(target);
-  }
-  isTrustedAuthor(login) {
-    return isTrustedReviewThreadAuthor(login, this.trustedAuthors);
-  }
-  async loadRemainingThreadComments(threadId, initialComments, initialCursor) {
-    if (!initialCursor) {
-      throw new Error("thread comments pagination cursor was missing");
-    }
-    const comments = [...initialComments];
-    let cursor = initialCursor;
-    let pageCount = 0;
-    const seenCursors = /* @__PURE__ */ new Set([initialCursor]);
-    while (cursor) {
-      if (pageCount >= MAX_REVIEW_THREAD_COMMENT_PAGES) {
-        throw new Error("thread comments pagination page limit exceeded");
-      }
-      pageCount += 1;
-      const response = await this.graphql(
-        THREAD_COMMENTS_QUERY,
-        {
-          threadId,
-          commentsAfter: cursor
-        }
-      );
-      const connection = response.node?.comments ?? null;
-      if (!connection) {
-        throw new Error("thread comments connection was missing");
-      }
-      if (!Array.isArray(connection.nodes)) {
-        throw new Error("thread comments nodes were missing");
-      }
-      comments.push(...connection.nodes);
-      if (!connection.pageInfo.hasNextPage) {
-        cursor = null;
-        break;
-      }
-      if (!connection.pageInfo.endCursor) {
-        throw new Error("thread comments pagination cursor was missing");
-      }
-      if (seenCursors.has(connection.pageInfo.endCursor)) {
-        throw new Error("thread comments pagination cursor repeated");
-      }
-      seenCursors.add(connection.pageInfo.endCursor);
-      cursor = connection.pageInfo.endCursor;
-    }
-    return comments;
-  }
-  async graphql(query, variables) {
-    const graphql = this.client.octokit.graphql;
-    if (typeof graphql !== "function") {
-      throw new Error("GitHub GraphQL client is unavailable");
-    }
-    return graphql(query, variables);
-  }
-};
-function isTrustedReviewThreadAuthor(login, trustedAuthors = DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS) {
-  const normalizedLogin = canonicalBotLogin(login);
-  return Boolean(
-    normalizedLogin && trustedAuthors.some(
-      (author) => canonicalBotLogin(author) === normalizedLogin
-    )
-  );
-}
-function trustedReviewThreadAuthorsFromEnv(env = process.env) {
-  const authors = new Set(
-    DEFAULT_TRUSTED_REVIEW_THREAD_AUTHORS.map((author) => author.toLowerCase())
-  );
-  if (shouldTrustGitHubActionsBot(env)) {
-    authors.add(GITHUB_ACTIONS_BOT_AUTHOR);
-  }
-  for (const key of TRUSTED_AUTHOR_ENV_KEYS) {
-    for (const raw of splitList(env[key])) {
-      const normalized = normalizeBotLogin(raw);
-      if (normalized) authors.add(normalized);
-    }
-  }
-  for (const key of APP_BOT_LOGIN_ENV_KEYS) {
-    const normalized = normalizeBotLogin(env[key]);
-    if (normalized) authors.add(normalized);
-  }
-  for (const key of APP_SLUG_ENV_KEYS) {
-    const normalized = normalizeAppSlugBotLogin(env[key]);
-    if (normalized) authors.add(normalized);
-  }
-  return Array.from(authors);
-}
-function shouldTrustGitHubActionsBot(env) {
-  if (env.REVIEWROUTER_COMMENT_TOKEN_MODE !== "app-oidc") {
-    return true;
-  }
-  return env.REVIEW_ROUTER_COMMENT_TOKEN_STATUS === "fallback";
-}
-function targetIdFor(threadId, parentCommentId, fingerprint) {
-  return `rrt_${(0, import_crypto16.createHash)("sha256").update(`${threadId}
-${parentCommentId}
-${fingerprint}`).digest("hex").slice(0, 16)}`;
-}
-function findTrustedResolutionMarker(input) {
-  const expectedAuthor = canonicalBotLogin(input.expectedAuthorLogin);
-  if (!expectedAuthor || expectedAuthor === GITHUB_ACTIONS_BOT_AUTHOR) {
-    return void 0;
-  }
-  for (const comment of input.comments.slice(1)) {
-    const markerAuthor = canonicalBotLogin(comment.author?.login);
-    if (markerAuthor !== expectedAuthor || !input.isTrustedAuthor(comment.author?.login)) {
-      continue;
-    }
-    const marker = parseResolutionMarker(comment.body ?? "");
-    if (marker?.targetId !== input.targetId || marker.fingerprint !== input.fingerprint) {
-      continue;
-    }
-    return {
-      schemaVersion: "reviewrouter-lifecycle-resolution.v1",
-      targetId: marker.targetId,
-      fingerprint: marker.fingerprint,
-      commentId: comment.id,
-      commentUpdatedAt: normalizeCommentTimestamp(
-        comment.updatedAt ?? requireCommentTimestamp(comment.createdAt)
-      )
-    };
-  }
-  return void 0;
-}
-function parseResolutionMarker(body) {
-  const match2 = new RegExp(
-    `<!--\\s*${RESOLUTION_REPLY_MARKER}\\s+target_id=([A-Za-z0-9._:-]{1,160})\\s+fingerprint=([A-Za-z0-9_]{1,80})\\s*-->`,
-    "i"
-  ).exec(body);
-  if (!match2?.[1] || !match2[2]) return void 0;
-  const fingerprint = match2[2].toLowerCase();
-  if (!isReviewLifecycleMarkerFingerprint(fingerprint)) return void 0;
-  return { targetId: match2[1], fingerprint };
-}
-function normalizeLifecycleSeverity(value) {
-  if (value === "critical" || value === "major" || value === "minor") {
-    return value;
-  }
-  return "unknown";
-}
-function requireCommentTimestamp(value) {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error("review thread comment timestamp was missing");
-  }
-  return value;
-}
-function normalizeCommentTimestamp(value) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error("review thread comment timestamp was invalid");
-  }
-  return parsed.toISOString();
-}
-function stripLifecycleCommentBody(body) {
-  return stripInlineFingerprintMarkers(body).replace(/<sub><!--\s*review-router-skip-help\s*-->[\s\S]*?<\/sub>/gi, "").replace(/<sub>\s*Models?:[\s\S]*?<\/sub>/gi, "").replace(/\*\*Provider:\*\*[\s\S]*?(?:\n\n|$)/gi, "").trim();
-}
-function splitList(value) {
-  return (value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
-}
-function normalizeAppSlugBotLogin(value) {
-  const slug = (value ?? "").trim();
-  if (!slug) return void 0;
-  return normalizeBotLogin(slug.endsWith("[bot]") ? slug : `${slug}[bot]`);
-}
-function normalizeBotLogin(value) {
-  const login = (value ?? "").trim().toLowerCase();
-  if (!login) return void 0;
-  if (!/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?(?:\[bot\])?$/.test(login)) {
-    return void 0;
-  }
-  return login;
-}
-function canonicalBotLogin(value) {
-  const login = normalizeBotLogin(value);
-  return login?.endsWith("[bot]") ? login.slice(0, -5) : login;
-}
 
 // src/github/review-thread-resolver.ts
 var HEAD_QUERY = `
@@ -47323,6 +47486,11 @@ var ReviewOrchestrator = class {
         pr2.number,
         pr2.headSha
       );
+      if (pr2.pathShard && reviewCommentState.inventoryComplete === false) {
+        throw new Error(
+          "Path-sharded inline publication requires a complete trusted review-comment inventory; refusing publication"
+        );
+      }
       if (lifecycleMode !== "off") {
         if (lifecycleDedupeComments !== void 0) {
           this.applyGraphQLDedupeState(
@@ -47478,7 +47646,8 @@ var ReviewOrchestrator = class {
           inlineFiltered,
           pr2.files,
           pr2.headSha,
-          lifecycleMode !== "off" ? lifecycleDedupeComments : void 0
+          lifecycleMode !== "off" ? lifecycleDedupeComments : void 0,
+          { mode: "strict-inline-only" }
         );
       } else if (this.shouldPostReviewOutput(review, inlineFiltered)) {
         let summaryPostedViaProgress = false;
@@ -51261,7 +51430,7 @@ function hasProviderPrefix(value, providerPrefix) {
 }
 
 // src/output/severity-gate.ts
-var severityRank = {
+var severityRank2 = {
   critical: 3,
   major: 2,
   minor: 1
@@ -51277,9 +51446,9 @@ function getBlockingFindingBreakdown(review, threshold) {
       total: 0
     };
   }
-  const minRank = severityRank[threshold];
+  const minRank = severityRank2[threshold];
   const current = review.findings.filter(
-    (finding) => severityRank[finding.severity] >= minRank
+    (finding) => severityRank2[finding.severity] >= minRank
   ).length;
   const attributedFromCurrentReview = review.findingProvenance ? countAtOrAbove(review.findingProvenance.fromCurrentReview, minRank) : current;
   const attributedCarriedForward = review.findingProvenance ? countAtOrAbove(review.findingProvenance.carriedForward, minRank) : 0;
@@ -51292,7 +51461,7 @@ function getBlockingFindingBreakdown(review, threshold) {
   const previousStillValid = (review.threadLifecycle?.previousStillValid ?? []).filter((record) => {
     if (isLinkedCurrentFinding(record)) return false;
     const severity = record.target.severity;
-    return (severity === "critical" || severity === "major" || severity === "minor") && severityRank[severity] >= minRank;
+    return (severity === "critical" || severity === "major" || severity === "minor") && severityRank2[severity] >= minRank;
   }).length;
   return {
     current,
@@ -51348,8 +51517,8 @@ function formatBlockingFindingFailure(review, threshold) {
   )}: ${detail}.` + noNewFromCurrentReview + " Review comments were posted before failing this check.";
 }
 function countAtOrAbove(counts, minRank) {
-  return Object.keys(severityRank).reduce(
-    (total, severity) => severityRank[severity] >= minRank ? total + (counts[severity] ?? 0) : total,
+  return Object.keys(severityRank2).reduce(
+    (total, severity) => severityRank2[severity] >= minRank ? total + (counts[severity] ?? 0) : total,
     0
   );
 }
@@ -114763,6 +114932,10 @@ function syncEnvFromInputs() {
     if (value && !process.env[key]) {
       process.env[key] = value;
     }
+  }
+  const reviewFocusProfile = getInput("review-focus-profile");
+  if (reviewFocusProfile && !process.env.REVIEW_FOCUS_PROFILE) {
+    process.env.REVIEW_FOCUS_PROFILE = reviewFocusProfile;
   }
 }
 async function run() {

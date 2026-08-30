@@ -22,7 +22,9 @@ import { ProviderWeightTracker } from '../learning/provider-weights';
 import { detectLanguage } from '../analysis/ast/parsers';
 import {
   appendInlineFingerprintMarker,
+  extractFindingFingerprint,
   extractInlineFingerprint,
+  FindingFingerprint,
   fingerprintFromInlineComment,
   InlineCommentReference,
   isReviewRouterInlineComment,
@@ -35,12 +37,22 @@ import {
   shouldSkipSummaryWriteForExisting,
 } from './summary-metadata';
 import {
+  FindingMarkerParseKind,
+  parseFindingMarker,
+} from '../review-projection/domain';
+import {
   PullRequestHeadVerificationStatus,
   verifyPullRequestHead,
 } from './pr-head-guard';
+import {
+  isTrustedReviewThreadAuthor,
+  trustedReviewThreadAuthorsFromEnv,
+} from './review-thread-inventory';
 
 interface ActiveInlineComments {
-  keys: Set<string>;
+  coarseKeys: Set<string>;
+  legacyKeys: Set<string>;
+  findingFingerprints: Set<FindingFingerprint>;
   comments: InlineCommentReference[];
 }
 
@@ -57,6 +69,10 @@ export interface SummaryPostResult {
   posted: boolean;
   skippedStale: boolean;
   reason?: 'head_sha_changed' | 'head_unverifiable' | 'newer_summary_exists';
+}
+
+export interface InlinePublicationOptions {
+  mode: 'default' | 'strict-inline-only';
 }
 
 type InlineCommentWithLegacyRange = InlineComment & {
@@ -519,9 +535,12 @@ export class CommentPoster {
   private async loadActiveInlineComments(
     prNumber: number
   ): Promise<ActiveInlineComments> {
-    const keys = new Set<string>();
+    const coarseKeys = new Set<string>();
+    const legacyKeys = new Set<string>();
+    const findingFingerprints = new Set<FindingFingerprint>();
     const activeComments: InlineCommentReference[] = [];
     const { octokit, owner, repo } = this.client;
+    const trustedAuthors = trustedReviewThreadAuthorsFromEnv();
 
     try {
       const comments = await octokit.paginate(
@@ -535,29 +554,64 @@ export class CommentPoster {
       );
 
       for (const comment of comments) {
+        if (!isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors)) {
+          continue;
+        }
         const activeLine = comment.line;
         const body = comment.body || '';
         if (activeLine == null || !isReviewRouterInlineComment(body)) continue;
+        const findingMarker = parseFindingMarker(body);
+        if (
+          findingMarker.kind === FindingMarkerParseKind.Conflict ||
+          findingMarker.kind === FindingMarkerParseKind.Malformed
+        ) {
+          continue;
+        }
 
         activeComments.push({
           path: comment.path,
           line: activeLine,
           body,
         });
-        keys.add(signatureFromInlineComment(comment.path, activeLine, body));
-        keys.add(fingerprintFromInlineComment(comment.path, activeLine, body));
+        const signature = signatureFromInlineComment(
+          comment.path,
+          activeLine,
+          body
+        );
+        const fingerprint = fingerprintFromInlineComment(
+          comment.path,
+          activeLine,
+          body
+        );
+        coarseKeys.add(signature);
+        coarseKeys.add(fingerprint);
 
         const marker = extractInlineFingerprint(body);
-        if (marker) keys.add(marker);
+        if (marker) coarseKeys.add(marker);
+        const findingFingerprint = extractFindingFingerprint(body);
+        if (findingFingerprint) {
+          findingFingerprints.add(findingFingerprint);
+        } else {
+          legacyKeys.add(signature);
+          legacyKeys.add(fingerprint);
+          if (marker) legacyKeys.add(marker);
+        }
       }
     } catch (error) {
-      logger.warn(
-        'Failed to load existing inline comments for deduplication',
-        error as Error
-      );
+      const inventoryError = new Error(
+        'Failed to load trusted inline comment inventory; refusing publication'
+      ) as Error & { cause?: unknown };
+      inventoryError.cause = error;
+      logger.error(inventoryError.message, error as Error);
+      throw inventoryError;
     }
 
-    return { keys, comments: activeComments };
+    return {
+      coarseKeys,
+      legacyKeys,
+      findingFingerprints,
+      comments: activeComments,
+    };
   }
 
   private hasInlineDuplicate(
@@ -566,11 +620,25 @@ export class CommentPoster {
     line: number,
     body: string
   ): boolean {
+    const parsedFindingMarker = parseFindingMarker(body);
+    if (
+      parsedFindingMarker.kind === FindingMarkerParseKind.Conflict ||
+      parsedFindingMarker.kind === FindingMarkerParseKind.Malformed
+    ) {
+      return false;
+    }
     const marker = extractInlineFingerprint(body);
+    const findingFingerprint = extractFindingFingerprint(body);
+    const keys = findingFingerprint
+      ? activeComments.legacyKeys
+      : activeComments.coarseKeys;
     return (
-      activeComments.keys.has(signatureFromInlineComment(path, line, body)) ||
-      activeComments.keys.has(fingerprintFromInlineComment(path, line, body)) ||
-      (marker ? activeComments.keys.has(marker) : false) ||
+      (findingFingerprint
+        ? activeComments.findingFingerprints.has(findingFingerprint)
+        : false) ||
+      keys.has(signatureFromInlineComment(path, line, body)) ||
+      keys.has(fingerprintFromInlineComment(path, line, body)) ||
+      (marker ? keys.has(marker) : false) ||
       activeComments.comments.some((comment) =>
         isLikelySameInlineFinding(comment, { path, line, body })
       )
@@ -707,8 +775,10 @@ export class CommentPoster {
     comments: InlineComment[],
     files: FileChange[],
     headSha?: string,
-    dedupeComments?: InlineCommentReference[]
+    dedupeComments?: InlineCommentReference[],
+    publication: InlinePublicationOptions = { mode: 'default' }
   ): Promise<void> {
+    const strictInlineOnly = publication.mode === 'strict-inline-only';
     if (
       !this.dryRun &&
       headSha &&
@@ -721,7 +791,7 @@ export class CommentPoster {
       return;
     }
     if (comments.length === 0) {
-      if (!this.dryRun) {
+      if (!this.dryRun && !strictInlineOnly) {
         await this.deleteInlineFallbackComments(
           prNumber,
           'no current inline findings remain',
@@ -731,7 +801,12 @@ export class CommentPoster {
       return;
     }
     const activeInlineComments = this.dryRun
-      ? { keys: new Set<string>(), comments: [] }
+      ? {
+          coarseKeys: new Set<string>(),
+          legacyKeys: new Set<string>(),
+          findingFingerprints: new Set<FindingFingerprint>(),
+          comments: [],
+        }
       : dedupeComments
         ? CommentPoster.activeInlineCommentsFromReferences(dedupeComments)
         : await this.loadActiveInlineComments(prNumber);
@@ -909,14 +984,18 @@ export class CommentPoster {
             return null;
           }
 
-          activeInlineComments.keys.add(
+          activeInlineComments.coarseKeys.add(
             signatureFromInlineComment(c.path, c.line, apiComment.body)
           );
-          activeInlineComments.keys.add(
+          activeInlineComments.coarseKeys.add(
             fingerprintFromInlineComment(c.path, c.line, apiComment.body)
           );
           const marker = extractInlineFingerprint(apiComment.body);
-          if (marker) activeInlineComments.keys.add(marker);
+          if (marker) activeInlineComments.coarseKeys.add(marker);
+          const findingFingerprint = extractFindingFingerprint(apiComment.body);
+          if (findingFingerprint) {
+            activeInlineComments.findingFingerprints.add(findingFingerprint);
+          }
           activeInlineComments.comments.push({
             path: c.path,
             line: c.line,
@@ -962,30 +1041,30 @@ export class CommentPoster {
       return;
     }
     try {
-      await withRetry(
-        () =>
-          octokit.rest.pulls.createReview({
-            owner,
-            repo,
-            pull_number: prNumber,
-            ...(headSha ? { commit_id: headSha } : {}),
-            event: 'COMMENT',
-            comments: apiComments,
-          }),
-        { retries: 2, minTimeout: 1000, maxTimeout: 5000 }
-      );
-      await this.deleteInlineFallbackComments(
-        prNumber,
-        'inline comments posted successfully',
-        headSha
-      );
+      await octokit.rest.pulls.createReview({
+        owner,
+        repo,
+        pull_number: prNumber,
+        ...(headSha ? { commit_id: headSha } : {}),
+        event: 'COMMENT',
+        comments: apiComments,
+      });
+      if (!strictInlineOnly) {
+        await this.deleteInlineFallbackComments(
+          prNumber,
+          'inline comments posted successfully',
+          headSha
+        );
+      }
     } catch (error) {
       if (!CommentPoster.shouldFallbackInlineReviewError(error)) {
         throw error;
       }
 
       logger.warn(
-        'GitHub inline review API failed; posting inline findings as a PR comment fallback',
+        strictInlineOnly
+          ? 'GitHub batch inline review API failed in strict inline-only mode; retrying findings individually'
+          : 'GitHub inline review API failed; posting inline findings as a PR comment fallback',
         error as Error
       );
       if (
@@ -993,7 +1072,9 @@ export class CommentPoster {
         !(await this.canMutateExpectedHead(
           prNumber,
           headSha,
-          'inline fallback publication'
+          strictInlineOnly
+            ? 'strict individual inline retry'
+            : 'inline fallback publication'
         ))
       ) {
         return;
@@ -1002,18 +1083,30 @@ export class CommentPoster {
         ? await this.postIndividualInlineComments(
             prNumber,
             apiComments,
-            headSha,
-            error as Error
+            headSha
           )
         : apiComments;
       if (remainingComments.length > 0) {
-        await this.postInlineFallback(
-          prNumber,
-          remainingComments,
-          error as Error,
-          headSha
-        );
-      } else {
+        if (strictInlineOnly) {
+          const publicationError = new Error(
+            `Strict inline-only publication left ${remainingComments.length}/${apiComments.length} finding(s) unpublished after GitHub rejected batch and individual inline comment APIs`
+          ) as Error & { cause?: unknown };
+          publicationError.cause = error;
+          logger.error(publicationError.message, error as Error);
+          throw publicationError;
+        } else {
+          logger.warn(
+            `Falling back to PR comment for ${remainingComments.length}/${apiComments.length} inline finding(s) after GitHub rejected batch and individual inline comment APIs`,
+            error as Error
+          );
+          await this.postInlineFallback(
+            prNumber,
+            remainingComments,
+            error as Error,
+            headSha
+          );
+        }
+      } else if (!strictInlineOnly) {
         await this.deleteInlineFallbackComments(
           prNumber,
           'inline comments posted successfully',
@@ -1026,26 +1119,52 @@ export class CommentPoster {
   private static activeInlineCommentsFromReferences(
     references: InlineCommentReference[]
   ): ActiveInlineComments {
-    const keys = new Set<string>();
+    const coarseKeys = new Set<string>();
+    const legacyKeys = new Set<string>();
+    const findingFingerprints = new Set<FindingFingerprint>();
     const comments: InlineCommentReference[] = [];
 
     for (const comment of references) {
       const body = comment.body || '';
+      const findingMarker = parseFindingMarker(body);
+      if (
+        findingMarker.kind === FindingMarkerParseKind.Conflict ||
+        findingMarker.kind === FindingMarkerParseKind.Malformed
+      ) {
+        continue;
+      }
       comments.push(comment);
-      keys.add(signatureFromInlineComment(comment.path, comment.line, body));
-      keys.add(fingerprintFromInlineComment(comment.path, comment.line, body));
+      const signature = signatureFromInlineComment(
+        comment.path,
+        comment.line,
+        body
+      );
+      const fingerprint = fingerprintFromInlineComment(
+        comment.path,
+        comment.line,
+        body
+      );
+      coarseKeys.add(signature);
+      coarseKeys.add(fingerprint);
       const marker = extractInlineFingerprint(body);
-      if (marker) keys.add(marker);
+      if (marker) coarseKeys.add(marker);
+      const findingFingerprint = extractFindingFingerprint(body);
+      if (findingFingerprint) {
+        findingFingerprints.add(findingFingerprint);
+      } else {
+        legacyKeys.add(signature);
+        legacyKeys.add(fingerprint);
+        if (marker) legacyKeys.add(marker);
+      }
     }
 
-    return { keys, comments };
+    return { coarseKeys, legacyKeys, findingFingerprints, comments };
   }
 
   private async postIndividualInlineComments(
     prNumber: number,
     comments: GitHubInlineCommentPayload[],
-    headSha: string,
-    originalError: Error
+    headSha: string
   ): Promise<GitHubInlineCommentPayload[]> {
     const { octokit, owner, repo } = this.client;
     const failedComments: GitHubInlineCommentPayload[] = [];
@@ -1062,26 +1181,22 @@ export class CommentPoster {
         return [...failedComments, ...comments.slice(postedCount)];
       }
       try {
-        await withRetry(
-          () =>
-            octokit.rest.pulls.createReviewComment({
-              owner,
-              repo,
-              pull_number: prNumber,
-              commit_id: headSha,
-              path: comment.path,
-              line: comment.line,
-              side: comment.side,
-              ...(comment.start_line !== undefined
-                ? { start_line: comment.start_line }
-                : {}),
-              ...(comment.start_side !== undefined
-                ? { start_side: comment.start_side }
-                : {}),
-              body: comment.body,
-            }),
-          { retries: 2, minTimeout: 1000, maxTimeout: 5000 }
-        );
+        await octokit.rest.pulls.createReviewComment({
+          owner,
+          repo,
+          pull_number: prNumber,
+          commit_id: headSha,
+          path: comment.path,
+          line: comment.line,
+          side: comment.side,
+          ...(comment.start_line !== undefined
+            ? { start_line: comment.start_line }
+            : {}),
+          ...(comment.start_side !== undefined
+            ? { start_side: comment.start_side }
+            : {}),
+          body: comment.body,
+        });
         postedCount++;
       } catch (error) {
         if (!CommentPoster.shouldFallbackInlineReviewError(error)) {
@@ -1091,26 +1206,22 @@ export class CommentPoster {
           CommentPoster.withoutCommittableSuggestionForInlineRetry(comment);
         if (retryComment.body !== comment.body) {
           try {
-            await withRetry(
-              () =>
-                octokit.rest.pulls.createReviewComment({
-                  owner,
-                  repo,
-                  pull_number: prNumber,
-                  commit_id: headSha,
-                  path: retryComment.path,
-                  line: retryComment.line,
-                  side: retryComment.side,
-                  ...(retryComment.start_line !== undefined
-                    ? { start_line: retryComment.start_line }
-                    : {}),
-                  ...(retryComment.start_side !== undefined
-                    ? { start_side: retryComment.start_side }
-                    : {}),
-                  body: retryComment.body,
-                }),
-              { retries: 2, minTimeout: 1000, maxTimeout: 5000 }
-            );
+            await octokit.rest.pulls.createReviewComment({
+              owner,
+              repo,
+              pull_number: prNumber,
+              commit_id: headSha,
+              path: retryComment.path,
+              line: retryComment.line,
+              side: retryComment.side,
+              ...(retryComment.start_line !== undefined
+                ? { start_line: retryComment.start_line }
+                : {}),
+              ...(retryComment.start_side !== undefined
+                ? { start_side: retryComment.start_side }
+                : {}),
+              body: retryComment.body,
+            });
             logger.info(
               `Posted inline comment at ${comment.path}:${comment.line} after removing committable suggestion block rejected by GitHub`
             );
@@ -1132,25 +1243,11 @@ export class CommentPoster {
         `Posted ${postedCount}/${comments.length} inline comment(s) through individual GitHub review-comment API after batch review failed`
       );
     }
-    if (failedComments.length > 0) {
-      logger.warn(
-        `Falling back to PR comment for ${failedComments.length}/${comments.length} inline finding(s) after GitHub rejected batch and individual inline comment APIs`,
-        originalError
-      );
-    }
-
     return failedComments;
   }
 
   private static shouldFallbackInlineReviewError(error: unknown): boolean {
-    const maybeError = error as { status?: number; message?: string };
-    const message = maybeError?.message || String(error);
-    return (
-      maybeError?.status === 422 ||
-      /unprocessable entity/i.test(message) ||
-      /internal error occurred/i.test(message) ||
-      /validation failed/i.test(message)
-    );
+    return (error as { status?: number })?.status === 422;
   }
 
   private static withoutCommittableSuggestionForInlineRetry(

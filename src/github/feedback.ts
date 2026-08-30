@@ -5,6 +5,8 @@ import { ProviderWeightTracker } from '../learning/provider-weights';
 import { severityHeading, severityLine } from '../utils/severity';
 import {
   extractInlineFingerprint,
+  extractFindingFingerprint,
+  FindingFingerprint,
   findingFingerprintFromFinding,
   findingFingerprintFromInlineComment,
   fingerprintFromInlineComment,
@@ -20,10 +22,23 @@ import {
   FindingMarkerParseKind,
   parseFindingMarker,
 } from '../review-projection/domain';
+import {
+  isTrustedReviewThreadAuthor,
+  trustedReviewThreadAuthorsFromEnv,
+} from './review-thread-inventory';
 
 export interface ReviewCommentState {
+  /**
+   * Whether the GitHub review-comment inventory was loaded completely.
+   * A failed inventory must block publication because an empty partial result
+   * cannot prove that a finding has not already been posted.
+   */
+  inventoryComplete?: boolean;
+  inventoryFailure?: string;
   suppressed: Set<string>;
   alreadyPosted: Set<string>;
+  alreadyPostedLegacy?: Set<string>;
+  alreadyPostedFindings?: Set<FindingFingerprint>;
   commandDismissed?: Set<string>;
   commandDismissedLocations?: Set<string>;
   commandDismissedFindings?: DismissedFindingReference[];
@@ -69,12 +84,17 @@ export class FeedbackFilter {
     const { octokit, owner, repo } = this.client;
     const suppressed = new Set<string>();
     const alreadyPosted = new Set<string>();
+    const alreadyPostedLegacy = new Set<string>();
+    const alreadyPostedFindings = new Set<FindingFingerprint>();
     const commandDismissed = new Set<string>();
     const commandDismissedLocations = new Set<string>();
     const suppressedComments: InlineCommentReference[] = [];
     const alreadyPostedComments: InlineCommentReference[] = [];
     const commandDismissedComments: InlineCommentReference[] = [];
     const commandDismissedFindings: DismissedFindingReference[] = [];
+    const trustedAuthors = trustedReviewThreadAuthorsFromEnv();
+    let inventoryComplete = false;
+    let inventoryFailure: string | undefined;
 
     try {
       const comments = (await octokit.paginate(
@@ -96,9 +116,26 @@ export class FeedbackFilter {
         // Only active review comments should suppress reposting. Outdated
         // comments have line=null and should not hide a fresh current-diff
         // comment if the finding still exists after a new push.
-        if (isReviewRouterInlineComment(body) && activeLine != null) {
+        const findingMarker = parseFindingMarker(body);
+        if (
+          isTrustedReviewThreadAuthor(comment.user?.login, trustedAuthors) &&
+          isReviewRouterInlineComment(body) &&
+          activeLine != null &&
+          findingMarker.kind !== FindingMarkerParseKind.Conflict &&
+          findingMarker.kind !== FindingMarkerParseKind.Malformed
+        ) {
           alreadyPosted.add(signature);
           if (marker) alreadyPosted.add(marker);
+          const findingFingerprint = extractFindingFingerprint(body);
+          if (findingFingerprint) {
+            alreadyPostedFindings.add(findingFingerprint);
+          } else {
+            alreadyPostedLegacy.add(signature);
+            alreadyPostedLegacy.add(
+              fingerprintFromInlineComment(comment.path, activeLine, body)
+            );
+            if (marker) alreadyPostedLegacy.add(marker);
+          }
           alreadyPostedComments.push({
             path: comment.path,
             line: activeLine,
@@ -108,7 +145,10 @@ export class FeedbackFilter {
 
         if (typeof comment.id !== 'number') continue;
       }
+      inventoryComplete = true;
     } catch (error) {
+      inventoryFailure =
+        error instanceof Error ? error.message : 'unknown GitHub API error';
       logger.warn(
         'Failed to load review comments for feedback filter',
         error as Error
@@ -152,8 +192,12 @@ export class FeedbackFilter {
     }
 
     return {
+      inventoryComplete,
+      inventoryFailure,
       suppressed,
       alreadyPosted,
+      alreadyPostedLegacy,
+      alreadyPostedFindings,
       commandDismissed,
       commandDismissedLocations,
       commandDismissedFindings,
@@ -182,24 +226,55 @@ export class FeedbackFilter {
       return !state.has(signature) && !state.has(fingerprint);
     }
 
+    // Deduplication is proof-based: when GitHub did not return a complete
+    // inventory, publishing would risk duplicating an existing inline finding.
+    // Command dismissal state is still loaded and remains available through
+    // isFindingCommandDismissed/isInlineCommandDismissed.
+    if (state.inventoryComplete === false) {
+      return false;
+    }
+
+    const marker = parseFindingMarker(comment.body);
+    const invalidFindingMarker =
+      marker.kind === FindingMarkerParseKind.Conflict ||
+      marker.kind === FindingMarkerParseKind.Malformed;
+    const findingFingerprint =
+      marker.kind === FindingMarkerParseKind.Valid
+        ? (marker.fingerprint as FindingFingerprint)
+        : marker.kind === FindingMarkerParseKind.Absent
+          ? (findingFingerprintFromInlineComment(
+              comment.path,
+              comment.line,
+              comment.body
+            ) as FindingFingerprint)
+          : null;
+    const alreadyPostedLegacy =
+      state.alreadyPostedLegacy ?? state.alreadyPosted;
+    const alreadyPostedByKey =
+      findingFingerprint !== null &&
+      ((state.alreadyPostedFindings?.has(findingFingerprint) ?? false) ||
+        alreadyPostedLegacy.has(signature) ||
+        alreadyPostedLegacy.has(fingerprint));
+
     return (
       !state.suppressed.has(signature) &&
       !state.suppressed.has(fingerprint) &&
       !(state.commandDismissed?.has(signature) ?? false) &&
       !(state.commandDismissed?.has(fingerprint) ?? false) &&
-      !state.alreadyPosted.has(signature) &&
-      !state.alreadyPosted.has(fingerprint) &&
-      !state.suppressedComments.some((existing) =>
-        isLikelySameInlineFinding(existing, comment)
-      ) &&
+      (invalidFindingMarker || !alreadyPostedByKey) &&
+      (invalidFindingMarker ||
+        !state.suppressedComments.some((existing) =>
+          isLikelySameInlineFinding(existing, comment)
+        )) &&
       !(
         state.commandDismissedFindings?.some((existing) =>
           isLikelySameDismissedFinding(existing, comment)
         ) ?? false
       ) &&
-      !state.alreadyPostedComments.some((existing) =>
-        isLikelySameInlineFinding(existing, comment)
-      )
+      (invalidFindingMarker ||
+        !state.alreadyPostedComments.some((existing) =>
+          isLikelySameInlineFinding(existing, comment)
+        ))
     );
   }
 

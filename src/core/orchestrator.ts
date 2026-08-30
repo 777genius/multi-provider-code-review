@@ -1524,6 +1524,11 @@ export class ReviewOrchestrator {
           pr.number,
           pr.headSha
         );
+      if (pr.pathShard && reviewCommentState.inventoryComplete === false) {
+        throw new Error(
+          'Path-sharded inline publication requires a complete trusted review-comment inventory; refusing publication'
+        );
+      }
       if (lifecycleMode !== 'off') {
         if (lifecycleDedupeComments !== undefined) {
           this.applyGraphQLDedupeState(
@@ -1707,7 +1712,8 @@ export class ReviewOrchestrator {
           inlineFiltered,
           pr.files,
           pr.headSha,
-          lifecycleMode !== 'off' ? lifecycleDedupeComments : undefined
+          lifecycleMode !== 'off' ? lifecycleDedupeComments : undefined,
+          { mode: 'strict-inline-only' }
         );
       } else if (this.shouldPostReviewOutput(review, inlineFiltered)) {
         let summaryPostedViaProgress = false;

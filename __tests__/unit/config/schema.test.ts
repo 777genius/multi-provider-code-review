@@ -18,6 +18,23 @@ describe('Config Schema', () => {
     ).toThrow();
   });
 
+  it.each(['standard', 'critical'])(
+    'accepts strict review_focus_profile %s',
+    (reviewFocusProfile) => {
+      expect(
+        ReviewConfigSchema.parse({
+          review_focus_profile: reviewFocusProfile,
+        }).review_focus_profile
+      ).toBe(reviewFocusProfile);
+    }
+  );
+
+  it('rejects an unknown review_focus_profile', () => {
+    expect(() =>
+      ReviewConfigSchema.parse({ review_focus_profile: 'security-only' })
+    ).toThrow();
+  });
+
   it('should validate default config', () => {
     expect(() =>
       validateConfig(DEFAULT_CONFIG as unknown as Record<string, unknown>)

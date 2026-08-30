@@ -3,6 +3,7 @@ import {
   LifecycleTarget,
   PRContext,
   ReviewConfig,
+  ReviewFocusProfile,
   ReviewIntensity,
   type FileChange,
 } from '../../types';
@@ -251,6 +252,21 @@ export class PromptBuilder {
       '   • Semantic inversions and dropped structured fields are bugs when existing callers depend on the previous meaning, even if the changed line is not directly user-facing',
       ''
     );
+
+    if (this.config.reviewFocusProfile === ReviewFocusProfile.Critical) {
+      pushShared(
+        'MANDATORY CRITICAL-FIRST PASS:',
+        'Before evaluating other findings, explicitly inspect changed code and reachable effects for:',
+        '   • Security, authentication/authorization, secret exposure, command injection, and RCE',
+        '   • Data loss or corruption, including destructive migrations and persistence failures',
+        '   • Concurrency, exactly-once guarantees, duplicate side effects, and billing correctness',
+        '   • Recovery, availability, deployment, rollback, and failure-path regressions',
+        '   • Privilege escalation, cross-tenant access, and tenant-isolation failures',
+        'Complete this pass even when it yields no Critical finding, then continue reviewing normally and report valid Major and Minor findings.',
+        'Assign Critical only for concrete, reachable impact that warrants it; do not inflate severity based on category alone.',
+        ''
+      );
+    }
 
     const outputLanguage = normalizeReviewOutputLanguage(
       this.config.outputLanguage
