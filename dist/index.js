@@ -21189,7 +21189,7 @@ function getSummaryOnlyDiffReason(filename, bytes, changes, options = {}) {
   const maxFullFileChanges = options.maxFullFileChanges ?? 800;
   const lower = filename.toLowerCase();
   if (isDependencyLockPath(lower)) return "dependency lock file";
-  if (isGeneratedPath(lower)) return "generated file";
+  if (isGeneratedPath(filename)) return "generated file";
   if (bytes > maxFullFileBytes)
     return `large diff over ${maxFullFileBytes} bytes`;
   if (changes > maxFullFileChanges)
@@ -21201,8 +21201,9 @@ function isDependencyLockPath(lower) {
     lower
   );
 }
-function isGeneratedPath(lower) {
-  return lower.includes("/generated/") || lower.includes("/generated_") || /\.(g|freezed|pb|pbenum|pbjson|pbserver)\.dart$/.test(lower) || /\.generated\.[jt]sx?$/.test(lower) || /\.min\.(js|css)$/.test(lower) || /\.map$/.test(lower);
+function isGeneratedPath(filename) {
+  const lower = filename.replace(/\\/g, "/").toLowerCase();
+  return lower.startsWith("generated/") || lower.includes("/generated/") || lower.startsWith("generated_") || lower.includes("/generated_") || /\.(g|freezed|pb|pbenum|pbjson|pbserver)\.dart$/.test(lower) || /\.generated\.[jt]sx?$/.test(lower) || /\.min\.(js|css)$/.test(lower) || /\.map$/.test(lower);
 }
 function formatSummaryOnlyChunk(chunk, file) {
   return [
@@ -25543,9 +25544,7 @@ var TrivialDetector = class {
    * Check if file is a build artifact
    */
   isBuildArtifact(filename) {
-    return this.BUILD_ARTIFACT_PATTERNS.some(
-      (pattern) => pattern.test(filename)
-    );
+    return isGeneratedPath(filename) || this.BUILD_ARTIFACT_PATTERNS.some((pattern) => pattern.test(filename));
   }
   /**
    * Check if file matches custom trivial patterns
@@ -50461,7 +50460,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.137",
+  version: "1.0.138",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
