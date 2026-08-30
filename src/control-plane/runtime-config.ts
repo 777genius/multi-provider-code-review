@@ -70,6 +70,7 @@ export async function applyControlPlaneRuntimeConfig(
     });
 
     applyRuntimeEnv(config.runtimeEnv, env);
+    applyUltraRuntimeTimeoutFallback(config.runtimeEnv, env);
     if (config.ignoredRuntimeEnvKeys.length > 0) {
       input.logger?.warn(
         `ReviewRouter runtime config ignored unsafe env keys: ${config.ignoredRuntimeEnvKeys.join(', ')}`
@@ -101,6 +102,20 @@ export async function applyControlPlaneRuntimeConfig(
     throw error;
   } finally {
     clearGitHubActionsOidcRequestEnv(env);
+  }
+}
+
+function applyUltraRuntimeTimeoutFallback(
+  runtimeEnv: Readonly<Record<string, string>>,
+  env: NodeJS.ProcessEnv
+): void {
+  if (
+    runtimeEnv.RUN_TIMEOUT_SECONDS === undefined &&
+    !env.RUN_TIMEOUT_SECONDS?.trim() &&
+    runtimeEnv.CODEX_MODEL === 'gpt-5.6-sol' &&
+    runtimeEnv.CODEX_REASONING_EFFORT === 'ultra'
+  ) {
+    env.RUN_TIMEOUT_SECONDS = '1800';
   }
 }
 

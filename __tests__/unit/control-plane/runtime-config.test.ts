@@ -82,6 +82,99 @@ describe('applyControlPlaneRuntimeConfig', () => {
     });
   });
 
+  it('applies the ultra timeout fallback after dynamic config resolution', async () => {
+    const env: NodeJS.ProcessEnv = { ...baseEnv };
+    delete env.RUN_TIMEOUT_SECONDS;
+    const fetchImpl = jest
+      .fn<Promise<Response>, [RequestInfo | URL, RequestInit?]>()
+      .mockResolvedValueOnce(jsonResponse({ value: 'github-oidc-token' }))
+      .mockResolvedValueOnce(jsonResponse({ sessionToken: 'rr-session' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          protocolVersion: 1,
+          configVersion: 8,
+          runtimeEnv: {
+            CODEX_MODEL: 'gpt-5.6-sol',
+            CODEX_REASONING_EFFORT: 'ultra',
+            REVIEW_PROVIDERS: 'codex/gpt-5.6-sol',
+            SYNTHESIS_MODEL: 'codex/gpt-5.6-sol',
+          },
+        })
+      );
+
+    await applyControlPlaneRuntimeConfig({ env, fetchImpl });
+
+    expect(env.RUN_TIMEOUT_SECONDS).toBe('1800');
+  });
+
+  it.each([
+    {
+      name: 'an explicit workflow timeout',
+      initialTimeout: '900',
+      runtimeTimeout: undefined,
+      model: 'gpt-5.6-sol',
+      effort: 'ultra',
+      expectedTimeout: '900',
+    },
+    {
+      name: 'an authoritative server timeout',
+      initialTimeout: '900',
+      runtimeTimeout: '1200',
+      model: 'gpt-5.6-sol',
+      effort: 'ultra',
+      expectedTimeout: '1200',
+    },
+    {
+      name: 'a blank authoritative server timeout',
+      initialTimeout: undefined,
+      runtimeTimeout: '  ',
+      model: 'gpt-5.6-sol',
+      effort: 'ultra',
+      expectedTimeout: '  ',
+    },
+    {
+      name: 'another model',
+      initialTimeout: undefined,
+      runtimeTimeout: undefined,
+      model: 'gpt-5.5',
+      effort: 'ultra',
+      expectedTimeout: undefined,
+    },
+    {
+      name: 'another effort',
+      initialTimeout: undefined,
+      runtimeTimeout: undefined,
+      model: 'gpt-5.6-sol',
+      effort: 'xhigh',
+      expectedTimeout: undefined,
+    },
+  ])('preserves $name', async (testCase) => {
+    const env: NodeJS.ProcessEnv = {
+      ...baseEnv,
+      ...(testCase.initialTimeout
+        ? { RUN_TIMEOUT_SECONDS: testCase.initialTimeout }
+        : {}),
+    };
+    const runtimeEnv = {
+      CODEX_MODEL: testCase.model,
+      CODEX_REASONING_EFFORT: testCase.effort,
+      ...(testCase.runtimeTimeout !== undefined
+        ? { RUN_TIMEOUT_SECONDS: testCase.runtimeTimeout }
+        : {}),
+    };
+    const fetchImpl = jest
+      .fn<Promise<Response>, [RequestInfo | URL, RequestInit?]>()
+      .mockResolvedValueOnce(jsonResponse({ value: 'github-oidc-token' }))
+      .mockResolvedValueOnce(jsonResponse({ sessionToken: 'rr-session' }))
+      .mockResolvedValueOnce(
+        jsonResponse({ protocolVersion: 1, configVersion: 8, runtimeEnv })
+      );
+
+    await applyControlPlaneRuntimeConfig({ env, fetchImpl });
+
+    expect(env.RUN_TIMEOUT_SECONDS).toBe(testCase.expectedTimeout);
+  });
+
   it('falls back to static workflow env when config fetch is unavailable', async () => {
     const env: NodeJS.ProcessEnv = { ...baseEnv };
     const warnings: string[] = [];

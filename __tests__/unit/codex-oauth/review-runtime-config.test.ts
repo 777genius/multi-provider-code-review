@@ -1,4 +1,5 @@
 import { applyCodexRotatingReviewRuntimeConfig } from '../../../src/codex-oauth/action';
+import { ConfigLoader } from '../../../src/config/loader';
 
 describe('Codex OAuth rotating review runtime config', () => {
   const originalEnv = process.env;
@@ -52,6 +53,34 @@ describe('Codex OAuth rotating review runtime config', () => {
     expect(fetchImpl.mock.calls[0][1]).toMatchObject({ redirect: 'error' });
     expect(process.env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
     expect(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+  });
+
+  it('loads the gpt-5.6-sol ultra timeout fallback into review config', async () => {
+    const fetchImpl = jest
+      .fn<Promise<Response>, [RequestInfo | URL, RequestInit?]>()
+      .mockResolvedValueOnce(jsonResponse({ value: 'github-oidc-token' }))
+      .mockResolvedValueOnce(jsonResponse({ sessionToken: 'rr-session' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          protocolVersion: 1,
+          configVersion: 12,
+          runtimeEnv: {
+            CODEX_MODEL: 'gpt-5.6-sol',
+            CODEX_REASONING_EFFORT: 'ultra',
+            REVIEW_PROVIDERS: 'codex/gpt-5.6-sol',
+            SYNTHESIS_MODEL: 'codex/gpt-5.6-sol',
+          },
+        })
+      );
+
+    await applyCodexRotatingReviewRuntimeConfig({
+      apiUrl: 'https://api.reviewrouter.site',
+      audience: 'reviewrouter',
+      fetchImpl,
+    });
+
+    expect(process.env.RUN_TIMEOUT_SECONDS).toBe('1800');
+    expect(ConfigLoader.load().runTimeoutSeconds).toBe(1800);
   });
 
   it('fails closed instead of falling back to dynamic provider discovery', async () => {
