@@ -50390,7 +50390,7 @@ async function initializeEmptyGitRepository(cwd) {
 // package.json
 var package_default = {
   name: "review-router",
-  version: "1.0.140",
+  version: "1.0.141",
   description: "ReviewRouter GitHub Action for PR summaries, inline findings, and optional merge-blocking checks.",
   main: "dist/index.js",
   type: "commonjs",
@@ -50589,6 +50589,7 @@ async function applyControlPlaneRuntimeConfig(input = {}) {
       fetchImpl: input.fetchImpl ?? fetch
     });
     applyRuntimeEnv(config.runtimeEnv, env);
+    applyUltraRuntimeTimeoutFallback(config.runtimeEnv, env);
     if (config.ignoredRuntimeEnvKeys.length > 0) {
       input.logger?.warn(
         `ReviewRouter runtime config ignored unsafe env keys: ${config.ignoredRuntimeEnvKeys.join(", ")}`
@@ -50620,6 +50621,11 @@ async function applyControlPlaneRuntimeConfig(input = {}) {
     throw error2;
   } finally {
     clearGitHubActionsOidcRequestEnv(env);
+  }
+}
+function applyUltraRuntimeTimeoutFallback(runtimeEnv, env) {
+  if (runtimeEnv.RUN_TIMEOUT_SECONDS === void 0 && !env.RUN_TIMEOUT_SECONDS?.trim() && runtimeEnv.CODEX_MODEL === "gpt-5.6-sol" && runtimeEnv.CODEX_REASONING_EFFORT === "ultra") {
+    env.RUN_TIMEOUT_SECONDS = "1800";
   }
 }
 function resolveActionVersion(env) {
