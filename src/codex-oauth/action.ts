@@ -267,6 +267,9 @@ export async function runCodexOAuthRotatingAction(
         core.info(
           `ReviewRouter skipped PR #${inputs.pullRequestNumber}: ${runtime.changedLines} changed lines exceed the configured maximum of ${runtime.maxChangedLines}.`
         );
+        core.setFailed(
+          'Codex OAuth rotating review skipped: max_changed_lines_exceeded'
+        );
         return;
       }
       const message =

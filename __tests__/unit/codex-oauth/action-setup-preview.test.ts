@@ -8,6 +8,10 @@ import {
   type CodexOAuthTerminalOutcomeReport,
 } from '../../../src/codex-oauth/action';
 import {
+  TerminalOutcomePublicationUseCase,
+  type TerminalOutcomePublicationGitHubPort,
+} from '../../../src/codex-oauth/terminal-outcome-publication';
+import {
   CodexOAuthReviewRuntimeMode,
   CodexOAuthV2CancellationReason,
   CodexOAuthV2MergeGateFailureCode,
@@ -140,7 +144,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
     );
   });
 
-  it('reports a server-authoritative size skip without failing the workflow', async () => {
+  it('reports a server-authoritative size skip and fails the workflow', async () => {
     mockedRuntime.mockImplementation(async () => {
       expect(process.env['INPUT_OPENROUTER-API-KEY']).toBe(
         'provider-secret-not-read-before-admission'
@@ -174,7 +178,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
     expect(mockedRuntime.mock.calls[0]![0]).toMatchObject({
       pullRequestNumber: 1,
     });
-    expect(process.exitCode).toBeUndefined();
+    expect(process.exitCode).toBe(1);
     expect(fs.readFileSync(outputPath, 'utf8')).toContain(
       'max_changed_lines_exceeded'
     );
@@ -198,6 +202,98 @@ describe('Codex OAuth rotating setup PR preview', () => {
         },
       })
     );
+  });
+
+  it('fails closed when size-skip comment lookup and failure-status publication both fail', async () => {
+    mockedRuntime.mockResolvedValue({
+      status: 'skipped',
+      reason: 'max_changed_lines_exceeded',
+      changedLines: 346_978,
+      maxChangedLines: 250_000,
+      decisionHash: 'a'.repeat(64),
+    });
+    process.env = actionEnv({
+      eventPath,
+      outputPath,
+      headRef: 'feature/change',
+    });
+    const listPullRequestComments = jest.fn(
+      async (
+        _input: Parameters<
+          TerminalOutcomePublicationGitHubPort['listPullRequestComments']
+        >[0]
+      ) => {
+        throw new Error('comment lookup unavailable');
+      }
+    );
+    const createCommitStatus = jest.fn(
+      async (
+        _input: Parameters<
+          TerminalOutcomePublicationGitHubPort['createCommitStatus']
+        >[0]
+      ) => {
+        throw new Error('failure status unavailable');
+      }
+    );
+    const terminalOutcomeReporter = terminalPublicationReporter({
+      listPullRequestComments,
+      createCommitStatus,
+    });
+
+    await runCodexOAuthRotatingAction({ terminalOutcomeReporter });
+
+    expect(listPullRequestComments).toHaveBeenCalledTimes(1);
+    expect(createCommitStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: expect.objectContaining({ state: 'failure' }),
+      })
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('fails closed when size-skip comment creation fails after publishing the failure status', async () => {
+    mockedRuntime.mockResolvedValue({
+      status: 'skipped',
+      reason: 'max_changed_lines_exceeded',
+      changedLines: 346_978,
+      maxChangedLines: 250_000,
+      decisionHash: 'a'.repeat(64),
+    });
+    process.env = actionEnv({
+      eventPath,
+      outputPath,
+      headRef: 'feature/change',
+    });
+    const createPullRequestComment = jest.fn(
+      async (
+        _input: Parameters<
+          TerminalOutcomePublicationGitHubPort['createPullRequestComment']
+        >[0]
+      ) => {
+        throw new Error('comment creation unavailable');
+      }
+    );
+    const createCommitStatus = jest.fn(
+      async (
+        _input: Parameters<
+          TerminalOutcomePublicationGitHubPort['createCommitStatus']
+        >[0]
+      ) => undefined
+    );
+    const terminalOutcomeReporter = terminalPublicationReporter({
+      createPullRequestComment,
+      createCommitStatus,
+    });
+
+    await runCodexOAuthRotatingAction({ terminalOutcomeReporter });
+
+    expect(createPullRequestComment).toHaveBeenCalledTimes(1);
+    expect(createCommitStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: expect.objectContaining({ state: 'failure' }),
+      })
+    );
+    expect(process.exitCode).toBe(1);
   });
 
   it('uses an OIDC request snapshot for terminal outcome reports after runtime cleanup', async () => {
@@ -268,7 +364,7 @@ describe('Codex OAuth rotating setup PR preview', () => {
 
     await runCodexOAuthRotatingAction({ fetchImpl });
 
-    expect(process.exitCode).toBeUndefined();
+    expect(process.exitCode).toBe(1);
     expect(fetchImpl).toHaveBeenCalledWith(
       expect.stringContaining(
         'https://token.actions.githubusercontent.com/request'
@@ -1094,6 +1190,27 @@ function v2Activation(): ReviewActionV2Activation {
 function ensureDirectory(directory: string): string {
   fs.mkdirSync(directory, { recursive: true });
   return directory;
+}
+
+function terminalPublicationReporter(
+  overrides: Partial<jest.Mocked<TerminalOutcomePublicationGitHubPort>> = {}
+): TerminalOutcomePublicationUseCase {
+  const github = {
+    listPullRequestComments: jest.fn(async () => []),
+    createPullRequestComment: jest.fn(async () => undefined),
+    updatePullRequestComment: jest.fn(async () => undefined),
+    deletePullRequestComment: jest.fn(async () => undefined),
+    createCommitStatus: jest.fn(async () => undefined),
+    ...overrides,
+  } as jest.Mocked<TerminalOutcomePublicationGitHubPort>;
+  return new TerminalOutcomePublicationUseCase({
+    context: {
+      repository: 'Padelapp-Club/monitoring-service',
+      pullRequestNumber: 1,
+      headSha: 'a'.repeat(40),
+    },
+    github,
+  });
 }
 
 function jsonResponse(payload: unknown): Response {

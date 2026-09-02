@@ -114026,6 +114026,9 @@ async function runCodexOAuthRotatingAction(options = {}) {
         info(
           `ReviewRouter skipped PR #${inputs.pullRequestNumber}: ${runtime.changedLines} changed lines exceed the configured maximum of ${runtime.maxChangedLines}.`
         );
+        setFailed(
+          "Codex OAuth rotating review skipped: max_changed_lines_exceeded"
+        );
         return;
       }
       const message = runtime.reason === "stale_queued_secret" ? "Codex OAuth rotating review did not run because this workflow restored an older queued secret generation. Re-run the latest workflow after reconnecting Codex if needed." : `Codex OAuth rotating review skipped: ${runtime.reason}`;
