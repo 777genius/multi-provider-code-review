@@ -148,7 +148,7 @@ describe('Codex OAuth terminal outcome comment upsert', () => {
 
     await runCodexOAuthRotatingAction({ fetchImpl });
 
-    expect(process.exitCode).toBeUndefined();
+    expect(process.exitCode).toBe(1);
     expect(mockGitHubClientConstructor).toHaveBeenCalledWith('comment-token');
     expect(
       mockGitHubClientInstance.octokit.rest.issues.updateComment

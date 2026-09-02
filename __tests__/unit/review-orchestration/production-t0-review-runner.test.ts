@@ -25,6 +25,7 @@ import {
   reviewInvestigationRolloutAuthorizationV3Contract,
 } from '../../../src/control-plane/generated/review-action-v2/review-action-v2';
 import {
+  CodexOAuthV2CancellationReason,
   CodexOAuthV2ReviewOutcome,
   CodexOAuthV2TerminalReason,
 } from '../../../src/codex-oauth/runtime';
@@ -202,6 +203,17 @@ describe('ProductionT0ReviewRunner policy', () => {
       });
     }
   );
+
+  it('marks only a closed pull request as an intentional cancellation', () => {
+    expect(
+      mapOrchestrationResultToCodexOutcome({
+        status: ReviewOrchestrationResultStatus.Cancelled,
+      })
+    ).toEqual({
+      outcome: CodexOAuthV2ReviewOutcome.Cancelled,
+      reason: CodexOAuthV2CancellationReason.PullRequestClosed,
+    });
+  });
 
   it('maps unavailable publication facts without collapsing them into execution failure', () => {
     expect(

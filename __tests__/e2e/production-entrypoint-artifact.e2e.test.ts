@@ -55,6 +55,13 @@ type SmokeWitness = Readonly<{
   expectedActionVersion: string;
   failure?: string;
   networkGuardsInstalled: boolean;
+  workflowSchemaVersion: number;
+  terminalComment: string;
+  terminalCommitStatus: Readonly<{
+    state: string;
+    description: string;
+    context: string;
+  }>;
   runtimeConfig?: Readonly<{
     actionVersion: string;
     configVersion: number;
@@ -177,7 +184,7 @@ describe('committed production entrypoint artifact', () => {
           INPUT_API_URL: 'https://control-plane.reviewrouter.test',
           INPUT_CONTROL_PLANE_URL: 'https://control-plane.reviewrouter.test',
           INPUT_PROVIDER_INSTANCE_ID: 'codex-rotating:artifact-smoke',
-          INPUT_WORKFLOW_SCHEMA_VERSION: '1',
+          INPUT_WORKFLOW_SCHEMA_VERSION: '5',
           INPUT_AUTH_JSON: JSON.stringify({
             auth_mode: 'chatgpt',
             tokens: {
@@ -203,8 +210,10 @@ describe('committed production entrypoint artifact', () => {
       expect(result.stdout).toContain(
         'ReviewRouter runtime config applied (version 4242).'
       );
-      expect(result.stdout).toContain('Review failed [configuration_invalid]');
-      expect(result.stdout).toContain(`Received: ${runtimeConfigSentinel}`);
+      expect(result.stdout).toContain(
+        'review_action_v2_terminal_result_missing'
+      );
+      expect(result.stdout).not.toContain('Review completed successfully');
 
       const witness = JSON.parse(
         fs.readFileSync(witnessPath, 'utf8')
@@ -214,6 +223,15 @@ describe('committed production entrypoint artifact', () => {
         artifactSha256,
         expectedActionVersion: actionVersion,
         networkGuardsInstalled: true,
+        workflowSchemaVersion: 5,
+        terminalComment: expect.stringContaining(
+          'did not obtain a terminal review result from the provider'
+        ),
+        terminalCommitStatus: {
+          state: 'error',
+          description: 'Review failed: no terminal provider result.',
+          context: 'ReviewRouter',
+        },
         runtimeConfig: {
           actionVersion,
           configVersion: 4242,
@@ -244,6 +262,12 @@ describe('committed production entrypoint artifact', () => {
         'GET https://token.actions.githubusercontent.com/token',
         'POST https://control-plane.reviewrouter.test/api/action/v1/session/exchange',
         'GET https://control-plane.reviewrouter.test/api/action/v1/config',
+        'GET https://token.actions.githubusercontent.com/token',
+        'POST https://control-plane.reviewrouter.test/api/action/v1/session/exchange',
+        'POST https://control-plane.reviewrouter.test/api/action/v1/comment-token',
+        'GET https://api.github.com/repos/sandbox/repository/issues/17/comments',
+        'POST https://api.github.com/repos/sandbox/repository/issues/17/comments',
+        'POST https://api.github.com/repos/sandbox/repository/statuses/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       ]);
       expect(readLog(codexLogPath)).toEqual(['version', 'login-status']);
       expect(readLog(gitLogPath)).toEqual([

@@ -31,7 +31,11 @@ export type ProgressSnapshot = Readonly<{
 }>;
 
 export function formatCiReviewProgress(snapshot: ProgressSnapshot): string {
-  const percent = percentage(snapshot.counts.completed, snapshot.counts.total);
+  const percent =
+    snapshot.counts.total === 0 &&
+    !(snapshot.phase === 'terminal' && snapshot.terminal === 'complete')
+      ? 0
+      : percentage(snapshot.counts.completed, snapshot.counts.total);
   const lines = [
     CI_PROGRESS_MARKER,
     '## ReviewRouter',
@@ -206,7 +210,13 @@ export class CiOrchestrationProgressReporter implements ReviewOrchestrationProgr
     this.queuePublish(force);
   }
 
-  async finish(terminal: Exclude<ProgressSnapshot['terminal'], 'none'>): Promise<void> {
+  async finish(
+    terminal: Exclude<ProgressSnapshot['terminal'], 'none'>
+  ): Promise<void> {
+    if (this.terminal !== 'none') {
+      await this.publishChain;
+      return;
+    }
     this.phase = 'terminal';
     this.terminal = terminal;
     this.queuePublish(true);
