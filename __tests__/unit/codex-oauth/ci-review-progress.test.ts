@@ -189,6 +189,23 @@ describe('CI review progress fallback', () => {
     });
   });
 
+  it('publishes a terminal progress snapshot only once', async () => {
+    const publish = jest.fn().mockResolvedValue('comment');
+    const reporter = new CiOrchestrationProgressReporter(
+      { publish } as never,
+      () => 120_000,
+      60_000
+    );
+
+    await reporter.finish('failed');
+    await reporter.finish('complete');
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'terminal', terminal: 'failed' })
+    );
+  });
+
   it('counts only required units in progress', async () => {
     const publish = jest.fn().mockResolvedValue('comment');
     const reporter = new CiOrchestrationProgressReporter(

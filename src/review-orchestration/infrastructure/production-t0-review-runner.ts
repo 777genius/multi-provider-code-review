@@ -32,6 +32,7 @@ import type {
 } from '../../types';
 import { GitHubActionsOidcTokenProvider } from '../../codex-oauth/github-actions-oidc';
 import {
+  CodexOAuthV2CancellationReason,
   CodexOAuthV2ReviewOutcome,
   CodexOAuthV2TerminalReason,
   type CodexOAuthV2ReviewResult,
@@ -187,7 +188,10 @@ export class ProductionT0ReviewRunner implements CodexOAuthV2ReviewRunnerPort {
     }
     const currentRevision = await revisionGuard.loadCurrentRevision();
     if (currentRevision.pullRequestState === 'closed') {
-      return { outcome: CodexOAuthV2ReviewOutcome.Cancelled };
+      return {
+        outcome: CodexOAuthV2ReviewOutcome.Cancelled,
+        reason: CodexOAuthV2CancellationReason.PullRequestClosed,
+      };
     }
     if (!sameAuthorizedRevision(currentRevision, authorization)) {
       return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
@@ -732,7 +736,10 @@ export function mapOrchestrationResultToCodexOutcome(result: {
     case ReviewOrchestrationResultStatus.Superseded:
       return { outcome: CodexOAuthV2ReviewOutcome.Superseded };
     case ReviewOrchestrationResultStatus.Cancelled:
-      return { outcome: CodexOAuthV2ReviewOutcome.Cancelled };
+      return {
+        outcome: CodexOAuthV2ReviewOutcome.Cancelled,
+        reason: CodexOAuthV2CancellationReason.PullRequestClosed,
+      };
     case ReviewOrchestrationResultStatus.Failed:
       return {
         outcome: CodexOAuthV2ReviewOutcome.Failed,

@@ -66,6 +66,10 @@ export enum CodexOAuthV2TerminalReason {
   Unknown = 'unknown',
 }
 
+export enum CodexOAuthV2CancellationReason {
+  PullRequestClosed = 'pull_request_closed',
+}
+
 export enum CodexOAuthV2MergeGateFailureCode {
   Failed = 'review_merge_gate_failed',
   Inconclusive = 'review_merge_gate_inconclusive',
@@ -97,7 +101,10 @@ export type CodexOAuthV2ReviewResult =
       readonly blockingFailure?: string;
     }
   | { readonly outcome: CodexOAuthV2ReviewOutcome.Superseded }
-  | { readonly outcome: CodexOAuthV2ReviewOutcome.Cancelled }
+  | {
+      readonly outcome: CodexOAuthV2ReviewOutcome.Cancelled;
+      readonly reason: CodexOAuthV2CancellationReason.PullRequestClosed;
+    }
   | {
       readonly outcome: CodexOAuthV2ReviewOutcome.PublicationNotApplied;
       readonly reason: CodexOAuthV2TerminalReason.PublicationConflict;

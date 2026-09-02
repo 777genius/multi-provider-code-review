@@ -42,6 +42,42 @@ import { MergeGateConclusion } from '../../../src/review-projection/domain';
 import { ExecutionDeadline } from '../../../src/review-execution/domain/execution-deadline';
 
 describe('RunT0ReviewOrchestration', () => {
+  it('fails closed at the orchestration boundary when a provider aborts', async () => {
+    const fixture = createFixture();
+    const abort = new Error('provider aborted before terminal output');
+    abort.name = 'AbortError';
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockRejectedValue(abort);
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'required_work_exhausted',
+    });
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.finalizeExecution).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.requestPublication).not.toHaveBeenCalled();
+  });
+
+  it('fails closed at the orchestration boundary when provider output is missing', async () => {
+    const fixture = createFixture();
+    jest
+      .mocked(fixture.dependencies.invocations.execute)
+      .mockResolvedValue(undefined as never);
+
+    const result = await fixture.useCase.execute(fixture.command);
+
+    expect(result).toMatchObject({
+      status: ReviewOrchestrationResultStatus.Failed,
+      failureCode: 'review_orchestration_terminal_provider_result_missing',
+    });
+    expect(fixture.controlPlane.commitEvidence).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.finalizeExecution).not.toHaveBeenCalled();
+    expect(fixture.controlPlane.requestPublication).not.toHaveBeenCalled();
+  });
+
   it('finishes a partial review without starting pending work inside the deadline reserve', async () => {
     const fixture = createFixture({ allowPartial: true });
     Object.assign(fixture.dependencies, {

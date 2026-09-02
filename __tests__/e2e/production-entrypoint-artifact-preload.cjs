@@ -28,6 +28,9 @@ const state = {
   artifactSha256,
   expectedActionVersion,
   networkGuardsInstalled: false,
+  workflowSchemaVersion: null,
+  terminalComment: null,
+  terminalCommitStatus: null,
   calls: [],
 };
 
@@ -61,7 +64,15 @@ async function fakeFetch(resource, init = {}) {
           'oidc_audience_mismatch'
         );
         return jsonResponse({ value: 'fake-oidc-token' });
-      case 'POST https://control-plane.reviewrouter.test/api/action/v1/codex-oauth/prelease':
+      case 'POST https://control-plane.reviewrouter.test/api/action/v1/codex-oauth/prelease': {
+        const request = JSON.parse(String(init.body));
+        assertEqual(
+          request.workflowSchemaVersion,
+          5,
+          'workflow_schema_v5_mismatch'
+        );
+        state.workflowSchemaVersion = request.workflowSchemaVersion;
+        persist();
         return jsonResponse({
           protocolVersion: 1,
           leaseId: 'lease:artifact-smoke',
@@ -76,6 +87,7 @@ async function fakeFetch(resource, init = {}) {
           currentGeneration: 1,
           expiresAt: '2099-01-01T00:00:00.000Z',
         });
+      }
       case 'POST https://control-plane.reviewrouter.test/api/action/v1/codex-oauth/finalize':
         return jsonResponse({
           protocolVersion: 1,
@@ -138,6 +150,27 @@ async function fakeFetch(resource, init = {}) {
             REVIEW_ROUTER_REVIEW_INVESTIGATION_PRODUCTION_EFFECTS_ENABLED: '1',
           },
         });
+      }
+      case 'POST https://control-plane.reviewrouter.test/api/action/v1/comment-token':
+        return jsonResponse({
+          protocolVersion: 1,
+          token: 'fake-comment-token',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          repository: 'sandbox/repository',
+        });
+      case 'GET https://api.github.com/repos/sandbox/repository/issues/17/comments':
+        return jsonResponse([]);
+      case 'POST https://api.github.com/repos/sandbox/repository/issues/17/comments': {
+        const request = JSON.parse(String(init.body));
+        state.terminalComment = request.body;
+        persist();
+        return jsonResponse({ id: 7001 });
+      }
+      case 'POST https://api.github.com/repos/sandbox/repository/statuses/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa': {
+        const request = JSON.parse(String(init.body));
+        state.terminalCommitStatus = request;
+        persist();
+        return jsonResponse({ id: 7002 });
       }
       default:
         fail(`unexpected_fetch:${key}`);

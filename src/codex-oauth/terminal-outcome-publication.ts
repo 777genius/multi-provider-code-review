@@ -105,8 +105,27 @@ export class TerminalOutcomePublicationUseCase implements CodexOAuthTerminalOutc
   ) {}
 
   async post(report: CodexOAuthTerminalOutcomeReport): Promise<void> {
-    await this.upsertPullRequestComment(report);
-    await this.createCommitStatusSafely(report.commitStatus);
+    let commentFailed = false;
+    let commentFailure: unknown;
+    let statusFailed = false;
+    let statusFailure: unknown;
+
+    try {
+      await this.upsertPullRequestComment(report);
+    } catch (error) {
+      commentFailed = true;
+      commentFailure = error;
+    }
+
+    try {
+      await this.createCommitStatus(report.commitStatus);
+    } catch (error) {
+      statusFailed = true;
+      statusFailure = error;
+    }
+
+    if (commentFailed) throw commentFailure;
+    if (statusFailed) throw statusFailure;
   }
 
   async clear(_request: CodexOAuthTerminalOutcomeClearRequest): Promise<void> {
@@ -127,7 +146,7 @@ export class TerminalOutcomePublicationUseCase implements CodexOAuthTerminalOutc
   }
 
   async status(status: CodexOAuthTerminalOutcomeCommitStatus): Promise<void> {
-    await this.createCommitStatusSafely(status);
+    await this.createCommitStatus(status);
   }
 
   private async upsertPullRequestComment(
@@ -174,7 +193,7 @@ export class TerminalOutcomePublicationUseCase implements CodexOAuthTerminalOutc
     });
   }
 
-  private async createCommitStatusSafely(
+  private async createCommitStatus(
     status: CodexOAuthTerminalOutcomeCommitStatus
   ): Promise<void> {
     try {
@@ -188,6 +207,7 @@ export class TerminalOutcomePublicationUseCase implements CodexOAuthTerminalOutc
       this.warning(
         `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error)}`
       );
+      throw error;
     }
   }
 
@@ -335,7 +355,7 @@ export function isTerminalOutcomeCommentMatch(
 ): boolean {
   if (body.includes(input.marker)) return true;
   const revisionMarker = input.marker.match(
-    /<!--\s*reviewrouter:codex-oauth:terminal:([a-f0-9]{40}):[^\s>]+\s*-->/i
+    /\x3c!--\s*reviewrouter:codex-oauth:terminal:([a-f0-9]{40}):[^\s>]+\s*-->/i
   );
   if (
     revisionMarker &&
@@ -354,7 +374,7 @@ export function isTerminalOutcomeCommentMatch(
 
 export function isLegacyMaxChangedLinesSkippedComment(body: string): boolean {
   return (
-    /<!--\s*reviewrouter:codex-oauth:terminal:[a-f0-9]{40}:skipped\s*-->/i.test(
+    /\x3c!--\s*reviewrouter:codex-oauth:terminal:[a-f0-9]{40}:skipped\s*-->/i.test(
       body
     ) &&
     body.includes('## Review skipped') &&

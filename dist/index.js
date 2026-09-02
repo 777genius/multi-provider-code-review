@@ -55643,8 +55643,24 @@ var TerminalOutcomePublicationUseCase = class {
     this.input = input;
   }
   async post(report) {
-    await this.upsertPullRequestComment(report);
-    await this.createCommitStatusSafely(report.commitStatus);
+    let commentFailed = false;
+    let commentFailure;
+    let statusFailed = false;
+    let statusFailure;
+    try {
+      await this.upsertPullRequestComment(report);
+    } catch (error2) {
+      commentFailed = true;
+      commentFailure = error2;
+    }
+    try {
+      await this.createCommitStatus(report.commitStatus);
+    } catch (error2) {
+      statusFailed = true;
+      statusFailure = error2;
+    }
+    if (commentFailed) throw commentFailure;
+    if (statusFailed) throw statusFailure;
   }
   async clear(_request) {
     const comments = await this.input.github.listPullRequestComments({
@@ -55663,7 +55679,7 @@ var TerminalOutcomePublicationUseCase = class {
     }
   }
   async status(status) {
-    await this.createCommitStatusSafely(status);
+    await this.createCommitStatus(status);
   }
   async upsertPullRequestComment(report) {
     const comments = await this.input.github.listPullRequestComments({
@@ -55706,7 +55722,7 @@ var TerminalOutcomePublicationUseCase = class {
       body: report.body
     });
   }
-  async createCommitStatusSafely(status) {
+  async createCommitStatus(status) {
     try {
       await this.input.github.createCommitStatus({
         repository: this.input.context.repository,
@@ -55718,6 +55734,7 @@ var TerminalOutcomePublicationUseCase = class {
       this.warning(
         `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error2)}`
       );
+      throw error2;
     }
   }
   info(message) {
@@ -55818,7 +55835,7 @@ function createDefaultCodexOAuthTerminalOutcomeReporter(input) {
 function isTerminalOutcomeCommentMatch(body, input) {
   if (body.includes(input.marker)) return true;
   const revisionMarker = input.marker.match(
-    /<!--\s*reviewrouter:codex-oauth:terminal:([a-f0-9]{40}):[^\s>]+\s*-->/i
+    /\x3c!--\s*reviewrouter:codex-oauth:terminal:([a-f0-9]{40}):[^\s>]+\s*-->/i
   );
   if (revisionMarker && new RegExp(
     `<!--\\s*reviewrouter:codex-oauth:terminal:${revisionMarker[1]}:[^\\s>]+\\s*-->`,
@@ -55832,7 +55849,7 @@ function isTerminalOutcomeCommentMatch(body, input) {
   return false;
 }
 function isLegacyMaxChangedLinesSkippedComment(body) {
-  return /<!--\s*reviewrouter:codex-oauth:terminal:[a-f0-9]{40}:skipped\s*-->/i.test(
+  return /\x3c!--\s*reviewrouter:codex-oauth:terminal:[a-f0-9]{40}:skipped\s*-->/i.test(
     body
   ) && body.includes("## Review skipped") && body.includes(
     "ReviewRouter did not start a model review for this revision because the PR is larger than the configured safety limit."
@@ -97506,13 +97523,13 @@ var RunT0ReviewOrchestration = class {
         }
       }
       try {
-        assertRequiredContextAttestation(
-          invocation.manifestFacts.executionProfile,
-          observationPayload
-        );
         validateObservationAgainstLimits(
           observationPayload,
           input.authorization.limits
+        );
+        assertRequiredContextAttestation(
+          invocation.manifestFacts.executionProfile,
+          observationPayload
         );
         const committed = await this.dependencies.controlPlane.commitEvidence({
           authorization: input.authorization,
@@ -98210,6 +98227,9 @@ function assertRequiredContextAttestation(executionProfile, observation) {
   }
 }
 function validateObservationAgainstLimits(observation, limits) {
+  if (!observation || typeof observation !== "object") {
+    throw new Error("review_orchestration_terminal_provider_result_missing");
+  }
   if (!isCanonicalJson2(observation.payloadCanonicalJson) || sha25610(observation.payloadCanonicalJson) !== observation.payloadHash || Buffer.byteLength(observation.payloadCanonicalJson, "utf8") !== observation.byteCount || observation.byteCount < 0 || observation.byteCount > limits.maxObservationBytes || observation.findingCount < 0 || observation.findingCount > limits.maxObservationFindings) {
     throw new Error("review_orchestration_observation_limit_exceeded");
   }
@@ -112789,7 +112809,10 @@ var ProductionT0ReviewRunner = class {
     }
     const currentRevision = await revisionGuard.loadCurrentRevision();
     if (currentRevision.pullRequestState === "closed") {
-      return { outcome: "cancelled" /* Cancelled */ };
+      return {
+        outcome: "cancelled" /* Cancelled */,
+        reason: "pull_request_closed" /* PullRequestClosed */
+      };
     }
     if (!sameAuthorizedRevision(currentRevision, authorization)) {
       return { outcome: "superseded" /* Superseded */ };
@@ -113216,7 +113239,10 @@ function mapOrchestrationResultToCodexOutcome(result2) {
     case "superseded" /* Superseded */:
       return { outcome: "superseded" /* Superseded */ };
     case "cancelled" /* Cancelled */:
-      return { outcome: "cancelled" /* Cancelled */ };
+      return {
+        outcome: "cancelled" /* Cancelled */,
+        reason: "pull_request_closed" /* PullRequestClosed */
+      };
     case "failed" /* Failed */:
       return {
         outcome: "failed" /* Failed */,
@@ -113576,7 +113602,7 @@ function sha25617(value) {
 var fs20 = __toESM(require("fs"));
 var CI_PROGRESS_MARKER = "<!-- review-router-live-progress -->";
 function formatCiReviewProgress(snapshot) {
-  const percent = percentage(snapshot.counts.completed, snapshot.counts.total);
+  const percent = snapshot.counts.total === 0 && !(snapshot.phase === "terminal" && snapshot.terminal === "complete") ? 0 : percentage(snapshot.counts.completed, snapshot.counts.total);
   const lines = [
     CI_PROGRESS_MARKER,
     "## ReviewRouter",
@@ -113711,6 +113737,10 @@ var CiOrchestrationProgressReporter = class {
     this.queuePublish(force);
   }
   async finish(terminal) {
+    if (this.terminal !== "none") {
+      await this.publishChain;
+      return;
+    }
     this.phase = "terminal";
     this.terminal = terminal;
     this.queuePublish(true);
@@ -114003,17 +114033,18 @@ async function runCodexOAuthRotatingAction(options = {}) {
       return;
     }
     if ("v2Review" in runtime) {
-      await ciProgressReporter?.finish(progressTerminal(runtime.v2Review));
+      requireTerminalV2ReviewResult(runtime.v2Review);
       setOutput("reviewrouter_v2_outcome", runtime.v2Review.outcome);
       if (runtime.v2Review.outcome === "completed" /* Completed */) {
-        await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
-          reason: "review_completed"
-        });
-        await publishTerminalOutcomeCommitStatusSafely(
+        await publishCompletedTerminalOutcomeCommitStatus(
           terminalOutcomeReporter,
           buildCompletedV2TerminalOutcomeCommitStatus(inputs, runtime.v2Review)
         );
+        await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
+          reason: "review_completed"
+        });
       }
+      await ciProgressReporter?.finish(progressTerminal(runtime.v2Review));
       const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
       if (report) {
         appendTerminalOutcomeStepSummary(report);
@@ -114041,11 +114072,124 @@ async function runCodexOAuthRotatingAction(options = {}) {
     if (runtime.review.blockingFailure) {
       setFailed(runtime.review.blockingFailure);
     }
+  } catch (error2) {
+    if (reviewActionV2Activation.mode !== "t0" /* T0 */) {
+      throw error2;
+    }
+    await ciProgressReporter?.finish("failed");
+    setOutput("reviewrouter_state", "failed");
+    setOutput("reviewrouter_v2_outcome", "failed" /* Failed */);
+    const failure = classifyV2ActionFailure(error2);
+    const report = failure.report(inputs);
+    appendTerminalOutcomeStepSummary(report);
+    await publishTerminalOutcomeReportSafely(terminalOutcomeReporter, report);
+    setFailed(failure.code);
   } finally {
     if (t0WorkspacePath) {
       fs21.rmSync(t0WorkspacePath, { recursive: true, force: true });
     }
   }
+}
+function requireTerminalV2ReviewResult(review) {
+  if (!review || typeof review !== "object") {
+    throw new Error("review_action_v2_terminal_result_missing");
+  }
+  switch (review.outcome) {
+    case "completed" /* Completed */:
+      requireCompletedMergeGateConclusion(
+        review.mergeGateConclusion
+      );
+      return;
+    case "partial_completed" /* PartialCompleted */:
+    case "superseded" /* Superseded */:
+      return;
+    case "cancelled" /* Cancelled */:
+      if (review.reason === "pull_request_closed" /* PullRequestClosed */) {
+        return;
+      }
+      throw new Error("review_action_v2_cancellation_reason_missing");
+    case "publication_not_applied" /* PublicationNotApplied */:
+    case "publication_stale" /* PublicationStale */:
+    case "publication_unavailable" /* PublicationUnavailable */:
+    case "failed" /* Failed */:
+      if (review.blockingFailure.length > 0) return;
+      throw new Error("review_action_v2_terminal_failure_signal_missing");
+    default:
+      throw new Error("review_action_v2_terminal_result_invalid");
+  }
+}
+function requireCompletedMergeGateConclusion(conclusion) {
+  switch (conclusion) {
+    case "pass" /* Pass */:
+    case "fail" /* Fail */:
+    case "inconclusive" /* Inconclusive */:
+      return;
+    default:
+      throw new Error("review_action_v2_merge_gate_conclusion_invalid");
+  }
+}
+function classifyV2ActionFailure(error2) {
+  if (error2 instanceof Error && error2.message === "review_action_v2_success_status_publication_failed") {
+    return {
+      code: error2.message,
+      report: buildSuccessStatusPublicationFailureReport
+    };
+  }
+  if (error2 instanceof Error && error2.message === "review_action_v2_merge_gate_conclusion_invalid") {
+    return {
+      code: error2.message,
+      report: buildInvalidMergeGateConclusionReport
+    };
+  }
+  return {
+    code: "review_action_v2_terminal_result_missing",
+    report: buildMissingV2TerminalOutcomeReport
+  };
+}
+function buildSuccessStatusPublicationFailureReport(inputs) {
+  return terminalOutcomeReport({
+    inputs,
+    kind: "failed" /* Failed */,
+    title: "Review publication failed \u26A0\uFE0F",
+    summary: "The provider completed successfully, but ReviewRouter could not durably publish the terminal success status.",
+    rows: [
+      ["Outcome", "failed"],
+      ["Failure code", "review_action_v2_success_status_publication_failed"]
+    ],
+    note: "No approval was retained. Inspect the workflow failure and rerun the current revision.",
+    statusState: "error",
+    statusDescription: "Review failed: success status publication failed."
+  });
+}
+function buildInvalidMergeGateConclusionReport(inputs) {
+  return terminalOutcomeReport({
+    inputs,
+    kind: "failed" /* Failed */,
+    title: "Review result invalid \u26A0\uFE0F",
+    summary: "The completed provider result contained an invalid merge gate conclusion.",
+    rows: [
+      ["Outcome", "failed"],
+      ["Failure code", "review_action_v2_merge_gate_conclusion_invalid"]
+    ],
+    note: "No approval was published. Inspect the workflow failure and rerun the current revision.",
+    statusState: "error",
+    statusDescription: "Review failed: invalid merge gate conclusion."
+  });
+}
+function buildMissingV2TerminalOutcomeReport(inputs) {
+  return terminalOutcomeReport({
+    inputs,
+    kind: "failed" /* Failed */,
+    title: "Review failed \u26A0\uFE0F",
+    summary: "ReviewRouter did not obtain a terminal review result from the provider.",
+    rows: [
+      ["Outcome", "failed"],
+      ["Published findings", "0"]
+    ],
+    note: "No approval was published. Inspect the workflow failure and rerun the current revision.",
+    statusState: "error",
+    statusDescription: "Review failed: no terminal provider result."
+  });
 }
 function progressTerminal(review) {
   if (review.outcome === "completed" /* Completed */) return "complete";
@@ -114313,6 +114457,23 @@ async function publishTerminalOutcomeReportSafely(reporter, report) {
     warning(
       `ReviewRouter could not publish ${report.logLabel} PR status comment: ${safeTerminalOutcomeError(error2)}`
     );
+  }
+}
+async function publishCompletedTerminalOutcomeCommitStatus(reporter, status) {
+  if (!reporter.status) {
+    warning(
+      "ReviewRouter could not publish terminal commit status: reporter status capability unavailable"
+    );
+    throw new Error("review_action_v2_success_status_publication_failed");
+  }
+  try {
+    await reporter.status(status);
+    info(`ReviewRouter published ${status.context} commit status.`);
+  } catch (error2) {
+    warning(
+      `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error2)}`
+    );
+    throw new Error("review_action_v2_success_status_publication_failed");
   }
 }
 async function publishTerminalOutcomeCommitStatusSafely(reporter, status) {

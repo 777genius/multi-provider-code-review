@@ -26,6 +26,7 @@ import { GitHubActionsOidcTokenProvider } from './github-actions-oidc';
 import {
   CodexOAuthReviewRuntimeMode,
   runCodexOAuthRotatingRuntime,
+  CodexOAuthV2CancellationReason,
   CodexOAuthV2MergeGateFailureCode,
   CodexOAuthV2ReviewOutcome,
   CodexOAuthV2TerminalReason,
@@ -276,17 +277,18 @@ export async function runCodexOAuthRotatingAction(
       return;
     }
     if ('v2Review' in runtime) {
-      await ciProgressReporter?.finish(progressTerminal(runtime.v2Review));
+      requireTerminalV2ReviewResult(runtime.v2Review);
       core.setOutput('reviewrouter_v2_outcome', runtime.v2Review.outcome);
       if (runtime.v2Review.outcome === CodexOAuthV2ReviewOutcome.Completed) {
-        await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
-          reason: 'review_completed',
-        });
-        await publishTerminalOutcomeCommitStatusSafely(
+        await publishCompletedTerminalOutcomeCommitStatus(
           terminalOutcomeReporter,
           buildCompletedV2TerminalOutcomeCommitStatus(inputs, runtime.v2Review)
         );
+        await clearTerminalOutcomeReportsSafely(terminalOutcomeReporter, {
+          reason: 'review_completed',
+        });
       }
+      await ciProgressReporter?.finish(progressTerminal(runtime.v2Review));
       const report = buildV2TerminalOutcomeReport(inputs, runtime.v2Review);
       if (report) {
         appendTerminalOutcomeStepSummary(report);
@@ -317,11 +319,155 @@ export async function runCodexOAuthRotatingAction(
     if (runtime.review.blockingFailure) {
       core.setFailed(runtime.review.blockingFailure);
     }
+  } catch (error) {
+    if (reviewActionV2Activation.mode !== ReviewActionV2RuntimeMode.T0) {
+      throw error;
+    }
+    await ciProgressReporter?.finish('failed');
+    core.setOutput('reviewrouter_state', 'failed');
+    core.setOutput('reviewrouter_v2_outcome', CodexOAuthV2ReviewOutcome.Failed);
+    const failure = classifyV2ActionFailure(error);
+    const report = failure.report(inputs);
+    appendTerminalOutcomeStepSummary(report);
+    await publishTerminalOutcomeReportSafely(terminalOutcomeReporter, report);
+    core.setFailed(failure.code);
   } finally {
     if (t0WorkspacePath) {
       fs.rmSync(t0WorkspacePath, { recursive: true, force: true });
     }
   }
+}
+
+function requireTerminalV2ReviewResult(review: CodexOAuthV2ReviewResult): void {
+  if (!review || typeof review !== 'object') {
+    throw new Error('review_action_v2_terminal_result_missing');
+  }
+  switch (review.outcome) {
+    case CodexOAuthV2ReviewOutcome.Completed:
+      requireCompletedMergeGateConclusion(
+        (review as { readonly mergeGateConclusion?: unknown })
+          .mergeGateConclusion
+      );
+      return;
+    case CodexOAuthV2ReviewOutcome.PartialCompleted:
+    case CodexOAuthV2ReviewOutcome.Superseded:
+      return;
+    case CodexOAuthV2ReviewOutcome.Cancelled:
+      if (review.reason === CodexOAuthV2CancellationReason.PullRequestClosed) {
+        return;
+      }
+      throw new Error('review_action_v2_cancellation_reason_missing');
+    case CodexOAuthV2ReviewOutcome.PublicationNotApplied:
+    case CodexOAuthV2ReviewOutcome.PublicationStale:
+    case CodexOAuthV2ReviewOutcome.PublicationUnavailable:
+    case CodexOAuthV2ReviewOutcome.Failed:
+      if (review.blockingFailure.length > 0) return;
+      throw new Error('review_action_v2_terminal_failure_signal_missing');
+    default:
+      throw new Error('review_action_v2_terminal_result_invalid');
+  }
+}
+
+function requireCompletedMergeGateConclusion(
+  conclusion: unknown
+): asserts conclusion is MergeGateConclusion {
+  switch (conclusion) {
+    case MergeGateConclusion.Pass:
+    case MergeGateConclusion.Fail:
+    case MergeGateConclusion.Inconclusive:
+      return;
+    default:
+      throw new Error('review_action_v2_merge_gate_conclusion_invalid');
+  }
+}
+
+type V2ActionFailure = Readonly<{
+  code: string;
+  report: (
+    inputs: ReturnType<typeof readCodexOAuthActionInputs>
+  ) => CodexOAuthTerminalOutcomeReport;
+}>;
+
+function classifyV2ActionFailure(error: unknown): V2ActionFailure {
+  if (
+    error instanceof Error &&
+    error.message === 'review_action_v2_success_status_publication_failed'
+  ) {
+    return {
+      code: error.message,
+      report: buildSuccessStatusPublicationFailureReport,
+    };
+  }
+  if (
+    error instanceof Error &&
+    error.message === 'review_action_v2_merge_gate_conclusion_invalid'
+  ) {
+    return {
+      code: error.message,
+      report: buildInvalidMergeGateConclusionReport,
+    };
+  }
+  return {
+    code: 'review_action_v2_terminal_result_missing',
+    report: buildMissingV2TerminalOutcomeReport,
+  };
+}
+
+function buildSuccessStatusPublicationFailureReport(
+  inputs: ReturnType<typeof readCodexOAuthActionInputs>
+): CodexOAuthTerminalOutcomeReport {
+  return terminalOutcomeReport({
+    inputs,
+    kind: CodexOAuthTerminalOutcomeKind.Failed,
+    title: 'Review publication failed ⚠️',
+    summary:
+      'The provider completed successfully, but ReviewRouter could not durably publish the terminal success status.',
+    rows: [
+      ['Outcome', 'failed'],
+      ['Failure code', 'review_action_v2_success_status_publication_failed'],
+    ],
+    note: 'No approval was retained. Inspect the workflow failure and rerun the current revision.',
+    statusState: 'error',
+    statusDescription: 'Review failed: success status publication failed.',
+  });
+}
+
+function buildInvalidMergeGateConclusionReport(
+  inputs: ReturnType<typeof readCodexOAuthActionInputs>
+): CodexOAuthTerminalOutcomeReport {
+  return terminalOutcomeReport({
+    inputs,
+    kind: CodexOAuthTerminalOutcomeKind.Failed,
+    title: 'Review result invalid ⚠️',
+    summary:
+      'The completed provider result contained an invalid merge gate conclusion.',
+    rows: [
+      ['Outcome', 'failed'],
+      ['Failure code', 'review_action_v2_merge_gate_conclusion_invalid'],
+    ],
+    note: 'No approval was published. Inspect the workflow failure and rerun the current revision.',
+    statusState: 'error',
+    statusDescription: 'Review failed: invalid merge gate conclusion.',
+  });
+}
+
+function buildMissingV2TerminalOutcomeReport(
+  inputs: ReturnType<typeof readCodexOAuthActionInputs>
+): CodexOAuthTerminalOutcomeReport {
+  return terminalOutcomeReport({
+    inputs,
+    kind: CodexOAuthTerminalOutcomeKind.Failed,
+    title: 'Review failed ⚠️',
+    summary:
+      'ReviewRouter did not obtain a terminal review result from the provider.',
+    rows: [
+      ['Outcome', 'failed'],
+      ['Published findings', '0'],
+    ],
+    note: 'No approval was published. Inspect the workflow failure and rerun the current revision.',
+    statusState: 'error',
+    statusDescription: 'Review failed: no terminal provider result.',
+  });
 }
 
 function progressTerminal(
@@ -743,6 +889,27 @@ async function publishTerminalOutcomeReportSafely(
     core.warning(
       `ReviewRouter could not publish ${report.logLabel} PR status comment: ${safeTerminalOutcomeError(error)}`
     );
+  }
+}
+
+async function publishCompletedTerminalOutcomeCommitStatus(
+  reporter: CodexOAuthTerminalOutcomeReporterPort,
+  status: CodexOAuthTerminalOutcomeCommitStatus
+): Promise<void> {
+  if (!reporter.status) {
+    core.warning(
+      'ReviewRouter could not publish terminal commit status: reporter status capability unavailable'
+    );
+    throw new Error('review_action_v2_success_status_publication_failed');
+  }
+  try {
+    await reporter.status(status);
+    core.info(`ReviewRouter published ${status.context} commit status.`);
+  } catch (error) {
+    core.warning(
+      `ReviewRouter could not publish terminal commit status: ${safeTerminalOutcomeError(error)}`
+    );
+    throw new Error('review_action_v2_success_status_publication_failed');
   }
 }
 

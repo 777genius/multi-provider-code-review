@@ -1221,13 +1221,13 @@ export class RunT0ReviewOrchestration {
         }
       }
       try {
-        assertRequiredContextAttestation(
-          invocation.manifestFacts.executionProfile,
-          observationPayload
-        );
         validateObservationAgainstLimits(
           observationPayload,
           input.authorization.limits
+        );
+        assertRequiredContextAttestation(
+          invocation.manifestFacts.executionProfile,
+          observationPayload
         );
         const committed = await this.dependencies.controlPlane.commitEvidence({
           authorization: input.authorization,
@@ -2252,6 +2252,9 @@ function validateObservationAgainstLimits(
   },
   limits: ReviewProtocolLimits
 ): void {
+  if (!observation || typeof observation !== 'object') {
+    throw new Error('review_orchestration_terminal_provider_result_missing');
+  }
   if (
     !isCanonicalJson(observation.payloadCanonicalJson) ||
     sha256(observation.payloadCanonicalJson) !== observation.payloadHash ||
