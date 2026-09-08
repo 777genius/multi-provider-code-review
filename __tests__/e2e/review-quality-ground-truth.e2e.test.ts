@@ -2,10 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 test('native fixture ground truth (inferred-result control is caller-local, not repository-wide defect freedom)', () => {
+  // Allow the 22 native checks, including Python and fresh PostgreSQL containers,
+  // headroom on resource-limited CI workers; keep the child bound below Jest's.
   const result = spawnSync(
     process.execPath,
     ['--test', join(__dirname, 'review-quality-ground-truth.test.mjs')],
-    { encoding: 'utf8', timeout: 120_000 }
+    { encoding: 'utf8', timeout: 240_000 }
   );
 
   if (result.stdout) process.stdout.write(result.stdout);
@@ -16,4 +18,4 @@ test('native fixture ground truth (inferred-result control is caller-local, not 
       `Native fixture runner failed: exit=${result.status}, signal=${result.signal}`
     );
   }
-}, 130_000);
+}, 250_000);
