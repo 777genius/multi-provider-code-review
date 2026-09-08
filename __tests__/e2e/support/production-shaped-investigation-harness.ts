@@ -1,8 +1,9 @@
 import { build } from 'esbuild';
-import { chmod, mkdtemp, rm } from 'fs/promises';
+import { chmod, mkdtemp } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ReviewActionV2Client } from '../../../src/control-plane/review-action-v2-client';
+import type { ReviewInvestigationOperationalDiagnostic } from '../../../src/review-investigation/application/investigation-operational-diagnostic-port';
 import { ReviewInvestigationCurrency } from '../../../src/review-investigation/application/investigation-control-plane-port';
 import { RunInvestigationTurn } from '../../../src/review-investigation/application/run-investigation-turn';
 import { RunInvestigationWorkSlot } from '../../../src/review-investigation/application/run-investigation-work-slot';
@@ -33,7 +34,12 @@ import {
 } from '../../../src/review-orchestration/infrastructure/context-gateway-invocation-session';
 import { ReviewActionV2ControlPlaneAdapter } from '../../../src/review-orchestration/infrastructure/review-action-v2-control-plane-adapter';
 import { ReviewActionV2InvestigationContextAttestationAdapter } from '../../../src/review-orchestration/infrastructure/review-action-v2-investigation-context-attestation-adapter';
-import type { DisposableInvestigationRepository } from './disposable-investigation-repository';
+import {
+  removeFixturePath,
+  cleanupFixture,
+  requireFixtureRm,
+  type DisposableInvestigationRepository,
+} from './disposable-investigation-repository';
 import {
   FakeReviewActionV2ControlPlane,
   createFakeControlPlaneStore,
@@ -77,6 +83,7 @@ export type InvestigationSeed = Readonly<{
 export type InvestigationHarness = Readonly<{
   store: FakeControlPlaneStore;
   processResults: ReviewAgentProcessResult[];
+  diagnostics: ReviewInvestigationOperationalDiagnostic[];
   controlPlane: FakeReviewActionV2ControlPlane;
   run(input: {
     readonly seeds: readonly InvestigationSeed[];
@@ -93,11 +100,16 @@ export type InvestigationHarness = Readonly<{
 }>;
 
 export async function createInvestigationHarness(
-  repository: DisposableInvestigationRepository,
-  options: Readonly<{ now?: () => Date }> = {}
+  repository: Pick<
+    DisposableInvestigationRepository,
+    'root' | 'baseSha' | 'mergeBaseSha' | 'headSha' | 'reviewRevisionHash'
+  >,
+  options: Readonly<{
+    now?: () => Date;
+    registeredProviderKind?: ReviewAgentProviderKind;
+  }> = {}
 ): Promise<InvestigationHarness> {
   const now = options.now ?? (() => new Date('2026-08-03T22:00:00.000Z'));
-  const artifacts = await buildTestArtifacts();
   const store = createFakeControlPlaneStore();
   const revision = {
     baseSha: repository.baseSha,
@@ -106,8 +118,18 @@ export async function createInvestigationHarness(
     reviewRevisionHash: repository.reviewRevisionHash,
   };
   const controlPlane = new FakeReviewActionV2ControlPlane(store, revision, now);
-  await controlPlane.start();
+  const artifacts = await buildTestArtifacts();
+  try {
+    await controlPlane.start();
+  } catch (error) {
+    await cleanupFixture(
+      [() => controlPlane.stop(), () => artifacts.dispose()],
+      [error]
+    );
+    throw error;
+  }
   const processResults: ReviewAgentProcessResult[] = [];
+  const diagnostics: ReviewInvestigationOperationalDiagnostic[] = [];
 
   const run = async (input: {
     readonly seeds: readonly InvestigationSeed[];
@@ -174,7 +196,8 @@ export async function createInvestigationHarness(
     const selector = new DeterministicReviewAgentSelector(
       [
         {
-          providerKind: ReviewAgentProviderKind.Codex,
+          providerKind:
+            options.registeredProviderKind ?? ReviewAgentProviderKind.Codex,
           agent: codex,
         },
       ],
@@ -196,6 +219,11 @@ export async function createInvestigationHarness(
       },
       gateway,
       agents: selector,
+      diagnostics: {
+        record: async (diagnostic) => {
+          diagnostics.push(diagnostic);
+        },
+      },
       now,
     });
     const runner = new RunInvestigationWorkSlot({
@@ -265,13 +293,12 @@ export async function createInvestigationHarness(
   return {
     store,
     processResults,
+    diagnostics,
     controlPlane,
     run,
     restartControlPlane: () => controlPlane.restart(),
-    dispose: async () => {
-      await controlPlane.stop();
-      await artifacts.dispose();
-    },
+    dispose: () =>
+      cleanupFixture([() => controlPlane.stop(), () => artifacts.dispose()]),
   };
 }
 
@@ -519,38 +546,51 @@ function requestIdFactory(): () => string {
 }
 
 async function buildTestArtifacts() {
+  await requireFixtureRm();
   const root = await mkdtemp(
     path.join(os.tmpdir(), 'reviewrouter-investigation-artifacts-')
   );
-  const fakeCodexPath = path.join(root, 'fake-codex.cjs');
-  const gatewayBundlePath = path.join(root, 'context-gateway.cjs');
-  await Promise.all([
-    build({
-      entryPoints: [
-        path.resolve('__tests__/e2e/support/fake-codex-investigation-cli.ts'),
-      ],
-      bundle: true,
-      platform: 'node',
-      target: 'node20',
-      format: 'cjs',
-      outfile: fakeCodexPath,
-      logLevel: 'silent',
-      banner: { js: '#!/usr/bin/env node' },
-    }),
-    build({
-      entryPoints: [path.resolve('src/context-gateway/stdio-entry.ts')],
-      bundle: true,
-      platform: 'node',
-      target: 'node20',
-      format: 'cjs',
-      outfile: gatewayBundlePath,
-      logLevel: 'silent',
-    }),
-  ]);
-  await chmod(fakeCodexPath, 0o700);
-  return {
-    fakeCodexPath,
-    gatewayBundlePath,
-    dispose: () => rm(root, { recursive: true, force: true }),
-  };
+  try {
+    const fakeCodexPath = path.join(root, 'fake-codex.cjs');
+    const gatewayBundlePath = path.join(root, 'context-gateway.cjs');
+    const builds = await Promise.allSettled([
+      build({
+        entryPoints: [
+          path.resolve('__tests__/e2e/support/fake-codex-investigation-cli.ts'),
+        ],
+        bundle: true,
+        platform: 'node',
+        target: 'node20',
+        format: 'cjs',
+        outfile: fakeCodexPath,
+        logLevel: 'silent',
+        banner: { js: '#!/usr/bin/env node' },
+      }),
+      build({
+        entryPoints: [path.resolve('src/context-gateway/stdio-entry.ts')],
+        bundle: true,
+        platform: 'node',
+        target: 'node20',
+        format: 'cjs',
+        outfile: gatewayBundlePath,
+        logLevel: 'silent',
+      }),
+    ]);
+    const failures = builds.filter((result) => result.status === 'rejected');
+    if (failures.length) {
+      throw new AggregateError(
+        failures.map((result) => result.reason),
+        'fixture_build_failed'
+      );
+    }
+    await chmod(fakeCodexPath, 0o700);
+    return {
+      fakeCodexPath,
+      gatewayBundlePath,
+      dispose: () => removeFixturePath(root),
+    };
+  } catch (error) {
+    await cleanupFixture([() => removeFixturePath(root)], [error]);
+    throw error;
+  }
 }
