@@ -169,7 +169,8 @@ export class FakeReviewActionV2ControlPlane {
       mergeBaseSha: string;
       headSha: string;
       reviewRevisionHash: string;
-    }>
+    }>,
+    private readonly clock: () => Date = () => new Date(now())
   ) {}
 
   get apiUrl(): string {
@@ -483,7 +484,19 @@ export class FakeReviewActionV2ControlPlane {
 
   private planTurn(request: JsonRecord) {
     const investigation = requireInvestigation(this.store, request);
+    // Production PlanNextInvestigationTurn checks eligibility; open/restore
+    // preserve the parked read model even after the timestamp has elapsed.
+    if (
+      investigation.nextEligibleAt !== null &&
+      Date.parse(investigation.nextEligibleAt) > this.clock().getTime()
+    ) {
+      return mutationResult(
+        investigation,
+        ReviewInvestigationMutationResultStatus.Parked
+      );
+    }
     if (investigation.turn === null) {
+      investigation.nextEligibleAt = null;
       const open = investigation.obligations
         .filter((item) => item.status === 'open')
         .sort((left, right) =>
@@ -509,7 +522,7 @@ export class FakeReviewActionV2ControlPlane {
             ? investigation.semanticTurns + 1
             : investigation.semanticTurns,
         criticCycleOrdinal: investigation.criticCycles,
-        leasedAt: now(),
+        leasedAt: this.clock().toISOString(),
         expiresAt: '2026-08-03T23:00:00.000Z',
       };
       investigation.state = ReviewInvestigationState.TurnLeased;
@@ -763,7 +776,10 @@ export class FakeReviewActionV2ControlPlane {
     }
     recordFakeProviderObligationProposals(
       investigation.obligations,
-      proposedObligations
+      proposedObligations,
+      turn.purpose === ReviewTurnPurpose.Critic
+        ? ReviewInvestigationObligationOrigin.CriticProposal
+        : ReviewInvestigationObligationOrigin.AgentProposal
     );
     expandRelations(investigation, events);
     investigation.findings.push(...findings);
@@ -1219,7 +1235,8 @@ function addObligation(
 
 export function recordFakeProviderObligationProposals(
   obligations: FakeObligation[],
-  value: unknown
+  value: unknown,
+  origin = ReviewInvestigationObligationOrigin.AgentProposal
 ): void {
   for (const proposal of parseReviewTurnObligationProposals(value)) {
     addUniqueObligation(
@@ -1232,7 +1249,7 @@ export function recordFakeProviderObligationProposals(
             PROVIDER_PROPOSAL_RISK_FLOOR
           ),
         },
-        ReviewInvestigationObligationOrigin.AgentProposal
+        origin
       )
     );
   }

@@ -17,6 +17,12 @@ type ScenarioOperation = Readonly<{
 type Scenario = Readonly<{
   mode?: 'success' | 'capacity' | 'kill';
   operations?: readonly ScenarioOperation[];
+  obligationProposals?: readonly Readonly<{
+    kind: string;
+    path: string;
+    revision: 'head' | 'merge_base';
+    riskPriority: number;
+  }>[];
   closureKinds?: readonly string[];
   findings?: readonly Readonly<{
     severity: string;
@@ -237,7 +243,7 @@ async function executeTurn(prompt: string): Promise<void> {
       ...finding,
       evidenceOperationReceiptIds: receiptIds,
     })),
-    obligationProposals: [],
+    obligationProposals: scenario.obligationProposals ?? [],
     closureClaims: brief.obligations
       .filter(
         (obligation) =>

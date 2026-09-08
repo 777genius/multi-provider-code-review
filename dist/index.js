@@ -96376,7 +96376,21 @@ var RunInvestigationWorkSlot = class {
         return { status: "completed" /* Completed */, snapshot };
       }
       if (snapshot.nextAction === "await_capacity" /* AwaitCapacity */) {
-        return { status: "parked" /* Parked */, snapshot };
+        const retryAt = Date.parse(snapshot.nextEligibleAt ?? "");
+        if (!Number.isFinite(retryAt) || retryAt > (this.dependencies.now ?? (() => /* @__PURE__ */ new Date()))().getTime()) {
+          return { status: "parked" /* Parked */, snapshot };
+        }
+        snapshot = await this.dependencies.controlPlane.planTurn({
+          authorizationToken: input.authorizationToken,
+          snapshot,
+          leaseDurationMs: input.leaseDurationMs,
+          maxObligationsForTurn: input.maxObligationsForTurn,
+          turnBudget: input.turnBudget
+        });
+        if (snapshot.nextAction === "await_capacity" /* AwaitCapacity */) {
+          return { status: "parked" /* Parked */, snapshot };
+        }
+        continue;
       }
       if (snapshot.nextAction === "conclude" /* Conclude */) {
         snapshot = await this.dependencies.controlPlane.conclude({

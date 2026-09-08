@@ -832,6 +832,91 @@ describe('RunInvestigationWorkSlot', () => {
     expect(controlPlane.planTurn).not.toHaveBeenCalled();
   });
 
+  it.each([null, 'invalid', '2026-08-02T10:01:00.000Z'])(
+    'keeps capacity parked without planning for deadline %s before eligibility',
+    async (nextEligibleAt) => {
+      const parked = Object.freeze({
+        ...plannedSnapshot(),
+        state: ReviewInvestigationState.AwaitingTurn,
+        nextAction: ReviewInvestigationNextAction.AwaitCapacity,
+        nextEligibleAt,
+        turn: null,
+      });
+      const controlPlane = controlPlaneFixture(parked);
+      const agent = agentFixture(observation());
+      const result = await runnerFixture(controlPlane, agent, {
+        now: () => new Date('2026-08-02T10:00:59.999Z'),
+      }).execute(runInput());
+
+      expect(result).toEqual({
+        status: ReviewInvestigationRunStatus.Parked,
+        snapshot: parked,
+      });
+      expect(controlPlane.planTurn).not.toHaveBeenCalled();
+      expect(agent.executeTurn).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([0, 1])(
+    'requests one authorized resume %i ms after the persisted deadline',
+    async (offset) => {
+      const planned = plannedSnapshot();
+      const parked = Object.freeze({
+        ...planned,
+        state: ReviewInvestigationState.AwaitingTurn,
+        nextAction: ReviewInvestigationNextAction.AwaitCapacity,
+        nextEligibleAt: '2026-08-02T10:01:00.000Z',
+        turn: null,
+      });
+      const controlPlane = controlPlaneFixture(parked);
+      controlPlane.planTurn.mockResolvedValue(planned);
+      controlPlane.commitTurn.mockResolvedValue(terminalSnapshot(4));
+      const agent = agentFixture(observation());
+      const result = await runnerFixture(controlPlane, agent, {
+        now: () => new Date(Date.parse(parked.nextEligibleAt) + offset),
+      }).execute({ ...runInput(), maxStateTransitions: 2 });
+
+      expect(result.status).toBe(ReviewInvestigationRunStatus.Completed);
+      expect(controlPlane.planTurn).toHaveBeenCalledTimes(1);
+      expect(controlPlane.planTurn).toHaveBeenCalledWith({
+        authorizationToken: runInput().authorizationToken,
+        snapshot: parked,
+        leaseDurationMs: runInput().leaseDurationMs,
+        maxObligationsForTurn: runInput().maxObligationsForTurn,
+        turnBudget: runInput().turnBudget,
+      });
+      expect(agent.executeTurn).toHaveBeenCalledTimes(1);
+      expect(agent.executeTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestedModel: runInput().requestedModel,
+        })
+      );
+    }
+  );
+
+  it('honors control-plane parking when the caller clock is ahead without polling or provider execution', async () => {
+    const parked = Object.freeze({
+      ...plannedSnapshot(),
+      state: ReviewInvestigationState.AwaitingTurn,
+      nextAction: ReviewInvestigationNextAction.AwaitCapacity,
+      nextEligibleAt: '2026-08-02T10:01:00.000Z',
+      turn: null,
+    });
+    const controlPlane = controlPlaneFixture(parked);
+    const agent = agentFixture(observation());
+    const result = await runnerFixture(controlPlane, agent, {
+      now: () => new Date('2026-08-02T10:02:00.000Z'),
+    }).execute(runInput());
+
+    expect(result).toEqual({
+      status: ReviewInvestigationRunStatus.Parked,
+      snapshot: parked,
+    });
+    expect(controlPlane.planTurn).toHaveBeenCalledTimes(1);
+    expect(agent.negotiate).not.toHaveBeenCalled();
+    expect(agent.executeTurn).not.toHaveBeenCalled();
+  });
+
   it('parks a missing turn brief without starting the provider', async () => {
     const planned = plannedSnapshot();
     const missingBrief = Object.freeze({
@@ -1506,7 +1591,7 @@ function runnerFixture(
     delay: overrides.delay ?? { sleep: jest.fn(async () => undefined) },
     leases,
     turnRunner,
-    now: () => new Date('2026-08-02T10:00:00.000Z'),
+    now: overrides.now ?? (() => new Date('2026-08-02T10:00:00.000Z')),
   });
 }
 
