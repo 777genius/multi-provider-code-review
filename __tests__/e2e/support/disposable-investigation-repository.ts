@@ -221,7 +221,7 @@ export async function removeFixturePath(target: string): Promise<void> {
   await execFileAsync('rm', ['-rf', '--', target]);
 }
 
-async function configuredIdentity(
+export async function configuredIdentity(
   root: string,
   key: 'user.name' | 'user.email'
 ): Promise<string> {
@@ -230,7 +230,13 @@ async function configuredIdentity(
     env: await fixtureGitEnvironment(root),
   }).catch((error: unknown) => {
     // Only an absent setting permits a fallback; host hooks remain authoritative.
-    if (error instanceof Error && 'code' in error && error.code === 1) {
+    // child_process errors can originate outside Jest's Error realm.
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 1
+    ) {
       return {
         stdout:
           key === 'user.name' ? 'ReviewRouter E2E' : 'e2e@example.invalid',
