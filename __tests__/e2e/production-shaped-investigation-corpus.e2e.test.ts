@@ -10,10 +10,16 @@ import {
 } from '../../src/review-investigation/domain/deterministic-context-probe-plan';
 import {
   ReviewInvestigationConclusion,
+  ReviewInvestigationObligationOrigin,
   ReviewInvestigationRunStatus,
+  type ReviewInvestigationSnapshot,
   ReviewInvestigationState,
 } from '../../src/review-investigation/domain/investigation-state';
 import { buildReviewInvestigationSeedEnvelope } from '../../src/review-investigation/domain/review-investigation-seed-envelope';
+import {
+  canonicalJson,
+  sha256,
+} from '../../src/review-investigation/domain/canonical-json';
 import { ReviewTurnObligationKind } from '../../src/review-investigation/domain/turn-observation';
 import { DisposableInvestigationRepository } from './support/disposable-investigation-repository';
 import {
@@ -602,19 +608,126 @@ describe('production-shaped disposable investigation corpus', () => {
     }
   });
 
-  it('parks a limited account once without a tight-loop provider retry', async () => {
+  it('parks capacity without consuming a semantic turn and resumes once at reset', async () => {
     const repository = await singleFileRepository();
-    const harness = await createInvestigationHarness(repository);
-    try {
-      const result = await harness.run({
-        seeds: [fileSeed({ path: 'src/value.ts' })],
-        scenarioFor: (snapshot) =>
-          scenarioFromBrief(snapshot, { mode: 'capacity' }),
+    let nowMs = Date.parse('2026-08-03T22:00:00.000Z');
+    const harness = await createInvestigationHarness(repository, {
+      now: () => new Date(nowMs),
+    });
+    const seeds = [fileSeed({ path: 'src/value.ts' })];
+    const invocations: ReviewInvestigationSnapshot[] = [];
+    const scenarioFor = (snapshot: ReviewInvestigationSnapshot) => {
+      invocations.push(snapshot);
+      return scenarioFromBrief(snapshot, {
+        mode: invocations.length === 1 ? 'capacity' : 'success',
       });
-      expect(result.status).toBe(ReviewInvestigationRunStatus.Parked);
-      expect(result.snapshot.nextEligibleAt).toBe('2026-08-03T22:01:00.000Z');
+    };
+    try {
+      const parked = await harness.run({ seeds, scenarioFor });
+      expect(parked.status).toBe(ReviewInvestigationRunStatus.Parked);
+      expect(parked.snapshot.nextEligibleAt).toBe('2026-08-03T22:01:00.000Z');
+      expect(parked.snapshot.semanticTurns).toBe(0);
+      expect(parked.snapshot.operationalAttempts).toBe(1);
+      expect(parked.snapshot.criticCycles).toBe(0);
+      expect(parked.snapshot.openObligationCount).toBe(1);
+      expect(parked.snapshot.satisfiedObligationCount).toBe(0);
+      expect(parked.snapshot.conclusion).toBeNull();
+      expect(parked.snapshot.turn).toBeNull();
       expect(harness.processResults).toHaveLength(1);
       expect(harness.store.abortReasons).toEqual(['capacity_unavailable']);
+
+      // Reopening the same durable investigation must not spend a provider
+      // attempt or a turn budget while the reset is still in the future.
+      await harness.restartControlPlane();
+      nowMs = Date.parse(parked.snapshot.nextEligibleAt!) - 1;
+      const countsBeforeReset = new Map(harness.store.operationCounts);
+      for (let reopen = 0; reopen < 2; reopen += 1) {
+        const waiting = await harness.run({ seeds, scenarioFor });
+        expect(waiting.status).toBe(ReviewInvestigationRunStatus.Parked);
+        expect(waiting.snapshot).toEqual(parked.snapshot);
+      }
+      expect(invocations).toHaveLength(1);
+      expect(harness.processResults).toHaveLength(1);
+      for (const operation of [
+        ReviewActionV2OperationId.ReviewInvestigationTurnPlan,
+        ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,
+        ReviewActionV2OperationId.ReviewInvestigationTurnCommit,
+      ]) {
+        expect(harness.store.operationCounts.get(operation) ?? 0).toBe(
+          countsBeforeReset.get(operation) ?? 0
+        );
+      }
+
+      // Two transitions admit one planned discovery turn. The remaining critic
+      // must be performed by a later work slot, not hidden in a retry loop.
+      nowMs += 1;
+      // Open/restore retain parking; only an eligible plan may admit work.
+      const resumed = await harness.run({
+        seeds,
+        scenarioFor,
+        maxStateTransitions: 2,
+      });
+      expect(resumed.status).toBe(
+        ReviewInvestigationRunStatus.TransitionBudgetExhausted
+      );
+      expect(invocations).toHaveLength(2);
+      expect(harness.processResults).toHaveLength(2);
+      expect(resumed.snapshot.investigationId).toBe(
+        parked.snapshot.investigationId
+      );
+      expect(invocations[1]!.turn!.turnId).not.toBe(
+        invocations[0]!.turn!.turnId
+      );
+      expect(invocations[1]!.turn!.semanticTurnOrdinal).toBe(
+        invocations[0]!.turn!.semanticTurnOrdinal
+      );
+      expect(invocations[1]!.turn!.brief!.obligations).toEqual(
+        invocations[0]!.turn!.brief!.obligations
+      );
+      expect(resumed.snapshot.semanticTurns).toBe(1);
+      expect(resumed.snapshot.operationalAttempts).toBe(2);
+      expect(resumed.snapshot.criticCycles).toBe(0);
+      expect(resumed.snapshot.openObligationCount).toBe(0);
+      expect(resumed.snapshot.satisfiedObligationCount).toBe(1);
+      expect(resumed.snapshot.nextEligibleAt).toBeNull();
+      expect(resumed.snapshot.conclusion).toBeNull();
+      for (const operation of [
+        ReviewActionV2OperationId.ReviewInvestigationTurnPlan,
+        ReviewActionV2OperationId.ReviewInvestigationLeaseAcquire,
+        ReviewActionV2OperationId.ReviewInvestigationTurnCommit,
+      ]) {
+        expect(harness.store.operationCounts.get(operation)).toBe(
+          (countsBeforeReset.get(operation) ?? 0) + 1
+        );
+      }
+      const leases = [...harness.store.leases.values()];
+      expect(leases).toHaveLength(2);
+      expect(leases[1]).toMatchObject({
+        investigationId: leases[0]!.investigationId,
+        providerStrategyId: leases[0]!.providerStrategyId,
+        investigationManifestHash: leases[0]!.investigationManifestHash,
+        ownerIdHash: leases[0]!.ownerIdHash,
+        active: false,
+      });
+      expect(leases[1]!.turnId).toBe(invocations[1]!.turn!.turnId);
+      expect(leases[1]!.attemptId).not.toBe(leases[0]!.attemptId);
+
+      const completed = await harness.run({ seeds, scenarioFor });
+      expect(completed.status).toBe(ReviewInvestigationRunStatus.Completed);
+      expect(completed.snapshot.conclusion).toBe(
+        ReviewInvestigationConclusion.VerifiedClean
+      );
+      expect(completed.snapshot.semanticTurns).toBe(1);
+      expect(completed.snapshot.operationalAttempts).toBe(3);
+      expect(completed.snapshot.criticCycles).toBe(1);
+      expect(invocations).toHaveLength(3);
+      expect(harness.processResults).toHaveLength(3);
+      expect(harness.store.abortReasons).toEqual(['capacity_unavailable']);
+      const duplicate = await harness.run({ seeds, scenarioFor });
+      expect(duplicate.snapshot).toEqual(completed.snapshot);
+      expect(invocations).toHaveLength(3);
+      expect(harness.processResults).toHaveLength(3);
+      expect(harness.store.investigations.size).toBe(1);
     } finally {
       await harness.dispose();
       await repository.dispose();
@@ -637,6 +750,172 @@ describe('production-shaped disposable investigation corpus', () => {
       expect(result.snapshot.openObligationCount).toBe(0);
       expect(harness.processResults).toHaveLength(1);
       expect(harness.store.abortReasons).toContain('confinement_violation');
+    } finally {
+      await harness.dispose();
+      await repository.dispose();
+    }
+  });
+
+  it('closes a new critic-discovered relation only after discovery and a fresh critic', async () => {
+    // Scripted provider output exercises orchestration and authenticated context,
+    // not model accuracy or live-provider behavior.
+    const repository = await relationRepository();
+    const harness = await createInvestigationHarness(repository);
+    const seeds = [fileSeed({ path: 'src/contract.ts' })];
+    const proposed = fileSeed({
+      path: 'src/caller-b.ts',
+      kind: ReviewTurnObligationKind.DirectCaller,
+    });
+    const expectedId = sha256(
+      canonicalJson({
+        kind: proposed.kind,
+        canonicalSubject: proposed.canonicalSubject,
+        canonicalRequirement: proposed.canonicalRequirement,
+      })
+    );
+    const invocations: ReviewInvestigationSnapshot[] = [];
+    let criticCalls = 0;
+    const scenarioFor = (snapshot: ReviewInvestigationSnapshot) => {
+      invocations.push(snapshot);
+      if (snapshot.turn?.purpose === 'critic' && criticCalls++ === 0) {
+        expect(snapshot.openObligationCount).toBe(0);
+        expect(snapshot.satisfiedObligationCount).toBe(1);
+        expect(snapshot.conclusion).toBeNull();
+        return {
+          operations: [
+            {
+              tool: 'review_search_text',
+              arguments: {
+                query: 'sharedContract',
+                paths: ['.'],
+                revision: 'head',
+                caseSensitive: true,
+                pageSize: 500,
+              },
+              paginate: true,
+            },
+          ],
+          obligationProposals: [
+            {
+              kind: ReviewTurnObligationKind.DirectCaller,
+              path: 'src/caller-b.ts',
+              revision: 'head' as const,
+              riskPriority: 500_000,
+            },
+          ],
+          criticDecision: 'veto' as const,
+        };
+      }
+      return scenarioFromBrief(snapshot);
+    };
+    try {
+      const reopened = await harness.run({
+        seeds,
+        scenarioFor,
+        maxStateTransitions: 4,
+      });
+      expect(reopened.status).toBe(
+        ReviewInvestigationRunStatus.TransitionBudgetExhausted
+      );
+      expect(invocations.map((item) => item.turn!.purpose)).toEqual([
+        'discovery',
+        'critic',
+      ]);
+      expect(reopened.snapshot.openObligationCount).toBe(1);
+      expect(reopened.snapshot.satisfiedObligationCount).toBe(1);
+      expect(reopened.snapshot.findingCount).toBe(0);
+      expect(reopened.snapshot.conclusion).toBeNull();
+      expect(reopened.snapshot.certificateId).toBeNull();
+      const obligations = [...harness.store.investigations.values()][0]!
+        .obligations;
+      expect(obligations).toHaveLength(2);
+      expect(
+        obligations.find((item) => item.obligationId === expectedId)
+      ).toMatchObject({
+        ...proposed,
+        riskPriority: 800_000,
+        status: 'open',
+        origin: ReviewInvestigationObligationOrigin.CriticProposal,
+      });
+      const criticEvents = harness.store.sealedTranscripts[1]!.events as Array<{
+        operationKind: string;
+        operationReceiptId: string;
+        result: { pagePathHashes?: string[] } | null;
+      }>;
+      expect(
+        criticEvents.some(
+          (event) =>
+            event.operationKind === 'text_search' &&
+            event.result?.pagePathHashes?.includes(sha256('src/caller-b.ts'))
+        )
+      ).toBe(true);
+      expect(
+        criticEvents.every((event) => event.operationKind !== 'file_read')
+      ).toBe(true);
+
+      const covered = await harness.run({
+        seeds,
+        scenarioFor,
+        maxStateTransitions: 2,
+      });
+      expect(covered.status).toBe(
+        ReviewInvestigationRunStatus.TransitionBudgetExhausted
+      );
+      expect(invocations[2]!.turn!.purpose).toBe('discovery');
+      expect(
+        invocations[2]!.turn!.brief!.obligations.map(
+          (item) => item.obligationId
+        )
+      ).toEqual([expectedId]);
+      expect(covered.snapshot.openObligationCount).toBe(0);
+      expect(covered.snapshot.satisfiedObligationCount).toBe(2);
+      expect(covered.snapshot.criticCycles).toBe(1);
+      expect(covered.snapshot.conclusion).toBeNull();
+      expect(covered.snapshot.certificateId).toBeNull();
+      expect(
+        obligations.find((item) => item.obligationId === expectedId)!.status
+      ).toBe('satisfied');
+      const readEvents = harness.store.sealedTranscripts[2]!.events as Array<{
+        operationKind: string;
+        result: { pathHash?: string } | null;
+      }>;
+      expect(
+        readEvents
+          .filter((event) => event.operationKind === 'file_read')
+          .map((event) => event.result?.pathHash)
+      ).toEqual([sha256('src/caller-b.ts')]);
+
+      const completed = await harness.run({ seeds, scenarioFor });
+      expect(completed.status).toBe(ReviewInvestigationRunStatus.Completed);
+      expect(completed.snapshot.conclusion).toBe(
+        ReviewInvestigationConclusion.VerifiedClean
+      );
+      expect(completed.snapshot.investigationId).toBe(
+        reopened.snapshot.investigationId
+      );
+      expect(completed.snapshot.openObligationCount).toBe(0);
+      expect(completed.snapshot.satisfiedObligationCount).toBe(2);
+      expect(completed.snapshot.semanticTurns).toBe(2);
+      expect(completed.snapshot.criticCycles).toBe(2);
+      expect(completed.snapshot.operationalAttempts).toBe(4);
+      expect(completed.snapshot.certificateId).not.toBeNull();
+      expect(invocations.map((item) => item.turn!.purpose)).toEqual([
+        'discovery',
+        'critic',
+        'discovery',
+        'critic',
+      ]);
+      expect(new Set(invocations.map((item) => item.turn!.turnId)).size).toBe(
+        4
+      );
+      expect(invocations[3]!.turn!.dossierDigest).not.toBe(
+        invocations[1]!.turn!.dossierDigest
+      );
+      expect(invocations[3]!.satisfiedObligationCount).toBe(2);
+      expect(harness.store.sealedTranscripts).toHaveLength(4);
+      const duplicate = await harness.run({ seeds, scenarioFor });
+      expect(duplicate.snapshot).toEqual(completed.snapshot);
+      expect(invocations).toHaveLength(4);
     } finally {
       await harness.dispose();
       await repository.dispose();
