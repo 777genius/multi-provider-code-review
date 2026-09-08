@@ -53,6 +53,12 @@ export type FakeProviderScenario = Readonly<{
     substituteMatchedPath?: string;
     additionalMatchedPaths?: readonly string[];
   }>[];
+  obligationProposals?: readonly Readonly<{
+    kind: string;
+    path: string;
+    revision: 'head' | 'merge_base';
+    riskPriority: number;
+  }>[];
   closureKinds?: readonly string[];
   findings?: readonly Readonly<Record<string, unknown>>[];
   unresolvableKinds?: readonly string[];
@@ -87,8 +93,10 @@ export type InvestigationHarness = Readonly<{
 }>;
 
 export async function createInvestigationHarness(
-  repository: DisposableInvestigationRepository
+  repository: DisposableInvestigationRepository,
+  options: Readonly<{ now?: () => Date }> = {}
 ): Promise<InvestigationHarness> {
+  const now = options.now ?? (() => new Date('2026-08-03T22:00:00.000Z'));
   const artifacts = await buildTestArtifacts();
   const store = createFakeControlPlaneStore();
   const revision = {
@@ -97,7 +105,7 @@ export async function createInvestigationHarness(
     headSha: repository.headSha,
     reviewRevisionHash: repository.reviewRevisionHash,
   };
-  const controlPlane = new FakeReviewActionV2ControlPlane(store, revision);
+  const controlPlane = new FakeReviewActionV2ControlPlane(store, revision, now);
   await controlPlane.start();
   const processResults: ReviewAgentProcessResult[] = [];
 
@@ -188,7 +196,7 @@ export async function createInvestigationHarness(
       },
       gateway,
       agents: selector,
-      now: () => new Date('2026-08-03T22:00:00.000Z'),
+      now,
     });
     const runner = new RunInvestigationWorkSlot({
       controlPlane: investigationControlPlane,
@@ -198,7 +206,7 @@ export async function createInvestigationHarness(
       },
       leases: investigationLeases,
       turnRunner,
-      now: () => new Date('2026-08-03T22:00:00.000Z'),
+      now,
     });
     let invocationOrdinal = 0;
     const seedEnvelopeCanonicalJson = canonicalJson({

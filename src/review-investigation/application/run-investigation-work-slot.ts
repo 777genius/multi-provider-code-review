@@ -140,7 +140,28 @@ export class RunInvestigationWorkSlot {
         return { status: ReviewInvestigationRunStatus.Completed, snapshot };
       }
       if (snapshot.nextAction === ReviewInvestigationNextAction.AwaitCapacity) {
-        return { status: ReviewInvestigationRunStatus.Parked, snapshot };
+        const retryAt = Date.parse(snapshot.nextEligibleAt ?? '');
+        if (
+          !Number.isFinite(retryAt) ||
+          retryAt > (this.dependencies.now ?? (() => new Date()))().getTime()
+        ) {
+          return { status: ReviewInvestigationRunStatus.Parked, snapshot };
+        }
+        // The local clock only schedules a planning request. The control plane
+        // checks its persisted deadline and remains the authority to admit work.
+        snapshot = await this.dependencies.controlPlane.planTurn({
+          authorizationToken: input.authorizationToken,
+          snapshot,
+          leaseDurationMs: input.leaseDurationMs,
+          maxObligationsForTurn: input.maxObligationsForTurn,
+          turnBudget: input.turnBudget,
+        });
+        if (
+          snapshot.nextAction === ReviewInvestigationNextAction.AwaitCapacity
+        ) {
+          return { status: ReviewInvestigationRunStatus.Parked, snapshot };
+        }
+        continue;
       }
       if (snapshot.nextAction === ReviewInvestigationNextAction.Conclude) {
         snapshot = await this.dependencies.controlPlane.conclude({
