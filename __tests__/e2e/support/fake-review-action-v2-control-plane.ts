@@ -199,6 +199,7 @@ export class FakeReviewActionV2ControlPlane {
     const server = this.server;
     this.server = null;
     this.origin = null;
+    // A failed bind may make close fail too; harness cleanup preserves both errors.
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve()))
     );
@@ -1471,7 +1472,7 @@ function verifyPageChain(
   return true;
 }
 
-function completeFile(
+export function completeFile(
   events: readonly JsonRecord[],
   pathHash: string,
   revision: string
@@ -1479,7 +1480,8 @@ function completeFile(
   const group = events.filter(
     (event) =>
       event.operationKind === 'file_read' &&
-      object(event.result).pathHash === pathHash
+      object(event.result).pathHash === pathHash &&
+      object(event.result).revision === revision
   );
   return completeFileGroup(group, revision);
 }

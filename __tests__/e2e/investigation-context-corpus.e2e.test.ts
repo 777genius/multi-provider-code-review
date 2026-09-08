@@ -1,5 +1,6 @@
+import { completeFile } from './support/fake-review-action-v2-control-plane';
 import { execFile } from 'child_process';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
@@ -24,8 +25,33 @@ import { createReviewPromptCoverageManifest } from '../../src/review-orchestrati
 import { buildReviewInvestigationSeedEnvelope } from '../../src/review-investigation/domain/review-investigation-seed-envelope';
 import {
   DisposableInvestigationRepository,
+  fixtureGitEnvironment,
+  selectFixtureGitEnvironment,
+  cleanupFixture,
+  requireFixtureRm,
+  removeFixturePath,
   MutableRepositoryFixture,
 } from './support/disposable-investigation-repository';
+
+import {
+  ReviewInvestigationAbortReason,
+  ReviewInvestigationConclusion,
+  ReviewInvestigationNextAction,
+  ReviewInvestigationRunStatus,
+  ReviewInvestigationState,
+} from '../../src/review-investigation/domain/investigation-state';
+import { ReviewAgentFailureClass } from '../../src/review-investigation/application/review-agent-port';
+import { ReviewAgentProviderKind } from '../../src/review-investigation/domain/runtime-profile';
+import {
+  ReviewInvestigationChangedFileStatus,
+  createReviewInvestigationProbePlan,
+} from '../../src/review-investigation/domain/deterministic-context-probe-plan';
+import { ReviewTurnObligationKind } from '../../src/review-investigation/domain/turn-observation';
+import {
+  createInvestigationHarness,
+  fileSeed,
+  scenarioFromBrief,
+} from './support/production-shaped-investigation-harness';
 
 const execFileAsync = promisify(execFile);
 const secret = Buffer.alloc(32, 23);
@@ -115,6 +141,112 @@ const relationScenarios: readonly RelationScenario[] = [
   },
 ];
 
+describe('pure fixture safeguards', () => {
+  it('preserves the operation error and attempts every mocked cleanup in order', async () => {
+    const original = new Error('operation');
+    const first = new Error('stop');
+    const last = new Error('remove');
+    const calls: string[] = [];
+    const cleanups = [
+      jest.fn(async () => {
+        calls.push('stop');
+        throw first;
+      }),
+      jest.fn(async () => {
+        calls.push('success');
+      }),
+      jest.fn(async () => {
+        calls.push('remove');
+        throw last;
+      }),
+    ];
+    await expect(cleanupFixture(cleanups, [original])).rejects.toMatchObject({
+      name: 'AggregateError',
+      errors: [original, first, last],
+    });
+    expect(calls).toEqual(['stop', 'success', 'remove']);
+    cleanups.forEach((cleanup) => expect(cleanup).toHaveBeenCalledTimes(1));
+  });
+
+  it('preserves the original alone, including a non-Error throw', async () => {
+    await expect(
+      cleanupFixture([jest.fn(async () => undefined)], [undefined])
+    ).rejects.toBeUndefined();
+  });
+
+  it('aggregates final disposal failures without an original failure', async () => {
+    const failures = [new Error('stop'), new Error('artifacts')];
+    await expect(
+      cleanupFixture(
+        failures.map((error) =>
+          jest.fn(async () => {
+            throw error;
+          })
+        )
+      )
+    ).rejects.toMatchObject({ name: 'AggregateError', errors: failures });
+    await expect(
+      cleanupFixture([jest.fn(async () => undefined)])
+    ).resolves.toBeUndefined();
+  });
+
+  it('selects content overrides while preserving host config sources and hooks/identity', () => {
+    const env = selectFixtureGitEnvironment(
+      {
+        PATH: '/guard:/bin',
+        HOME: '/home/operator',
+        XDG_CONFIG_HOME: '/xdg',
+        GIT_CONFIG_SYSTEM: '/policy/system',
+        GIT_CONFIG_GLOBAL: '/policy/global',
+        GIT_DIR: '/foreign/repo',
+        GIT_CONFIG_COUNT: '1',
+        GIT_CONFIG_KEY_0: 'core.hooksPath',
+        GIT_CONFIG_VALUE_0: '/bypass',
+      },
+      [
+        'core.hooksPath',
+        'user.name',
+        'user.email',
+        'filter.lfs.clean',
+        'filter.lfs.smudge',
+        'filter.lfs.process',
+        'filter.lfs.required',
+        'filter.Custom.process',
+        'filter.lfs.clean',
+      ]
+    );
+    const settings = Object.fromEntries(
+      Array.from({ length: Number(env.GIT_CONFIG_COUNT) }, (_, index) => [
+        env[`GIT_CONFIG_KEY_${index}`],
+        env[`GIT_CONFIG_VALUE_${index}`],
+      ])
+    );
+    expect(settings).toEqual({
+      'core.autocrlf': 'false',
+      'core.eol': 'lf',
+      'core.excludesFile': '/dev/null',
+      'core.attributesFile': '/dev/null',
+      'filter.lfs.clean': '',
+      'filter.lfs.smudge': '',
+      'filter.lfs.process': '',
+      'filter.lfs.required': 'false',
+      'filter.Custom.process': '',
+    });
+    expect(env).toMatchObject({
+      PATH: '/guard:/bin',
+      HOME: '/home/operator',
+      XDG_CONFIG_HOME: '/xdg',
+      GIT_CONFIG_SYSTEM: '/policy/system',
+      GIT_CONFIG_GLOBAL: '/policy/global',
+      GIT_ATTR_NOSYSTEM: '1',
+    });
+    expect(env.GIT_DIR).toBeUndefined();
+    expect(settings['core.hooksPath']).toBeUndefined();
+    expect(settings['user.name']).toBeUndefined();
+    expect(settings['user.email']).toBeUndefined();
+  });
+});
+
 describe('disposable context corpus', () => {
   it('finds a hidden caller through production diff-derived probe seeds', async () => {
     const repository = await DisposableInvestigationRepository.create(
@@ -131,8 +263,11 @@ describe('disposable context corpus', () => {
           'export function changedApi(): string { return "1"; }\n'
         )
     );
-    const session = await openGateway(repository);
+    let sessionToDispose: Awaited<ReturnType<typeof openGateway>> | undefined;
+    const errors: unknown[] = [];
     try {
+      const session = await openGateway(repository);
+      sessionToDispose = session;
       const fullDiff = await gitOutput(repository.root, [
         'diff',
         '--no-ext-diff',
@@ -207,9 +342,13 @@ describe('disposable context corpus', () => {
         'src/index.ts',
         'src/service.ts',
       ]);
+    } catch (error) {
+      errors.push(error);
     } finally {
-      await session.dispose();
-      await repository.dispose();
+      await cleanupFixture(
+        [() => sessionToDispose?.dispose(), () => repository.dispose()],
+        errors
+      );
     }
   });
 
@@ -220,8 +359,11 @@ describe('disposable context corpus', () => {
         scenario.files,
         scenario.mutate
       );
-      const session = await openGateway(repository);
+      let sessionToDispose: Awaited<ReturnType<typeof openGateway>> | undefined;
+      const errors: unknown[] = [];
       try {
+        const session = await openGateway(repository);
+        sessionToDispose = session;
         const search = await collectPages((cursor) =>
           session.gateway.searchText({
             query: scenario.query,
@@ -244,9 +386,13 @@ describe('disposable context corpus', () => {
           expect(read.eof).toBe(true);
           expect(read.path).toBe(relatedPath);
         }
+      } catch (error) {
+        errors.push(error);
       } finally {
-        await session.dispose();
-        await repository.dispose();
+        await cleanupFixture(
+          [() => sessionToDispose?.dispose(), () => repository.dispose()],
+          errors
+        );
       }
     }
   );
@@ -262,8 +408,11 @@ describe('disposable context corpus', () => {
         await fixture.remove('src/deleted.ts');
       }
     );
-    const session = await openGateway(repository);
+    let sessionToDispose: Awaited<ReturnType<typeof openGateway>> | undefined;
+    const errors: unknown[] = [];
     try {
+      const session = await openGateway(repository);
+      sessionToDispose = session;
       const inventory = await collectPages(
         (cursor) => session.gateway.canonicalInventory({ pageSize: 1, cursor }),
         'entries'
@@ -292,9 +441,13 @@ describe('disposable context corpus', () => {
           revision: ContextGatewayV4Revision.Head,
         })
       ).rejects.toThrow('context_gateway_file_not_in_revision_tree');
+    } catch (error) {
+      errors.push(error);
     } finally {
-      await session.dispose();
-      await repository.dispose();
+      await cleanupFixture(
+        [() => sessionToDispose?.dispose(), () => repository.dispose()],
+        errors
+      );
     }
   });
 
@@ -308,11 +461,13 @@ describe('disposable context corpus', () => {
       },
       (fixture) => fixture.remove('settings.json')
     );
-    const session = await openGateway(repository);
-    const restoredBase = await mkdtemp(
-      path.join(os.tmpdir(), 'rr-consumer-base-')
-    );
+    let sessionToDispose: Awaited<ReturnType<typeof openGateway>> | undefined;
+    let restoredBase: string | undefined;
+    const errors: unknown[] = [];
     try {
+      const session = await openGateway(repository);
+      sessionToDispose = session;
+      restoredBase = await mkdtemp(path.join(os.tmpdir(), 'rr-consumer-base-'));
       const baseConsumer = await session.gateway.readFile({
         path: 'consumer.cjs',
         revision: ContextGatewayV4Revision.MergeBase,
@@ -349,10 +504,19 @@ describe('disposable context corpus', () => {
         stdout: '',
         stderr: expect.stringContaining("Cannot find module './settings.json'"),
       });
+    } catch (error) {
+      errors.push(error);
     } finally {
-      await rm(restoredBase, { recursive: true, force: true });
-      await session.dispose();
-      await repository.dispose();
+      await cleanupFixture(
+        [
+          async () => {
+            if (restoredBase) await removeFixturePath(restoredBase);
+          },
+          () => sessionToDispose?.dispose(),
+          () => repository.dispose(),
+        ],
+        errors
+      );
     }
   });
 
@@ -372,8 +536,11 @@ describe('disposable context corpus', () => {
         await addEmbeddedRepository(fixture.root);
       }
     );
-    const session = await openGateway(repository);
+    let sessionToDispose: Awaited<ReturnType<typeof openGateway>> | undefined;
+    const errors: unknown[] = [];
     try {
+      const session = await openGateway(repository);
+      sessionToDispose = session;
       const inventory = await collectPages(
         (cursor) =>
           session.gateway.canonicalInventory({ pageSize: 10, cursor }),
@@ -404,9 +571,13 @@ describe('disposable context corpus', () => {
       });
       expect(gitlink.fileKind).toBe('gitlink');
       expect(gitlink.byteCount).toBe(0);
+    } catch (error) {
+      errors.push(error);
     } finally {
-      await session.dispose();
-      await repository.dispose();
+      await cleanupFixture(
+        [() => sessionToDispose?.dispose(), () => repository.dispose()],
+        errors
+      );
     }
   });
 
@@ -420,8 +591,11 @@ describe('disposable context corpus', () => {
       async (fixture) =>
         fixture.write('src/revision.ts', 'export const head = true;\n')
     );
-    const session = await openGateway(repository);
+    let sessionToDispose: Awaited<ReturnType<typeof openGateway>> | undefined;
+    const errors: unknown[] = [];
     try {
+      const session = await openGateway(repository);
+      sessionToDispose = session;
       const result = await collectPages((cursor) =>
         session.gateway.searchText({
           query: 'PAGINATION_CANARY',
@@ -434,9 +608,13 @@ describe('disposable context corpus', () => {
       expect(result.receipts).toHaveLength(11);
       expect(result.complete).toBe(true);
       assertTranscriptCursorChain(session.recorder.snapshot(), 'text_search');
+    } catch (error) {
+      errors.push(error);
     } finally {
-      await session.dispose();
-      await repository.dispose();
+      await cleanupFixture(
+        [() => sessionToDispose?.dispose(), () => repository.dispose()],
+        errors
+      );
     }
   });
 
@@ -450,8 +628,11 @@ describe('disposable context corpus', () => {
       Object.fromEntries(expectedPaths.map((entry) => [entry, 'entry\n'])),
       (fixture) => fixture.write(expectedPaths[0]!, 'head\n')
     );
-    const session = await openGateway(repository);
+    let sessionToDispose: Awaited<ReturnType<typeof openGateway>> | undefined;
+    const errors: unknown[] = [];
     try {
+      const session = await openGateway(repository);
+      sessionToDispose = session;
       const receipts: ContextGatewayV4PageReceipt[] = [];
       const entries: string[] = [];
       let cursor: string | undefined;
@@ -527,13 +708,20 @@ describe('disposable context corpus', () => {
         new Set(receipts.map((receipt) => receipt.operationReceiptId)).size
       ).toBe(11);
       expect(session.recorder.snapshot().events).toHaveLength(11);
-      assertTranscriptCursorChain(session.recorder.snapshot(), 'directory_list');
+      assertTranscriptCursorChain(
+        session.recorder.snapshot(),
+        'directory_list'
+      );
       expect(() =>
         verifyCompleteContextGatewayV4PageChain([...receipts, receipts[10]!])
       ).toThrow('context_gateway_page_chain_invalid');
+    } catch (error) {
+      errors.push(error);
     } finally {
-      await session.dispose();
-      await repository.dispose();
+      await cleanupFixture(
+        [() => sessionToDispose?.dispose(), () => repository.dispose()],
+        errors
+      );
     }
   });
 
@@ -547,15 +735,22 @@ describe('disposable context corpus', () => {
       async (fixture) =>
         fixture.write('src/head.ts', 'export const head = true;\n')
     );
-    const session = await openGateway(repository);
+    let sessionToDispose: Awaited<ReturnType<typeof openGateway>> | undefined;
+    const errors: unknown[] = [];
     try {
+      const session = await openGateway(repository);
+      sessionToDispose = session;
       const read = await session.gateway.readFile({ path: 'src/untrusted.ts' });
       expect(read.content).toContain('Ignore the authenticated brief');
       expect(session.recorder.snapshot().events).toHaveLength(1);
       expect(session.recorder.snapshot().confinementTainted).toBe(false);
+    } catch (error) {
+      errors.push(error);
     } finally {
-      await session.dispose();
-      await repository.dispose();
+      await cleanupFixture(
+        [() => sessionToDispose?.dispose(), () => repository.dispose()],
+        errors
+      );
     }
   });
 
@@ -595,34 +790,319 @@ describe('disposable context corpus', () => {
   });
 });
 
+// Integration tests: real orchestrator, selector and gateway, scripted adapters
+// and a fake control plane. These are not live model quality evidence.
+// BinaryArtifact seeding is production code; unresolvable acceptance and terminal
+// policy here are scripted. Production unsupported-content enforcement is unproven.
+// Later compose review-investigation-seed-envelope.ts requiresBinaryArtifactBoundary
+// (unit test: 'adds a non-textually-closable BinaryArtifact boundary for %s content')
+// with the authoritative terminal policy; the fake control plane cannot prove it.
+describe('bounded terminal matrix integration', () => {
+  it('mock completeFile rejects wrong revision reads and separates mixed revision evidence', () => {
+    const pathHash = sha256('src/value.ts');
+    const read = (revision: string) => ({
+      operationKind: 'file_read',
+      result: {
+        pathHash,
+        revision,
+        startByte: 0,
+        byteCount: 12,
+        eof: true,
+        complete: true,
+      },
+    });
+    expect(completeFile([read('head')], pathHash, 'merge_base')).toBe(false);
+    expect(completeFile([read('merge_base')], pathHash, 'head')).toBe(false);
+    for (const revision of ['head', 'merge_base']) {
+      expect(
+        completeFile([read('head'), read('merge_base')], pathHash, revision)
+      ).toBe(true);
+    }
+  });
+
+  it('parks an unavailable configured provider with a typed outcome and no substitution or tight retry', async () => {
+    const repository = await DisposableInvestigationRepository.create(
+      { 'src/value.ts': 'export const value = 1;\n' },
+      (fixture) => fixture.write('src/value.ts', 'export const value = 2;\n')
+    );
+    let harness:
+      | Awaited<ReturnType<typeof createInvestigationHarness>>
+      | undefined;
+    const errors: unknown[] = [];
+    try {
+      let nowMs = Date.parse('2026-08-03T22:00:00.000Z');
+      harness = await createInvestigationHarness(repository, {
+        now: () => new Date(nowMs),
+        // Only the unconfigured alternative is registered. The authorized lane
+        // remains Codex, and the real selector must not substitute this adapter.
+        registeredProviderKind: ReviewAgentProviderKind.ClaudeCode,
+      });
+      const input = {
+        seeds: [fileSeed({ path: 'src/value.ts' })],
+        scenarioFor: (snapshot: Parameters<typeof scenarioFromBrief>[0]) =>
+          scenarioFromBrief(snapshot),
+      };
+      const parked = await harness.run(input);
+      expect(parked.status).toBe(ReviewInvestigationRunStatus.Parked);
+      expect(parked.snapshot).toMatchObject({
+        conclusion: null,
+        semanticTurns: 0,
+        operationalAttempts: 1,
+        criticCycles: 0,
+        openObligationCount: 1,
+        satisfiedObligationCount: 0,
+        nextAction: ReviewInvestigationNextAction.AwaitCapacity,
+        nextEligibleAt: '2026-08-03T22:01:00.000Z',
+        turn: null,
+      });
+      expect(harness.diagnostics).toEqual([
+        expect.objectContaining({
+          phase: 'agent_preflight',
+          failureClass: ReviewAgentFailureClass.CapabilityUnavailable,
+          detailCode: 'review_agent_provider_not_registered',
+        }),
+      ]);
+      expect(harness.store.abortReasons).toEqual([
+        ReviewInvestigationAbortReason.RetryableInfrastructureFailure,
+      ]);
+      await harness.restartControlPlane();
+      nowMs += 59_999;
+      for (let reopen = 0; reopen < 2; reopen += 1) {
+        expect((await harness.run(input)).snapshot).toEqual(parked.snapshot);
+      }
+      expect(harness.diagnostics).toHaveLength(1);
+      // At the reset there is exactly one further attempt in the same lane;
+      // continuing unavailability parks again instead of spinning.
+      nowMs += 1;
+      const retried = await harness.run(input);
+      expect(retried.status).toBe(ReviewInvestigationRunStatus.Parked);
+      expect(retried.snapshot.investigationId).toBe(
+        parked.snapshot.investigationId
+      );
+      expect(retried.snapshot.operationalAttempts).toBe(2);
+      expect(retried.snapshot.semanticTurns).toBe(0);
+      expect(retried.snapshot.conclusion).toBeNull();
+      expect(retried.snapshot.nextEligibleAt).toBe('2026-08-03T22:02:00.000Z');
+      expect(harness.diagnostics).toHaveLength(2);
+      expect(harness.diagnostics[1]).toMatchObject({
+        failureClass: ReviewAgentFailureClass.CapabilityUnavailable,
+        detailCode: 'review_agent_provider_not_registered',
+      });
+      expect(harness.store.abortReasons).toEqual([
+        ReviewInvestigationAbortReason.RetryableInfrastructureFailure,
+        ReviewInvestigationAbortReason.RetryableInfrastructureFailure,
+      ]);
+      expect(harness.processResults).toHaveLength(0);
+      expect(harness.store.sealedTranscripts).toHaveLength(0);
+      expect(
+        [...harness.store.leases.values()].every((lease) => !lease.active)
+      ).toBe(true);
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      await cleanupFixture(
+        [() => harness?.dispose(), () => repository.dispose()],
+        errors
+      );
+    }
+  });
+
+  it.each(['gitlink', 'lfs_pointer'] as const)(
+    'propagates scripted inconclusive for a changed %s (production policy enforcement unproven)',
+    async (contentKind) => {
+      const artifactPath =
+        contentKind === 'gitlink' ? 'vendor/dependency' : 'assets/large.dat';
+      const pointer = (oid: string) =>
+        `version https://git-lfs.github.com/spec/v1\noid sha256:${oid.repeat(64)}\nsize 123456\n`;
+      const repository = await DisposableInvestigationRepository.create(
+        { 'README.md': 'fixture\n' },
+        async (fixture) => {
+          if (contentKind === 'gitlink')
+            await addEmbeddedRepository(fixture.root);
+          else await fixture.write(artifactPath, pointer('a'));
+        }
+      );
+      let harness:
+        | Awaited<ReturnType<typeof createInvestigationHarness>>
+        | undefined;
+      const errors: unknown[] = [];
+      try {
+        // Make the unsupported object present on both sides of an actual change.
+        const headSha = await repository.commit(
+          'test: change unsupported artifact',
+          async (fixture) => {
+            if (contentKind === 'gitlink') {
+              await execFileAsync(
+                'git',
+                ['commit', '--allow-empty', '-qm', 'nested head'],
+                {
+                  cwd: path.join(fixture.root, artifactPath),
+                  env: await fixtureGitEnvironment(
+                    path.join(fixture.root, artifactPath)
+                  ),
+                }
+              );
+            } else await fixture.write(artifactPath, pointer('b'));
+          }
+        );
+        const changedRepository = {
+          ...repository,
+          baseSha: repository.headSha,
+          mergeBaseSha: repository.headSha,
+          headSha,
+          reviewRevisionHash: sha256(
+            `revision:${repository.headSha}:${headSha}`
+          ),
+        };
+        harness = await createInvestigationHarness(changedRepository);
+        const inventory = await buildCanonicalGitInventory({
+          root: repository.root,
+          mergeBaseSha: changedRepository.mergeBaseSha,
+          headSha,
+        });
+        const seeds = buildReviewInvestigationSeedEnvelope({
+          canonicalInventory: inventory,
+          coverageManifest: {
+            reviewRevisionHash: changedRepository.reviewRevisionHash,
+            paths: [{ path: artifactPath }],
+          },
+          probePlan: createReviewInvestigationProbePlan({
+            files: [
+              {
+                path: artifactPath,
+                previousPath: null,
+                status: ReviewInvestigationChangedFileStatus.Modified,
+                patch: null,
+              },
+            ],
+            fullDiff: '',
+          }),
+          reviewPrompt: 'Review the unsupported artifact boundary.',
+          requestedModel: 'gpt-e2e',
+        }).envelope.obligations;
+        const boundaries = seeds.filter(
+          (seed) => seed.kind === ReviewTurnObligationKind.BinaryArtifact
+        );
+        expect(boundaries).toHaveLength(2);
+        expect(
+          boundaries.map((seed) => JSON.parse(seed.canonicalRequirement))
+        ).toEqual(
+          expect.arrayContaining(
+            ['merge_base', 'head'].map((revision) =>
+              expect.objectContaining({
+                kind: 'binary_artifact_boundary',
+                contentKind,
+                path: artifactPath,
+                revision,
+                status: CanonicalInventoryStatus.Modified,
+              })
+            )
+          )
+        );
+        const input = {
+          seeds,
+          scenarioFor: (snapshot: Parameters<typeof scenarioFromBrief>[0]) => {
+            expect(snapshot.turn?.purpose).not.toBe('critic');
+            return {
+              ...scenarioFromBrief(snapshot),
+              closureKinds: [...new Set(seeds.map((seed) => seed.kind))].filter(
+                (kind) => kind !== ReviewTurnObligationKind.BinaryArtifact
+              ),
+              unresolvableKinds: [ReviewTurnObligationKind.BinaryArtifact],
+            };
+          },
+        };
+        const result = await harness.run(input);
+        expect(result.status).toBe(ReviewInvestigationRunStatus.Completed);
+        expect(result.snapshot).toMatchObject({
+          state: ReviewInvestigationState.Inconclusive,
+          nextAction: ReviewInvestigationNextAction.Terminal,
+          conclusion: ReviewInvestigationConclusion.Inconclusive,
+          openObligationCount: 0,
+          unresolvableObligationCount: 2,
+          satisfiedObligationCount: seeds.length - 2,
+          semanticTurns: 1,
+          operationalAttempts: 1,
+          nextEligibleAt: null,
+          criticCycles: 0,
+          findingCount: 0,
+        });
+        expect(harness.store.abortReasons).toEqual([]);
+        expect(harness.store.sealedTranscripts).toHaveLength(1);
+        const changedEntry = inventory.entries.find(
+          (entry) => entry.afterPath === artifactPath
+        )!;
+        expect(changedEntry.beforeOid).not.toBe(changedEntry.afterOid);
+        expect(harness.store.sealedTranscripts[0]!.events).toEqual(
+          expect.arrayContaining(
+            [
+              ['merge_base', changedEntry.beforeOid],
+              ['head', changedEntry.afterOid],
+            ].map(([revision, blobOid]) =>
+              expect.objectContaining({
+                operationKind: ContextGatewayV4OperationKind.FileRead,
+                outcome: 'succeeded',
+                result: expect.objectContaining({
+                  pathHash: sha256(artifactPath),
+                  revision,
+                  blobOid,
+                  eof: true,
+                  complete: true,
+                }),
+              })
+            )
+          )
+        );
+        const attempts = harness.processResults.length;
+        expect(attempts).toBe(1);
+        expect((await harness.run(input)).snapshot).toEqual(result.snapshot);
+        expect(harness.processResults).toHaveLength(attempts);
+      } catch (error) {
+        errors.push(error);
+      } finally {
+        await cleanupFixture(
+          [() => harness?.dispose(), () => repository.dispose()],
+          errors
+        );
+      }
+    }
+  );
+});
+
 async function openGateway(repository: DisposableInvestigationRepository) {
+  await requireFixtureRm();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), 'rr-context-corpus-'));
-  const transcriptPath = path.join(stateRoot, 'transcript.json');
-  const recorder = new ContextGatewayV4Recorder({
-    sessionId: `context-corpus-${path.basename(stateRoot)}`,
-    transcriptPath,
-    secret,
-    gatewayBinaryHash: sha256('context-corpus-binary'),
-    checkoutTreeOid: await repository.headTreeOid(),
-    eventChainSeedHash: sha256('context-corpus-seed'),
-    now: () => 1_000,
-  });
-  await recorder.initialize();
-  const gateway = await FilesystemContextGatewayV4.create({
-    root: repository.root,
-    sessionId: `context-corpus-${path.basename(stateRoot)}`,
-    checkoutTreeOid: await repository.headTreeOid(),
-    mergeBaseSha: repository.mergeBaseSha,
-    headSha: repository.headSha,
-    secret,
-    recorder,
-    now: () => 1_000,
-  });
-  return {
-    gateway,
-    recorder,
-    dispose: () => rm(stateRoot, { recursive: true, force: true }),
-  };
+  try {
+    const transcriptPath = path.join(stateRoot, 'transcript.json');
+    const recorder = new ContextGatewayV4Recorder({
+      sessionId: `context-corpus-${path.basename(stateRoot)}`,
+      transcriptPath,
+      secret,
+      gatewayBinaryHash: sha256('context-corpus-binary'),
+      checkoutTreeOid: await repository.headTreeOid(),
+      eventChainSeedHash: sha256('context-corpus-seed'),
+      now: () => 1_000,
+    });
+    await recorder.initialize();
+    const gateway = await FilesystemContextGatewayV4.create({
+      root: repository.root,
+      sessionId: `context-corpus-${path.basename(stateRoot)}`,
+      checkoutTreeOid: await repository.headTreeOid(),
+      mergeBaseSha: repository.mergeBaseSha,
+      headSha: repository.headSha,
+      secret,
+      recorder,
+      now: () => 1_000,
+    });
+    return {
+      gateway,
+      recorder,
+      dispose: () => cleanupFixture([() => removeFixturePath(stateRoot)]),
+    };
+  } catch (error) {
+    await cleanupFixture([() => removeFixturePath(stateRoot)], [error]);
+    throw error;
+  }
 }
 
 async function collectPages(
@@ -670,15 +1150,26 @@ function assertTranscriptCursorChain(
 
 async function addEmbeddedRepository(root: string): Promise<void> {
   const nested = path.join(root, 'vendor', 'dependency');
-  await execFileAsync('git', ['init', '-q', nested]);
-  await execFileAsync('git', ['config', 'user.name', 'ReviewRouter E2E'], {
-    cwd: nested,
+  await execFileAsync('git', ['init', '-q', '--initial-branch=main', nested], {
+    env: await fixtureGitEnvironment(root),
   });
-  await execFileAsync('git', ['config', 'user.email', 'e2e@example.invalid'], {
-    cwd: nested,
-  });
+  // Reuse the parent fixture's configured identity and leave host hooks enabled.
+  for (const key of ['user.name', 'user.email']) {
+    const value = (
+      await execFileAsync('git', ['config', '--get', key], {
+        cwd: root,
+        env: await fixtureGitEnvironment(root),
+      })
+    ).stdout.trim();
+    if (!value) throw new Error(`fixture_git_identity_missing:${key}`);
+    await execFileAsync('git', ['config', key, value], {
+      cwd: nested,
+      env: await fixtureGitEnvironment(nested),
+    });
+  }
   await execFileAsync('git', ['commit', '--allow-empty', '-qm', 'nested'], {
     cwd: nested,
+    env: await fixtureGitEnvironment(nested),
   });
 }
 
@@ -689,14 +1180,7 @@ async function gitOutput(
   return (
     await execFileAsync('git', args, {
       cwd: root,
-      env: {
-        PATH: process.env.PATH,
-        GIT_ATTR_NOSYSTEM: '1',
-        GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_GLOBAL: '/dev/null',
-        GIT_NO_REPLACE_OBJECTS: '1',
-        GIT_TERMINAL_PROMPT: '0',
-      },
+      env: await fixtureGitEnvironment(root),
       maxBuffer: 64 * 1024 * 1024,
     })
   ).stdout;
