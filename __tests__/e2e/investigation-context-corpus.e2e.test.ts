@@ -9,7 +9,12 @@ import {
   CanonicalInventoryStatus,
 } from '../../src/context-gateway/canonical-git-inventory';
 import { sha256 } from '../../src/context-gateway/context-gateway-contract';
-import { ContextGatewayV4Revision } from '../../src/context-gateway/context-gateway-v4-contract';
+import {
+  ContextGatewayV4OperationKind,
+  type ContextGatewayV4PageReceipt,
+  ContextGatewayV4Revision,
+  verifyCompleteContextGatewayV4PageChain,
+} from '../../src/context-gateway/context-gateway-v4-contract';
 import { ContextGatewayV4Recorder } from '../../src/context-gateway/context-gateway-v4-recorder';
 import { FilesystemContextGatewayV4 } from '../../src/context-gateway/filesystem-context-gateway-v4';
 import { PromptBuilder } from '../../src/analysis/llm/prompt-builder';
@@ -19,7 +24,7 @@ import { createReviewPromptCoverageManifest } from '../../src/review-orchestrati
 import { buildReviewInvestigationSeedEnvelope } from '../../src/review-investigation/domain/review-investigation-seed-envelope';
 import {
   DisposableInvestigationRepository,
-  type MutableRepositoryFixture,
+  MutableRepositoryFixture,
 } from './support/disposable-investigation-repository';
 
 const execFileAsync = promisify(execFile);
@@ -293,6 +298,64 @@ describe('disposable context corpus', () => {
     }
   });
 
+  it('executes an unchanged consumer against base content and proves a deletion regression', async () => {
+    const repository = await DisposableInvestigationRepository.create(
+      {
+        'settings.json': '{"pageSize":25}\n',
+        'consumer.cjs':
+          'const settings = require("./settings.json");\n' +
+          'process.stdout.write(String(settings.pageSize * 2));\n',
+      },
+      (fixture) => fixture.remove('settings.json')
+    );
+    const session = await openGateway(repository);
+    const restoredBase = await mkdtemp(
+      path.join(os.tmpdir(), 'rr-consumer-base-')
+    );
+    try {
+      const baseConsumer = await session.gateway.readFile({
+        path: 'consumer.cjs',
+        revision: ContextGatewayV4Revision.MergeBase,
+      });
+      const headConsumer = await session.gateway.readFile({
+        path: 'consumer.cjs',
+        revision: ContextGatewayV4Revision.Head,
+      });
+      expect(headConsumer.content).toBe(baseConsumer.content);
+      expect(headConsumer.blobOid).toBe(baseConsumer.blobOid);
+      const baseSettings = await session.gateway.readFile({
+        path: 'settings.json',
+        revision: ContextGatewayV4Revision.MergeBase,
+      });
+      expect(baseConsumer.eof).toBe(true);
+      expect(baseSettings.eof).toBe(true);
+      const fixture = new MutableRepositoryFixture(restoredBase);
+      await fixture.write('consumer.cjs', baseConsumer.content);
+      await fixture.write('settings.json', baseSettings.content);
+
+      // This oracle tests fixture semantics, not model detection; expectations
+      // stay outside the repository content supplied to an investigation.
+      const baseRun = await execFileAsync(process.execPath, ['consumer.cjs'], {
+        cwd: restoredBase,
+      });
+      expect(baseRun.stdout).toBe('50');
+      expect(baseRun.stderr).toBe('');
+      await expect(
+        execFileAsync(process.execPath, ['consumer.cjs'], {
+          cwd: repository.root,
+        })
+      ).rejects.toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: expect.stringContaining("Cannot find module './settings.json'"),
+      });
+    } finally {
+      await rm(restoredBase, { recursive: true, force: true });
+      await session.dispose();
+      await repository.dispose();
+    }
+  });
+
   it('classifies gitlink LFS and binary artifacts without claiming text coverage', async () => {
     const repository = await DisposableInvestigationRepository.create(
       { 'README.md': 'fixture\n' },
@@ -371,6 +434,103 @@ describe('disposable context corpus', () => {
       expect(result.receipts).toHaveLength(11);
       expect(result.complete).toBe(true);
       assertTranscriptCursorChain(session.recorder.snapshot(), 'text_search');
+    } finally {
+      await session.dispose();
+      await repository.dispose();
+    }
+  });
+
+  it('exhausts more than 20k LIST entries with a complete receipt chain', async () => {
+    const expectedPaths = Array.from(
+      { length: 20_005 },
+      (_, index) => `inventory/file-${String(index).padStart(5, '0')}.txt`
+    );
+    // Tiny identical blobs and the existing serial writer bound fixture work.
+    const repository = await DisposableInvestigationRepository.create(
+      Object.fromEntries(expectedPaths.map((entry) => [entry, 'entry\n'])),
+      (fixture) => fixture.write(expectedPaths[0]!, 'head\n')
+    );
+    const session = await openGateway(repository);
+    try {
+      const receipts: ContextGatewayV4PageReceipt[] = [];
+      const entries: string[] = [];
+      let cursor: string | undefined;
+      // Fixed upper bound also fails a looping or non-advancing cursor.
+      for (let ordinal = 0; ordinal < 11; ordinal += 1) {
+        const page = await session.gateway.listDirectory({
+          path: 'inventory',
+          revision: ContextGatewayV4Revision.Head,
+          maxDepth: 1,
+          pageSize: 2_000,
+          cursor,
+        });
+        const terminal = ordinal === 10;
+        expect(page.entries).toEqual(
+          expectedPaths.slice(ordinal * 2_000, (ordinal + 1) * 2_000)
+        );
+        entries.push(...(page.entries as string[]));
+        expect(page.pageOrdinal).toBe(ordinal);
+        expect(page.aggregateItemCount).toBe(entries.length);
+        expect(page.complete).toBe(terminal);
+        const event = session.recorder.snapshot().events.at(-1)!;
+        expect(event.operationKind).toBe(
+          ContextGatewayV4OperationKind.DirectoryList
+        );
+        expect(event.operationReceiptId).toBe(page.operationReceiptId);
+        expect(event.result).toMatchObject({
+          pageOrdinal: ordinal,
+          cursorInputHash: cursor ? sha256(cursor) : null,
+          pageItemCount: terminal ? 5 : 2_000,
+          pageItemsHash: sha256(JSON.stringify(page.entries)),
+          aggregateItemCount: entries.length,
+          aggregateHash: sha256(JSON.stringify(entries)),
+          complete: terminal,
+          nextCursorHash: page.nextCursor
+            ? sha256(String(page.nextCursor))
+            : null,
+        });
+        receipts.push({
+          ...(event.result as Omit<
+            ContextGatewayV4PageReceipt,
+            'operationKind' | 'operationReceiptId' | 'nextCursor'
+          >),
+          operationKind: ContextGatewayV4OperationKind.DirectoryList,
+          operationReceiptId: String(page.operationReceiptId),
+          nextCursor: page.nextCursor as string | null,
+        });
+        if (!terminal) {
+          expect(typeof page.nextCursor).toBe('string');
+          expect(page.nextCursor).not.toBe(cursor);
+          expect(() =>
+            verifyCompleteContextGatewayV4PageChain(receipts)
+          ).toThrow('context_gateway_page_chain_incomplete');
+          cursor = page.nextCursor as string;
+        } else {
+          expect(page.nextCursor).toBeNull();
+          expect(() =>
+            verifyCompleteContextGatewayV4PageChain(receipts)
+          ).not.toThrow();
+          // The terminal request is replayable, but yields no continuation.
+          const replay = await session.gateway.listDirectory({
+            path: 'inventory',
+            revision: ContextGatewayV4Revision.Head,
+            maxDepth: 1,
+            pageSize: 2_000,
+            cursor,
+          });
+          expect(replay).toEqual(page);
+        }
+      }
+      expect(entries).toEqual(expectedPaths);
+      expect(new Set(entries).size).toBe(20_005);
+      expect(
+        new Set(receipts.map((receipt) => receipt.operationReceiptId)).size
+      ).toBe(11);
+      expect(session.recorder.snapshot().events).toHaveLength(11);
+      assertTranscriptCursorChain(session.recorder.snapshot(), 'directory_list');
+      expect(() =>
+        verifyCompleteContextGatewayV4PageChain([...receipts, receipts[10]!])
+      ).toThrow('context_gateway_page_chain_invalid');
     } finally {
       await session.dispose();
       await repository.dispose();
