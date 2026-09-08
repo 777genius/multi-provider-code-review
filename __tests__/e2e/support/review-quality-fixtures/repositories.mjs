@@ -79,4 +79,42 @@ export function authorize(user, permission) {
   `import { allowAnonymous } from './permissions.mjs';
 export function authorize(user, permission) { return allowAnonymous(); }
 `),
+
+  'shared-json-python-consumer': revisions({
+    'consumer.py': `import json
+from pathlib import Path
+contract = json.loads(Path("contract.json").read_text())
+print(contract["timeout_seconds"] * 1000)
+`,
+  }, 'contract.json',
+  '{"timeout_seconds":5}\n',
+  '{"timeout_seconds":"5"}\n'),
+
+  'fresh-migration-model-mismatch': revisions({
+    'model.mjs': `export const user = { table: 'users', columns: ['id', 'email'] };
+`,
+    'consumer.sql': `INSERT INTO users (id, email) VALUES (1, 'one@example.test');
+SELECT email FROM users WHERE id = 1;
+`,
+  }, 'migrations/001-users.sql',
+  'CREATE TABLE users (id integer PRIMARY KEY, email text NOT NULL);\n',
+  'CREATE TABLE users (id integer PRIMARY KEY, email_address text NOT NULL);\n'),
+
+  'generated-client-source-contract': revisions({
+    'generate.mjs': `import { readFileSync, writeFileSync } from 'node:fs';
+const spec = JSON.parse(readFileSync('api.json', 'utf8'));
+const operation = spec.paths['/users/{id}'].get;
+if (!/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(operation.operationId)) {
+  throw new Error('Invalid export identifier');
+}
+writeFileSync('client.mjs', 'export async function ' + operation.operationId +
+  '(transport, id) { return transport("GET", "/users/" + encodeURIComponent(id)); }\\n');
+`,
+    'consumer.mjs': `import { getUser } from './client.mjs';
+export function readUser(transport, id) { return getUser(transport, id); }
+`,
+  }, 'api.json',
+  '{"paths":{"/users/{id}":{"get":{"operationId":"getUser"}}}}\n',
+  '{"paths":{"/users/{id}":{"get":{"operationId":"fetchUser"}}}}\n'),
+
 });

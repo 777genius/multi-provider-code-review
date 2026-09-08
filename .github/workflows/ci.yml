@@ -24,6 +24,12 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - name: Prepare review-quality fixture prerequisites
+        timeout-minutes: 5
+        run: |
+          python3 --version
+          docker info
+          docker pull postgres:17
       # Run tests with CI-optimized settings:
       # --maxWorkers=2: Limit parallelism to reduce resource contention
       # --detectOpenHandles surfaces lingering async resources

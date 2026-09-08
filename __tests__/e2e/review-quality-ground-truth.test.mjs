@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, access, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -17,7 +17,10 @@ async function materialized(files, run) {
       await mkdir(dirname(join(root, path)), { recursive: true });
       await writeFile(join(root, path), source, { flag: 'wx' });
     }
-    await run(path => import(pathToFileURL(join(root, path)).href));
+    await run(path => import(pathToFileURL(join(root, path)).href), {
+      read: path => readFile(join(root, path), 'utf8'),
+      exec: (command, args) => exec(command, args, { cwd: root, timeout: 20_000 }),
+    });
   } finally {
     // Use the host's guarded rm through PATH; these dirs contain no Git metadata.
     await exec('rm', ['-r', '--', root]);
@@ -25,9 +28,9 @@ async function materialized(files, run) {
   }
 }
 
-test('exactly three stable cases with unchanged related consumers', () => {
+test('exactly six stable cases with unchanged related consumers', () => {
   assert.deepEqual(Object.keys(repositories), cases.map(c => c.id));
-  assert.equal(new Set(cases.map(c => c.id)).size, 3);
+  assert.equal(new Set(cases.map(c => c.id)).size, 6);
   for (const fixture of cases) {
     const { base, defective, corrected } = repositories[fixture.id];
     for (const files of [defective, corrected]) {
@@ -47,17 +50,18 @@ test('exactly three stable cases with unchanged related consumers', () => {
 for (const fixture of cases) {
   for (const revision of ['base', 'defective', 'corrected']) {
     test(`${fixture.id}: ${revision}`, async () => {
-      await materialized(repositories[fixture.id][revision], async load => {
+      await materialized(repositories[fixture.id][revision], async (load, context) => {
         if (revision === 'defective') {
-          await assert.rejects(() => fixture.verify(load), error => {
-            assert.equal(error.code, 'ERR_ASSERTION');
+          await assert.rejects(() => fixture.verify(load, context), error => {
+            // Preserve infrastructure diagnostics; they are never accepted as defects.
+            if (error.code !== 'ERR_ASSERTION') throw error;
             assert.ok(error.message.includes(fixture.reason));
             assert.deepEqual(error.actual, fixture.defectiveActual);
             assert.deepEqual(error.expected, fixture.expected);
             return true;
           });
         } else {
-          await fixture.verify(load);
+          await fixture.verify(load, context);
         }
       });
     });
