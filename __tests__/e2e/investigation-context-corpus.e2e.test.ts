@@ -762,7 +762,9 @@ describe('disposable context corpus', () => {
   });
 
   it('keeps a synthetic very large review stably batched and resource bounded', async () => {
-    if (!enterIsolatedScenario20(__filename, expect.getState().currentTestName!))
+    if (
+      !enterIsolatedScenario20(__filename, expect.getState().currentTestName!)
+    )
       return;
     const units = Array.from({ length: 50_000 }, (_, index) => ({
       value: `src/file-${index}.ts`,
