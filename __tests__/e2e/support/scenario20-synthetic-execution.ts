@@ -1,4 +1,6 @@
 import { createHash } from 'crypto';
+import { spawnSync } from 'child_process';
+import path from 'path';
 import { createReviewInvestigationProbePlan } from '../../../src/review-investigation/domain/deterministic-context-probe-plan';
 import {
   ReviewEvidenceLookupKind,
@@ -27,6 +29,66 @@ import {
   ReviewPromptPathCoverageKind,
 } from '../../../src/review-orchestration/domain';
 import { MergeGateConclusion } from '../../../src/review-projection/domain';
+
+const childGuard = 'REVIEW_ROUTER_SCENARIO20_PARENT_PID';
+export const scenario20ChildSuccess = 'scenario20 isolated assertions passed';
+
+// Re-enter only this test in a new Node process. In particular, --runInBand
+// prevents Jest from putting the measurement in a worker shared with other tests.
+export function enterIsolatedScenario20(
+  testFile: string,
+  testName: string
+): boolean {
+  const parentPid = process.env[childGuard];
+  if (parentPid !== undefined) {
+    if (parentPid !== String(process.ppid)) {
+      throw new Error('scenario20 invalid child recursion guard');
+    }
+    return true;
+  }
+  const root = path.resolve(__dirname, '../../..');
+  const child = spawnSync(
+    process.execPath,
+    [
+      require.resolve('jest/bin/jest'),
+      '--config',
+      path.join(root, 'jest.config.js'),
+      '--runInBand',
+      '--runTestsByPath',
+      testFile,
+      '--testNamePattern',
+      `^${testName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+      '--watch=false',
+      '--watchAll=false',
+      '--coverage=false',
+      '--testTimeout=120000',
+    ],
+    {
+      cwd: root,
+      env: { ...process.env, [childGuard]: String(process.pid) },
+      encoding: 'utf8',
+      // Synchronous waiting ensures the outer Jest timeout cannot leave a
+      // running child behind. SIGKILL bounds timeout/output overflow cleanup;
+      // runInBand creates no Jest worker descendants to clean up.
+      timeout: 150_000,
+      killSignal: 'SIGKILL',
+      maxBuffer: 4 * 1024 ** 2,
+    }
+  );
+  if (
+    child.error ||
+    child.signal ||
+    child.status !== 0 ||
+    !child.stdout?.split(/\r?\n/).includes(scenario20ChildSuccess)
+  ) {
+    throw new Error(
+      `scenario20 child failed: status=${child.status} signal=${child.signal}` +
+        ` error=${child.error?.message ?? 'none'}\n${child.stdout ?? ''}\n${child.stderr ?? ''}`
+    );
+  }
+  process.stdout.write(child.stdout);
+  return false;
+}
 
 // Dedicated scenario20 adapter fixture, following the T0 unit fixture's scripted ports.
 // Production owns dispatch, evidence acceptance and publication sequencing. These

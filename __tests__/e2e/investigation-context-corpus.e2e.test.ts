@@ -1,4 +1,8 @@
-import { executeSyntheticReviewBatches } from './support/scenario20-synthetic-execution';
+import {
+  enterIsolatedScenario20,
+  executeSyntheticReviewBatches,
+  scenario20ChildSuccess,
+} from './support/scenario20-synthetic-execution';
 import { ReviewOrchestrationResultStatus } from '../../src/review-orchestration/application';
 import { ReviewOrchestrationPhase } from '../../src/review-orchestration/domain';
 import { completeFile } from './support/fake-review-action-v2-control-plane';
@@ -758,6 +762,8 @@ describe('disposable context corpus', () => {
   });
 
   it('keeps a synthetic very large review stably batched and resource bounded', async () => {
+    if (!enterIsolatedScenario20(__filename, expect.getState().currentTestName!))
+      return;
     const units = Array.from({ length: 50_000 }, (_, index) => ({
       value: `src/file-${index}.ts`,
       routeKey: `src/file-${index}.ts`,
@@ -790,7 +796,7 @@ describe('disposable context corpus', () => {
       )
     ).toBe(true);
     expect(first.flatMap((batch) => batch.units)).toHaveLength(units.length);
-    expect(first.length).toBeGreaterThan(1);
+    expect(first).toHaveLength(1042);
     const execution = await executeSyntheticReviewBatches(first);
     expect(execution.result.status).toBe(
       ReviewOrchestrationResultStatus.Completed
@@ -825,7 +831,7 @@ describe('disposable context corpus', () => {
     expect(execution.activeUnits).toBe(0);
     // Absolute process bound includes Jest/ts-jest, both 50k plans, mock call
     // history and retained coverage. 2 GiB is deliberately generous for this
-    // synthetic workload; run this test alone in a fresh operator process.
+    // synthetic workload. The guarded child runs only this test even in full CI.
     const memoryBoundBytes = 2 * 1024 ** 3;
     expect(execution.peakHeapUsedBytes).toBeGreaterThan(0);
     expect(execution.peakHeapUsedBytes).toBeLessThan(memoryBoundBytes);
@@ -844,7 +850,8 @@ describe('disposable context corpus', () => {
       memoryBoundBytes,
     });
     // tokenCost is a planning estimate, never measured provider token usage.
-  });
+    process.stdout.write(`${scenario20ChildSuccess}\n`);
+  }, 180_000);
 });
 
 // Integration tests: real orchestrator, selector and gateway, scripted adapters
