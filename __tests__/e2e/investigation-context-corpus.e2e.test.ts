@@ -1,3 +1,6 @@
+import { executeSyntheticReviewBatches } from './support/scenario20-synthetic-execution';
+import { ReviewOrchestrationResultStatus } from '../../src/review-orchestration/application';
+import { ReviewOrchestrationPhase } from '../../src/review-orchestration/domain';
 import { completeFile } from './support/fake-review-action-v2-control-plane';
 import { execFile } from 'child_process';
 import { mkdtemp } from 'fs/promises';
@@ -754,7 +757,7 @@ describe('disposable context corpus', () => {
     }
   });
 
-  it('keeps a synthetic very large review stably batched and resource bounded', () => {
+  it('keeps a synthetic very large review stably batched and resource bounded', async () => {
     const units = Array.from({ length: 50_000 }, (_, index) => ({
       value: `src/file-${index}.ts`,
       routeKey: `src/file-${index}.ts`,
@@ -787,6 +790,46 @@ describe('disposable context corpus', () => {
       )
     ).toBe(true);
     expect(first.flatMap((batch) => batch.units)).toHaveLength(units.length);
+    expect(first.length).toBeGreaterThan(1);
+    const execution = await executeSyntheticReviewBatches(first);
+    expect(execution.result.status).toBe(ReviewOrchestrationResultStatus.Completed);
+    expect(execution.result.state.phase).toBe(ReviewOrchestrationPhase.Completed);
+    expect(execution.executed.size).toBe(units.length);
+    for (const unit of units) expect(execution.executed.get(unit.value)).toBe(1);
+    expect(execution.attached).toEqual(new Set(execution.workSlots.map((slot) => slot.workSlotId)));
+    expect(execution.controlPlane.commitEvidence).toHaveBeenCalledTimes(first.length);
+    expect(execution.controlPlane.finalizeExecution).toHaveBeenCalledTimes(1);
+    expect(execution.controlPlane.requestPublication).toHaveBeenCalledTimes(1);
+    const projectionInput = execution.projectionCalls[0]![0];
+    expect(projectionInput.exhaustedWorkSlotIds).toEqual([]);
+    expect(projectionInput.acceptedEvidence.map((evidence) => evidence.workSlotId)).toEqual(
+      execution.workSlots.map((slot) => slot.workSlotId)
+    );
+    // T0 currently dispatches sequentially. This is an observed asynchronous
+    // provider-call bound, not a claim about production worker pools.
+    expect(execution.peakBatches).toBe(1);
+    expect(execution.peakUnits).toBe(Math.max(...first.map((batch) => batch.units.length)));
+    expect(execution.peakUnits).toBeLessThanOrEqual(64);
+    expect(execution.activeBatches).toBe(0);
+    expect(execution.activeUnits).toBe(0);
+    // Absolute process bound includes Jest/ts-jest, both 50k plans, mock call
+    // history and retained coverage. 2 GiB is deliberately generous for this
+    // synthetic workload; run this test alone in a fresh operator process.
+    const memoryBoundBytes = 2 * 1024 ** 3;
+    expect(execution.peakHeapUsedBytes).toBeGreaterThan(0);
+    expect(execution.peakHeapUsedBytes).toBeLessThan(memoryBoundBytes);
+    expect(execution.peakRssBytes).toBeGreaterThan(0);
+    expect(execution.peakRssBytes).toBeLessThan(memoryBoundBytes);
+    expect(execution.processHighWaterRssBytes).toBeGreaterThan(0);
+    expect(execution.processHighWaterRssBytes).toBeLessThan(memoryBoundBytes);
+    console.info('scenario20 synthetic execution', {
+      units: units.length, batches: first.length,
+      peakBatches: execution.peakBatches, peakUnits: execution.peakUnits,
+      sampledRssBytes: execution.peakRssBytes,
+      sampledHeapUsedBytes: execution.peakHeapUsedBytes,
+      processHighWaterRssBytes: execution.processHighWaterRssBytes, memoryBoundBytes,
+    });
+    // tokenCost is a planning estimate, never measured provider token usage.
   });
 });
 
