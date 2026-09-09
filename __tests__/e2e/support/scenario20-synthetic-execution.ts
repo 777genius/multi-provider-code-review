@@ -12,6 +12,8 @@ import {
   ReviewTaskKind,
   RunT0ReviewOrchestration,
   canonicalizeReviewWorkSlots,
+  type RestoredReviewExecution,
+  type RestoredReviewWorkSlot,
   type ReviewActionV2ControlPlanePort,
   type ReviewOrchestrationDelayPort,
   type ReviewOrchestrationIdentityPort,
@@ -49,6 +51,20 @@ export async function executeSyntheticReviewBatches(
     if (!batch) throw new Error(`scenario20_unknown_slot:${slotId}`);
     return batch.units.map(unit => unit.value);
   };
+  // Keep durable slot state separate from returned snapshots: admission must
+  // remain pending while the pre-publication restore sees committed attachments.
+  let durableExecution: Omit<RestoredReviewExecution, 'workSlots'> | null = null;
+  const durableSlots = new Map<string, RestoredReviewWorkSlot>();
+  const committedByLease = new Map<string, string>();
+  const snapshot = (): RestoredReviewExecution | null => durableExecution && ({
+    ...durableExecution,
+    workSlots: [...durableSlots.values()].map(slot => ({ ...slot })),
+  });
+  const requireSlot = (workSlotId: string): RestoredReviewWorkSlot => {
+    const slot = durableSlots.get(workSlotId);
+    if (!slot || !durableExecution) throw new Error('scenario20_slot_not_admitted');
+    return slot;
+  };
   const controlPlane = {
     authorize: jest.fn().mockResolvedValue(authorization),
     renewAuthorization: jest
@@ -57,31 +73,37 @@ export async function executeSyntheticReviewBatches(
         renewedAuthorization(input.authorization, input.requestedTtlMs)
       ),
     restoreSnapshot: jest.fn().mockResolvedValue(undefined),
-    restoreExecution: jest.fn().mockResolvedValue(null),
-    startExecution: jest.fn().mockImplementation(async (input) => ({
-      executionId: 'execution-1',
-      generation: '1',
-      streamVersion: '1',
-      executionVersion: '1',
-      restoredExecution: {
-        executionId: 'execution-1',
+    restoreExecution: jest.fn().mockImplementation(async () => snapshot()),
+    startExecution: jest.fn().mockImplementation(async (input) => {
+      if (durableExecution) throw new Error('scenario20_duplicate_admission');
+      durableExecution = {
+        executionId: input.executionId,
         version: '1',
         streamVersion: '1',
         generation: '1',
         state: RestoredReviewExecutionState.Running,
-        authorizationId: authorization.authorizationId,
+        authorizationId: input.authorization.authorizationId,
         reviewRevisionHash: input.reviewRevisionHash,
         planHash: input.planHash,
-        workSlots: input.workSlots.map((slot: ReviewWorkSlotPlan) => ({
+      };
+      for (const slot of input.workSlots as readonly ReviewWorkSlotPlan[]) {
+        durableSlots.set(slot.workSlotId, {
           workSlotId: slot.workSlotId,
           state: RestoredReviewWorkSlotState.Pending,
           required: slot.required,
           providerVoteIdentityHash: slot.providerVoteIdentityHash,
           activeLeaseId: null,
           acceptedObservationRefId: null,
-        })),
-      },
-    })),
+        });
+      }
+      return {
+        executionId: durableExecution.executionId,
+        generation: durableExecution.generation,
+        streamVersion: durableExecution.streamVersion,
+        executionVersion: durableExecution.version,
+        restoredExecution: snapshot()!,
+      };
+    }),
     terminalizeWorkSlot: jest.fn().mockResolvedValue({ streamVersion: '1' }),
     supersedeExecution: jest.fn().mockResolvedValue(undefined),
     lookupEvidence: jest
@@ -254,22 +276,70 @@ export async function executeSyntheticReviewBatches(
       }),
     } satisfies ReviewOrchestrationDelayPort,
   } satisfies RunT0ReviewOrchestrationDependencies;
-  controlPlane.acquireInvocationLease.mockImplementation(async ({ workSlot }) => ({
-    status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
-    lease: { ...lease, leaseId: `lease:${workSlot.workSlotId}`, attemptId: `attempt:${workSlot.workSlotId}` },
-  }));
+  controlPlane.acquireInvocationLease.mockImplementation(async ({ workSlot }) => {
+    const slot = requireSlot(workSlot.workSlotId);
+    if (slot.state !== RestoredReviewWorkSlotState.Pending) {
+      throw new Error('scenario20_slot_not_pending');
+    }
+    const acquiredLease = {
+      ...lease, leaseId: `lease:${workSlot.workSlotId}`, attemptId: `attempt:${workSlot.workSlotId}`,
+    };
+    durableSlots.set(slot.workSlotId, {
+      ...slot, state: RestoredReviewWorkSlotState.Leased, activeLeaseId: acquiredLease.leaseId,
+    });
+    durableExecution = { ...durableExecution!, version: String(BigInt(durableExecution!.version) + 1n) };
+    return { status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired, lease: acquiredLease };
+  });
   const attached = new Set<string>();
-  controlPlane.attachObservation.mockImplementation(async ({ workSlot }) => {
-    if (attached.has(workSlot.workSlotId)) {
+  controlPlane.attachObservation.mockImplementation(async ({ execution, workSlot, observation }) => {
+    const slot = requireSlot(workSlot.workSlotId);
+    if (attached.has(slot.workSlotId)) {
       throw new Error('scenario20_duplicate_attachment');
     }
-    attached.add(workSlot.workSlotId);
-    return { streamVersion: String(attached.size + 1) };
+    if (
+      slot.state !== RestoredReviewWorkSlotState.Leased ||
+      !slot.activeLeaseId ||
+      committedByLease.get(slot.activeLeaseId) !== observation.observationId ||
+      execution.executionId !== durableExecution!.executionId ||
+      execution.streamVersion !== durableExecution!.streamVersion
+    ) {
+      throw new Error('scenario20_invalid_attachment');
+    }
+    durableSlots.set(slot.workSlotId, {
+      ...slot,
+      state: RestoredReviewWorkSlotState.Satisfied,
+      activeLeaseId: null,
+      acceptedObservationRefId: `obsref:${hash(JSON.stringify({
+        executionId: execution.executionId,
+        observationId: observation.observationId,
+        workSlotId: slot.workSlotId,
+      }))}`,
+    });
+    attached.add(slot.workSlotId);
+    durableExecution = {
+      ...durableExecution!,
+      version: String(BigInt(durableExecution!.version) + 1n),
+      streamVersion: String(BigInt(durableExecution!.streamVersion) + 1n),
+    };
+    return { streamVersion: durableExecution.streamVersion };
   });
-  controlPlane.commitEvidence.mockImplementation(async ({ idempotencyKey }) => ({
-    observationId: hash(idempotencyKey), historicalOnly: false,
-    eligibilityPolicyVersion: 't0-v1',
-  }));
+  controlPlane.commitEvidence.mockImplementation(async ({ idempotencyKey, lease: currentLease }) => {
+    const observationId = hash(idempotencyKey);
+    committedByLease.set(currentLease.leaseId, observationId);
+    return { observationId, historicalOnly: false, eligibilityPolicyVersion: 't0-v1' };
+  });
+  controlPlane.finalizeExecution.mockImplementation(async ({ execution }) => {
+    // Finalization must receive the actual refresh, including the execution
+    // version that attach's stream-only response cannot update in admission.
+    expect(execution.restoredExecution).toEqual(snapshot());
+    expect(execution.executionVersion).toBe(durableExecution!.version);
+    expect(execution.streamVersion).toBe(durableExecution!.streamVersion);
+    expect([...durableSlots.values()].every(slot =>
+      slot.state === RestoredReviewWorkSlotState.Satisfied &&
+      slot.activeLeaseId === null && slot.acceptedObservationRefId !== null
+    )).toBe(true);
+    return { publicationPermit: 'publication.permit' };
+  });
   sampleMemory();
   const result = await new RunT0ReviewOrchestration(dependencies).execute(command);
   sampleMemory();
