@@ -49,20 +49,23 @@ export async function executeSyntheticReviewBatches(
   const pathsFor = (slotId: string) => {
     const batch = batches[Number(slotId.slice('slot-'.length))];
     if (!batch) throw new Error(`scenario20_unknown_slot:${slotId}`);
-    return batch.units.map(unit => unit.value);
+    return batch.units.map((unit) => unit.value);
   };
   // Keep durable slot state separate from returned snapshots: admission must
   // remain pending while the pre-publication restore sees committed attachments.
-  let durableExecution: Omit<RestoredReviewExecution, 'workSlots'> | null = null;
+  let durableExecution: Omit<RestoredReviewExecution, 'workSlots'> | null =
+    null;
   const durableSlots = new Map<string, RestoredReviewWorkSlot>();
   const committedByLease = new Map<string, string>();
-  const snapshot = (): RestoredReviewExecution | null => durableExecution && ({
-    ...durableExecution,
-    workSlots: [...durableSlots.values()].map(slot => ({ ...slot })),
-  });
+  const snapshot = (): RestoredReviewExecution | null =>
+    durableExecution && {
+      ...durableExecution,
+      workSlots: [...durableSlots.values()].map((slot) => ({ ...slot })),
+    };
   const requireSlot = (workSlotId: string): RestoredReviewWorkSlot => {
     const slot = durableSlots.get(workSlotId);
-    if (!slot || !durableExecution) throw new Error('scenario20_slot_not_admitted');
+    if (!slot || !durableExecution)
+      throw new Error('scenario20_slot_not_admitted');
     return slot;
   };
   const controlPlane = {
@@ -139,10 +142,14 @@ export async function executeSyntheticReviewBatches(
     }),
   } as jest.Mocked<ReviewActionV2ControlPlanePort>;
   const workSlots: ReviewWorkSlotPlan[] = batches.map((_, index) => ({
-    workSlotId: `slot-${index}`, taskKind: ReviewTaskKind.FindingDiscovery,
+    workSlotId: `slot-${index}`,
+    taskKind: ReviewTaskKind.FindingDiscovery,
     providerKind: ReviewExecutionProviderKind.Codex,
-    providerVoteIdentityHash: hash('vote'), shardKey: `batch-${index}`,
-    required: true, attemptBudget: 1, retryPolicyVersion: 'retry-v1',
+    providerVoteIdentityHash: hash('vote'),
+    shardKey: `batch-${index}`,
+    required: true,
+    attemptBudget: 1,
+    retryPolicyVersion: 'retry-v1',
   }));
   const command: RunT0ReviewOrchestrationCommand = {
     executionId: 'execution-1',
@@ -186,14 +193,18 @@ export async function executeSyntheticReviewBatches(
         reviewPrompt: JSON.stringify(pathsFor(workSlot.workSlotId)),
         investigationContextPrompt: null,
         investigationProbePlan: createReviewInvestigationProbePlan({
-          files: [], fullDiff: '',
+          files: [],
+          fullDiff: '',
         }),
         immutableRequest: Object.freeze(pathsFor(workSlot.workSlotId)),
         coverageManifest: createReviewPromptCoverageManifest({
-          workSlotId: workSlot.workSlotId, reviewRevisionHash: command.reviewRevisionHash,
+          workSlotId: workSlot.workSlotId,
+          reviewRevisionHash: command.reviewRevisionHash,
           assignedPaths: pathsFor(workSlot.workSlotId),
           pathCoverage: pathsFor(workSlot.workSlotId).map((path) => ({
-            path, kind: ReviewPromptPathCoverageKind.FullPatch, contentHash: hash(path),
+            path,
+            kind: ReviewPromptPathCoverageKind.FullPatch,
+            contentHash: hash(path),
           })),
         }),
         manifestFacts: Object.freeze({
@@ -255,10 +266,16 @@ export async function executeSyntheticReviewBatches(
         operation(new AbortController().signal, () => currentLease),
     },
     projectionBuilder: {
-      build: jest.fn<
-        ReturnType<RunT0ReviewOrchestrationDependencies['projectionBuilder']['build']>,
-        Parameters<RunT0ReviewOrchestrationDependencies['projectionBuilder']['build']>
-      >().mockResolvedValue(projection),
+      build: jest
+        .fn<
+          ReturnType<
+            RunT0ReviewOrchestrationDependencies['projectionBuilder']['build']
+          >,
+          Parameters<
+            RunT0ReviewOrchestrationDependencies['projectionBuilder']['build']
+          >
+        >()
+        .mockResolvedValue(projection),
     },
     identities: {
       deterministicId: jest.fn(
@@ -276,78 +293,120 @@ export async function executeSyntheticReviewBatches(
       }),
     } satisfies ReviewOrchestrationDelayPort,
   } satisfies RunT0ReviewOrchestrationDependencies;
-  controlPlane.acquireInvocationLease.mockImplementation(async ({ workSlot }) => {
-    const slot = requireSlot(workSlot.workSlotId);
-    if (slot.state !== RestoredReviewWorkSlotState.Pending) {
-      throw new Error('scenario20_slot_not_pending');
+  controlPlane.acquireInvocationLease.mockImplementation(
+    async ({ workSlot }) => {
+      const slot = requireSlot(workSlot.workSlotId);
+      if (slot.state !== RestoredReviewWorkSlotState.Pending) {
+        throw new Error('scenario20_slot_not_pending');
+      }
+      const acquiredLease = {
+        ...lease,
+        leaseId: `lease:${workSlot.workSlotId}`,
+        attemptId: `attempt:${workSlot.workSlotId}`,
+      };
+      durableSlots.set(slot.workSlotId, {
+        ...slot,
+        state: RestoredReviewWorkSlotState.Leased,
+        activeLeaseId: acquiredLease.leaseId,
+      });
+      durableExecution = {
+        ...durableExecution!,
+        version: String(BigInt(durableExecution!.version) + 1n),
+      };
+      return {
+        status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired,
+        lease: acquiredLease,
+      };
     }
-    const acquiredLease = {
-      ...lease, leaseId: `lease:${workSlot.workSlotId}`, attemptId: `attempt:${workSlot.workSlotId}`,
-    };
-    durableSlots.set(slot.workSlotId, {
-      ...slot, state: RestoredReviewWorkSlotState.Leased, activeLeaseId: acquiredLease.leaseId,
-    });
-    durableExecution = { ...durableExecution!, version: String(BigInt(durableExecution!.version) + 1n) };
-    return { status: ReviewInvocationLeaseAcquireOutcomeStatus.Acquired, lease: acquiredLease };
-  });
+  );
   const attached = new Set<string>();
-  controlPlane.attachObservation.mockImplementation(async ({ execution, workSlot, observation }) => {
-    const slot = requireSlot(workSlot.workSlotId);
-    if (attached.has(slot.workSlotId)) {
-      throw new Error('scenario20_duplicate_attachment');
+  controlPlane.attachObservation.mockImplementation(
+    async ({ execution, workSlot, observation }) => {
+      const slot = requireSlot(workSlot.workSlotId);
+      if (attached.has(slot.workSlotId)) {
+        throw new Error('scenario20_duplicate_attachment');
+      }
+      if (
+        slot.state !== RestoredReviewWorkSlotState.Leased ||
+        !slot.activeLeaseId ||
+        committedByLease.get(slot.activeLeaseId) !==
+          observation.observationId ||
+        execution.executionId !== durableExecution!.executionId ||
+        execution.streamVersion !== durableExecution!.streamVersion
+      ) {
+        throw new Error('scenario20_invalid_attachment');
+      }
+      durableSlots.set(slot.workSlotId, {
+        ...slot,
+        state: RestoredReviewWorkSlotState.Satisfied,
+        activeLeaseId: null,
+        acceptedObservationRefId: `obsref:${hash(
+          JSON.stringify({
+            executionId: execution.executionId,
+            observationId: observation.observationId,
+            workSlotId: slot.workSlotId,
+          })
+        )}`,
+      });
+      attached.add(slot.workSlotId);
+      durableExecution = {
+        ...durableExecution!,
+        version: String(BigInt(durableExecution!.version) + 1n),
+        streamVersion: String(BigInt(durableExecution!.streamVersion) + 1n),
+      };
+      return { streamVersion: durableExecution.streamVersion };
     }
-    if (
-      slot.state !== RestoredReviewWorkSlotState.Leased ||
-      !slot.activeLeaseId ||
-      committedByLease.get(slot.activeLeaseId) !== observation.observationId ||
-      execution.executionId !== durableExecution!.executionId ||
-      execution.streamVersion !== durableExecution!.streamVersion
-    ) {
-      throw new Error('scenario20_invalid_attachment');
+  );
+  controlPlane.commitEvidence.mockImplementation(
+    async ({ idempotencyKey, lease: currentLease }) => {
+      const observationId = hash(idempotencyKey);
+      committedByLease.set(currentLease.leaseId, observationId);
+      return {
+        observationId,
+        historicalOnly: false,
+        eligibilityPolicyVersion: 't0-v1',
+      };
     }
-    durableSlots.set(slot.workSlotId, {
-      ...slot,
-      state: RestoredReviewWorkSlotState.Satisfied,
-      activeLeaseId: null,
-      acceptedObservationRefId: `obsref:${hash(JSON.stringify({
-        executionId: execution.executionId,
-        observationId: observation.observationId,
-        workSlotId: slot.workSlotId,
-      }))}`,
-    });
-    attached.add(slot.workSlotId);
-    durableExecution = {
-      ...durableExecution!,
-      version: String(BigInt(durableExecution!.version) + 1n),
-      streamVersion: String(BigInt(durableExecution!.streamVersion) + 1n),
-    };
-    return { streamVersion: durableExecution.streamVersion };
-  });
-  controlPlane.commitEvidence.mockImplementation(async ({ idempotencyKey, lease: currentLease }) => {
-    const observationId = hash(idempotencyKey);
-    committedByLease.set(currentLease.leaseId, observationId);
-    return { observationId, historicalOnly: false, eligibilityPolicyVersion: 't0-v1' };
-  });
+  );
   controlPlane.finalizeExecution.mockImplementation(async ({ execution }) => {
     // Finalization must receive the actual refresh, including the execution
     // version that attach's stream-only response cannot update in admission.
     expect(execution.restoredExecution).toEqual(snapshot());
     expect(execution.executionVersion).toBe(durableExecution!.version);
     expect(execution.streamVersion).toBe(durableExecution!.streamVersion);
-    expect([...durableSlots.values()].every(slot =>
-      slot.state === RestoredReviewWorkSlotState.Satisfied &&
-      slot.activeLeaseId === null && slot.acceptedObservationRefId !== null
-    )).toBe(true);
+    expect(
+      [...durableSlots.values()].every(
+        (slot) =>
+          slot.state === RestoredReviewWorkSlotState.Satisfied &&
+          slot.activeLeaseId === null &&
+          slot.acceptedObservationRefId !== null
+      )
+    ).toBe(true);
     return { publicationPermit: 'publication.permit' };
   });
   sampleMemory();
-  const result = await new RunT0ReviewOrchestration(dependencies).execute(command);
+  const result = await new RunT0ReviewOrchestration(dependencies).execute(
+    command
+  );
   sampleMemory();
   // Linux reports process lifetime high-water RSS in KiB, including between samples.
   const processHighWaterRssBytes = process.resourceUsage().maxRSS * 1024;
-  return { result, executed, attached, peakBatches, peakUnits, activeBatches, activeUnits,
-    peakRssBytes, peakHeapUsedBytes, processHighWaterRssBytes, controlPlane,
-    projectionCalls: jest.mocked(dependencies.projectionBuilder.build).mock.calls, workSlots };
+  return {
+    result,
+    executed,
+    attached,
+    peakBatches,
+    peakUnits,
+    activeBatches,
+    activeUnits,
+    peakRssBytes,
+    peakHeapUsedBytes,
+    processHighWaterRssBytes,
+    controlPlane,
+    projectionCalls: jest.mocked(dependencies.projectionBuilder.build).mock
+      .calls,
+    workSlots,
+  };
 }
 
 const authorization: ReviewRunAuthorization = {
@@ -465,4 +524,3 @@ function revisionOf(command: RunT0ReviewOrchestrationCommand) {
     pullRequestState: 'open' as const,
   };
 }
-

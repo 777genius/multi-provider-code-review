@@ -792,23 +792,34 @@ describe('disposable context corpus', () => {
     expect(first.flatMap((batch) => batch.units)).toHaveLength(units.length);
     expect(first.length).toBeGreaterThan(1);
     const execution = await executeSyntheticReviewBatches(first);
-    expect(execution.result.status).toBe(ReviewOrchestrationResultStatus.Completed);
-    expect(execution.result.state.phase).toBe(ReviewOrchestrationPhase.Completed);
+    expect(execution.result.status).toBe(
+      ReviewOrchestrationResultStatus.Completed
+    );
+    expect(execution.result.state.phase).toBe(
+      ReviewOrchestrationPhase.Completed
+    );
     expect(execution.executed.size).toBe(units.length);
-    for (const unit of units) expect(execution.executed.get(unit.value)).toBe(1);
-    expect(execution.attached).toEqual(new Set(execution.workSlots.map((slot) => slot.workSlotId)));
-    expect(execution.controlPlane.commitEvidence).toHaveBeenCalledTimes(first.length);
+    for (const unit of units)
+      expect(execution.executed.get(unit.value)).toBe(1);
+    expect(execution.attached).toEqual(
+      new Set(execution.workSlots.map((slot) => slot.workSlotId))
+    );
+    expect(execution.controlPlane.commitEvidence).toHaveBeenCalledTimes(
+      first.length
+    );
     expect(execution.controlPlane.finalizeExecution).toHaveBeenCalledTimes(1);
     expect(execution.controlPlane.requestPublication).toHaveBeenCalledTimes(1);
     const projectionInput = execution.projectionCalls[0]![0];
     expect(projectionInput.exhaustedWorkSlotIds).toEqual([]);
-    expect(projectionInput.acceptedEvidence.map((evidence) => evidence.workSlotId)).toEqual(
-      execution.workSlots.map((slot) => slot.workSlotId)
-    );
+    expect(
+      projectionInput.acceptedEvidence.map((evidence) => evidence.workSlotId)
+    ).toEqual(execution.workSlots.map((slot) => slot.workSlotId));
     // T0 currently dispatches sequentially. This is an observed asynchronous
     // provider-call bound, not a claim about production worker pools.
     expect(execution.peakBatches).toBe(1);
-    expect(execution.peakUnits).toBe(Math.max(...first.map((batch) => batch.units.length)));
+    expect(execution.peakUnits).toBe(
+      Math.max(...first.map((batch) => batch.units.length))
+    );
     expect(execution.peakUnits).toBeLessThanOrEqual(64);
     expect(execution.activeBatches).toBe(0);
     expect(execution.activeUnits).toBe(0);
@@ -823,11 +834,14 @@ describe('disposable context corpus', () => {
     expect(execution.processHighWaterRssBytes).toBeGreaterThan(0);
     expect(execution.processHighWaterRssBytes).toBeLessThan(memoryBoundBytes);
     console.info('scenario20 synthetic execution', {
-      units: units.length, batches: first.length,
-      peakBatches: execution.peakBatches, peakUnits: execution.peakUnits,
+      units: units.length,
+      batches: first.length,
+      peakBatches: execution.peakBatches,
+      peakUnits: execution.peakUnits,
       sampledRssBytes: execution.peakRssBytes,
       sampledHeapUsedBytes: execution.peakHeapUsedBytes,
-      processHighWaterRssBytes: execution.processHighWaterRssBytes, memoryBoundBytes,
+      processHighWaterRssBytes: execution.processHighWaterRssBytes,
+      memoryBoundBytes,
     });
     // tokenCost is a planning estimate, never measured provider token usage.
   });
